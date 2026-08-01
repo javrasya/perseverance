@@ -1,0 +1,25 @@
+query MapGraph($owner: String!, $repo: String!, $number: Int!) {
+  repository(owner: $owner, name: $repo) {
+    issue(number: $number) {
+      number title body url updatedAt
+      labels(first: 10) { nodes { name } }
+      subIssuesSummary { total completed percentCompleted }
+      subIssues(first: 100) {
+        totalCount
+        pageInfo { hasNextPage endCursor }
+        nodes {
+          number title state stateReason url updatedAt
+          labels(first: 10) { nodes { name color } }
+          assignees(first: 5) { nodes { login } }
+          issueDependenciesSummary { blockedBy totalBlockedBy blocking totalBlocking }
+          blockedBy(first: 50) {
+            totalCount
+            pageInfo { hasNextPage endCursor }
+            nodes { number title state repository { nameWithOwner } }
+          }
+        }
+      }
+    }
+  }
+  rateLimit { cost nodeCount limit remaining resetAt }
+}
