@@ -1,0 +1,17 @@
+query MapPoll($owner: String!, $repo: String!, $number: Int!) {
+  repository(owner: $owner, name: $repo) {
+    issue(number: $number) {
+      number title body updatedAt
+      subIssuesSummary { total completed }
+      subIssues(first: 100) {
+        totalCount
+        pageInfo { hasNextPage }
+        nodes {
+          number state stateReason updatedAt
+          issueDependenciesSummary { blockedBy blocking totalBlockedBy totalBlocking }
+        }
+      }
+    }
+  }
+  rateLimit { cost nodeCount remaining resetAt }
+}
