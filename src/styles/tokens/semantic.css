@@ -1,0 +1,113 @@
+/*
+ * Tier 2 — semantic tokens. The middle tier is the rule.
+ *
+ * Every `--s-*` names a job, never a value. Views and chrome may consume these
+ * and nothing else, which is what makes "survives a retheme" checkable: a
+ * retheme is a reassignment in this file, and no view has to be touched or
+ * re-rendered for it to land.
+ *
+ * This is the only file permitted to read a `--p-*` token.
+ *
+ * Theme follows the OS, with an explicit override that wins in both
+ * directions. The dark assignments appear twice on purpose — once inside the
+ * media query for the OS default, once under the explicit override — because
+ * a media-scoped rule and a plain rule cannot share a selector list. Keep the
+ * two blocks identical.
+ */
+
+:root {
+  color-scheme: light dark;
+
+  /* Surfaces */
+  --s-surface-app: var(--p-gray-50);
+  --s-surface-raised: var(--p-white);
+  --s-surface-sunken: var(--p-gray-100);
+
+  /* Ink */
+  --s-ink-primary: var(--p-gray-900);
+  --s-ink-secondary: var(--p-gray-600);
+  --s-ink-faint: var(--p-gray-400);
+
+  /* Lines */
+  --s-line-quiet: var(--p-gray-200);
+  --s-line-strong: var(--p-gray-300);
+  --s-line-absent: var(--p-gray-400);
+
+  /* Accent */
+  --s-accent: var(--p-indigo-500);
+  --s-accent-hover: var(--p-indigo-600);
+  --s-accent-ink: var(--p-white);
+  --s-focus-ring: var(--p-indigo-500);
+
+  /* Space */
+  --s-space-hair: var(--p-space-1);
+  --s-space-tight: var(--p-space-2);
+  --s-space-snug: var(--p-space-3);
+  --s-space-base: var(--p-space-4);
+  --s-space-loose: var(--p-space-5);
+  --s-space-section: var(--p-space-6);
+  --s-space-room: var(--p-space-7);
+
+  /* Shape */
+  --s-radius-control: var(--p-radius-1);
+  --s-radius-panel: var(--p-radius-2);
+  --s-radius-chip: var(--p-radius-pill);
+  --s-border-hairline: var(--p-border-1);
+  --s-border-emphasis: var(--p-border-2);
+
+  /* Type */
+  --s-font-ui: var(--p-font-ui);
+  --s-font-mono: var(--p-font-mono);
+  --s-text-micro: var(--p-size-1);
+  --s-text-small: var(--p-size-2);
+  --s-text-body: var(--p-size-3);
+  --s-text-title: var(--p-size-4);
+  --s-weight-regular: var(--p-weight-regular);
+  --s-weight-emphasis: var(--p-weight-medium);
+  --s-tracking-label: var(--p-tracking-wide);
+
+  /* Motion */
+  --s-motion-fast: var(--p-duration-fast);
+  --s-motion-base: var(--p-duration-base);
+  --s-motion-ease: var(--p-ease-standard);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --s-surface-app: var(--p-gray-900);
+    --s-surface-raised: var(--p-gray-800);
+    --s-surface-sunken: var(--p-gray-850);
+
+    --s-ink-primary: var(--p-gray-50);
+    --s-ink-secondary: var(--p-gray-300);
+    --s-ink-faint: var(--p-gray-500);
+
+    --s-line-quiet: var(--p-gray-750);
+    --s-line-strong: var(--p-gray-600);
+    --s-line-absent: var(--p-gray-500);
+
+    --s-accent: var(--p-indigo-300);
+    --s-accent-hover: var(--p-white);
+    --s-accent-ink: var(--p-gray-900);
+    --s-focus-ring: var(--p-indigo-300);
+  }
+}
+
+:root[data-theme="dark"] {
+  --s-surface-app: var(--p-gray-900);
+  --s-surface-raised: var(--p-gray-800);
+  --s-surface-sunken: var(--p-gray-850);
+
+  --s-ink-primary: var(--p-gray-50);
+  --s-ink-secondary: var(--p-gray-300);
+  --s-ink-faint: var(--p-gray-500);
+
+  --s-line-quiet: var(--p-gray-750);
+  --s-line-strong: var(--p-gray-600);
+  --s-line-absent: var(--p-gray-500);
+
+  --s-accent: var(--p-indigo-300);
+  --s-accent-hover: var(--p-white);
+  --s-accent-ink: var(--p-gray-900);
+  --s-focus-ring: var(--p-indigo-300);
+}

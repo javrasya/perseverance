@@ -1,0 +1,69 @@
+/*
+ * Tier 1 — primitive tokens.
+ *
+ * Raw values with no meaning attached. `--p-gray-700` says what it is and
+ * nothing about where it goes.
+ *
+ * This is the ONLY file permitted to define `--p-*`, and
+ * `src/styles/tokens/semantic.css` is the only file permitted to read one.
+ * Enforced by tests/token-tiers.test.ts.
+ */
+
+:root {
+  /* Neutrals */
+  --p-white: #ffffff;
+  --p-gray-50: #f7f7f8;
+  --p-gray-100: #ededf0;
+  --p-gray-200: #dcdce2;
+  --p-gray-300: #c0c1ca;
+  --p-gray-400: #9698a4;
+  --p-gray-500: #6f717e;
+  --p-gray-600: #4e505c;
+  --p-gray-700: #353740;
+  --p-gray-750: #2b2d35;
+  --p-gray-800: #212229;
+  --p-gray-850: #191a20;
+  --p-gray-900: #111217;
+  --p-black: #000000;
+
+  /* Accent */
+  --p-indigo-300: #a5b0f5;
+  --p-indigo-500: #5865e0;
+  --p-indigo-600: #4450c8;
+
+  /* Space */
+  --p-space-1: 4px;
+  --p-space-2: 8px;
+  --p-space-3: 12px;
+  --p-space-4: 16px;
+  --p-space-5: 24px;
+  --p-space-6: 32px;
+  --p-space-7: 48px;
+
+  /* Radius */
+  --p-radius-1: 4px;
+  --p-radius-2: 8px;
+  --p-radius-pill: 999px;
+
+  /* Border widths */
+  --p-border-1: 1px;
+  --p-border-2: 2px;
+
+  /* Type */
+  --p-font-ui:
+    system-ui, -apple-system, "Segoe UI", "Helvetica Neue", sans-serif;
+  --p-font-mono:
+    ui-monospace, "SF Mono", "Cascadia Mono", "Consolas", monospace;
+  --p-size-1: 11px;
+  --p-size-2: 13px;
+  --p-size-3: 15px;
+  --p-size-4: 20px;
+  --p-weight-regular: 400;
+  --p-weight-medium: 550;
+  --p-tracking-wide: 0.08em;
+
+  /* Motion. Rationed to liveness; see rule 9. */
+  --p-duration-fast: 90ms;
+  --p-duration-base: 160ms;
+  --p-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+}

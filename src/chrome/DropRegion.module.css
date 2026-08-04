@@ -1,0 +1,24 @@
+.region {
+  --c-region-line: var(--s-line-quiet);
+
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-space-base);
+  margin: var(--s-space-base);
+  padding: var(--s-space-room);
+  border: var(--s-border-hairline) dashed var(--c-region-line);
+  border-radius: var(--s-radius-panel);
+  text-align: center;
+  transition:
+    border-color var(--s-motion-base) var(--s-motion-ease),
+    background-color var(--s-motion-base) var(--s-motion-ease);
+}
+
+.region[data-armed="true"] {
+  --c-region-line: var(--s-accent);
+
+  background: var(--s-surface-sunken);
+}

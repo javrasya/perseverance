@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Windows and macOS ship together; Linux is deliberately later.
+  build:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - run: npm ci
+
+      - name: Types
+        run: npm run typecheck
+
+      # macOS is the CSS floor, not Windows. The floor is declared in
+      # package.json's browserslist and enforced here, so a violation is a red
+      # build on both runners rather than a rendering surprise on one.
+      - name: CSS floor (Safari 16.4)
+        run: npm run check:css-floor
+
+      # SMIL prohibition and the token-tier rule.
+      - name: Stack-level checks
+        run: npm test
+
+      - name: Rust formatting
+        run: cargo fmt --all --check
+
+      - name: Rust lints
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Rust tests
+        run: cargo test --workspace
+
+      # The primary seam, checked rather than claimed.
+      - name: Model crate purity
+        run: npm run check:model-purity
+
+      - name: Frontend build
+        run: npm run build
+
+      # Packaging and signing are out of scope; that the shell compiles and
+      # links on both platforms is not.
+      - name: Shell build
+        run: cargo build --package perseverance-app
