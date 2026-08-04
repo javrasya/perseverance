@@ -1,0 +1,813 @@
+﻿{
+    "benign":  {
+                   "exit":  0,
+                   "timedOut":  false,
+                   "ms":  1294,
+                   "beginCount":  1,
+                   "endCount":  1,
+                   "framed":  true,
+                   "envCount":  90,
+                   "naiveJunk":  0,
+                   "junkInsideCount":  0,
+                   "junkBeforeCount":  0,
+                   "junkAfterCount":  0,
+                   "junkInsideSample":  [
+
+                                        ],
+                   "junkBeforeSample":  [
+
+                                        ],
+                   "junkAfterSample":  [
+
+                                       ],
+                   "stdoutBytes":  5579,
+                   "stderrBytes":  616,
+                   "stderrHead":  "#\u003c CLIXML | \u003cObjs Version=\"1.1.0.1\" xmlns=\"http://schemas.microsoft.com/powershell/2004/04\"\u003e\u003cObj S=\"progress\" RefId=\"0\"\u003e\u003cTN RefId=\"0\"\u003e\u003cT\u003eSystem.Management.Automation.PSCustomObject\u003c/T\u003e\u003cT\u003eSystem.Object\u003c/T\u003e\u003c/TN\u003e\u003cMS\u003e\u003cI64 N=\"SourceId\"\u003e1\u003c/I64\u003e\u003cPR N=\"Record\"\u003e\u003cAV\u003ePreparing modules for first use.\u003c/AV\u003e\u003cAI\u003e0\u003c/AI\u003e\u003cNil /\u003e\u003cPI\u003e-1\u003c/PI\u003e\u003cPC\u003e-1\u003c/PC\u003e\u003cT\u003eCompleted\u003c/T\u003e\u003cSR\u003e-1\u003c/SR\u003e\u003cSD\u003e \u003c/SD\u003e\u003c/PR\u003e\u003c/MS\u003e\u003c/Obj\u003e\u003cObj S=\"progre",
+                   "marker":  "WF26_MARK=benign"
+               },
+    "out":  {
+                "exit":  0,
+                "timedOut":  false,
+                "ms":  1032,
+                "beginCount":  1,
+                "endCount":  1,
+                "framed":  true,
+                "envCount":  90,
+                "naiveJunk":  0,
+                "junkInsideCount":  0,
+                "junkBeforeCount":  1,
+                "junkAfterCount":  0,
+                "junkInsideSample":  [
+
+                                     ],
+                "junkBeforeSample":  [
+                                         "BANNER-OUT"
+                                     ],
+                "junkAfterSample":  [
+
+                                    ],
+                "stdoutBytes":  5588,
+                "stderrBytes":  616,
+                "stderrHead":  "#\u003c CLIXML | \u003cObjs Version=\"1.1.0.1\" xmlns=\"http://schemas.microsoft.com/powershell/2004/04\"\u003e\u003cObj S=\"progress\" RefId=\"0\"\u003e\u003cTN RefId=\"0\"\u003e\u003cT\u003eSystem.Management.Automation.PSCustomObject\u003c/T\u003e\u003cT\u003eSystem.Object\u003c/T\u003e\u003c/TN\u003e\u003cMS\u003e\u003cI64 N=\"SourceId\"\u003e1\u003c/I64\u003e\u003cPR N=\"Record\"\u003e\u003cAV\u003ePreparing modules for first use.\u003c/AV\u003e\u003cAI\u003e0\u003c/AI\u003e\u003cNil /\u003e\u003cPI\u003e-1\u003c/PI\u003e\u003cPC\u003e-1\u003c/PC\u003e\u003cT\u003eCompleted\u003c/T\u003e\u003cSR\u003e-1\u003c/SR\u003e\u003cSD\u003e \u003c/SD\u003e\u003c/PR\u003e\u003c/MS\u003e\u003c/Obj\u003e\u003cObj S=\"progre",
+                "marker":  "WF26_MARK=out"
+            },
+    "hostBanner":  {
+                       "exit":  0,
+                       "timedOut":  false,
+                       "ms":  1060,
+                       "beginCount":  1,
+                       "endCount":  1,
+                       "framed":  true,
+                       "envCount":  90,
+                       "naiveJunk":  0,
+                       "junkInsideCount":  0,
+                       "junkBeforeCount":  1,
+                       "junkAfterCount":  0,
+                       "junkInsideSample":  [
+
+                                            ],
+                       "junkBeforeSample":  [
+                                                "BANNER-HOST"
+                                            ],
+                       "junkAfterSample":  [
+
+                                           ],
+                       "stdoutBytes":  5589,
+                       "stderrBytes":  1672,
+                       "stderrHead":  "#\u003c CLIXML | \u003cObjs Version=\"1.1.0.1\" xmlns=\"http://schemas.microsoft.com/powershell/2004/04\"\u003e\u003cObj S=\"progress\" RefId=\"0\"\u003e\u003cTN RefId=\"0\"\u003e\u003cT\u003eSystem.Management.Automation.PSCustomObject\u003c/T\u003e\u003cT\u003eSystem.Object\u003c/T\u003e\u003c/TN\u003e\u003cMS\u003e\u003cI64 N=\"SourceId\"\u003e1\u003c/I64\u003e\u003cPR N=\"Record\"\u003e\u003cAV\u003ePreparing modules for first use.\u003c/AV\u003e\u003cAI\u003e0\u003c/AI\u003e\u003cNil /\u003e\u003cPI\u003e-1\u003c/PI\u003e\u003cPC\u003e-1\u003c/PC\u003e\u003cT\u003eCompleted\u003c/T\u003e\u003cSR\u003e-1\u003c/SR\u003e\u003cSD\u003e \u003c/SD\u003e\u003c/PR\u003e\u003c/MS\u003e\u003c/Obj\u003e\u003cObj S=\"inform",
+                       "marker":  "WF26_MARK=host"
+                   },
+    "warn":  {
+                 "exit":  0,
+                 "timedOut":  false,
+                 "ms":  1227,
+                 "beginCount":  1,
+                 "endCount":  1,
+                 "framed":  true,
+                 "envCount":  90,
+                 "naiveJunk":  0,
+                 "junkInsideCount":  0,
+                 "junkBeforeCount":  0,
+                 "junkAfterCount":  0,
+                 "junkInsideSample":  [
+
+                                      ],
+                 "junkBeforeSample":  [
+
+                                      ],
+                 "junkAfterSample":  [
+
+                                     ],
+                 "stdoutBytes":  5577,
+                 "stderrBytes":  646,
+                 "stderrHead":  "#\u003c CLIXML | \u003cObjs Version=\"1.1.0.1\" xmlns=\"http://schemas.microsoft.com/powershell/2004/04\"\u003e\u003cObj S=\"progress\" RefId=\"0\"\u003e\u003cTN RefId=\"0\"\u003e\u003cT\u003eSystem.Management.Automation.PSCustomObject\u003c/T\u003e\u003cT\u003eSystem.Object\u003c/T\u003e\u003c/TN\u003e\u003cMS\u003e\u003cI64 N=\"SourceId\"\u003e1\u003c/I64\u003e\u003cPR N=\"Record\"\u003e\u003cAV\u003ePreparing modules for first use.\u003c/AV\u003e\u003cAI\u003e0\u003c/AI\u003e\u003cNil /\u003e\u003cPI\u003e-1\u003c/PI\u003e\u003cPC\u003e-1\u003c/PC\u003e\u003cT\u003eCompleted\u003c/T\u003e\u003cSR\u003e-1\u003c/SR\u003e\u003cSD\u003e \u003c/SD\u003e\u003c/PR\u003e\u003c/MS\u003e\u003c/Obj\u003e\u003cS S=\"warning\"",
+                 "marker":  "WF26_MARK=warn"
+             },
+    "errNonTerm":  {
+                       "exit":  0,
+                       "timedOut":  false,
+                       "ms":  1304,
+                       "beginCount":  1,
+                       "endCount":  1,
+                       "framed":  true,
+                       "envCount":  90,
+                       "naiveJunk":  0,
+                       "junkInsideCount":  0,
+                       "junkBeforeCount":  0,
+                       "junkAfterCount":  0,
+                       "junkInsideSample":  [
+
+                                            ],
+                       "junkBeforeSample":  [
+
+                                            ],
+                       "junkAfterSample":  [
+
+                                           ],
+                       "stdoutBytes":  5576,
+                       "stderrBytes":  1344,
+                       "stderrHead":  "#\u003c CLIXML | \u003cObjs Version=\"1.1.0.1\" xmlns=\"http://schemas.microsoft.com/powershell/2004/04\"\u003e\u003cObj S=\"progress\" RefId=\"0\"\u003e\u003cTN RefId=\"0\"\u003e\u003cT\u003eSystem.Management.Automation.PSCustomObject\u003c/T\u003e\u003cT\u003eSystem.Object\u003c/T\u003e\u003c/TN\u003e\u003cMS\u003e\u003cI64 N=\"SourceId\"\u003e1\u003c/I64\u003e\u003cPR N=\"Record\"\u003e\u003cAV\u003ePreparing modules for first use.\u003c/AV\u003e\u003cAI\u003e0\u003c/AI\u003e\u003cNil /\u003e\u003cPI\u003e-1\u003c/PI\u003e\u003cPC\u003e-1\u003c/PC\u003e\u003cT\u003eCompleted\u003c/T\u003e\u003cSR\u003e-1\u003c/SR\u003e\u003cSD\u003e \u003c/SD\u003e\u003c/PR\u003e\u003c/MS\u003e\u003c/Obj\u003e\u003cS S=\"Error\"\u003eC",
+                       "marker":  "WF26_MARK=err"
+                   },
+    "verbose":  {
+                    "exit":  0,
+                    "timedOut":  false,
+                    "ms":  1081,
+                    "beginCount":  1,
+                    "endCount":  1,
+                    "framed":  true,
+                    "envCount":  90,
+                    "naiveJunk":  0,
+                    "junkInsideCount":  0,
+                    "junkBeforeCount":  0,
+                    "junkAfterCount":  0,
+                    "junkInsideSample":  [
+
+                                         ],
+                    "junkBeforeSample":  [
+
+                                         ],
+                    "junkAfterSample":  [
+
+                                        ],
+                    "stdoutBytes":  5580,
+                    "stderrBytes":  646,
+                    "stderrHead":  "#\u003c CLIXML | \u003cObjs Version=\"1.1.0.1\" xmlns=\"http://schemas.microsoft.com/powershell/2004/04\"\u003e\u003cObj S=\"progress\" RefId=\"0\"\u003e\u003cTN RefId=\"0\"\u003e\u003cT\u003eSystem.Management.Automation.PSCustomObject\u003c/T\u003e\u003cT\u003eSystem.Object\u003c/T\u003e\u003c/TN\u003e\u003cMS\u003e\u003cI64 N=\"SourceId\"\u003e1\u003c/I64\u003e\u003cPR N=\"Record\"\u003e\u003cAV\u003ePreparing modules for first use.\u003c/AV\u003e\u003cAI\u003e0\u003c/AI\u003e\u003cNil /\u003e\u003cPI\u003e-1\u003c/PI\u003e\u003cPC\u003e-1\u003c/PC\u003e\u003cT\u003eCompleted\u003c/T\u003e\u003cSR\u003e-1\u003c/SR\u003e\u003cSD\u003e \u003c/SD\u003e\u003c/PR\u003e\u003c/MS\u003e\u003c/Obj\u003e\u003cS S=\"verbose\"",
+                    "marker":  "WF26_MARK=verbose"
+                },
+    "information":  {
+                        "exit":  0,
+                        "timedOut":  false,
+                        "ms":  1050,
+                        "beginCount":  1,
+                        "endCount":  1,
+                        "framed":  true,
+                        "envCount":  90,
+                        "naiveJunk":  0,
+                        "junkInsideCount":  0,
+                        "junkBeforeCount":  1,
+                        "junkAfterCount":  0,
+                        "junkInsideSample":  [
+
+                                             ],
+                        "junkBeforeSample":  [
+                                                 "BANNER-INFO"
+                                             ],
+                        "junkAfterSample":  [
+
+                                            ],
+                        "stdoutBytes":  5590,
+                        "stderrBytes":  1381,
+                        "stderrHead":  "#\u003c CLIXML | \u003cObjs Version=\"1.1.0.1\" xmlns=\"http://schemas.microsoft.com/powershell/2004/04\"\u003e\u003cObj S=\"progress\" RefId=\"0\"\u003e\u003cTN RefId=\"0\"\u003e\u003cT\u003eSystem.Management.Automation.PSCustomObject\u003c/T\u003e\u003cT\u003eSystem.Object\u003c/T\u003e\u003c/TN\u003e\u003cMS\u003e\u003cI64 N=\"SourceId\"\u003e1\u003c/I64\u003e\u003cPR N=\"Record\"\u003e\u003cAV\u003ePreparing modules for first use.\u003c/AV\u003e\u003cAI\u003e0\u003c/AI\u003e\u003cNil /\u003e\u003cPI\u003e-1\u003c/PI\u003e\u003cPC\u003e-1\u003c/PC\u003e\u003cT\u003eCompleted\u003c/T\u003e\u003cSR\u003e-1\u003c/SR\u003e\u003cSD\u003e \u003c/SD\u003e\u003c/PR\u003e\u003c/MS\u003e\u003c/Obj\u003e\u003cObj S=\"inform",
+                        "marker":  "WF26_MARK=info"
+                    },
+    "progress":  {
+                     "exit":  0,
+                     "timedOut":  false,
+                     "ms":  1079,
+                     "beginCount":  1,
+                     "endCount":  1,
+                     "framed":  true,
+                     "envCount":  90,
+                     "naiveJunk":  0,
+                     "junkInsideCount":  0,
+                     "junkBeforeCount":  0,
+                     "junkAfterCount":  0,
+                     "junkInsideSample":  [
+
+                                          ],
+                     "junkBeforeSample":  [
+
+                                          ],
+                     "junkAfterSample":  [
+
+                                         ],
+                     "stdoutBytes":  5581,
+                     "stderrBytes":  818,
+                     "stderrHead":  "#\u003c CLIXML | \u003cObjs Version=\"1.1.0.1\" xmlns=\"http://schemas.microsoft.com/powershell/2004/04\"\u003e\u003cObj S=\"progress\" RefId=\"0\"\u003e\u003cTN RefId=\"0\"\u003e\u003cT\u003eSystem.Management.Automation.PSCustomObject\u003c/T\u003e\u003cT\u003eSystem.Object\u003c/T\u003e\u003c/TN\u003e\u003cMS\u003e\u003cI64 N=\"SourceId\"\u003e1\u003c/I64\u003e\u003cPR N=\"Record\"\u003e\u003cAV\u003ePreparing modules for first use.\u003c/AV\u003e\u003cAI\u003e0\u003c/AI\u003e\u003cNil /\u003e\u003cPI\u003e-1\u003c/PI\u003e\u003cPC\u003e-1\u003c/PC\u003e\u003cT\u003eCompleted\u003c/T\u003e\u003cSR\u003e-1\u003c/SR\u003e\u003cSD\u003e \u003c/SD\u003e\u003c/PR\u003e\u003c/MS\u003e\u003c/Obj\u003e\u003cObj S=\"progre",
+                     "marker":  "WF26_MARK=progress"
+                 },
+    "nativeStderr":  {
+                         "exit":  0,
+                         "timedOut":  false,
+                         "ms":  1043,
+                         "beginCount":  1,
+                         "endCount":  1,
+                         "framed":  true,
+                         "envCount":  90,
+                         "naiveJunk":  0,
+                         "junkInsideCount":  0,
+                         "junkBeforeCount":  0,
+                         "junkAfterCount":  0,
+                         "junkInsideSample":  [
+
+                                              ],
+                         "junkBeforeSample":  [
+
+                                              ],
+                         "junkAfterSample":  [
+
+                                             ],
+                         "stdoutBytes":  5579,
+                         "stderrBytes":  632,
+                         "stderrHead":  "NATIVE-STDERR  | #\u003c CLIXML",
+                         "marker":  "WF26_MARK=native"
+                     },
+    "ompInit":  {
+                    "exit":  0,
+                    "timedOut":  false,
+                    "ms":  1517,
+                    "beginCount":  1,
+                    "endCount":  1,
+                    "framed":  true,
+                    "envCount":  97,
+                    "naiveJunk":  0,
+                    "junkInsideCount":  0,
+                    "junkBeforeCount":  0,
+                    "junkAfterCount":  0,
+                    "junkInsideSample":  [
+
+                                         ],
+                    "junkBeforeSample":  [
+
+                                         ],
+                    "junkAfterSample":  [
+
+                                        ],
+                    "stdoutBytes":  5806,
+                    "stderrBytes":  840,
+                    "stderrHead":  "#\u003c CLIXML | \u003cObjs Version=\"1.1.0.1\" xmlns=\"http://schemas.microsoft.com/powershell/2004/04\"\u003e\u003cObj S=\"progress\" RefId=\"0\"\u003e\u003cTN RefId=\"0\"\u003e\u003cT\u003eSystem.Management.Automation.PSCustomObject\u003c/T\u003e\u003cT\u003eSystem.Object\u003c/T\u003e\u003c/TN\u003e\u003cMS\u003e\u003cI64 N=\"SourceId\"\u003e1\u003c/I64\u003e\u003cPR N=\"Record\"\u003e\u003cAV\u003ePreparing modules for first use.\u003c/AV\u003e\u003cAI\u003e0\u003c/AI\u003e\u003cNil /\u003e\u003cPI\u003e-1\u003c/PI\u003e\u003cPC\u003e-1\u003c/PC\u003e\u003cT\u003eCompleted\u003c/T\u003e\u003cSR\u003e-1\u003c/SR\u003e\u003cSD\u003e \u003c/SD\u003e\u003c/PR\u003e\u003c/MS\u003e\u003c/Obj\u003e\u003cObj S=\"progre",
+                    "marker":  "WF26_MARK=omp"
+                },
+    "heavy":  {
+                  "exit":  0,
+                  "timedOut":  false,
+                  "ms":  2616,
+                  "beginCount":  1,
+                  "endCount":  1,
+                  "framed":  true,
+                  "envCount":  97,
+                  "naiveJunk":  0,
+                  "junkInsideCount":  0,
+                  "junkBeforeCount":  0,
+                  "junkAfterCount":  0,
+                  "junkInsideSample":  [
+
+                                       ],
+                  "junkBeforeSample":  [
+
+                                       ],
+                  "junkAfterSample":  [
+
+                                      ],
+                  "stdoutBytes":  5808,
+                  "stderrBytes":  1064,
+                  "stderrHead":  "#\u003c CLIXML | \u003cObjs Version=\"1.1.0.1\" xmlns=\"http://schemas.microsoft.com/powershell/2004/04\"\u003e\u003cObj S=\"progress\" RefId=\"0\"\u003e\u003cTN RefId=\"0\"\u003e\u003cT\u003eSystem.Management.Automation.PSCustomObject\u003c/T\u003e\u003cT\u003eSystem.Object\u003c/T\u003e\u003c/TN\u003e\u003cMS\u003e\u003cI64 N=\"SourceId\"\u003e1\u003c/I64\u003e\u003cPR N=\"Record\"\u003e\u003cAV\u003ePreparing modules for first use.\u003c/AV\u003e\u003cAI\u003e0\u003c/AI\u003e\u003cNil /\u003e\u003cPI\u003e-1\u003c/PI\u003e\u003cPC\u003e-1\u003c/PC\u003e\u003cT\u003eCompleted\u003c/T\u003e\u003cSR\u003e-1\u003c/SR\u003e\u003cSD\u003e \u003c/SD\u003e\u003c/PR\u003e\u003c/MS\u003e\u003c/Obj\u003e\u003cObj S=\"progre",
+                  "marker":  "WF26_MARK=heavy"
+              },
+    "readHost":  {
+                     "exit":  0,
+                     "timedOut":  false,
+                     "ms":  1088,
+                     "beginCount":  1,
+                     "endCount":  1,
+                     "framed":  true,
+                     "envCount":  90,
+                     "naiveJunk":  0,
+                     "junkInsideCount":  0,
+                     "junkBeforeCount":  0,
+                     "junkAfterCount":  0,
+                     "junkInsideSample":  [
+
+                                          ],
+                     "junkBeforeSample":  [
+
+                                          ],
+                     "junkAfterSample":  [
+
+                                         ],
+                     "stdoutBytes":  5579,
+                     "stderrBytes":  616,
+                     "stderrHead":  "#\u003c CLIXML | \u003cObjs Version=\"1.1.0.1\" xmlns=\"http://schemas.microsoft.com/powershell/2004/04\"\u003e\u003cObj S=\"progress\" RefId=\"0\"\u003e\u003cTN RefId=\"0\"\u003e\u003cT\u003eSystem.Management.Automation.PSCustomObject\u003c/T\u003e\u003cT\u003eSystem.Object\u003c/T\u003e\u003c/TN\u003e\u003cMS\u003e\u003cI64 N=\"SourceId\"\u003e1\u003c/I64\u003e\u003cPR N=\"Record\"\u003e\u003cAV\u003ePreparing modules for first use.\u003c/AV\u003e\u003cAI\u003e0\u003c/AI\u003e\u003cNil /\u003e\u003cPI\u003e-1\u003c/PI\u003e\u003cPC\u003e-1\u003c/PC\u003e\u003cT\u003eCompleted\u003c/T\u003e\u003cSR\u003e-1\u003c/SR\u003e\u003cSD\u003e \u003c/SD\u003e\u003c/PR\u003e\u003c/MS\u003e\u003c/Obj\u003e\u003cObj S=\"progre",
+                     "marker":  "WF26_MARK=post:﻿"
+                 },
+    "getCred":  {
+                    "exit":  0,
+                    "timedOut":  false,
+                    "ms":  1873,
+                    "beginCount":  1,
+                    "endCount":  1,
+                    "framed":  true,
+                    "envCount":  90,
+                    "naiveJunk":  0,
+                    "junkInsideCount":  0,
+                    "junkBeforeCount":  0,
+                    "junkAfterCount":  0,
+                    "junkInsideSample":  [
+
+                                         ],
+                    "junkBeforeSample":  [
+
+                                         ],
+                    "junkAfterSample":  [
+
+                                        ],
+                    "stdoutBytes":  5577,
+                    "stderrBytes":  1479,
+                    "stderrHead":  "#\u003c CLIXML | \u003cObjs Version=\"1.1.0.1\" xmlns=\"http://schemas.microsoft.com/powershell/2004/04\"\u003e\u003cObj S=\"progress\" RefId=\"0\"\u003e\u003cTN RefId=\"0\"\u003e\u003cT\u003eSystem.Management.Automation.PSCustomObject\u003c/T\u003e\u003cT\u003eSystem.Object\u003c/T\u003e\u003c/TN\u003e\u003cMS\u003e\u003cI64 N=\"SourceId\"\u003e1\u003c/I64\u003e\u003cPR N=\"Record\"\u003e\u003cAV\u003ePreparing modules for first use.\u003c/AV\u003e\u003cAI\u003e0\u003c/AI\u003e\u003cNil /\u003e\u003cPI\u003e-1\u003c/PI\u003e\u003cPC\u003e-1\u003c/PC\u003e\u003cT\u003eCompleted\u003c/T\u003e\u003cSR\u003e-1\u003c/SR\u003e\u003cSD\u003e \u003c/SD\u003e\u003c/PR\u003e\u003c/MS\u003e\u003c/Obj\u003e\u003cObj S=\"progre",
+                    "marker":  "WF26_MARK=post"
+                },
+    "throwMid":  {
+                     "exit":  0,
+                     "timedOut":  false,
+                     "ms":  1263,
+                     "beginCount":  1,
+                     "endCount":  1,
+                     "framed":  true,
+                     "envCount":  90,
+                     "naiveJunk":  0,
+                     "junkInsideCount":  0,
+                     "junkBeforeCount":  0,
+                     "junkAfterCount":  0,
+                     "junkInsideSample":  [
+
+                                          ],
+                     "junkBeforeSample":  [
+
+                                          ],
+                     "junkAfterSample":  [
+
+                                         ],
+                     "stdoutBytes":  5576,
+                     "stderrBytes":  1209,
+                     "stderrHead":  "#\u003c CLIXML | \u003cObjs Version=\"1.1.0.1\" xmlns=\"http://schemas.microsoft.com/powershell/2004/04\"\u003e\u003cS S=\"Error\"\u003eBOOM_x000D__x000A_\u003c/S\u003e\u003cS S=\"Error\"\u003eAt C:\\Users\\ahmet\\.claude\\jobs\\5c722bde\\tmp\\fakehome\\Documents\\WindowsPowerShell\\Microsoft.PowerShell_profile.ps1:1 _x000D__x000A_\u003c/S\u003e\u003cS S=\"Error\"\u003echar:25_x000D__x000A_\u003c/S\u003e\u003cS S=\"Error\"\u003e+ $env:WF26_MARK = \"pre\"; throw \"BOOM\"; $env:WF26_MARK = \"post\"_x000D__x000",
+                     "marker":  "WF26_MARK=pre"
+                 },
+    "exitMid":  {
+                    "exit":  0,
+                    "timedOut":  false,
+                    "ms":  1284,
+                    "beginCount":  1,
+                    "endCount":  1,
+                    "framed":  true,
+                    "envCount":  90,
+                    "naiveJunk":  0,
+                    "junkInsideCount":  0,
+                    "junkBeforeCount":  0,
+                    "junkAfterCount":  0,
+                    "junkInsideSample":  [
+
+                                         ],
+                    "junkBeforeSample":  [
+
+                                         ],
+                    "junkAfterSample":  [
+
+                                        ],
+                    "stdoutBytes":  5576,
+                    "stderrBytes":  616,
+                    "stderrHead":  "#\u003c CLIXML | \u003cObjs Version=\"1.1.0.1\" xmlns=\"http://schemas.microsoft.com/powershell/2004/04\"\u003e\u003cObj S=\"progress\" RefId=\"0\"\u003e\u003cTN RefId=\"0\"\u003e\u003cT\u003eSystem.Management.Automation.PSCustomObject\u003c/T\u003e\u003cT\u003eSystem.Object\u003c/T\u003e\u003c/TN\u003e\u003cMS\u003e\u003cI64 N=\"SourceId\"\u003e1\u003c/I64\u003e\u003cPR N=\"Record\"\u003e\u003cAV\u003ePreparing modules for first use.\u003c/AV\u003e\u003cAI\u003e0\u003c/AI\u003e\u003cNil /\u003e\u003cPI\u003e-1\u003c/PI\u003e\u003cPC\u003e-1\u003c/PC\u003e\u003cT\u003eCompleted\u003c/T\u003e\u003cSR\u003e-1\u003c/SR\u003e\u003cSD\u003e \u003c/SD\u003e\u003c/PR\u003e\u003c/MS\u003e\u003c/Obj\u003e\u003cObj S=\"progre",
+                    "marker":  "WF26_MARK=pre"
+                },
+    "sleepLong":  {
+                      "exit":  1,
+                      "timedOut":  true,
+                      "ms":  5225,
+                      "beginCount":  0,
+                      "endCount":  0,
+                      "framed":  false,
+                      "envCount":  0,
+                      "naiveJunk":  0,
+                      "junkInsideCount":  0,
+                      "junkBeforeCount":  0,
+                      "junkAfterCount":  0,
+                      "junkInsideSample":  [
+
+                                           ],
+                      "junkBeforeSample":  [
+
+                                           ],
+                      "junkAfterSample":  [
+
+                                          ],
+                      "stdoutBytes":  0,
+                      "stderrBytes":  11,
+                      "stderrHead":  "#\u003c CLIXML",
+                      "marker":  ""
+                  },
+    "exitingHook":  {
+                        "exit":  0,
+                        "timedOut":  false,
+                        "ms":  1248,
+                        "beginCount":  1,
+                        "endCount":  1,
+                        "framed":  true,
+                        "envCount":  90,
+                        "naiveJunk":  0,
+                        "junkInsideCount":  0,
+                        "junkBeforeCount":  0,
+                        "junkAfterCount":  0,
+                        "junkInsideSample":  [
+
+                                             ],
+                        "junkBeforeSample":  [
+
+                                             ],
+                        "junkAfterSample":  [
+
+                                            ],
+                        "stdoutBytes":  5580,
+                        "stderrBytes":  616,
+                        "stderrHead":  "#\u003c CLIXML | \u003cObjs Version=\"1.1.0.1\" xmlns=\"http://schemas.microsoft.com/powershell/2004/04\"\u003e\u003cObj S=\"progress\" RefId=\"0\"\u003e\u003cTN RefId=\"0\"\u003e\u003cT\u003eSystem.Management.Automation.PSCustomObject\u003c/T\u003e\u003cT\u003eSystem.Object\u003c/T\u003e\u003c/TN\u003e\u003cMS\u003e\u003cI64 N=\"SourceId\"\u003e1\u003c/I64\u003e\u003cPR N=\"Record\"\u003e\u003cAV\u003ePreparing modules for first use.\u003c/AV\u003e\u003cAI\u003e0\u003c/AI\u003e\u003cNil /\u003e\u003cPI\u003e-1\u003c/PI\u003e\u003cPC\u003e-1\u003c/PC\u003e\u003cT\u003eCompleted\u003c/T\u003e\u003cSR\u003e-1\u003c/SR\u003e\u003cSD\u003e \u003c/SD\u003e\u003c/PR\u003e\u003c/MS\u003e\u003c/Obj\u003e\u003cObj S=\"progre",
+                        "marker":  "WF26_MARK=exiting"
+                    },
+    "fakeBegin":  {
+                      "exit":  0,
+                      "timedOut":  false,
+                      "ms":  1084,
+                      "beginCount":  2,
+                      "endCount":  1,
+                      "framed":  true,
+                      "envCount":  90,
+                      "naiveJunk":  1,
+                      "junkInsideCount":  0,
+                      "junkBeforeCount":  2,
+                      "junkAfterCount":  0,
+                      "junkInsideSample":  [
+
+                                           ],
+                      "junkBeforeSample":  [
+                                               "---PERSEVERANCE-BEGIN---",
+                                               "INJECTED=evil"
+                                           ],
+                      "junkAfterSample":  [
+
+                                          ],
+                      "stdoutBytes":  5623,
+                      "stderrBytes":  616,
+                      "stderrHead":  "#\u003c CLIXML | \u003cObjs Version=\"1.1.0.1\" xmlns=\"http://schemas.microsoft.com/powershell/2004/04\"\u003e\u003cObj S=\"progress\" RefId=\"0\"\u003e\u003cTN RefId=\"0\"\u003e\u003cT\u003eSystem.Management.Automation.PSCustomObject\u003c/T\u003e\u003cT\u003eSystem.Object\u003c/T\u003e\u003c/TN\u003e\u003cMS\u003e\u003cI64 N=\"SourceId\"\u003e1\u003c/I64\u003e\u003cPR N=\"Record\"\u003e\u003cAV\u003ePreparing modules for first use.\u003c/AV\u003e\u003cAI\u003e0\u003c/AI\u003e\u003cNil /\u003e\u003cPI\u003e-1\u003c/PI\u003e\u003cPC\u003e-1\u003c/PC\u003e\u003cT\u003eCompleted\u003c/T\u003e\u003cSR\u003e-1\u003c/SR\u003e\u003cSD\u003e \u003c/SD\u003e\u003c/PR\u003e\u003c/MS\u003e\u003c/Obj\u003e\u003cObj S=\"progre",
+                      "marker":  "WF26_MARK=fakebegin"
+                  },
+    "fakeEnd":  {
+                    "exit":  0,
+                    "timedOut":  false,
+                    "ms":  1037,
+                    "beginCount":  1,
+                    "endCount":  2,
+                    "framed":  true,
+                    "envCount":  90,
+                    "naiveJunk":  0,
+                    "junkInsideCount":  0,
+                    "junkBeforeCount":  1,
+                    "junkAfterCount":  0,
+                    "junkInsideSample":  [
+
+                                         ],
+                    "junkBeforeSample":  [
+                                             "---PERSEVERANCE-END---"
+                                         ],
+                    "junkAfterSample":  [
+
+                                        ],
+                    "stdoutBytes":  5604,
+                    "stderrBytes":  616,
+                    "stderrHead":  "#\u003c CLIXML | \u003cObjs Version=\"1.1.0.1\" xmlns=\"http://schemas.microsoft.com/powershell/2004/04\"\u003e\u003cObj S=\"progress\" RefId=\"0\"\u003e\u003cTN RefId=\"0\"\u003e\u003cT\u003eSystem.Management.Automation.PSCustomObject\u003c/T\u003e\u003cT\u003eSystem.Object\u003c/T\u003e\u003c/TN\u003e\u003cMS\u003e\u003cI64 N=\"SourceId\"\u003e1\u003c/I64\u003e\u003cPR N=\"Record\"\u003e\u003cAV\u003ePreparing modules for first use.\u003c/AV\u003e\u003cAI\u003e0\u003c/AI\u003e\u003cNil /\u003e\u003cPI\u003e-1\u003c/PI\u003e\u003cPC\u003e-1\u003c/PC\u003e\u003cT\u003eCompleted\u003c/T\u003e\u003cSR\u003e-1\u003c/SR\u003e\u003cSD\u003e \u003c/SD\u003e\u003c/PR\u003e\u003c/MS\u003e\u003c/Obj\u003e\u003cObj S=\"progre",
+                    "marker":  "WF26_MARK=fakeend"
+                },
+    "fakeBoth":  {
+                     "exit":  0,
+                     "timedOut":  false,
+                     "ms":  1073,
+                     "beginCount":  2,
+                     "endCount":  2,
+                     "framed":  true,
+                     "envCount":  90,
+                     "naiveJunk":  0,
+                     "junkInsideCount":  0,
+                     "junkBeforeCount":  3,
+                     "junkAfterCount":  0,
+                     "junkInsideSample":  [
+
+                                          ],
+                     "junkBeforeSample":  [
+                                              "---PERSEVERANCE-BEGIN---",
+                                              "INJECTED=evil",
+                                              "---PERSEVERANCE-END---"
+                                          ],
+                     "junkAfterSample":  [
+
+                                         ],
+                     "stdoutBytes":  5646,
+                     "stderrBytes":  616,
+                     "stderrHead":  "#\u003c CLIXML | \u003cObjs Version=\"1.1.0.1\" xmlns=\"http://schemas.microsoft.com/powershell/2004/04\"\u003e\u003cObj S=\"progress\" RefId=\"0\"\u003e\u003cTN RefId=\"0\"\u003e\u003cT\u003eSystem.Management.Automation.PSCustomObject\u003c/T\u003e\u003cT\u003eSystem.Object\u003c/T\u003e\u003c/TN\u003e\u003cMS\u003e\u003cI64 N=\"SourceId\"\u003e1\u003c/I64\u003e\u003cPR N=\"Record\"\u003e\u003cAV\u003ePreparing modules for first use.\u003c/AV\u003e\u003cAI\u003e0\u003c/AI\u003e\u003cNil /\u003e\u003cPI\u003e-1\u003c/PI\u003e\u003cPC\u003e-1\u003c/PC\u003e\u003cT\u003eCompleted\u003c/T\u003e\u003cSR\u003e-1\u003c/SR\u003e\u003cSD\u003e \u003c/SD\u003e\u003c/PR\u003e\u003c/MS\u003e\u003c/Obj\u003e\u003cObj S=\"progre",
+                     "marker":  "WF26_MARK=fakeboth"
+                 },
+    "chattyOut":  {
+                      "exit":  0,
+                      "timedOut":  false,
+                      "ms":  1297,
+                      "beginCount":  1,
+                      "endCount":  1,
+                      "framed":  true,
+                      "envCount":  90,
+                      "naiveJunk":  0,
+                      "junkInsideCount":  0,
+                      "junkBeforeCount":  2000,
+                      "junkAfterCount":  0,
+                      "junkInsideSample":  [
+
+                                           ],
+                      "junkBeforeSample":  [
+                                               "CHATTY 1 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                                               "CHATTY 2 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                                               "CHATTY 3 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                                           ],
+                      "junkAfterSample":  [
+
+                                          ],
+                      "stdoutBytes":  152472,
+                      "stderrBytes":  616,
+                      "stderrHead":  "#\u003c CLIXML | \u003cObjs Version=\"1.1.0.1\" xmlns=\"http://schemas.microsoft.com/powershell/2004/04\"\u003e\u003cObj S=\"progress\" RefId=\"0\"\u003e\u003cTN RefId=\"0\"\u003e\u003cT\u003eSystem.Management.Automation.PSCustomObject\u003c/T\u003e\u003cT\u003eSystem.Object\u003c/T\u003e\u003c/TN\u003e\u003cMS\u003e\u003cI64 N=\"SourceId\"\u003e1\u003c/I64\u003e\u003cPR N=\"Record\"\u003e\u003cAV\u003ePreparing modules for first use.\u003c/AV\u003e\u003cAI\u003e0\u003c/AI\u003e\u003cNil /\u003e\u003cPI\u003e-1\u003c/PI\u003e\u003cPC\u003e-1\u003c/PC\u003e\u003cT\u003eCompleted\u003c/T\u003e\u003cSR\u003e-1\u003c/SR\u003e\u003cSD\u003e \u003c/SD\u003e\u003c/PR\u003e\u003c/MS\u003e\u003c/Obj\u003e\u003cObj S=\"progre",
+                      "marker":  "WF26_MARK=chatty"
+                  },
+    "chattyErr":  {
+                      "exit":  0,
+                      "timedOut":  false,
+                      "ms":  4234,
+                      "beginCount":  1,
+                      "endCount":  1,
+                      "framed":  true,
+                      "envCount":  90,
+                      "naiveJunk":  0,
+                      "junkInsideCount":  0,
+                      "junkBeforeCount":  0,
+                      "junkAfterCount":  0,
+                      "junkInsideSample":  [
+
+                                           ],
+                      "junkBeforeSample":  [
+
+                                           ],
+                      "junkAfterSample":  [
+
+                                          ],
+                      "stdoutBytes":  5582,
+                      "stderrBytes":  1644616,
+                      "stderrHead":  "#\u003c CLIXML | \u003cObjs Version=\"1.1.0.1\" xmlns=\"http://schemas.microsoft.com/powershell/2004/04\"\u003e\u003cS S=\"Error\"\u003eError formatting a string: Index (zero based) must be greater than or equal to zero and less than the size of the _x000D__x000A_\u003c/S\u003e\u003cS S=\"Error\"\u003eargument list.._x000D__x000A_\u003c/S\u003e\u003cS S=\"Error\"\u003eAt C:\\Users\\ahmet\\.claude\\jobs\\5c722bde\\tmp\\fakehome\\Documents\\WindowsPowerShell\\Microsoft.PowerShell_pr",
+                      "marker":  "WF26_MARK=chattyerr"
+                  },
+    "none":  {
+                 "exit":  0,
+                 "timedOut":  false,
+                 "ms":  1197,
+                 "beginCount":  1,
+                 "endCount":  1,
+                 "framed":  true,
+                 "envCount":  89,
+                 "naiveJunk":  0,
+                 "junkInsideCount":  0,
+                 "junkBeforeCount":  0,
+                 "junkAfterCount":  0,
+                 "junkInsideSample":  [
+
+                                      ],
+                 "junkBeforeSample":  [
+
+                                      ],
+                 "junkAfterSample":  [
+
+                                     ],
+                 "stdoutBytes":  5561,
+                 "stderrBytes":  616,
+                 "stderrHead":  "#\u003c CLIXML | \u003cObjs Version=\"1.1.0.1\" xmlns=\"http://schemas.microsoft.com/powershell/2004/04\"\u003e\u003cObj S=\"progress\" RefId=\"0\"\u003e\u003cTN RefId=\"0\"\u003e\u003cT\u003eSystem.Management.Automation.PSCustomObject\u003c/T\u003e\u003cT\u003eSystem.Object\u003c/T\u003e\u003c/TN\u003e\u003cMS\u003e\u003cI64 N=\"SourceId\"\u003e1\u003c/I64\u003e\u003cPR N=\"Record\"\u003e\u003cAV\u003ePreparing modules for first use.\u003c/AV\u003e\u003cAI\u003e0\u003c/AI\u003e\u003cNil /\u003e\u003cPI\u003e-1\u003c/PI\u003e\u003cPC\u003e-1\u003c/PC\u003e\u003cT\u003eCompleted\u003c/T\u003e\u003cSR\u003e-1\u003c/SR\u003e\u003cSD\u003e \u003c/SD\u003e\u003c/PR\u003e\u003c/MS\u003e\u003c/Obj\u003e\u003cObj S=\"progre",
+                 "marker":  ""
+             },
+    "readHost_NI":  {
+                        "exit":  0,
+                        "timedOut":  false,
+                        "ms":  1234,
+                        "beginCount":  1,
+                        "endCount":  1,
+                        "framed":  true,
+                        "envCount":  90,
+                        "naiveJunk":  0,
+                        "junkInsideCount":  0,
+                        "junkBeforeCount":  0,
+                        "junkAfterCount":  0,
+                        "junkInsideSample":  [
+
+                                             ],
+                        "junkBeforeSample":  [
+
+                                             ],
+                        "junkAfterSample":  [
+
+                                            ],
+                        "stdoutBytes":  5578,
+                        "stderrBytes":  1403,
+                        "stderrHead":  "#\u003c CLIXML | \u003cObjs Version=\"1.1.0.1\" xmlns=\"http://schemas.microsoft.com/powershell/2004/04\"\u003e\u003cObj S=\"progress\" RefId=\"0\"\u003e\u003cTN RefId=\"0\"\u003e\u003cT\u003eSystem.Management.Automation.PSCustomObject\u003c/T\u003e\u003cT\u003eSystem.Object\u003c/T\u003e\u003c/TN\u003e\u003cMS\u003e\u003cI64 N=\"SourceId\"\u003e1\u003c/I64\u003e\u003cPR N=\"Record\"\u003e\u003cAV\u003ePreparing modules for first use.\u003c/AV\u003e\u003cAI\u003e0\u003c/AI\u003e\u003cNil /\u003e\u003cPI\u003e-1\u003c/PI\u003e\u003cPC\u003e-1\u003c/PC\u003e\u003cT\u003eCompleted\u003c/T\u003e\u003cSR\u003e-1\u003c/SR\u003e\u003cSD\u003e \u003c/SD\u003e\u003c/PR\u003e\u003c/MS\u003e\u003c/Obj\u003e\u003cS S=\"Error\"\u003eR",
+                        "marker":  "WF26_MARK=post:"
+                    },
+    "getCred_NI":  {
+                       "exit":  0,
+                       "timedOut":  false,
+                       "ms":  1778,
+                       "beginCount":  1,
+                       "endCount":  1,
+                       "framed":  true,
+                       "envCount":  90,
+                       "naiveJunk":  0,
+                       "junkInsideCount":  0,
+                       "junkBeforeCount":  0,
+                       "junkAfterCount":  0,
+                       "junkInsideSample":  [
+
+                                            ],
+                       "junkBeforeSample":  [
+
+                                            ],
+                       "junkAfterSample":  [
+
+                                           ],
+                       "stdoutBytes":  5577,
+                       "stderrBytes":  1631,
+                       "stderrHead":  "#\u003c CLIXML | \u003cObjs Version=\"1.1.0.1\" xmlns=\"http://schemas.microsoft.com/powershell/2004/04\"\u003e\u003cObj S=\"progress\" RefId=\"0\"\u003e\u003cTN RefId=\"0\"\u003e\u003cT\u003eSystem.Management.Automation.PSCustomObject\u003c/T\u003e\u003cT\u003eSystem.Object\u003c/T\u003e\u003c/TN\u003e\u003cMS\u003e\u003cI64 N=\"SourceId\"\u003e1\u003c/I64\u003e\u003cPR N=\"Record\"\u003e\u003cAV\u003ePreparing modules for first use.\u003c/AV\u003e\u003cAI\u003e0\u003c/AI\u003e\u003cNil /\u003e\u003cPI\u003e-1\u003c/PI\u003e\u003cPC\u003e-1\u003c/PC\u003e\u003cT\u003eCompleted\u003c/T\u003e\u003cSR\u003e-1\u003c/SR\u003e\u003cSD\u003e \u003c/SD\u003e\u003c/PR\u003e\u003c/MS\u003e\u003c/Obj\u003e\u003cObj S=\"progre",
+                       "marker":  "WF26_MARK=post"
+                   },
+    "benign_AllSigned":  {
+                             "exit":  0,
+                             "timedOut":  false,
+                             "ms":  1529,
+                             "beginCount":  1,
+                             "endCount":  1,
+                             "framed":  true,
+                             "envCount":  89,
+                             "naiveJunk":  0,
+                             "junkInsideCount":  0,
+                             "junkBeforeCount":  0,
+                             "junkAfterCount":  0,
+                             "junkInsideSample":  [
+
+                                                  ],
+                             "junkBeforeSample":  [
+
+                                                  ],
+                             "junkAfterSample":  [
+
+                                                 ],
+                             "stdoutBytes":  5564,
+                             "stderrBytes":  1723,
+                             "stderrHead":  "#\u003c CLIXML | \u003cObjs Version=\"1.1.0.1\" xmlns=\"http://schemas.microsoft.com/powershell/2004/04\"\u003e\u003cS S=\"Error\"\u003e. : File _x000D__x000A_\u003c/S\u003e\u003cS S=\"Error\"\u003eC:\\Users\\ahmet\\.claude\\jobs\\5c722bde\\tmp\\fakehome\\Documents\\WindowsPowerShell\\Microsoft.PowerShell_profile.ps1 cannot _x000D__x000A_\u003c/S\u003e\u003cS S=\"Error\"\u003ebe loaded. The file _x000D__x000A_\u003c/S\u003e\u003cS S=\"Error\"\u003eC:\\Users\\ahmet\\.claude\\jobs\\5c722bde\\tmp\\fakehome\\Docum",
+                             "marker":  ""
+                         },
+    "out_AllSigned":  {
+                          "exit":  0,
+                          "timedOut":  false,
+                          "ms":  1199,
+                          "beginCount":  1,
+                          "endCount":  1,
+                          "framed":  true,
+                          "envCount":  89,
+                          "naiveJunk":  0,
+                          "junkInsideCount":  0,
+                          "junkBeforeCount":  0,
+                          "junkAfterCount":  0,
+                          "junkInsideSample":  [
+
+                                               ],
+                          "junkBeforeSample":  [
+
+                                               ],
+                          "junkAfterSample":  [
+
+                                              ],
+                          "stdoutBytes":  5564,
+                          "stderrBytes":  1723,
+                          "stderrHead":  "#\u003c CLIXML | \u003cObjs Version=\"1.1.0.1\" xmlns=\"http://schemas.microsoft.com/powershell/2004/04\"\u003e\u003cS S=\"Error\"\u003e. : File _x000D__x000A_\u003c/S\u003e\u003cS S=\"Error\"\u003eC:\\Users\\ahmet\\.claude\\jobs\\5c722bde\\tmp\\fakehome\\Documents\\WindowsPowerShell\\Microsoft.PowerShell_profile.ps1 cannot _x000D__x000A_\u003c/S\u003e\u003cS S=\"Error\"\u003ebe loaded. The file _x000D__x000A_\u003c/S\u003e\u003cS S=\"Error\"\u003eC:\\Users\\ahmet\\.claude\\jobs\\5c722bde\\tmp\\fakehome\\Docum",
+                          "marker":  ""
+                      },
+    "order_bothProf":  {
+                           "exit":  0,
+                           "timedOut":  false,
+                           "ms":  1338,
+                           "beginCount":  1,
+                           "endCount":  1,
+                           "framed":  true,
+                           "envCount":  90,
+                           "naiveJunk":  0,
+                           "junkInsideCount":  0,
+                           "junkBeforeCount":  0,
+                           "junkAfterCount":  0,
+                           "junkInsideSample":  [
+
+                                                ],
+                           "junkBeforeSample":  [
+
+                                                ],
+                           "junkAfterSample":  [
+
+                                               ],
+                           "stdoutBytes":  5582,
+                           "stderrBytes":  616,
+                           "stderrHead":  "#\u003c CLIXML | \u003cObjs Version=\"1.1.0.1\" xmlns=\"http://schemas.microsoft.com/powershell/2004/04\"\u003e\u003cObj S=\"progress\" RefId=\"0\"\u003e\u003cTN RefId=\"0\"\u003e\u003cT\u003eSystem.Management.Automation.PSCustomObject\u003c/T\u003e\u003cT\u003eSystem.Object\u003c/T\u003e\u003c/TN\u003e\u003cMS\u003e\u003cI64 N=\"SourceId\"\u003e1\u003c/I64\u003e\u003cPR N=\"Record\"\u003e\u003cAV\u003ePreparing modules for first use.\u003c/AV\u003e\u003cAI\u003e0\u003c/AI\u003e\u003cNil /\u003e\u003cPI\u003e-1\u003c/PI\u003e\u003cPC\u003e-1\u003c/PC\u003e\u003cT\u003eCompleted\u003c/T\u003e\u003cSR\u003e-1\u003c/SR\u003e\u003cSD\u003e \u003c/SD\u003e\u003c/PR\u003e\u003c/MS\u003e\u003c/Obj\u003e\u003cObj S=\"progre",
+                           "marker":  "WF26_MARK=CUAH;CUCH"
+                       },
+    "noProfileFlag":  {
+                          "exit":  0,
+                          "timedOut":  false,
+                          "ms":  1042,
+                          "beginCount":  1,
+                          "endCount":  1,
+                          "framed":  true,
+                          "envCount":  89,
+                          "naiveJunk":  0,
+                          "junkInsideCount":  0,
+                          "junkBeforeCount":  0,
+                          "junkAfterCount":  0,
+                          "junkInsideSample":  [
+
+                                               ],
+                          "junkBeforeSample":  [
+
+                                               ],
+                          "junkAfterSample":  [
+
+                                              ],
+                          "stdoutBytes":  5561,
+                          "stderrBytes":  616,
+                          "stderrHead":  "#\u003c CLIXML | \u003cObjs Version=\"1.1.0.1\" xmlns=\"http://schemas.microsoft.com/powershell/2004/04\"\u003e\u003cObj S=\"progress\" RefId=\"0\"\u003e\u003cTN RefId=\"0\"\u003e\u003cT\u003eSystem.Management.Automation.PSCustomObject\u003c/T\u003e\u003cT\u003eSystem.Object\u003c/T\u003e\u003c/TN\u003e\u003cMS\u003e\u003cI64 N=\"SourceId\"\u003e1\u003c/I64\u003e\u003cPR N=\"Record\"\u003e\u003cAV\u003ePreparing modules for first use.\u003c/AV\u003e\u003cAI\u003e0\u003c/AI\u003e\u003cNil /\u003e\u003cPI\u003e-1\u003c/PI\u003e\u003cPC\u003e-1\u003c/PC\u003e\u003cT\u003eCompleted\u003c/T\u003e\u003cSR\u003e-1\u003c/SR\u003e\u003cSD\u003e \u003c/SD\u003e\u003c/PR\u003e\u003c/MS\u003e\u003c/Obj\u003e\u003cObj S=\"progre",
+                          "marker":  ""
+                      },
+    "chattyErr_naive":  {
+                            "exit":  1,
+                            "timedOut":  true,
+                            "ms":  12240,
+                            "beginCount":  0,
+                            "endCount":  0,
+                            "framed":  false,
+                            "envCount":  0,
+                            "naiveJunk":  0,
+                            "junkInsideCount":  0,
+                            "junkBeforeCount":  0,
+                            "junkAfterCount":  0,
+                            "junkInsideSample":  [
+
+                                                 ],
+                            "junkBeforeSample":  [
+
+                                                 ],
+                            "junkAfterSample":  [
+
+                                                ],
+                            "stdoutBytes":  0,
+                            "stderrBytes":  3851,
+                            "stderrHead":  "#\u003c CLIXML | \u003cObjs Version=\"1.1.0.1\" xmlns=\"http://schemas.microsoft.com/powershell/2004/04\"\u003e\u003cS S=\"Error\"\u003eError formatting a string: Index (zero based) must be greater than or equal to zero and less than the size of the _x000D__x000A_\u003c/S\u003e\u003cS S=\"Error\"\u003eargument list.._x000D__x000A_\u003c/S\u003e\u003cS S=\"Error\"\u003eAt C:\\Users\\ahmet\\.claude\\jobs\\5c722bde\\tmp\\fakehome\\Documents\\WindowsPowerShell\\Microsoft.PowerShell_pr",
+                            "marker":  ""
+                        },
+    "chattyOut_naive":  {
+                            "exit":  1,
+                            "timedOut":  true,
+                            "ms":  12209,
+                            "beginCount":  0,
+                            "endCount":  0,
+                            "framed":  false,
+                            "envCount":  0,
+                            "naiveJunk":  0,
+                            "junkInsideCount":  0,
+                            "junkBeforeCount":  0,
+                            "junkAfterCount":  0,
+                            "junkInsideSample":  [
+
+                                                 ],
+                            "junkBeforeSample":  [
+
+                                                 ],
+                            "junkAfterSample":  [
+
+                                                ],
+                            "stdoutBytes":  4095,
+                            "stderrBytes":  11,
+                            "stderrHead":  "#\u003c CLIXML",
+                            "marker":  ""
+                        }
+}
