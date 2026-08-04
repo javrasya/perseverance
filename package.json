@@ -1,0 +1,43 @@
+{
+  "name": "perseverance",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "browserslist": [
+    "safari >= 16.4",
+    "chrome >= 111"
+  ],
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "check:css-floor": "stylelint \"src/**/*.css\"",
+    "check:model-purity": "node scripts/check-model-purity.mjs",
+    "verify": "npm run typecheck && npm run check:css-floor && npm run check:model-purity && npm run test && npm run build"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2",
+    "react": "^19",
+    "react-dom": "^19"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2",
+    "@types/node": "^26.1.2",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^5",
+    "browserslist-to-esbuild": "^2",
+    "jsdom": "^29.1.1",
+    "stylelint": "^16",
+    "stylelint-no-unsupported-browser-features": "^8",
+    "typescript": "~5.9",
+    "vite": "^7",
+    "vitest": "^3"
+  }
+}

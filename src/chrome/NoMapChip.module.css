@@ -1,0 +1,24 @@
+.chip {
+  --c-chip-line: var(--s-line-absent);
+  --c-chip-ink: var(--s-ink-secondary);
+
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-space-tight);
+  padding: var(--s-space-hair) var(--s-space-snug);
+  border: var(--s-border-hairline) dashed var(--c-chip-line);
+  border-radius: var(--s-radius-chip);
+  background: transparent;
+  color: var(--c-chip-ink);
+  font-size: var(--s-text-small);
+}
+
+.dash {
+  color: var(--s-ink-faint);
+  font-family: var(--s-font-mono);
+}
+
+.label {
+  letter-spacing: var(--s-tracking-label);
+  text-transform: lowercase;
+}

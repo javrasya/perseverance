@@ -1,0 +1,30 @@
+[package]
+name = "perseverance-app"
+description = "The thin Tauri shell. Wiring only — no derivation, no policy."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# The app-level artifact is named `perseverance`. `wayfinder` stays reserved for
+# the skill's vocabulary and never appears in a shipped name.
+[[bin]]
+name = "perseverance"
+path = "src/main.rs"
+
+[lib]
+name = "perseverance_app"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+perseverance-model = { workspace = true }
+perseverance-github = { workspace = true }
+perseverance-agent = { workspace = true }
+perseverance-pty = { workspace = true }
+tauri = { version = "2", features = [] }
+serde = { workspace = true }
+serde_json = { workspace = true }

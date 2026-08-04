@@ -1,0 +1,13 @@
+[package]
+name = "perseverance-agent"
+description = "The agent trait and its adapters. Planning is pure; the harness owns the PTY."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+
+[lints.rust]
+unsafe_code = "forbid"

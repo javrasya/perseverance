@@ -1,0 +1,42 @@
+/*
+ * Tier 3 — component tokens. Local `--c-*` are allowed, and must be defined
+ * from semantic tokens. Reaching past tier 2 to a `--p-*` is a test failure.
+ */
+
+.switch {
+  --c-switch-ink: var(--s-ink-secondary);
+  --c-switch-ink-selected: var(--s-accent-ink);
+  --c-switch-fill-selected: var(--s-accent);
+
+  display: inline-flex;
+  gap: var(--s-space-hair);
+  padding: var(--s-space-hair);
+  border: var(--s-border-hairline) solid var(--s-line-quiet);
+  border-radius: var(--s-radius-chip);
+  background: var(--s-surface-raised);
+}
+
+.option {
+  padding: var(--s-space-hair) var(--s-space-snug);
+  border: none;
+  border-radius: var(--s-radius-chip);
+  background: transparent;
+  color: var(--c-switch-ink);
+  font: inherit;
+  font-size: var(--s-text-micro);
+  letter-spacing: var(--s-tracking-label);
+  text-transform: uppercase;
+  cursor: pointer;
+  transition:
+    background-color var(--s-motion-fast) var(--s-motion-ease),
+    color var(--s-motion-fast) var(--s-motion-ease);
+}
+
+.option:hover {
+  color: var(--s-ink-primary);
+}
+
+.option[aria-pressed="true"] {
+  background: var(--c-switch-fill-selected);
+  color: var(--c-switch-ink-selected);
+}

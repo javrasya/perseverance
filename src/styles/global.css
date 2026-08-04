@@ -1,0 +1,51 @@
+@import "./tokens/primitive.css";
+@import "./tokens/semantic.css";
+
+/*
+ * App-level resets and defaults. Semantic tokens only, same as every view.
+ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--s-surface-app);
+  color: var(--s-ink-primary);
+  font-family: var(--s-font-ui);
+  font-size: var(--s-text-body);
+  font-weight: var(--s-weight-regular);
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: var(--s-border-emphasis) solid var(--s-focus-ring);
+  outline-offset: var(--s-space-hair);
+}
+
+/*
+ * Motion is rationed to liveness. The trigger for reduced motion is travel,
+ * not colour: looping ambient animation and transform-based movement go, while
+ * opacity, colour and stroke crossfades stay.
+ *
+ * SMIL is prohibited at stack level precisely because this query cannot reach
+ * it. tests/no-smil.test.ts is the check; this comment is not.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition-property: opacity, color, background-color, border-color, fill,
+      stroke !important;
+  }
+}

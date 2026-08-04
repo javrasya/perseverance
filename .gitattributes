@@ -1,0 +1,7 @@
+# One line ending in the repository, so a Windows + macOS matrix compares like
+# with like and shell scripts stay executable on both.
+* text=auto eol=lf
+
+*.png binary
+*.ico binary
+*.icns binary

@@ -1,0 +1,50 @@
+.app {
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+}
+
+.chrome {
+  display: flex;
+  align-items: center;
+  gap: var(--s-space-base);
+  padding: var(--s-space-snug) var(--s-space-base);
+  border-bottom: var(--s-border-hairline) solid var(--s-line-quiet);
+  background: var(--s-surface-raised);
+}
+
+.brand {
+  color: var(--s-ink-primary);
+  font-size: var(--s-text-small);
+  font-weight: var(--s-weight-emphasis);
+  letter-spacing: var(--s-tracking-label);
+}
+
+.chrome > :last-child {
+  margin-left: auto;
+}
+
+.invitation {
+  margin: 0;
+  color: var(--s-ink-primary);
+  font-size: var(--s-text-title);
+}
+
+.absolution {
+  max-width: 46ch;
+  margin: 0;
+  color: var(--s-ink-secondary);
+  font-size: var(--s-text-small);
+  line-height: 1.5;
+}
+
+.readout {
+  display: flex;
+  gap: var(--s-space-loose);
+  padding: var(--s-space-tight) var(--s-space-base);
+  border-top: var(--s-border-hairline) solid var(--s-line-quiet);
+  background: var(--s-surface-raised);
+  color: var(--s-ink-faint);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-micro);
+}

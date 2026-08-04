@@ -1,0 +1,14 @@
+[package]
+name = "perseverance-github"
+description = "GitHub access and the poller. Owns every network call the app makes."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+perseverance-model = { workspace = true }
+
+[lints.rust]
+unsafe_code = "forbid"
