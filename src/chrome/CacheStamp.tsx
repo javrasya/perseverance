@@ -1,8 +1,15 @@
-import { describeStamp, stampDetail, type MapsView } from "../maps/maps";
+import type { Provenance } from "../snapshot/model.generated";
 import styles from "./CacheStamp.module.css";
+import { describeStamp, stampDetail } from "./stamp";
 
 interface CacheStampProps {
-  view: MapsView;
+  /**
+   * What was read. Two stamps sit side by side and can carry the same words —
+   * the map list and the model are usually read within moments of each other —
+   * so an unnamed stamp is one the reader has to guess the subject of.
+   */
+  what: string;
+  provenance: Provenance;
   /** Epoch seconds, read once per paint rather than by the stamp itself. */
   now: number;
 }
@@ -18,18 +25,23 @@ interface CacheStampProps {
  * A read that did not land ages this stamp and says so beside it. It does not
  * replace the age — a failure that took the age away would stop telling you how
  * stale the screen is at exactly the point that started mattering.
+ *
+ * It takes a `Provenance` and not the thing the provenance came with, so the
+ * map list and the derived model are stamped by one component rather than two
+ * that could come to disagree. Each thing on screen that was read gets its own,
+ * because they are read by different commands and go stale independently.
  */
-export function CacheStamp({ view, now }: CacheStampProps) {
-  const detail = stampDetail(view);
+export function CacheStamp({ what, provenance, now }: CacheStampProps) {
+  const detail = stampDetail(provenance);
 
   return (
     <span
       className={styles.stamp}
-      data-source={view.provenance.source}
-      data-outcome={view.provenance.outcome.kind}
+      data-source={provenance.source}
+      data-outcome={provenance.outcome.kind}
       title={detail ?? undefined}
     >
-      {describeStamp(view, now)}
+      {what} {describeStamp(provenance, now)}
     </span>
   );
 }

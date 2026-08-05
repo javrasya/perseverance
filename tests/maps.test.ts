@@ -116,20 +116,20 @@ describe("the cache age is on screen in every state", () => {
   it("says how old a read is in the coarsest unit that is still true", () => {
     const listed = view();
 
-    expect(stampAge(listed, READ_AT)).toBe("just now");
-    expect(stampAge(listed, READ_AT + 5 * MINUTE)).toBe("5 minutes ago");
+    expect(stampAge(listed.provenance, READ_AT)).toBe("just now");
+    expect(stampAge(listed.provenance, READ_AT + 5 * MINUTE)).toBe("5 minutes ago");
   });
 
   it("says so rather than going blank before anything has been read", () => {
-    expect(stampAge(nothingReadYet(1), READ_AT)).toBe("not read yet");
-    expect(describeStamp(nothingReadYet(1), READ_AT)).toBe("nothing read yet");
+    expect(stampAge(nothingReadYet(1).provenance, READ_AT)).toBe("not read yet");
+    expect(describeStamp(nothingReadYet(1).provenance, READ_AT)).toBe("nothing read yet");
   });
 
   it("tells a live read apart from the copy of one", () => {
-    expect(describeStamp(view(), READ_AT)).toBe("read from GitHub just now");
-    expect(
-      describeStamp(view({ provenance: { ...view().provenance, source: "cache" } }), READ_AT),
-    ).toBe("from the last read just now");
+    expect(describeStamp(view().provenance, READ_AT)).toBe("read from GitHub just now");
+    expect(describeStamp({ ...view().provenance, source: "cache" }, READ_AT)).toBe(
+      "from the last read just now",
+    );
   });
 
   it("keeps saying how old the copy is when nothing newer arrived", () => {
@@ -143,11 +143,11 @@ describe("the cache age is on screen in every state", () => {
       },
     });
 
-    const said = describeStamp(stale, READ_AT + 2 * 60 * MINUTE);
+    const said = describeStamp(stale.provenance, READ_AT + 2 * 60 * MINUTE);
 
     expect(said).toContain("2 hours ago");
     expect(said).toContain("nothing newer has arrived");
-    expect(stampDetail(stale)).toBe("GitHub answered with status 401");
+    expect(stampDetail(stale.provenance)).toBe("GitHub answered with status 401");
   });
 
   it("never claims which step failed, because it cannot tell", () => {
@@ -164,7 +164,7 @@ describe("the cache age is on screen in every state", () => {
       },
     });
 
-    const said = describeStamp(unstored, READ_AT);
+    const said = describeStamp(unstored.provenance, READ_AT);
 
     expect(said).toBe("read from GitHub just now — not stored for next time");
     expect(said).not.toContain("did not land");
@@ -180,13 +180,13 @@ describe("the cache age is on screen in every state", () => {
       },
     };
 
-    expect(describeStamp(nothing, READ_AT)).toBe(
+    expect(describeStamp(nothing.provenance, READ_AT)).toBe(
       "nothing read yet — nothing newer has arrived",
     );
   });
 
   it("carries no detail when nothing failed", () => {
-    expect(stampDetail(view())).toBeNull();
+    expect(stampDetail(view().provenance)).toBeNull();
   });
 });
 

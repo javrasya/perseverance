@@ -23,6 +23,7 @@
       "issue": {
         "number": 28,
         "title": "Spec: perseverance",
+        "state": "OPEN",
         "url": "https://github.com/o/r/issues/28",
         "updatedAt": "2026-08-05T09:12:44Z",
         "labels": { "nodes": [{ "name": "wayfinder:map" }] },

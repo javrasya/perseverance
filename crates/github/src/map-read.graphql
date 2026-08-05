@@ -25,7 +25,7 @@ query MapRead($owner: String!, $repo: String!, $number: Int!, $open: Boolean!) {
     }
 
     issue(number: $number) @include(if: $open) {
-      number title body url updatedAt
+      number title state body url updatedAt
       labels(first: 10) { nodes { name } }
       subIssues(first: 100) {
         pageInfo { hasNextPage }

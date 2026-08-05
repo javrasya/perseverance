@@ -1,0 +1,100 @@
+{
+  "_why": "The rung above wayfinding: every ticket closed, one spec published as a child of the map. There is nothing to start, so the frontier is an absence rather than the first row — and the map is still open, because reaching the destination is not the same act as closing the map.",
+  "data": {
+    "repository": {
+      "maps": {
+        "pageInfo": { "hasNextPage": false },
+        "nodes": [
+          {
+            "number": 90,
+            "title": "Spec: worked through",
+            "state": "OPEN",
+            "url": "https://github.com/o/r/issues/90",
+            "updatedAt": "2026-08-05T09:12:44Z"
+          }
+        ]
+      },
+      "issue": {
+        "number": 90,
+        "title": "Spec: worked through",
+        "state": "OPEN",
+        "url": "https://github.com/o/r/issues/90",
+        "updatedAt": "2026-08-05T09:12:44Z",
+        "labels": { "nodes": [{ "name": "wayfinder:map" }] },
+        "subIssues": {
+          "pageInfo": { "hasNextPage": false },
+          "nodes": [
+            {
+              "number": 91,
+              "title": "What the terminal already knows",
+              "state": "CLOSED",
+              "stateReason": "COMPLETED",
+              "url": "https://github.com/o/r/issues/91",
+              "updatedAt": "2026-08-01T10:00:00Z",
+              "labels": { "nodes": [{ "name": "wayfinder:research", "color": "0e8a16" }] },
+              "assignees": { "nodes": [{ "login": "javrasya" }] },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 0,
+                "blocking": 1,
+                "totalBlocking": 1
+              },
+              "blockedBy": { "pageInfo": { "hasNextPage": false }, "nodes": [] }
+            },
+            {
+              "number": 92,
+              "title": "Does the shape hold",
+              "state": "CLOSED",
+              "stateReason": "COMPLETED",
+              "url": "https://github.com/o/r/issues/92",
+              "updatedAt": "2026-08-02T10:00:00Z",
+              "labels": { "nodes": [{ "name": "wayfinder:prototype", "color": "fbca04" }] },
+              "assignees": { "nodes": [{ "login": "javrasya" }] },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 1,
+                "blocking": 0,
+                "totalBlocking": 0
+              },
+              "blockedBy": {
+                "pageInfo": { "hasNextPage": false },
+                "nodes": [
+                  {
+                    "number": 91,
+                    "title": "What the terminal already knows",
+                    "state": "CLOSED",
+                    "repository": { "nameWithOwner": "o/r" }
+                  }
+                ]
+              }
+            },
+            {
+              "number": 93,
+              "title": "Spec: worked through, composed",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/93",
+              "updatedAt": "2026-08-03T10:00:00Z",
+              "labels": { "nodes": [{ "name": "wayfinder:spec", "color": "5319e7" }] },
+              "assignees": { "nodes": [] },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 0,
+                "blocking": 0,
+                "totalBlocking": 0
+              },
+              "blockedBy": { "pageInfo": { "hasNextPage": false }, "nodes": [] }
+            }
+          ]
+        }
+      }
+    },
+    "rateLimit": {
+      "cost": 1,
+      "nodeCount": 42,
+      "limit": 5000,
+      "remaining": 4901,
+      "resetAt": "2026-08-05T11:02:14Z"
+    }
+  }
+}

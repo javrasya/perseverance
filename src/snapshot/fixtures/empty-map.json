@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "model": {
+    "map": {
+      "number": 80,
+      "title": "Spec: nothing charted yet",
+      "closed": false,
+      "phase": "unstarted",
+      "counts": {
+        "tickets": 0,
+        "open": 0,
+        "specs": 0
+      },
+      "nodes": [],
+      "frontier": null
+    }
+  },
+  "provenance": {
+    "source": "fixture",
+    "outcome": {
+      "kind": "ok"
+    },
+    "fetchedAt": "2026-08-05T08:00:00Z"
+  }
+}

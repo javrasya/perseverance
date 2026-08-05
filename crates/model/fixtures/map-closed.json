@@ -1,0 +1,56 @@
+{
+  "_why": "The top rung, and the one that has to beat everything below it. This map is closed while a takeable ticket is still open on it — an operator deciding the map is finished is a statement about the map, and it is above every conclusion the children could support. A ladder that read the children first would show this map as still being worked.",
+  "data": {
+    "repository": {
+      "maps": {
+        "pageInfo": { "hasNextPage": false },
+        "nodes": [
+          {
+            "number": 100,
+            "title": "Spec: called finished",
+            "state": "CLOSED",
+            "url": "https://github.com/o/r/issues/100",
+            "updatedAt": "2026-08-05T09:12:44Z"
+          }
+        ]
+      },
+      "issue": {
+        "number": 100,
+        "title": "Spec: called finished",
+        "state": "CLOSED",
+        "url": "https://github.com/o/r/issues/100",
+        "updatedAt": "2026-08-05T09:12:44Z",
+        "labels": { "nodes": [{ "name": "wayfinder:map" }] },
+        "subIssues": {
+          "pageInfo": { "hasNextPage": false },
+          "nodes": [
+            {
+              "number": 101,
+              "title": "Never picked up, and no longer needed",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/101",
+              "updatedAt": "2026-08-01T10:00:00Z",
+              "labels": { "nodes": [{ "name": "wayfinder:task", "color": "1d76db" }] },
+              "assignees": { "nodes": [] },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 0,
+                "blocking": 0,
+                "totalBlocking": 0
+              },
+              "blockedBy": { "pageInfo": { "hasNextPage": false }, "nodes": [] }
+            }
+          ]
+        }
+      }
+    },
+    "rateLimit": {
+      "cost": 1,
+      "nodeCount": 18,
+      "limit": 5000,
+      "remaining": 4955,
+      "resetAt": "2026-08-05T11:02:14Z"
+    }
+  }
+}

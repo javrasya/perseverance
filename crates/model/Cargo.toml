@@ -14,5 +14,20 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 
+# The TypeScript the WebView compiles against is generated from the types in
+# this crate, and `ts-rs` is what generates it. A dev-dependency, and the
+# derives that use it sit behind `cfg_attr(test, …)`, so nothing of it is in
+# the shipped binary — the seam gains a generator without gaining a dependency.
+#
+# It is checked by scripts/check-model-purity.mjs like everything else here:
+# `--edges normal,build,dev` means a dev-dependency that dragged in a browser
+# or a socket would fail exactly as a real one would.
+#
+# Pinned exactly. The file it writes is compared byte for byte by
+# `bindings.rs`, so a patch release that reflowed its output would turn every
+# open pull request red for a reason that is nobody's change.
+[dev-dependencies]
+ts-rs = "=12.0.1"
+
 [lints.rust]
 unsafe_code = "forbid"
