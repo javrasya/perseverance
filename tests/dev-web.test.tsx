@@ -119,6 +119,40 @@ describe("dev:web", () => {
     expect(fresh).not.toContain("nothing newer has arrived");
   });
 
+  it("stamps each thing that was read from its own provenance, and names which", async () => {
+    /*
+     * Two stamps, and the ways this goes wrong are both silent. Feed one of
+     * them the other's provenance and a stale map list reads as fresh — the
+     * exact failure the stamp exists to prevent, and invisible, because the
+     * wrong stamp is still a plausible-looking stamp. Drop the labels and the
+     * reader cannot tell which of two identical sentences is about what.
+     *
+     * So this asserts the pairing rather than the presence: on this fixture
+     * the model was read and the map list was not, and no single provenance
+     * can produce both of those sentences.
+     */
+    await boot("/?map=unreachable");
+    const stamps = [...document.querySelectorAll("[data-source]")].map((el) => ({
+      source: el.getAttribute("data-source"),
+      text: el.textContent ?? "",
+    }));
+
+    expect(stamps).toHaveLength(2);
+    const [model, mapList] = stamps;
+    if (model === undefined || mapList === undefined) throw new Error("two stamps expected");
+
+    // The model came from a copy, because the poll that would have replaced it
+    // failed. The age moves with the real clock, so only the words are pinned.
+    expect(model.source).toBe("cache");
+    expect(model.text.startsWith("model from the last read")).toBe(true);
+    expect(model.text).toContain("nothing newer has arrived");
+
+    // Nothing has opened a folder, so the map list has never been read — and
+    // says so, rather than borrowing the age of something that has been.
+    expect(mapList.source).toBe("none");
+    expect(mapList.text).toBe("maps nothing read yet");
+  });
+
   it("carries the reason the read did not land, in the words it arrived in", async () => {
     await boot("/?map=unreachable");
     const stamp = document.querySelector('[data-outcome="failed"]');
