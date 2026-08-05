@@ -17,7 +17,6 @@
  * because a cache with age on it is a state a fresh browser cannot conjure.
  */
 
-import { relativeAge, secondsFromStamp } from "../chrome/age";
 import { hasRustBehindIt, type Provenance } from "../snapshot/snapshot";
 import fixture from "./maps.fixture.json";
 
@@ -147,66 +146,14 @@ export function hasBeenRead(view: MapsView): boolean {
 
 /* --------------------------------------------------------------- stamp --- */
 
-/**
- * How old what you are reading is, permanently on screen.
- *
- * Three states and no fourth: never read, read from GitHub, read from a copy.
- * A failed read does not get a state of its own here — it ages the stamp of
- * whatever is being shown, which is the copy.
+/*
+ * The stamp wording moved to `chrome/stamp.ts` when the derived model grew one
+ * too. It was never about maps — it only ever read `view.provenance` — and two
+ * subsystems stamping the same `Provenance` in two vocabularies is exactly the
+ * drift the phrasing is centralised to prevent. Re-exported here because a
+ * caller holding a `MapsView` should not have to know where the words live.
  */
-export function stampAge(view: MapsView, now?: number): string {
-  const at = secondsFromStamp(view.provenance.fetchedAt);
-  if (at === null) return "not read yet";
-  return relativeAge(at, now);
-}
-
-export function stampSource(view: MapsView): string {
-  switch (view.provenance.source) {
-    case "github":
-      return "read from GitHub";
-    case "cache":
-      return "from the last read";
-    case "fixture":
-      return "from a checked-in fixture";
-    case "none":
-      return "nothing read";
-  }
-}
-
-/**
- * The whole stamp, as one sentence.
- *
- * A failure keeps saying how old the copy is rather than replacing it, because
- * a stamp that swapped the age for an error would stop reporting staleness at
- * exactly the moment staleness started mattering.
- *
- * What the failure clause may *not* do is assert which step failed. A read that
- * landed and could not be stored, a read that was never attempted because the
- * folder names no GitHub repository, and a read that could not reach anything
- * all arrive here as the same shape — telling them apart is #40's ticket, and a
- * clause that guessed would be wrong in two cases out of three. So the two
- * clauses say only what is true of the thing on screen: a live read that will
- * not survive the session, or a copy that nothing newer has replaced. The
- * reason itself rides beside this, in the words of whoever established it.
- */
-export function describeStamp(view: MapsView, now?: number): string {
-  const failed = view.provenance.outcome.kind === "failed";
-
-  if (view.provenance.source === "none") {
-    return failed ? "nothing read yet — nothing newer has arrived" : "nothing read yet";
-  }
-
-  const said = `${stampSource(view)} ${stampAge(view, now)}`;
-  if (!failed) return said;
-  return view.provenance.source === "github"
-    ? `${said} — not stored for next time`
-    : `${said} — nothing newer has arrived`;
-}
-
-/** The reason a read did not land, in the words of whoever established it. */
-export function stampDetail(view: MapsView): string | null {
-  return view.provenance.outcome.kind === "failed" ? view.provenance.outcome.detail : null;
-}
+export { describeStamp, stampAge, stampDetail, stampSource } from "../chrome/stamp";
 
 /* ---------------------------------------------------------------- copy --- */
 

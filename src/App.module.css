@@ -42,9 +42,17 @@
   overflow: hidden;
 }
 
+/*
+ * Two stamps now share this strip with the model's readout, and a stamp may
+ * never be pushed off the window — the moment staleness stops being visible is
+ * the moment a stale screen looks fresh. So the row wraps rather than
+ * overflowing, and every stamp stays on screen at any width.
+ */
 .readout {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--s-space-loose);
+  row-gap: var(--s-space-tight);
   padding: var(--s-space-tight) var(--s-space-base);
   border-top: var(--s-border-hairline) solid var(--s-line-quiet);
   background: var(--s-surface-raised);

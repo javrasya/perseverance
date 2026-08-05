@@ -285,12 +285,25 @@ export function App() {
         */}
         <span>{describeModel(snapshot.model)}</span>
         {/*
+          And how old that model is, beside it rather than anywhere else. The
+          derivation is the same whether the poll landed or failed — a failed
+          poll re-emits the last model with aged provenance rather than going
+          silent — so the model alone cannot tell you which of the two you are
+          looking at. Without this the two states are the same pixels.
+        */}
+        <CacheStamp what="model" provenance={snapshot.provenance} now={nowSeconds()} />
+        {/*
           How old what you are reading is, on chrome that survives every state.
           It is here rather than beside the map list because it may never be a
           casualty of what else is on screen — the moment it is conditional is
           the moment a stale screen can look fresh.
+
+          A second stamp rather than a merged one: the map list and the model
+          are read by different commands and go stale independently, and one
+          stamp covering both would have to report the fresher or the staler,
+          either of which is a lie about the other.
         */}
-        <CacheStamp view={maps} now={nowSeconds()} />
+        <CacheStamp what="maps" provenance={maps.provenance} now={nowSeconds()} />
         {/* One more field of the readout that already exists, rather than a
             second place to look for machine facts. */}
         <EnvironmentSummary

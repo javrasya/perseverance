@@ -7,9 +7,13 @@ import {
   requestedFixture,
   type FixtureName,
 } from "../src/snapshot/fixtures";
+import { describeStamp, stampDetail } from "../src/chrome/stamp";
 import { NO_FRONTIER, NO_MAP_OPEN, PHASE_NAMES, describeModel } from "../src/snapshot/readout";
 import { noMapOpen } from "../src/snapshot/snapshot";
 import { collect } from "./support/sources";
+
+/** Two hours after the fixtures were stamped, so the age has something to say. */
+const AGED_AT = Math.floor(Date.parse("2026-08-05T10:00:00Z") / 1000);
 
 /**
  * The generated types are the only mirror of the Rust seam, so nothing here
@@ -182,6 +186,41 @@ describe("there is one frontier resolver and it is in Rust", () => {
       .sort();
 
     expect(onDisk).toEqual([...FIXTURE_NAMES].sort());
+  });
+});
+
+describe("staleness is spelled once, for everything that was read", () => {
+  /**
+   * The map list and the derived model are read by different commands, go
+   * stale independently, and are stamped from the same generated `Provenance`.
+   * One vocabulary is what stops *from the last read* meaning two things on one
+   * screen — so the words live in exactly one file, and this is what says so.
+   */
+  it("keeps the stamp's words out of every file but the one that owns them", () => {
+    const phrases = /from the last read|nothing newer has arrived|not stored for next time/;
+    const offenders = collect([".ts", ".tsx"])
+      .filter((file) => phrases.test(file.text))
+      .map((file) => file.path);
+
+    expect(offenders).toEqual(["src/chrome/stamp.ts"]);
+  });
+
+  it("stamps a failed poll as the copy it is rather than as a live read", () => {
+    const failed = FIXTURES.unreachable.provenance;
+    const read = FIXTURES["awkward-map"].provenance;
+
+    // Same model on both, so the stamp is the only thing that can tell them
+    // apart — which is the whole reason it is on screen.
+    expect(describeStamp(failed, AGED_AT)).toContain("nothing newer has arrived");
+    expect(describeStamp(read, AGED_AT)).not.toContain("nothing newer has arrived");
+    expect(stampDetail(failed)).toBe("could not reach GitHub");
+    expect(stampDetail(read)).toBeNull();
+  });
+
+  it("never drops the age when the reason arrives", () => {
+    // The moment staleness starts mattering is the moment a stamp that swapped
+    // the age for an error would have stopped reporting it.
+    expect(describeStamp(FIXTURES.unreachable.provenance, AGED_AT)).toContain("2 hours ago");
   });
 });
 

@@ -28,6 +28,11 @@ import { hasRustBehindIt } from "../src/snapshot/snapshot";
 let mounted: { root: ReturnType<typeof createRoot>; host: HTMLElement } | null = null;
 
 async function boot(search: string): Promise<string> {
+  // Booting twice in one test is how two fixtures get compared, and a mount
+  // left behind would go on answering `document.querySelector` for the rest of
+  // the file — so the previous one goes before the next one arrives.
+  teardown();
+
   // The one thing a browser cannot be talked out of: `jsdom` has a `window`,
   // and what makes this the `dev:web` path is that nothing put Tauri on it.
   window.history.replaceState({}, "", search);
@@ -48,13 +53,15 @@ async function boot(search: string): Promise<string> {
   return host.textContent ?? "";
 }
 
-afterEach(() => {
+function teardown() {
   if (mounted === null) return;
   const { root, host } = mounted;
   act(() => root.unmount());
   host.remove();
   mounted = null;
-});
+}
+
+afterEach(teardown);
 
 describe("dev:web", () => {
   it("has no Rust behind it, which is the whole condition", () => {
@@ -93,5 +100,29 @@ describe("dev:web", () => {
     // Never silence. The frontier is still named, because what was read last
     // time is still what is true of the last time anybody looked.
     expect(text).toContain(`frontier #${map.frontier}`);
+  });
+
+  it("says the model is stale rather than showing a failed poll as a fresh one", async () => {
+    /*
+     * The two fixtures carry the same model and differ only in provenance —
+     * which is the whole point of a failed poll re-emitting rather than going
+     * silent, and also the way this could go quietly wrong. A screen that drew
+     * them identically would be presenting an unreachable GitHub as a live
+     * read, which is the one thing the provenance rules exist to prevent.
+     */
+    const failed = await boot("/?map=unreachable");
+    expect(failed).toContain("from the last read");
+    expect(failed).toContain("nothing newer has arrived");
+
+    const fresh = await boot("/?map=awkward-map");
+    expect(fresh).toContain("from a checked-in fixture");
+    expect(fresh).not.toContain("nothing newer has arrived");
+  });
+
+  it("carries the reason the read did not land, in the words it arrived in", async () => {
+    await boot("/?map=unreachable");
+    const stamp = document.querySelector('[data-outcome="failed"]');
+
+    expect(stamp?.getAttribute("title")).toBe("could not reach GitHub");
   });
 });
