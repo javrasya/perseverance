@@ -5,7 +5,19 @@
   flex: 1;
   flex-direction: column;
   align-items: center;
+  /*
+   * `safe` is the whole point, and the plain value below it is the fallback a
+   * browser that does not know the keyword lands on.
+   *
+   * The region is stretched to the body's height and the body is the scroller,
+   * so content taller than the region overflows it in both directions — and
+   * ordinary centring puts the first half of that overflow *above* the
+   * scrollable origin, where no amount of scrolling can reach it. The heading
+   * simply goes missing. `safe` says: centre while it fits, align to the start
+   * the moment it does not.
+   */
   justify-content: center;
+  justify-content: safe center;
   gap: var(--s-space-base);
   margin: var(--s-space-base);
   padding: var(--s-space-room);
