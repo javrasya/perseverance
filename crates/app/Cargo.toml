@@ -26,9 +26,16 @@ perseverance-github = { workspace = true }
 perseverance-agent = { workspace = true }
 perseverance-pty = { workspace = true }
 perseverance-store = { workspace = true }
+perseverance-env = { workspace = true }
 tauri = { version = "2", features = [] }
 # The folder picker. It is answered in Rust and only a path crosses to the
 # WebView, so the frontend needs no dialog package and no file permission.
 tauri-plugin-dialog = "2"
 serde = { workspace = true }
 serde_json = { workspace = true }
+
+# For the one test that runs a real child and then asserts the directory it ran
+# in is exactly as it was. The compile-time half of "never touches disk" needs
+# nothing; this is the other half.
+[dev-dependencies]
+tempfile = { workspace = true }

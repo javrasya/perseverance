@@ -6,6 +6,7 @@ members = [
   "crates/agent",
   "crates/pty",
   "crates/store",
+  "crates/env",
   "crates/app",
 ]
 
@@ -22,6 +23,7 @@ perseverance-github = { path = "crates/github" }
 perseverance-agent = { path = "crates/agent" }
 perseverance-pty = { path = "crates/pty" }
 perseverance-store = { path = "crates/store" }
+perseverance-env = { path = "crates/env" }
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

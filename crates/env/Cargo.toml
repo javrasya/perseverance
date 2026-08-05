@@ -1,0 +1,24 @@
+[package]
+name = "perseverance-env"
+description = "The environment harvest. Runs the operator's login shell as an environment source, in memory, once per launch."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# One dependency, and a second of either is visible in a diff — the same bargain
+# ADR 0001 struck for the store. In particular there is no `serde` here and
+# there may not be: without it `Environment` cannot be spelled as JSON, so
+# "the harvested environment never touches disk" is a compile error rather than
+# a convention. No socket, no Tauri, no terminal.
+[dependencies]
+thiserror = { workspace = true }
+
+# For the temporary directories the stub-shell and `resolve` tests point a
+# harvested PATH at, so no test ever writes outside one.
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints.rust]
+unsafe_code = "forbid"

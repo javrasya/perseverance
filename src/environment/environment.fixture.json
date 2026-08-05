@@ -1,0 +1,162 @@
+{
+  "harvesting": {
+    "harvest": { "kind": "harvesting" },
+    "shell": { "kind": "none" },
+    "path": null,
+    "pathSource": "none",
+    "variableCount": 0,
+    "elapsedMs": 0,
+    "tally": {
+      "recordsSeen": 0,
+      "recordsDropped": 0,
+      "duplicatesDropped": 0,
+      "bytesBeforeFrame": 0,
+      "bytesAfterFrame": 0,
+      "extraOpeningMarks": 0
+    },
+    "stderr": { "kind": "empty", "bytes": 0, "text": "" },
+    "token": { "kind": "notAttempted" }
+  },
+
+  "harvested": {
+    "harvest": { "kind": "harvested" },
+    "shell": { "kind": "loginShell", "program": "/bin/zsh", "flags": ["-lic"] },
+    "path": "/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Users/you/.local/bin",
+    "pathSource": "harvest",
+    "variableCount": 142,
+    "elapsedMs": 187,
+    "tally": {
+      "recordsSeen": 142,
+      "recordsDropped": 0,
+      "duplicatesDropped": 0,
+      "bytesBeforeFrame": 0,
+      "bytesAfterFrame": 0,
+      "extraOpeningMarks": 0
+    },
+    "stderr": { "kind": "empty", "bytes": 0, "text": "" },
+    "token": { "kind": "acquired" }
+  },
+
+  "stub": {
+    "harvest": { "kind": "harvested" },
+    "shell": { "kind": "loginShell", "program": "/bin/zsh", "flags": ["-lic"] },
+    "path": "/usr/bin:/bin:/usr/sbin:/sbin",
+    "pathSource": "harvest",
+    "variableCount": 12,
+    "elapsedMs": 131,
+    "tally": {
+      "recordsSeen": 12,
+      "recordsDropped": 0,
+      "duplicatesDropped": 0,
+      "bytesBeforeFrame": 0,
+      "bytesAfterFrame": 0,
+      "extraOpeningMarks": 0
+    },
+    "stderr": { "kind": "empty", "bytes": 0, "text": "" },
+    "token": {
+      "kind": "refused",
+      "detail": "nothing named gh is on the PATH this run acquired, across its 4 directories, so there is no token to ask for"
+    }
+  },
+
+  "inherited": {
+    "harvest": {
+      "kind": "inherited",
+      "detail": "the harvest opened but was still not closed after 8000 ms: either the shell is still working through its start-up files, or nothing here read what it wrote"
+    },
+    "shell": { "kind": "loginShell", "program": "/bin/zsh", "flags": ["-lic"] },
+    "path": "/usr/bin:/bin:/usr/sbin:/sbin",
+    "pathSource": "inherited",
+    "variableCount": 12,
+    "elapsedMs": 8003,
+    "tally": {
+      "recordsSeen": 0,
+      "recordsDropped": 0,
+      "duplicatesDropped": 0,
+      "bytesBeforeFrame": 214,
+      "bytesAfterFrame": 0,
+      "extraOpeningMarks": 0
+    },
+    "stderr": { "kind": "text", "bytes": 23, "text": "command not found: fnm\n" },
+    "token": { "kind": "notAttempted" }
+  },
+
+  "noShell": {
+    "harvest": {
+      "kind": "inherited",
+      "detail": "the environment this app was launched with names no shell, and guessing at one would run start-up files nobody asked this app to run"
+    },
+    "shell": { "kind": "none" },
+    "path": "/usr/bin:/bin:/usr/sbin:/sbin",
+    "pathSource": "inherited",
+    "variableCount": 11,
+    "elapsedMs": 0,
+    "tally": {
+      "recordsSeen": 0,
+      "recordsDropped": 0,
+      "duplicatesDropped": 0,
+      "bytesBeforeFrame": 0,
+      "bytesAfterFrame": 0,
+      "extraOpeningMarks": 0
+    },
+    "stderr": { "kind": "empty", "bytes": 0, "text": "" },
+    "token": { "kind": "notAttempted" }
+  },
+
+  "windowsClean": {
+    "harvest": { "kind": "harvested" },
+    "shell": {
+      "kind": "powerShell",
+      "program": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "flags": ["-NoLogo", "-EncodedCommand"]
+    },
+    "path": "C:\\Windows\\system32;C:\\Windows;C:\\Windows\\System32\\Wbem;C:\\Program Files\\Git\\cmd;C:\\Users\\you\\AppData\\Local\\Microsoft\\WindowsApps",
+    "pathSource": "harvest",
+    "variableCount": 89,
+    "elapsedMs": 1481,
+    "tally": {
+      "recordsSeen": 89,
+      "recordsDropped": 0,
+      "duplicatesDropped": 0,
+      "bytesBeforeFrame": 0,
+      "bytesAfterFrame": 0,
+      "extraOpeningMarks": 0
+    },
+    "stderr": {
+      "kind": "clixml",
+      "bytes": 273,
+      "text": "#< CLIXML\r\n<Objs Version=\"1.1.0.1\" xmlns=\"http://schemas.microsoft.com/powershell/2004/04\"><S S=\"Error\">File C:\\Users\\you\\Documents\\WindowsPowerShell\\Microsoft.PowerShell_profile.ps1 cannot _x000D__x000A_be loaded. The file is not digitally signed._x000D__x000A_</S></Objs>"
+    },
+    "token": {
+      "kind": "refused",
+      "detail": "nothing named gh is on the PATH this run acquired, across its 5 directories, so there is no token to ask for"
+    }
+  },
+
+  "noisy": {
+    "harvest": { "kind": "harvested" },
+    "shell": {
+      "kind": "powerShell",
+      "program": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "flags": ["-NoLogo", "-EncodedCommand"]
+    },
+    "path": "C:\\Windows\\system32;C:\\Windows;C:\\Program Files\\Git\\cmd;C:\\Users\\you\\scoop\\shims",
+    "pathSource": "harvest",
+    "variableCount": 142,
+    "elapsedMs": 1904,
+    "tally": {
+      "recordsSeen": 148,
+      "recordsDropped": 5,
+      "duplicatesDropped": 1,
+      "bytesBeforeFrame": 318,
+      "bytesAfterFrame": 61,
+      "extraOpeningMarks": 0
+    },
+    "stderr": {
+      "kind": "clixml",
+      "bytes": 201,
+      "text": "#< CLIXML\r\n<Objs Version=\"1.1.0.1\" xmlns=\"http://schemas.microsoft.com/powershell/2004/04\"><Obj S=\"progress\" RefId=\"0\"><TN RefId=\"0\"><T>System.Management.Automation.PSCustomObject</T></TN></Obj></Objs>"
+    },
+    "token": { "kind": "acquired" }
+  }
+}

@@ -8,7 +8,7 @@ This is the walking skeleton: the empty room, correctly shaped. The spec is
 
 ## Shape
 
-A Cargo workspace of six crates plus a React 19 + TypeScript frontend.
+A Cargo workspace of seven crates plus a React 19 + TypeScript frontend.
 
 | Crate | Owns | Never |
 |---|---|---|
@@ -17,6 +17,7 @@ A Cargo workspace of six crates plus a React 19 + TypeScript frontend.
 | `perseverance-agent` | The agent trait and its adapters; planning | Spawning anything |
 | `perseverance-pty` | PTY and child-process ownership | Deciding what to run |
 | `perseverance-store` | The launcher registry: one SQLite file, its schema, and binding a folder to its repo | The network, Tauri, a child process |
+| `perseverance-env` | The environment harvest: the operator's login shell asked once, in memory, and running one program inside the answer | Owning a terminal |
 | `perseverance-app` | The Tauri window and command surface | Any decision at all |
 
 `perseverance-model` is the primary seam. It is derivation only, so the same
@@ -24,7 +25,9 @@ A Cargo workspace of six crates plus a React 19 + TypeScript frontend.
 frontend with no Rust, no GitHub and no PTY behind it. The launcher works the
 same way: `src/launcher/folders.fixture.json` carries a present folder, a
 missing one and all three repo-binding refusals, because those are states a
-browser cannot conjure.
+browser cannot conjure. So does the diagnostics panel:
+`src/environment/environment.fixture.json` carries a launchd stub, a refused
+shell and a Windows transcript, none of which a browser can produce either.
 
 `perseverance-store` is the sixth crate rather than a corner of the shell
 because it carries real policy — refusing a schema version this build does not
@@ -32,6 +35,16 @@ speak, keeping a missing folder on the list, and three distinct ways a folder
 can fail to be a repository. The shell's charter is wiring only.
 [ADR 0001](docs/adr/0001-the-launcher-registry-is-its-own-crate.md) records why,
 and what it costs.
+
+`perseverance-env` is the seventh for a narrower reason: a GUI bundle on macOS
+starts with `PATH=/usr/bin:/bin:/usr/sbin:/sbin` and cannot find `gh` at all, so
+the app's first act is to ask the operator's login shell what the environment
+should have been. That is a child process, but it is a *measurement* rather than
+a session — framed, sub-second, read to a mark and abandoned — and the crate that
+owns terminals owns the other kind.
+[ADR 0002](docs/adr/0002-the-environment-harvest-is-its-own-crate.md) records
+the distinction, why the harvest is not a corner of `perseverance-github` or
+`perseverance-pty`, and what it costs.
 
 App-level artifacts are named **perseverance**. `wayfinder` stays reserved for
 the skill's vocabulary and never appears in a shipped name.
@@ -49,7 +62,7 @@ false and `npm run tauri build` is not a supported path yet.
 
 ## The checks
 
-Four rules that would otherwise be conventions. Each is enforced on both CI
+Five rules that would otherwise be conventions. Each is enforced on both CI
 runners.
 
 ```bash
@@ -59,8 +72,20 @@ npm run verify         # all of the below, plus typecheck and build
 **The model crate stays pure** — `npm run check:model-purity` walks
 `cargo tree` for `perseverance-model` across normal, build *and* dev edges and
 fails on Tauri, any HTTP client, any async runtime that opens sockets, any
-browser engine or driver, and `portable-pty`. Dev edges are included because
-the claim covers the tests too.
+browser engine or driver, `portable-pty`, and anything else that would give the
+model a child process. Dev edges are included because the claim covers the tests
+too.
+
+**The agent crate depends on nothing** — `npm run check:agent-solitude` walks
+the same three edge kinds for `perseverance-agent` and fails if `cargo tree`
+names any crate but itself. Nothing is forbidden by name, because the rule is
+stronger than a list: planning is pure, so an adapter is a golden-argv assertion
+and needs no crate to be one. It is also the arrow ADR 0002 rests on — the
+harvest became its own crate so that #45's planner-side work would never be
+forced to name it, and until this check existed that was held by review. It puts
+known-bad `cargo tree` output through its own verdict function, which catches a
+check that has stopped detecting anything but not a check invoked with the wrong
+flags.
 
 **SMIL is prohibited** — `tests/no-smil.test.ts`. `prefers-reduced-motion` does
 not touch SMIL, so a liveness pulse authored that way survives the media query
@@ -102,3 +127,51 @@ check that cannot fail.
   `core:default` with it.
 - **No macOS run has happened yet on this branch.** The matrix declares it;
   only CI can green it.
+- **No Windows machine ran any of the environment harvest.** The PowerShell
+  payload, its UTF-16LE-and-base64 encoding, the profile-relocation test and the
+  CLIXML classification were all authored and unit-tested from macOS. Both
+  platforms' argv and both platforms' frame grammar are values built from
+  parameters rather than `#[cfg]` bodies, so `macos-latest` does assert the
+  Windows plan — but asserting a plan is not running it, and the first
+  `windows-latest` job is a real gate rather than a formality.
+- **The Windows payload is not the one that was measured.** #26 measured a
+  line-oriented `Get-ChildItem Env: | ForEach-Object` and said outright that
+  this payload is the part that must change; *must change* is not *was measured
+  after changing*. Writing hand-encoded UTF-8 straight to `OpenStandardOutput()`
+  removes the dependence on `[Console]::OutputEncoding` and on the host's
+  formatter, which is the strongest form available and still unmeasured. It
+  fails loudly if it is wrong — no mark pair, a recorded condition, an app that
+  opens.
+- **A harvest that looks complete may not be.** A PowerShell profile that calls
+  `exit` half-way yields exit 0, both marks, ninety variables and a stderr at
+  the exact no-profile baseline; under `AllSigned` the profile does not run at
+  all and the harvest degrades silently to plain inheritance. Every structural
+  check passes in both cases. The verbatim `PATH` in the diagnostics panel
+  exists partly so an operator *could* notice; nothing makes them.
+- **Resolvable is not spawnable, and spawnable is not correct.** A `PATH` that
+  resolves `codex` says nothing about whether its `#!/usr/bin/env node` shebang
+  resolves at exec time — #21 measured that exact 127 — and a version pin to
+  something uninstalled starts the wrong interpreter successfully with nothing
+  on either stream. This slice's harvest runs at the root and cannot see the
+  second at all; the per-folder remedy is #45.
+- **The bound values are inferences.** 8 s / 2 s on unix and 20 s / 5 s on
+  Windows sit above every legitimate run anyone has timed, but nobody has run a
+  p10k-plus-conda rc or a corporate profile with a dozen module imports against
+  them. Too tight and an operator loses their environment and gets a sentence
+  saying so: recoverable, visible, and still wrong.
+- **The harvest kills the shell it spawned and reaches no further.** A daemon an
+  operator's rc started on purpose is theirs, so an rc that backgrounds one
+  leaks a process per launch — exactly as it would if they had opened a
+  terminal. #45 makes that one per folder open, and that is the ticket where the
+  decision has to be re-argued.
+- **`gh auth token` is spawned for real in exactly one line no runner can
+  exercise honestly.** A GitHub runner has `gh` installed and has never signed
+  in, so every branch of the interpretation is tested against a fabricated
+  capture and a fake `gh` on a temporary `PATH`. A typo in `["auth", "token"]`
+  would still ship green. The two `#[ignore]`d tests that would catch it —
+  `cargo test --workspace -- --ignored` — ask this machine for its own
+  operator's login shell and its own `gh`, which is why no runner takes them.
+- **The environment readout is two mirrors kept true by hand.** `crates/app`
+  and `src/environment/environment.ts` each assert nine keys, and a rename that
+  updated both tests would be exactly as silent as no test at all. Same cost ADR
+  0001 accepted for the repo bindings, same defence.
