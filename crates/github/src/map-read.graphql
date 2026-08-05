@@ -1,0 +1,47 @@
+# One query shape, always.
+#
+# The map list the label found, the graph of whichever map is open, and the
+# budget — one document, one round trip. There is no poll/refetch split and no
+# fingerprint: the split saves one point per tick, costs more during a live run,
+# is blind on `assignees` (the field separating claimed from takeable), and
+# cannot construct a whole snapshot.
+#
+# `@include(if: $open)` is why $number may be anything when no map is open: the
+# field is skipped rather than asked for issue zero.
+#
+# `pageInfo` is a tripwire, not a cursor. GitHub caps sub-issues at 100 per
+# parent and linked issues at 50 per relationship, so neither page can exist —
+# and a paging loop for a page that cannot exist is code nobody has ever run.
+query MapRead($owner: String!, $repo: String!, $number: Int!, $open: Boolean!) {
+  repository(owner: $owner, name: $repo) {
+    maps: issues(
+      first: 100
+      labels: ["wayfinder:map"]
+      states: [OPEN, CLOSED]
+      orderBy: { field: UPDATED_AT, direction: DESC }
+    ) {
+      pageInfo { hasNextPage }
+      nodes { number title state url updatedAt }
+    }
+
+    issue(number: $number) @include(if: $open) {
+      number title body url updatedAt
+      labels(first: 10) { nodes { name } }
+      subIssues(first: 100) {
+        pageInfo { hasNextPage }
+        nodes {
+          number title state stateReason url updatedAt
+          labels(first: 10) { nodes { name color } }
+          assignees(first: 5) { nodes { login } }
+          issueDependenciesSummary { blockedBy totalBlockedBy blocking totalBlocking }
+          blockedBy(first: 50) {
+            pageInfo { hasNextPage }
+            nodes { number title state repository { nameWithOwner } }
+          }
+        }
+      }
+    }
+  }
+
+  rateLimit { cost nodeCount limit remaining resetAt }
+}

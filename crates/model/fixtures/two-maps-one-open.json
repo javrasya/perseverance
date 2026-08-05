@@ -1,0 +1,98 @@
+{
+  "data": {
+    "repository": {
+      "maps": {
+        "pageInfo": { "hasNextPage": false, "endCursor": "Y3Vyc29yOnYyOpHOAA" },
+        "nodes": [
+          {
+            "number": 28,
+            "title": "Spec: perseverance",
+            "state": "OPEN",
+            "url": "https://github.com/o/r/issues/28",
+            "updatedAt": "2026-08-05T09:12:44Z"
+          },
+          {
+            "number": 1,
+            "title": "Wayfinder harness",
+            "state": "CLOSED",
+            "url": "https://github.com/o/r/issues/1",
+            "updatedAt": "2026-07-31T23:59:10Z"
+          }
+        ]
+      },
+      "issue": {
+        "number": 28,
+        "title": "Spec: perseverance",
+        "url": "https://github.com/o/r/issues/28",
+        "updatedAt": "2026-08-05T09:12:44Z",
+        "labels": { "nodes": [{ "name": "wayfinder:map" }] },
+        "subIssues": {
+          "pageInfo": { "hasNextPage": false, "endCursor": "Y3Vyc29yOnYyOpHOAB" },
+          "nodes": [
+            {
+              "number": 32,
+              "title": "Maps on screen",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/32",
+              "updatedAt": "2026-08-05T09:12:44Z",
+              "labels": { "nodes": [{ "name": "wayfinder:task", "color": "1d76db" }] },
+              "assignees": { "nodes": [] },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 2,
+                "blocking": 6,
+                "totalBlocking": 6
+              },
+              "blockedBy": {
+                "pageInfo": { "hasNextPage": false },
+                "nodes": [
+                  {
+                    "number": 30,
+                    "title": "Launcher: the folder list",
+                    "state": "CLOSED",
+                    "repository": { "nameWithOwner": "o/r" }
+                  }
+                ]
+              }
+            },
+            {
+              "number": 33,
+              "title": "The derived model",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/33",
+              "updatedAt": "2026-08-04T18:02:01Z",
+              "labels": { "nodes": [{ "name": "wayfinder:task", "color": "1d76db" }] },
+              "assignees": { "nodes": [{ "login": "javrasya" }] },
+              "issueDependenciesSummary": {
+                "blockedBy": 1,
+                "totalBlockedBy": 1,
+                "blocking": 4,
+                "totalBlocking": 4
+              },
+              "blockedBy": {
+                "pageInfo": { "hasNextPage": false },
+                "nodes": [
+                  {
+                    "number": 32,
+                    "title": "Maps on screen",
+                    "state": "OPEN",
+                    "repository": { "nameWithOwner": "o/r" }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    "rateLimit": {
+      "cost": 2,
+      "nodeCount": 104,
+      "limit": 5000,
+      "remaining": 4417,
+      "resetAt": "2026-08-05T11:02:14Z"
+    }
+  }
+}

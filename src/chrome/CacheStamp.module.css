@@ -1,0 +1,26 @@
+/*
+ * Tier 3 — component tokens, defined from semantic tokens only.
+ */
+
+.stamp {
+  --c-stamp-ink: var(--s-ink-secondary);
+
+  color: var(--c-stamp-ink);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-micro);
+  white-space: nowrap;
+}
+
+/* A live read is the only one that gets full ink. Everything else is a copy. */
+.stamp[data-source="github"] {
+  --c-stamp-ink: var(--s-ink-primary);
+}
+
+/*
+ * A read that did not land. Ink, not colour: #40 owns the degraded stamp and
+ * its dashed-and-hatched vocabulary, and inventing half of it here would be
+ * that ticket arriving to find its decisions already made.
+ */
+.stamp[data-outcome="failed"] {
+  --c-stamp-ink: var(--s-ink-faint);
+}

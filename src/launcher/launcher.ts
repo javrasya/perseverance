@@ -13,6 +13,7 @@
  * JavaScript, and there is no `.git` to misconfigure.
  */
 
+import { nowSeconds } from "../chrome/age";
 import { hasRustBehindIt } from "../snapshot/snapshot";
 import fixture from "./folders.fixture.json";
 
@@ -348,36 +349,12 @@ export function basename(path: string): string {
 
 /* ----------------------------------------------------------------- age --- */
 
-const MINUTE = 60;
-const HOUR = 60 * MINUTE;
-const DAY = 24 * HOUR;
-const WEEK = 7 * DAY;
-
-export function nowSeconds(): number {
-  return Math.floor(Date.now() / 1000);
-}
-
-/**
- * How long ago you were last here, in the coarsest unit that is still true.
- * A clock that has gone backwards reads as *just now* rather than as the
- * future, because a launcher row is not the place to argue about time.
+/*
+ * How long ago you were last here is the same question the cache stamp asks
+ * about a read, so the phrasing is shared rather than written twice. It is
+ * re-exported here because a launcher row is where a caller expects to find it.
  */
-export function relativeAge(lastOpened: number, now: number = nowSeconds()): string {
-  const seconds = Math.max(0, Math.floor(now - lastOpened));
-  if (seconds < MINUTE) return "just now";
-  if (seconds < HOUR) return counted(Math.floor(seconds / MINUTE), "minute");
-  if (seconds < DAY) return counted(Math.floor(seconds / HOUR), "hour");
-  if (seconds < WEEK) return counted(Math.floor(seconds / DAY), "day");
-  if (seconds < 5 * WEEK) return counted(Math.floor(seconds / WEEK), "week");
-  if (seconds < 365 * DAY) {
-    return counted(Math.min(11, Math.floor(seconds / (30 * DAY))), "month");
-  }
-  return counted(Math.floor(seconds / (365 * DAY)), "year");
-}
-
-function counted(amount: number, unit: string): string {
-  return `${amount} ${unit}${amount === 1 ? "" : "s"} ago`;
-}
+export { nowSeconds, relativeAge } from "../chrome/age";
 
 /* ------------------------------------------------------------ refusals --- */
 

@@ -9,8 +9,12 @@
 //! network and no browser anywhere in this crate's dependency tree**, tests
 //! included. `scripts/check-model-purity.mjs` enforces it in CI.
 
+mod read;
 mod snapshot;
 
+pub use read::{
+    read_response, rfc3339, MapListing, MapRead, RateLimit, ReadError, Truncation, MAP_LABEL,
+};
 pub use snapshot::{
     MapRef, Provenance, ReadOutcome, Snapshot, SnapshotError, Source, SCHEMA_VERSION,
 };

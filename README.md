@@ -27,7 +27,10 @@ same way: `src/launcher/folders.fixture.json` carries a present folder, a
 missing one and all three repo-binding refusals, because those are states a
 browser cannot conjure. So does the diagnostics panel:
 `src/environment/environment.fixture.json` carries a launchd stub, a refused
-shell and a Windows transcript, none of which a browser can produce either.
+shell and a Windows transcript, none of which a browser can produce either. And
+so does the map list: `src/maps/maps.fixture.json` carries an open map, a
+completed one, and a read that is already old, because a cache with age on it is
+a state a fresh browser has no way to reach.
 
 `perseverance-store` is the sixth crate rather than a corner of the shell
 because it carries real policy — refusing a schema version this build does not
@@ -45,6 +48,15 @@ owns terminals owns the other kind.
 [ADR 0002](docs/adr/0002-the-environment-harvest-is-its-own-crate.md) records
 the distinction, why the harvest is not a corner of `perseverance-github` or
 `perseverance-pty`, and what it costs.
+
+`perseverance-github` reads GitHub over a socket it opens itself — one blocking
+`POST` of one GraphQL document, signed with the token `gh auth token` handed
+over at launch — rather than by spawning `gh api` and reading what it prints.
+Spawning would be a smaller diff and no new dependency, and it would leave the
+acquired token with nothing to do.
+[ADR 0003](docs/adr/0003-github-is-read-over-a-blocking-socket-this-app-owns.md)
+records the decision, why the client is `ureq` rather than `octocrab`, and what
+it costs.
 
 App-level artifacts are named **perseverance**. `wayfinder` stays reserved for
 the skill's vocabulary and never appears in a shipped name.
@@ -174,4 +186,25 @@ check that cannot fail.
 - **The environment readout is two mirrors kept true by hand.** `crates/app`
   and `src/environment/environment.ts` each assert nine keys, and a rename that
   updated both tests would be exactly as silent as no test at all. Same cost ADR
-  0001 accepted for the repo bindings, same defence.
+  0001 accepted for the repo bindings, same defence. The map list is a third
+  such mirror, between `crates/app`'s `MapsView` and `src/maps/maps.ts`.
+- **The GraphQL document meets a real schema in exactly one `#[ignore]`d test.**
+  Every other test in `perseverance-github` reads a recorded response, so a
+  renamed field, a bad argument name or a query that costs more than it should
+  would all ship green. `cargo test --workspace -- --ignored` on a machine whose
+  operator has signed in is the only thing that catches them, and no runner
+  takes it.
+- **Nothing polls yet.** A map created outside the app appears the next time the
+  folder is opened, because that is the only thing that currently triggers a
+  read. The cadence ladder, the off-cadence pokes and the interval composition
+  are #38; the budget floor is #39 and the backoff is #40. `rateLimit` is read
+  and carried to the WebView, and acted on by nobody.
+- **Linux has never built the TLS stack.** `ureq` verifies certificates against
+  the operator's own trust store via `rustls-platform-verifier`, which supports
+  Linux — but both CI runners are Windows and macOS by design, so nothing here
+  has ever compiled it there.
+- **The read cache is written on every successful read, not only on a differing
+  one.** The spec's rule is *write on read-from-GitHub only, and only when the
+  derived model differs*; the second half needs the derived model to compare,
+  which is #33. Until then the cost is a redundant write per poll and no
+  incorrectness.

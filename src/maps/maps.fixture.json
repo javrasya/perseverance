@@ -1,0 +1,39 @@
+{
+  "folderId": 1,
+  "maps": [
+    {
+      "number": 28,
+      "title": "Spec: perseverance — a desktop harness for the wayfinder loop",
+      "closed": false,
+      "url": "https://github.com/javrasya/perseverance/issues/28",
+      "updatedAt": "2026-08-05T09:12:44Z"
+    },
+    {
+      "number": 12,
+      "title": "Charting the launcher",
+      "closed": false,
+      "url": "https://github.com/javrasya/perseverance/issues/12",
+      "updatedAt": "2026-08-04T17:30:00Z"
+    },
+    {
+      "number": 1,
+      "title": "Wayfinder harness",
+      "closed": true,
+      "url": "https://github.com/javrasya/perseverance/issues/1",
+      "updatedAt": "2026-07-31T23:59:10Z"
+    }
+  ],
+  "provenance": {
+    "source": "cache",
+    "outcome": { "kind": "ok" },
+    "fetchedAt": "2026-08-05T08:00:00Z"
+  },
+  "rateLimit": {
+    "cost": 2,
+    "nodeCount": 104,
+    "limit": 5000,
+    "remaining": 4417,
+    "resetAt": "2026-08-05T11:02:14Z"
+  },
+  "truncated": false
+}
