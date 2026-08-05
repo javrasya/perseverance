@@ -249,10 +249,16 @@ fn refresh_maps(
 
     let token = match ambient.token.get() {
         Some(TokenOutcome::Acquired(token)) => token,
+        // The harvest has not settled, so `gh` has not been asked yet. Nothing
+        // was attempted and nothing failed, so nothing is stamped: the copy
+        // stays exactly as it was, with the age it already had. Reporting *no
+        // token* here would be a Windows launch — 1.5 to 1.9 seconds of real
+        // harvest — telling an operator they have never signed in.
+        None => return Ok(held),
         // Never signed in, or the harvest was discarded so `gh` was never
         // looked for. Both leave a working app with no poller, which is a
         // sentence rather than a stack.
-        _ => return Ok(held.stale(ReadFailure::NoToken.to_string())),
+        Some(_) => return Ok(held.stale(ReadFailure::NoToken.to_string())),
     };
 
     match read_maps(token, &repo.owner, &repo.name, None) {
