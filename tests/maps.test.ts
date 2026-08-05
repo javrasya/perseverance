@@ -132,7 +132,7 @@ describe("the cache age is on screen in every state", () => {
     ).toBe("from the last read just now");
   });
 
-  it("keeps saying how old the copy is when a read did not land", () => {
+  it("keeps saying how old the copy is when nothing newer arrived", () => {
     // The one state where the age matters most is the one where a stamp that
     // replaced it with an error would have stopped reporting it.
     const stale = view({
@@ -146,8 +146,43 @@ describe("the cache age is on screen in every state", () => {
     const said = describeStamp(stale, READ_AT + 2 * 60 * MINUTE);
 
     expect(said).toContain("2 hours ago");
-    expect(said).toContain("did not land");
+    expect(said).toContain("nothing newer has arrived");
     expect(stampDetail(stale)).toBe("GitHub answered with status 401");
+  });
+
+  it("never claims which step failed, because it cannot tell", () => {
+    /*
+     * A read that landed and could not be stored is not a read that did not
+     * land, and the stamp has no way to tell those apart — #40 is the ticket
+     * that classifies. So neither clause may assert one.
+     */
+    const unstored = view({
+      provenance: {
+        source: "github",
+        outcome: { kind: "failed", detail: "the launcher registry could not be written" },
+        fetchedAt: "2026-08-05T08:00:00Z",
+      },
+    });
+
+    const said = describeStamp(unstored, READ_AT);
+
+    expect(said).toBe("read from GitHub just now — not stored for next time");
+    expect(said).not.toContain("did not land");
+  });
+
+  it("says nothing newer arrived rather than inventing an age it does not have", () => {
+    const nothing = {
+      ...nothingReadYet(1),
+      provenance: {
+        source: "none" as const,
+        outcome: { kind: "failed" as const, detail: "this run acquired no GitHub token" },
+        fetchedAt: null,
+      },
+    };
+
+    expect(describeStamp(nothing, READ_AT)).toBe(
+      "nothing read yet — nothing newer has arrived",
+    );
   });
 
   it("carries no detail when nothing failed", () => {

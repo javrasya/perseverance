@@ -176,18 +176,31 @@ export function stampSource(view: MapsView): string {
 /**
  * The whole stamp, as one sentence.
  *
- * A failed read says so *and* keeps saying how old the copy is, because a
- * failure that replaced the age would be a screen that has stopped telling you
- * how stale it is at exactly the moment that started mattering.
+ * A failure keeps saying how old the copy is rather than replacing it, because
+ * a stamp that swapped the age for an error would stop reporting staleness at
+ * exactly the moment staleness started mattering.
+ *
+ * What the failure clause may *not* do is assert which step failed. A read that
+ * landed and could not be stored, a read that was never attempted because the
+ * folder names no GitHub repository, and a read that could not reach anything
+ * all arrive here as the same shape — telling them apart is #40's ticket, and a
+ * clause that guessed would be wrong in two cases out of three. So the two
+ * clauses say only what is true of the thing on screen: a live read that will
+ * not survive the session, or a copy that nothing newer has replaced. The
+ * reason itself rides beside this, in the words of whoever established it.
  */
 export function describeStamp(view: MapsView, now?: number): string {
-  const age = stampAge(view, now);
-  const outcome = view.provenance.outcome;
-  if (outcome.kind === "failed") {
-    return `${stampSource(view)} ${age} — the last read did not land`;
+  const failed = view.provenance.outcome.kind === "failed";
+
+  if (view.provenance.source === "none") {
+    return failed ? "nothing read yet — nothing newer has arrived" : "nothing read yet";
   }
-  if (view.provenance.source === "none") return "nothing read yet";
-  return `${stampSource(view)} ${age}`;
+
+  const said = `${stampSource(view)} ${stampAge(view, now)}`;
+  if (!failed) return said;
+  return view.provenance.source === "github"
+    ? `${said} — not stored for next time`
+    : `${said} — nothing newer has arrived`;
 }
 
 /** The reason a read did not land, in the words of whoever established it. */
