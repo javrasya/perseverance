@@ -57,9 +57,14 @@ export function hasRustBehindIt(): boolean {
  * and it is structural rather than conventional because no other command hands
  * the frontend map state.
  *
- * Without Rust behind it, a checked-in fixture, named by `?fixture=` and
- * stamped `fixture` so that the source on screen says where it came from. A
- * browser that quietly presented a fixture as a read would be the one thing the
+ * Without Rust behind it, a checked-in fixture, named by the query parameter
+ * `fixtures.ts` spells once as `FIXTURE_PARAMETER` — see there for why it is
+ * `?map=` and not `?fixture=`.
+ *
+ * What every fixture has in common is that **none of them is stamped
+ * `github`**: they are `fixture`, or `cache` for the one standing in for a poll
+ * that failed, or `none` for the state before anything was read. A browser that
+ * quietly presented a fixture as a live read would be the one thing the
  * provenance rules exist to prevent.
  */
 export async function loadSnapshot(search?: string): Promise<Snapshot> {
