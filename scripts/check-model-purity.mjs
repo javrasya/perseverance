@@ -50,6 +50,11 @@ const FORBIDDEN = [
   { prefix: "openssl", why: "the network" },
   // Process and terminal ownership belongs to perseverance-pty
   { prefix: "portable-pty", why: "PTY ownership, which belongs to perseverance-pty" },
+  // Storage belongs to perseverance-store. A model that opens a file is no
+  // longer a derivation a JSON fixture can drive, and the `model -> store`
+  // arrow is exactly the one this list has to keep absent.
+  { prefix: "rusqlite", why: "a database, which belongs to perseverance-store" },
+  { prefix: "libsqlite3-sys", why: "a database, which belongs to perseverance-store" },
 ];
 
 let tree;

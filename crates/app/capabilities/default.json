@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "The window is told when a folder is dropped on it, and nothing else. Every other command the WebView calls is this app's own, and the picker is answered in Rust, so no plugin permission is granted here.",
+  "windows": ["main"],
+  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten"]
+}

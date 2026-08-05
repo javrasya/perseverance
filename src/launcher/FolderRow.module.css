@@ -1,0 +1,147 @@
+/*
+ * Tier 3 — component tokens, defined from semantic tokens only.
+ *
+ * The row's states are reassignments of `--c-row-*`. Nothing here adds or
+ * removes a box, so a folder going missing, or being selected, moves no
+ * neighbour by a pixel.
+ */
+
+.row {
+  --c-row-ink: var(--s-ink-primary);
+  --c-row-ink-quiet: var(--s-ink-secondary);
+  --c-row-ink-faint: var(--s-ink-faint);
+  --c-row-line: var(--s-line-quiet);
+  --c-row-fill: transparent;
+  --c-row-rail: transparent;
+
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  border-bottom: var(--s-border-hairline) solid var(--c-row-line);
+  border-left: var(--s-border-emphasis) solid var(--c-row-rail);
+  background: var(--c-row-fill);
+  transition:
+    background-color var(--s-motion-fast) var(--s-motion-ease),
+    border-color var(--s-motion-fast) var(--s-motion-ease);
+}
+
+.row:hover {
+  --c-row-fill: var(--s-surface-hover);
+}
+
+.row[data-selected="true"] {
+  --c-row-rail: var(--s-accent);
+  --c-row-fill: var(--s-surface-hover);
+}
+
+/*
+ * A missing folder is greyed, not struck out and not removed. Its path is the
+ * one thing that stays legible, because the path is what you have to fix.
+ */
+.row[data-state="missing"] {
+  --c-row-ink: var(--s-ink-faint);
+}
+
+.choose {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: var(--s-space-snug);
+  width: 100%;
+  padding: var(--s-space-snug) var(--s-space-base);
+  border: none;
+  background: transparent;
+  color: var(--c-row-ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.choose:focus-visible {
+  outline: var(--s-border-emphasis) solid var(--s-focus-ring);
+  outline-offset: -3px;
+}
+
+.name {
+  color: var(--c-row-ink);
+  font-size: var(--s-text-body);
+  font-weight: var(--s-weight-emphasis);
+}
+
+/*
+ * The badge is a socket, not an insertion: it holds its width in both states,
+ * so the row does not reflow when a drive is unplugged.
+ */
+.badge {
+  padding: 0 var(--s-space-tight);
+  border: var(--s-border-hairline) dashed var(--c-row-ink-faint);
+  border-radius: var(--s-radius-chip);
+  color: var(--c-row-ink-faint);
+  font-size: var(--s-text-micro);
+  letter-spacing: var(--s-tracking-label);
+  visibility: hidden;
+}
+
+.badge[data-shown="true"] {
+  visibility: visible;
+}
+
+.path {
+  overflow: hidden;
+  color: var(--c-row-ink-quiet);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-micro);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.age {
+  color: var(--c-row-ink-faint);
+  font-size: var(--s-text-micro);
+  white-space: nowrap;
+}
+
+.actions {
+  display: flex;
+  gap: var(--s-space-tight);
+  padding-right: var(--s-space-base);
+}
+
+/*
+ * The ghost is the same box as the action it stands in for. Locate… is only
+ * meaningful for a folder whose path has gone, but the space it takes is
+ * constant, so the two states are the same shape.
+ */
+.action,
+.ghost {
+  display: inline-block;
+  padding: var(--s-space-hair) var(--s-space-snug);
+  border: var(--s-border-hairline) solid transparent;
+  border-radius: var(--s-radius-chip);
+  background: transparent;
+  color: var(--c-row-ink-quiet);
+  font: inherit;
+  font-size: var(--s-text-micro);
+  white-space: nowrap;
+}
+
+.action {
+  cursor: pointer;
+  transition:
+    color var(--s-motion-fast) var(--s-motion-ease),
+    border-color var(--s-motion-fast) var(--s-motion-ease);
+}
+
+.ghost {
+  visibility: hidden;
+}
+
+.action:hover {
+  border-color: var(--s-line-strong);
+  color: var(--s-ink-primary);
+}
+
+.action:focus-visible {
+  outline: var(--s-border-emphasis) solid var(--s-focus-ring);
+  outline-offset: 1px;
+}

@@ -25,6 +25,10 @@ perseverance-model = { workspace = true }
 perseverance-github = { workspace = true }
 perseverance-agent = { workspace = true }
 perseverance-pty = { workspace = true }
+perseverance-store = { workspace = true }
 tauri = { version = "2", features = [] }
+# The folder picker. It is answered in Rust and only a path crosses to the
+# WebView, so the frontend needs no dialog package and no file permission.
+tauri-plugin-dialog = "2"
 serde = { workspace = true }
 serde_json = { workspace = true }

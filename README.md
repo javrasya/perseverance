@@ -8,7 +8,7 @@ This is the walking skeleton: the empty room, correctly shaped. The spec is
 
 ## Shape
 
-A Cargo workspace of five crates plus a React 19 + TypeScript frontend.
+A Cargo workspace of six crates plus a React 19 + TypeScript frontend.
 
 | Crate | Owns | Never |
 |---|---|---|
@@ -16,11 +16,22 @@ A Cargo workspace of five crates plus a React 19 + TypeScript frontend.
 | `perseverance-github` | Every network call, and the poller | Writing to GitHub |
 | `perseverance-agent` | The agent trait and its adapters; planning | Spawning anything |
 | `perseverance-pty` | PTY and child-process ownership | Deciding what to run |
+| `perseverance-store` | The launcher registry: one SQLite file, its schema, and binding a folder to its repo | The network, Tauri, a child process |
 | `perseverance-app` | The Tauri window and command surface | Any decision at all |
 
 `perseverance-model` is the primary seam. It is derivation only, so the same
 `Snapshot` that Rust produces can be a checked-in JSON fixture that drives the
-frontend with no Rust, no GitHub and no PTY behind it.
+frontend with no Rust, no GitHub and no PTY behind it. The launcher works the
+same way: `src/launcher/folders.fixture.json` carries a present folder, a
+missing one and all three repo-binding refusals, because those are states a
+browser cannot conjure.
+
+`perseverance-store` is the sixth crate rather than a corner of the shell
+because it carries real policy — refusing a schema version this build does not
+speak, keeping a missing folder on the list, and three distinct ways a folder
+can fail to be a repository. The shell's charter is wiring only.
+[ADR 0001](docs/adr/0001-the-launcher-registry-is-its-own-crate.md) records why,
+and what it costs.
 
 App-level artifacts are named **perseverance**. `wayfinder` stays reserved for
 the skill's vocabulary and never appears in a shipped name.
@@ -82,7 +93,12 @@ check that cannot fail.
   not a proof.
 - **The theme override currently persists to `localStorage`.** That is
   app-global and survives restart, which is what "persisted globally" requires,
-  but the `app` key/value table is where it belongs once the store lands. The
+  but the `app` key/value table — which now exists — is where it belongs. The
   swap is one file (`src/theme/theme.ts`).
+- **The launcher registry has no capabilities file, and needs none.** The folder
+  picker is answered in Rust and hands back a path, so the WebView calls only
+  app-defined commands, which Tauri v2 does not gate. The day the frontend calls
+  a plugin command directly, `crates/app/capabilities/` has to appear and carry
+  `core:default` with it.
 - **No macOS run has happened yet on this branch.** The matrix declares it;
   only CI can green it.

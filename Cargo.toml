@@ -5,6 +5,7 @@ members = [
   "crates/github",
   "crates/agent",
   "crates/pty",
+  "crates/store",
   "crates/app",
 ]
 
@@ -20,10 +21,21 @@ perseverance-model = { path = "crates/model" }
 perseverance-github = { path = "crates/github" }
 perseverance-agent = { path = "crates/agent" }
 perseverance-pty = { path = "crates/pty" }
+perseverance-store = { path = "crates/store" }
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
+
+# `bundled` compiles the SQLite amalgamation with `cc` and uses pre-generated
+# bindings, so neither a system SQLite nor libclang is needed on a bare runner.
+#
+# Held at 0.37 rather than the newest line: `libsqlite3-sys` 0.38.1 builds its
+# build script with `cfg_select!`, stable only since Rust 1.93, and this
+# workspace's `rust-version` is 1.82. A toolchain floor is a promise to whoever
+# builds this, so it is the dependency that moves, not the floor.
+rusqlite = { version = "0.37", features = ["bundled"] }
+tempfile = "3"
 
 [profile.release]
 codegen-units = 1

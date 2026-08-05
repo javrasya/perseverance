@@ -1,0 +1,21 @@
+[package]
+name = "perseverance-store"
+description = "The launcher registry. Owns the SQLite file, its schema, and repo binding from the git remote."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# No socket, no Tauri, no child process. The heaviest thing in this tree is a
+# C compiler building the amalgamated SQLite; keep it that way.
+[dependencies]
+rusqlite = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints.rust]
+unsafe_code = "forbid"

@@ -18,6 +18,7 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "perseverance",
         "width": 1280,
         "height": 800,
