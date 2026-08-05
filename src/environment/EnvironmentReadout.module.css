@@ -1,0 +1,272 @@
+/*
+ * Tier 3 — component tokens, defined from semantic tokens only.
+ *
+ * Every state here is a `data-*` value that reassigns a `--c-env-*`, never a
+ * class the view chose: harvesting dims the summary and nothing else moves.
+ * The two verbatim blocks scroll inside themselves, so neither a `PATH` with
+ * forty entries nor a CLIXML blob can make the page scroll sideways.
+ */
+
+/* ------------------------------------------------------------- footer --- */
+
+/*
+ * The environment sits at the far end of the readout it belongs to, pushed
+ * there by itself so `App.module.css` needs no rule about a thing it does not
+ * know exists.
+ */
+.slot {
+  display: flex;
+  margin-left: auto;
+  align-items: center;
+}
+
+.disclose {
+  --c-env-ink: var(--s-ink-faint);
+
+  display: flex;
+  align-items: center;
+  gap: var(--s-space-tight);
+  padding: 0 var(--s-space-tight);
+  border: var(--s-border-hairline) solid transparent;
+  border-radius: var(--s-radius-chip);
+  background: transparent;
+  color: var(--c-env-ink);
+  font: inherit;
+  cursor: pointer;
+  transition:
+    color var(--s-motion-fast) var(--s-motion-ease),
+    border-color var(--s-motion-fast) var(--s-motion-ease);
+}
+
+.disclose:hover {
+  --c-env-ink: var(--s-ink-secondary);
+
+  border-color: var(--s-line-strong);
+}
+
+.label {
+  letter-spacing: var(--s-tracking-label);
+}
+
+/*
+ * The socket holds the width; the summary is laid over it. That is the same
+ * bargain `FolderRow`'s ghost strikes — a constant box in both states — so the
+ * footer does not jump when a Windows profile finishes answering.
+ */
+.socket {
+  position: relative;
+  display: block;
+}
+
+.ghost {
+  visibility: hidden;
+  white-space: pre;
+}
+
+.summary {
+  --c-env-summary-ink: var(--s-ink-secondary);
+  --c-env-summary-opacity: 1;
+
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  color: var(--c-env-summary-ink);
+  white-space: pre;
+  text-overflow: ellipsis;
+  opacity: var(--c-env-summary-opacity);
+  transition: opacity var(--s-motion-fast) var(--s-motion-ease);
+}
+
+/*
+ * Dimmed while the shell is still answering. The word carries the meaning and
+ * the dimming is decoration, which is why losing the transition under
+ * `prefers-reduced-motion` costs nothing.
+ */
+.summary[data-harvest="harvesting"] {
+  --c-env-summary-opacity: 0.55;
+}
+
+.summary[data-harvest="inherited"] {
+  --c-env-summary-ink: var(--s-ink-primary);
+}
+
+.chevron {
+  color: var(--c-env-ink);
+}
+
+/* -------------------------------------------------------------- panel --- */
+
+.panel {
+  --c-env-rail: var(--s-line-quiet);
+
+  display: none;
+  max-height: 45vh;
+  flex: 0 0 auto;
+  overflow-y: auto;
+  padding: var(--s-space-base);
+  border-top: var(--s-border-hairline) solid var(--s-line-quiet);
+  border-left: var(--s-border-emphasis) solid var(--c-env-rail);
+  background: var(--s-surface-raised);
+}
+
+.panel[data-shown="true"] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-space-loose);
+}
+
+/* A harvest that was discarded is a fact worth a rail, never an alarm. */
+.panel[data-harvest="inherited"] {
+  --c-env-rail: var(--s-accent);
+}
+
+.section {
+  display: flex;
+  max-width: 76ch;
+  flex-direction: column;
+  gap: var(--s-space-tight);
+}
+
+.heading {
+  margin: 0;
+  color: var(--s-ink-primary);
+  font-size: var(--s-text-micro);
+  font-weight: var(--s-weight-emphasis);
+  letter-spacing: var(--s-tracking-label);
+  text-transform: uppercase;
+}
+
+.command {
+  color: var(--s-ink-primary);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-small);
+}
+
+.state {
+  --c-env-state-ink: var(--s-ink-primary);
+
+  margin: 0;
+  color: var(--c-env-state-ink);
+  font-size: var(--s-text-body);
+  font-weight: var(--s-weight-emphasis);
+}
+
+.state[data-harvest="harvesting"] {
+  --c-env-state-ink: var(--s-ink-secondary);
+}
+
+.facts {
+  margin: 0;
+  color: var(--s-ink-faint);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-micro);
+}
+
+/* The condition's own words, in mono, exactly as a refusal is shown. */
+.detail {
+  max-width: 60ch;
+  margin: 0;
+  color: var(--s-ink-primary);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-small);
+  line-height: 1.5;
+}
+
+.note {
+  max-width: 60ch;
+  margin: 0;
+  color: var(--s-ink-secondary);
+  font-size: var(--s-text-small);
+  line-height: 1.5;
+}
+
+/* ----------------------------------------------------------- verbatim --- */
+
+/*
+ * Unsplit and unwrapped: the separator is a guess, and a wrapped `PATH` would
+ * be one more thing to read wrong. It scrolls in its own box instead.
+ */
+.verbatim {
+  overflow-x: auto;
+  padding: var(--s-space-tight) var(--s-space-snug);
+  border: var(--s-border-hairline) solid var(--s-line-quiet);
+  border-radius: var(--s-radius-control);
+  background: var(--s-surface-sunken);
+}
+
+.path {
+  color: var(--s-ink-primary);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-micro);
+  white-space: pre;
+}
+
+.entries {
+  display: flex;
+  max-height: 16em;
+  flex-direction: column;
+  gap: var(--s-space-hair);
+  margin: 0;
+  padding-left: var(--s-space-room);
+  overflow-y: auto;
+  color: var(--s-ink-secondary);
+  list-style: decimal;
+}
+
+.entry {
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-micro);
+  overflow-wrap: break-word;
+}
+
+/*
+ * Wrapped rather than clipped, because the whole of it is the evidence, and
+ * scrolled vertically so a 1.6 MB profile cannot own the panel.
+ */
+.stream {
+  --c-env-stream-rail: var(--s-line-quiet);
+
+  max-height: 12em;
+  overflow: auto;
+  padding: var(--s-space-tight) var(--s-space-snug);
+  border: var(--s-border-hairline) solid var(--s-line-quiet);
+  border-left: var(--s-border-emphasis) solid var(--c-env-stream-rail);
+  border-radius: var(--s-radius-control);
+  background: var(--s-surface-sunken);
+}
+
+/* Serialised output is not an error, so it is not styled as one. */
+.stream[data-tone="clixml"] {
+  --c-env-stream-rail: var(--s-line-strong);
+}
+
+.stream[data-tone="text"] {
+  --c-env-stream-rail: var(--s-line-absent);
+}
+
+.streamText {
+  display: block;
+  color: var(--s-ink-secondary);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-micro);
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+/* --------------------------------------------------------------- limits --- */
+
+.limits {
+  display: flex;
+  max-width: 60ch;
+  flex-direction: column;
+  gap: var(--s-space-tight);
+  margin: 0;
+  padding-left: var(--s-space-loose);
+  list-style: disc;
+}
+
+.limit {
+  color: var(--s-ink-secondary);
+  font-size: var(--s-text-small);
+  line-height: 1.5;
+}

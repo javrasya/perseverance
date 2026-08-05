@@ -7,8 +7,22 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+# `perseverance-env` is here so that `gh auth token` runs inside the environment
+# the harvest acquired rather than the one a GUI bundle was launched with, where
+# `gh` is not on the PATH at all. It is a dependency on a *mechanism*: after it,
+# this crate still constructs no child process of its own — it names `run_in` and
+# nothing else, which is what keeps the socket crate the socket crate.
+# `docs/adr/0002` records why the mechanism is not sited here.
 [dependencies]
 perseverance-model = { workspace = true }
+perseverance-env = { workspace = true }
+thiserror = { workspace = true }
+
+# For the temporary directory the fake-`gh` tests name on a hand-built PATH. A
+# real `gh` cannot be part of any assertion: a GitHub runner has one installed
+# and has never signed in.
+[dev-dependencies]
+tempfile = { workspace = true }
 
 [lints.rust]
 unsafe_code = "forbid"

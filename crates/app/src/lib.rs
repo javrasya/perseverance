@@ -14,12 +14,14 @@
 //! [`perseverance_store`]: https://github.com/javrasya/perseverance
 
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Mutex, MutexGuard, OnceLock};
 
+use perseverance_env::{Environment, HarvestAttempt, Shell, Stderr, StderrKind, Tally};
+use perseverance_github::{acquire_token, TokenOutcome};
 use perseverance_model::Snapshot;
 use perseverance_store::{Folder, RepoBindingError, Store};
 use serde::Serialize;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 
 /// The whole model for one tick, in one call.
@@ -239,11 +241,340 @@ fn choose_folder(app: AppHandle) -> Option<String> {
         .map(|folder| folder.to_string())
 }
 
+/* --------------------------------------------------------- environment --- */
+
+/// The harvest, the token it bought, and the readout, for the life of this
+/// process.
+///
+/// Re-taken every launch and held nowhere else: there is no [`Store`] call on
+/// this path and no file. The two [`OnceLock`]s are what make *once per launch*
+/// structural rather than scheduled — whatever else happens, the environment
+/// this process is running in cannot be replaced under it half-way through.
+struct Ambient {
+    readout: Mutex<EnvironmentReadout>,
+    environment: OnceLock<Environment>,
+    token: OnceLock<TokenOutcome>,
+}
+
+impl Ambient {
+    /// Seeded with the one state the WebView has to be able to draw before
+    /// anything is known, because the window is already open by the time the
+    /// shell is asked anything.
+    fn harvesting() -> Ambient {
+        Ambient {
+            readout: Mutex::new(EnvironmentReadout::harvesting()),
+            environment: OnceLock::new(),
+            token: OnceLock::new(),
+        }
+    }
+
+    /// The command's whole body: a read, never a derivation.
+    fn settled(&self) -> EnvironmentReadout {
+        self.readout
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+    }
+}
+
+/// The launch order, as one function rather than a comment.
+///
+/// Harvest, then ask `gh` inside whatever that produced, then settle. The two
+/// steps are taken as closures so a test can assert that the token step received
+/// the *harvested* environment rather than this process's own, and that each ran
+/// exactly once — which is the whole of acceptance criterion 4's "once per
+/// launch" and criterion 5's "inside the harvested environment" at this layer.
+///
+/// A discarded harvest does not go on to ask: `gh` was never looked for, and not
+/// looking is a different fact from looking and not finding.
+fn settle_into(
+    ambient: &Ambient,
+    take: impl FnOnce() -> HarvestAttempt,
+    ask: impl FnOnce(&Environment) -> TokenOutcome,
+) -> EnvironmentReadout {
+    let attempt = take();
+    let taken = &attempt.outcome;
+
+    let environment = ambient.environment.get_or_init(|| match taken {
+        Ok(harvest) => harvest.environment.clone(),
+        // On a macOS bundle this is the launchd stub the harvest exists to leave
+        // behind, and it is why a discarded harvest is survivable rather than
+        // fatal: the app opens on what it was started with.
+        Err(_) => Environment::inherited(),
+    });
+
+    let outcome = match taken {
+        Ok(_) => ask(environment),
+        Err(_) => TokenOutcome::NotAttempted,
+    };
+    let token = ambient.token.get_or_init(|| outcome);
+
+    let path = environment.path().map(|path| path.into_owned());
+    let readout = EnvironmentReadout {
+        harvest: match taken {
+            Ok(_) => HarvestState::Harvested,
+            // The crate's own sentence, unedited. It names both possibilities
+            // where there are two, and this layer is not the place to pick one.
+            Err(condition) => HarvestState::Inherited {
+                detail: condition.to_string(),
+            },
+        },
+        // The shell that actually ran, on both paths, rather than the choice
+        // this machine would make if it were asked a second time. Criterion 7
+        // asks for the shell that was used, and a harvest that failed is when
+        // an operator most needs to be told which one it was. `None` here is
+        // the one case where nothing ran at all.
+        shell: match &attempt.shell {
+            Some(shell) => WireShell::from(shell),
+            None => WireShell::None,
+        },
+        path_source: match (taken, &path) {
+            (_, None) => PathSource::None,
+            (Ok(_), Some(_)) => PathSource::Harvest,
+            (Err(_), Some(_)) => PathSource::Inherited,
+        },
+        path,
+        variable_count: environment.len(),
+        // The run's own measurement rather than this thread's: it is spawn to
+        // closing mark, which is the wait, and it is zero on the conditions
+        // that are decided before anything is spawned.
+        elapsed_ms: attempt.elapsed.as_millis().min(u128::from(u64::MAX)) as u64,
+        tally: WireTally::from(
+            taken
+                .as_ref()
+                .map(|harvest| harvest.tally)
+                .unwrap_or_default(),
+        ),
+        // On both paths, because a discarded harvest is exactly when what the
+        // shell wrote is the only account of itself there is — and reporting
+        // an empty stream for a discarded one would read as a shell that said
+        // nothing at all.
+        stderr: WireStderr::from(&attempt.stderr),
+        token: TokenState::from(token),
+    };
+
+    *ambient
+        .readout
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = readout.clone();
+    readout
+}
+
+/// One named thread, and `setup` returns.
+///
+/// The harvest cannot be a precondition for window paint: macOS's 187 ms hides
+/// behind it and Windows's 1.5–1.9 s does not, and a design that is correct only
+/// on the fast platform is not correct. Nothing here is async, because a runtime
+/// for one blocking read that happens once a launch would be a scheduler
+/// acquired to do what a thread already does.
+fn start_harvesting(app: AppHandle) -> std::io::Result<()> {
+    std::thread::Builder::new()
+        .name("perseverance-environment".to_string())
+        .spawn(move || {
+            let readout = settle_into(
+                app.state::<Ambient>().inner(),
+                perseverance_env::harvest,
+                acquire_token,
+            );
+            // Nobody listening is not a failure. The readout is in `Ambient`
+            // either way and the WebView asks as well as subscribing, because a
+            // fast harvest can settle before there is a WebView to hear it.
+            let _ = app.emit("environment", &readout);
+        })
+        .map(|_| ())
+}
+
+/// What the harvest came to, and what became of the environment either way.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+enum HarvestState {
+    /// The state that exists because the harvest is off the launch path. It is
+    /// not a failure and must not read as one.
+    Harvesting,
+    Harvested,
+    /// Carries the condition's own words, so the sentence an operator reads was
+    /// written by the crate that decided to discard.
+    Inherited {
+        detail: String,
+    },
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+enum WireShell {
+    LoginShell { program: String, flags: Vec<String> },
+    PowerShell { program: String, flags: Vec<String> },
+    None,
+}
+
+/// The flags cross as they were sent. `-lic` is one argument and shows as one,
+/// because a readout that tidied it into three would be showing an argv the
+/// child was never given.
+impl From<&Shell> for WireShell {
+    fn from(shell: &Shell) -> WireShell {
+        let program = shell.program().to_string();
+        let flags = shell.flags();
+        match shell {
+            Shell::LoginShell { .. } => WireShell::LoginShell { program, flags },
+            Shell::PowerShell { .. } => WireShell::PowerShell { program, flags },
+        }
+    }
+}
+
+/// Whether the `PATH` above it came from the shell or from the launcher.
+///
+/// Beside the verbatim `PATH` this is what lets an operator notice a harvest
+/// that succeeded and returned nothing worth having — the four-directory stub
+/// under `harvest` is the shape of a silent degradation.
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+enum PathSource {
+    Harvest,
+    Inherited,
+    None,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WireTally {
+    records_seen: usize,
+    records_dropped: usize,
+    duplicates_dropped: usize,
+    bytes_before_frame: usize,
+    bytes_after_frame: usize,
+    extra_opening_marks: usize,
+}
+
+impl From<Tally> for WireTally {
+    fn from(tally: Tally) -> WireTally {
+        WireTally {
+            records_seen: tally.records_seen,
+            records_dropped: tally.records_dropped,
+            duplicates_dropped: tally.duplicates_dropped,
+            bytes_before_frame: tally.bytes_before_frame,
+            bytes_after_frame: tally.bytes_after_frame,
+            extra_opening_marks: tally.extra_opening_marks,
+        }
+    }
+}
+
+/// What the shell wrote, verbatim, with its classification beside it and never
+/// instead of it. Non-empty is not an error on Windows, where the stream carries
+/// a 616-byte baseline with no profile at all.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WireStderr {
+    kind: WireStderrKind,
+    bytes: usize,
+    text: String,
+}
+
+impl From<&Stderr> for WireStderr {
+    fn from(stderr: &Stderr) -> WireStderr {
+        WireStderr {
+            kind: match stderr.kind {
+                StderrKind::Empty => WireStderrKind::Empty,
+                StderrKind::Text => WireStderrKind::Text,
+                StderrKind::Clixml => WireStderrKind::Clixml,
+            },
+            bytes: stderr.bytes,
+            text: stderr.text.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+enum WireStderrKind {
+    Empty,
+    Text,
+    Clixml,
+}
+
+/// The outcome only. It never carries the value, and there is no field it could
+/// be put in — which is what makes "the token is never stored" a claim with
+/// something on screen to check it against.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+enum TokenState {
+    Acquired,
+    NotAttempted,
+    Refused { detail: String },
+}
+
+impl From<&TokenOutcome> for TokenState {
+    fn from(outcome: &TokenOutcome) -> TokenState {
+        match outcome {
+            TokenOutcome::Acquired(_) => TokenState::Acquired,
+            TokenOutcome::NotAttempted => TokenState::NotAttempted,
+            TokenOutcome::Refused(refusal) => TokenState::Refused {
+                detail: refusal.to_string(),
+            },
+        }
+    }
+}
+
+/// Everything the diagnostics surface shows, in one value.
+///
+/// The environment itself has exactly one exit from Rust and this is it: nine
+/// keys, none of which is a variable. `src/environment/environment.ts` is a
+/// hand-written mirror of this, so a rename here is a silent breakage there.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct EnvironmentReadout {
+    harvest: HarvestState,
+    shell: WireShell,
+    /// Verbatim and never split. The separator is a guess, and an entry
+    /// containing the separator is precisely where the guess misleads; the
+    /// WebView splits it for display and says that it did.
+    path: Option<String>,
+    path_source: PathSource,
+    variable_count: usize,
+    elapsed_ms: u64,
+    tally: WireTally,
+    stderr: WireStderr,
+    token: TokenState,
+}
+
+impl EnvironmentReadout {
+    fn harvesting() -> EnvironmentReadout {
+        EnvironmentReadout {
+            harvest: HarvestState::Harvesting,
+            shell: WireShell::None,
+            path: None,
+            path_source: PathSource::None,
+            variable_count: 0,
+            elapsed_ms: 0,
+            tally: WireTally::from(Tally::default()),
+            // No shell has been asked yet, so nothing has been written: empty
+            // here is the fact, and there is no state in this file that spells
+            // *empty* for a stream it merely failed to keep.
+            stderr: WireStderr {
+                kind: WireStderrKind::Empty,
+                bytes: 0,
+                text: String::new(),
+            },
+            token: TokenState::NotAttempted,
+        }
+    }
+}
+
+/// The readout. Never a rejection: by the time this can be asked for the window
+/// is already open, and a harvest that failed is a condition rather than
+/// something the shell is having. The return type has no `Result` in it, so
+/// acceptance criterion 6 is a compile-time fact rather than a test.
+#[tauri::command]
+fn environment(ambient: State<'_, Ambient>) -> EnvironmentReadout {
+    ambient.settled()
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             app.manage(Registry::open(app.handle()));
+            app.manage(Ambient::harvesting());
+            start_harvesting(app.handle().clone())?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -253,7 +584,8 @@ pub fn run() {
             forget_folder,
             relocate_folder,
             bind_repo,
-            choose_folder
+            choose_folder,
+            environment
         ])
         .run(tauri::generate_context!())
         .expect("perseverance failed to start");
@@ -321,5 +653,404 @@ mod tests {
         assert_eq!(bound["kind"], "bound");
         assert_eq!(bound["owner"], "javrasya");
         assert_eq!(bound["name"], "perseverance");
+    }
+
+    /* ------------------------------------------------------- environment --- */
+
+    use perseverance_env::{Capture, Harvest, HarvestCondition, Reading};
+    use std::cell::{Cell, RefCell};
+    use std::collections::BTreeMap;
+    use std::time::Duration;
+
+    /// Not a GitHub token and never was. `ghp_` is the prefix a leak scanner
+    /// greps for, which is the whole reason for choosing it.
+    const NOT_A_TOKEN: &str = "ghp_notreal";
+
+    /// An attempt with the shape of a real one that worked, assembled here
+    /// because a test that had to run a login shell to say what a readout looks
+    /// like would be testing the runner's start-up files.
+    fn harvest_of(pairs: &[(&str, &[u8])]) -> HarvestAttempt {
+        let variables: BTreeMap<String, Vec<u8>> = pairs
+            .iter()
+            .map(|(name, value)| (name.to_string(), value.to_vec()))
+            .collect();
+
+        HarvestAttempt {
+            outcome: Ok(Harvest {
+                tally: Tally {
+                    records_seen: variables.len(),
+                    ..Tally::default()
+                },
+                environment: Environment::from_reading(Reading {
+                    variables,
+                    tally: Tally::default(),
+                }),
+            }),
+            shell: Some(Shell::LoginShell {
+                program: "/bin/zsh".to_string(),
+            }),
+            stderr: Stderr {
+                text: String::new(),
+                bytes: 0,
+                kind: StderrKind::Empty,
+            },
+            elapsed: Duration::from_millis(187),
+        }
+    }
+
+    /// The same shape, discarded — a shell that ran, said something, and never
+    /// closed its frame.
+    fn discarded_after(said: &str) -> HarvestAttempt {
+        HarvestAttempt {
+            outcome: Err(HarvestCondition::FrameNeverClosed { after_ms: 8000 }),
+            shell: Some(Shell::LoginShell {
+                program: "/bin/zsh".to_string(),
+            }),
+            stderr: Stderr {
+                text: said.to_string(),
+                bytes: said.len(),
+                // Classified by the crate that owns the rule rather than by a
+                // guess here, so an empty stream in a test is spelled the same
+                // way the harvest spells one.
+                kind: perseverance_env::classify_stderr(said.as_bytes()),
+            },
+            elapsed: Duration::from_millis(8003),
+        }
+    }
+
+    /// Built by the same function that builds a real one, because `Token` has no
+    /// constructor a caller can reach — which is the point of it.
+    fn a_token() -> TokenOutcome {
+        perseverance_github::interpret(Ok(Capture {
+            status: Some(0),
+            stdout: NOT_A_TOKEN.as_bytes().to_vec(),
+            stderr: Vec::new(),
+        }))
+    }
+
+    /// `src/environment/environment.ts` is a hand-written mirror of this, pinned
+    /// from both sides for the same reason [`FolderEntry`] is: a rename here is a
+    /// silent breakage there, and nine keys is the count both files assert.
+    #[test]
+    fn an_environment_readout_crosses_in_the_shape_the_frontend_declares() {
+        let ambient = Ambient::harvesting();
+
+        let readout = settle_into(
+            &ambient,
+            || harvest_of(&[("PATH", b"/opt/homebrew/bin:/usr/bin")]),
+            |_| a_token(),
+        );
+
+        let json = serde_json::to_value(&readout).expect("serialises");
+        assert_eq!(json["harvest"]["kind"], "harvested");
+        assert_eq!(json["shell"]["kind"], "loginShell");
+        assert_eq!(json["shell"]["program"], "/bin/zsh");
+        assert_eq!(json["shell"]["flags"][0], "-lic");
+        assert_eq!(json["path"], "/opt/homebrew/bin:/usr/bin");
+        assert_eq!(json["pathSource"], "harvest");
+        assert_eq!(json["variableCount"], 1);
+        // The crate's own measurement, carried rather than re-taken here.
+        assert_eq!(json["elapsedMs"], 187);
+        assert_eq!(json["tally"]["recordsSeen"], 1);
+        assert_eq!(json["tally"]["recordsDropped"], 0);
+        assert_eq!(json["tally"]["duplicatesDropped"], 0);
+        assert_eq!(json["tally"]["bytesBeforeFrame"], 0);
+        assert_eq!(json["tally"]["bytesAfterFrame"], 0);
+        assert_eq!(json["tally"]["extraOpeningMarks"], 0);
+        assert_eq!(json["tally"].as_object().expect("an object").len(), 6);
+        assert_eq!(json["stderr"]["kind"], "empty");
+        assert_eq!(json["stderr"]["bytes"], 0);
+        assert_eq!(json["stderr"]["text"], "");
+        assert_eq!(json["token"]["kind"], "acquired");
+        assert_eq!(json.as_object().expect("an object").len(), 9);
+    }
+
+    #[test]
+    fn each_state_crosses_as_the_tag_the_readout_switches_on() {
+        let states = [
+            (HarvestState::Harvesting, "harvesting"),
+            (HarvestState::Harvested, "harvested"),
+            (
+                HarvestState::Inherited {
+                    detail: "no shell".to_string(),
+                },
+                "inherited",
+            ),
+        ];
+        for (state, tag) in states {
+            assert_eq!(
+                serde_json::to_value(&state).expect("serialises")["kind"],
+                tag
+            );
+        }
+
+        let shells = [
+            (
+                WireShell::from(&Shell::LoginShell {
+                    program: "/bin/zsh".to_string(),
+                }),
+                "loginShell",
+            ),
+            (
+                WireShell::from(&Shell::PowerShell {
+                    program: "powershell.exe".to_string(),
+                }),
+                "powerShell",
+            ),
+            (WireShell::None, "none"),
+        ];
+        for (shell, tag) in shells {
+            assert_eq!(
+                serde_json::to_value(&shell).expect("serialises")["kind"],
+                tag
+            );
+        }
+
+        let streams = [
+            (StderrKind::Empty, "empty"),
+            (StderrKind::Text, "text"),
+            (StderrKind::Clixml, "clixml"),
+        ];
+        for (kind, tag) in streams {
+            let stderr = WireStderr::from(&Stderr {
+                text: "#< CLIXML".to_string(),
+                bytes: 9,
+                kind,
+            });
+            let json = serde_json::to_value(&stderr).expect("serialises");
+            assert_eq!(json["kind"], tag);
+            // The text crosses whatever the classification is, because on
+            // Windows the classification is never the verdict.
+            assert_eq!(json["text"], "#< CLIXML");
+            assert_eq!(json["bytes"], 9);
+        }
+
+        let tokens = [
+            (TokenState::from(&a_token()), "acquired"),
+            (
+                TokenState::from(&TokenOutcome::NotAttempted),
+                "notAttempted",
+            ),
+            (
+                TokenState::from(&perseverance_github::interpret(Ok(Capture {
+                    status: Some(1),
+                    stdout: Vec::new(),
+                    stderr: b"not logged in to any hosts\n".to_vec(),
+                }))),
+                "refused",
+            ),
+        ];
+        for (token, tag) in tokens {
+            assert_eq!(
+                serde_json::to_value(&token).expect("serialises")["kind"],
+                tag
+            );
+        }
+    }
+
+    #[test]
+    fn a_failed_harvest_still_crosses_as_a_readout_rather_than_a_rejection() {
+        let ambient = Ambient::harvesting();
+
+        let readout = settle_into(
+            &ambient,
+            || discarded_after("command not found: fnm\n"),
+            // `gh` is never looked for, so this is never called. A closure that
+            // would panic is how that is asserted.
+            |_| panic!("a discarded harvest asked gh for a token"),
+        );
+
+        let json = serde_json::to_value(&readout).expect("serialises");
+        assert_eq!(json["harvest"]["kind"], "inherited");
+        assert_eq!(
+            json["harvest"]["detail"],
+            HarvestCondition::FrameNeverClosed { after_ms: 8000 }.to_string()
+        );
+        // The app is running on what it was launched with, and says so.
+        assert_eq!(json["pathSource"], "inherited");
+        assert_eq!(
+            json["path"],
+            Environment::inherited()
+                .path()
+                .expect("this process has a PATH")
+                .into_owned()
+        );
+        assert_eq!(json["token"]["kind"], "notAttempted");
+        // What the shell said on its way to being discarded crosses too, and
+        // the shell named is the one that ran rather than a second guess at
+        // which one this machine would pick. Both are what an operator opened
+        // the panel for.
+        assert_eq!(json["stderr"]["kind"], "text");
+        assert_eq!(json["stderr"]["text"], "command not found: fnm\n");
+        assert_eq!(json["stderr"]["bytes"], 23);
+        assert_eq!(json["shell"]["kind"], "loginShell");
+        assert_eq!(json["shell"]["program"], "/bin/zsh");
+        assert_eq!(json["elapsedMs"], 8003);
+    }
+
+    /// The state the readout previously could not tell apart from a shell that
+    /// wrote nothing, and the reason [`HarvestAttempt`] carries its stream
+    /// outside its outcome.
+    #[test]
+    fn a_shell_that_wrote_nothing_and_one_that_was_discarded_do_not_read_alike() {
+        let quiet = settle_into(
+            &Ambient::harvesting(),
+            || discarded_after(""),
+            |_| TokenOutcome::NotAttempted,
+        );
+        let spoken = settle_into(
+            &Ambient::harvesting(),
+            || discarded_after("profile cannot be loaded. The file is not digitally signed."),
+            |_| TokenOutcome::NotAttempted,
+        );
+
+        // Both harvests were discarded and both fell back to inheritance, so
+        // every other field on these two readouts agrees. The stream is the
+        // only place the difference can show, which is why it may not be
+        // dropped.
+        assert_eq!(quiet.stderr.bytes, 0);
+        assert!(spoken.stderr.bytes > 0);
+        assert_ne!(
+            serde_json::to_value(&quiet).expect("serialises")["stderr"],
+            serde_json::to_value(&spoken).expect("serialises")["stderr"]
+        );
+    }
+
+    #[test]
+    fn a_secret_in_the_harvested_environment_never_reaches_the_webview() {
+        let ambient = Ambient::harvesting();
+
+        let readout = settle_into(
+            &ambient,
+            || {
+                harvest_of(&[
+                    ("PATH", b"/usr/bin"),
+                    ("GITHUB_TOKEN", NOT_A_TOKEN.as_bytes()),
+                    ("AWS_SECRET_ACCESS_KEY", b"wJalrXUtnFEMIK7MDENG"),
+                ])
+            },
+            |_| a_token(),
+        );
+
+        // The environment has exactly one exit from Rust and this is it.
+        let json = serde_json::to_string(&readout).expect("serialises");
+        assert!(!json.contains("GITHUB_TOKEN"), "{json}");
+        assert!(!json.contains("AWS_SECRET_ACCESS_KEY"), "{json}");
+        assert!(!json.contains(NOT_A_TOKEN), "{json}");
+        assert!(!json.contains("wJalrXUtnFEMIK7MDENG"), "{json}");
+        // All three were carried, and the count is the only trace of them.
+        assert_eq!(readout.variable_count, 3);
+        assert_eq!(
+            serde_json::to_value(&readout).expect("serialises")["token"]["kind"],
+            "acquired"
+        );
+    }
+
+    #[test]
+    fn the_token_is_asked_for_inside_the_environment_the_harvest_returned() {
+        let ambient = Ambient::harvesting();
+        let asked_inside = RefCell::new(None);
+
+        settle_into(
+            &ambient,
+            || harvest_of(&[("PATH", b"/opt/homebrew/bin")]),
+            |environment| {
+                *asked_inside.borrow_mut() = environment.path().map(|path| path.into_owned());
+                a_token()
+            },
+        );
+
+        // The launch order, tested. `gh` is not on a GUI bundle's PATH, so a
+        // token asked for in this process's own environment is a token nobody
+        // gets — which is what makes the order a data dependency and not a
+        // schedule.
+        let asked_inside = asked_inside.into_inner();
+        assert_eq!(asked_inside.as_deref(), Some("/opt/homebrew/bin"));
+        assert_ne!(
+            asked_inside,
+            Environment::inherited()
+                .path()
+                .map(|path| path.into_owned())
+        );
+    }
+
+    #[test]
+    fn a_launch_harvests_once() {
+        let ambient = Ambient::harvesting();
+        let harvests = Cell::new(0);
+        let asks = Cell::new(0);
+
+        let settled = settle_into(
+            &ambient,
+            || {
+                harvests.set(harvests.get() + 1);
+                harvest_of(&[("PATH", b"/usr/bin")])
+            },
+            |_| {
+                asks.set(asks.get() + 1);
+                a_token()
+            },
+        );
+
+        // Asking for the readout is the command's whole body, and it re-reads
+        // rather than re-deriving: a second login shell per click would be a
+        // second set of the operator's start-up files per click.
+        let asked_for = ambient.settled();
+        assert_eq!((harvests.get(), asks.get()), (1, 1));
+        assert_eq!(
+            serde_json::to_value(&asked_for).expect("serialises"),
+            serde_json::to_value(&settled).expect("serialises")
+        );
+    }
+
+    /// The compile-time half of *never touches disk* is that [`Environment`]
+    /// derives no `Serialize` and cannot, there being no serde in that crate's
+    /// tree. This is the other half, and the only mechanical one: a real child,
+    /// a real frame, a real settling, and a directory that is exactly as it was.
+    ///
+    /// unix only, because the stub is `/bin/cat` and a Windows equivalent that
+    /// hands NUL-delimited bytes back unmangled is a second thing to get right
+    /// for a claim that would be no stronger. `perseverance-env`'s own pump
+    /// tests cover the process behaviour on both runners.
+    #[cfg(unix)]
+    #[test]
+    fn a_settled_launch_writes_no_file_where_the_harvest_ran() {
+        use perseverance_env::{closing_mark, opening_mark, Bounds, HarvestCommand, Nonce};
+        use tempfile::TempDir;
+
+        let directory = TempDir::new().expect("a temporary directory");
+        let nonce = Nonce::from_literal("deadbeefdeadbeef");
+        let mut frame = opening_mark(&nonce);
+        frame.extend_from_slice(b"PATH=/usr/bin:/bin\0");
+        frame.extend_from_slice(&closing_mark(&nonce));
+        let transcript = directory.path().join("transcript");
+        std::fs::write(&transcript, &frame).expect("writes the transcript");
+
+        let command = HarvestCommand {
+            shell: Shell::LoginShell {
+                program: "/bin/cat".to_string(),
+            },
+            program: "/bin/cat".to_string(),
+            args: vec![transcript.to_string_lossy().into_owned()],
+            cwd: directory.path().to_path_buf(),
+            env_overlay: Vec::new(),
+        };
+
+        let ambient = Ambient::harvesting();
+        let readout = settle_into(
+            &ambient,
+            || perseverance_env::harvest_with(&command, &nonce, &Bounds::for_this_machine()),
+            |_| TokenOutcome::NotAttempted,
+        );
+
+        let json = serde_json::to_value(&readout).expect("serialises");
+        assert_eq!(json["harvest"]["kind"], "harvested");
+        assert_eq!(json["path"], "/usr/bin:/bin");
+
+        let left: Vec<_> = std::fs::read_dir(directory.path())
+            .expect("reads the directory")
+            .map(|entry| entry.expect("an entry").file_name())
+            .collect();
+        assert_eq!(left, vec![std::ffi::OsString::from("transcript")]);
     }
 }

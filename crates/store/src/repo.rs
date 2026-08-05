@@ -56,9 +56,11 @@ pub enum RepoBindingError {
 /// Derives the GitHub repository behind a folder, from that folder alone.
 ///
 /// The git config is read as **text** rather than by shelling out to `git`: it
-/// keeps this crate free of child processes (those belong to
-/// `perseverance-pty`) and makes the whole thing testable against a directory
-/// with a hand-written config file and no git installed anywhere.
+/// keeps this crate free of child processes (a child process belongs to
+/// `perseverance-pty` or to `perseverance-env`, and neither of them is a crate
+/// whose subject is a file on this disk) and makes the whole thing testable
+/// against a directory with a hand-written config file and no git installed
+/// anywhere.
 ///
 /// The ambiguity rule, stated once so it is not re-argued: several GitHub
 /// remotes that all resolve to the **same** `owner/repo` bind fine — a fork

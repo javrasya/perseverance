@@ -1,6 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
 import { DropRegion } from "./chrome/DropRegion";
 import { NoMapChip } from "./chrome/NoMapChip";
+import {
+  EnvironmentReadout,
+  EnvironmentSummary,
+} from "./environment/EnvironmentReadout";
+import {
+  loadEnvironment,
+  settledOver,
+  stillHarvesting,
+  watchEnvironment,
+} from "./environment/environment";
 import { FolderList } from "./launcher/FolderList";
 import {
   bindRepo,
@@ -36,6 +46,8 @@ export function App() {
   const [outcome, setOutcome] = useState<LauncherOutcome>(nothingListedYet);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [note, setNote] = useState<LauncherNote | null>(null);
+  const [environment, setEnvironment] = useState(stillHarvesting);
+  const [environmentShown, setEnvironmentShown] = useState(false);
 
   useEffect(() => {
     let live = true;
@@ -44,6 +56,37 @@ export function App() {
     });
     return () => {
       live = false;
+    };
+  }, []);
+
+  /*
+   * Subscribe, then ask. A macOS harvest settles in about 187 ms and can be
+   * over before this window exists, in which case the emit lands on nobody and
+   * only the command has the answer; a Windows profile takes a second or two
+   * and the command answers before the shell does. Both arrivals carry the same
+   * readout, so the only ordering that can lose is asking first.
+   */
+  useEffect(() => {
+    let live = true;
+    let stop: () => void = () => {};
+
+    // Whichever of the two arrives second must not undo the first.
+    const arrived = (next: typeof environment) => {
+      if (live) setEnvironment((current) => settledOver(current, next));
+    };
+
+    watchEnvironment(arrived).then((off) => {
+      if (!live) {
+        off();
+        return;
+      }
+      stop = off;
+      return loadEnvironment().then(arrived);
+    });
+
+    return () => {
+      live = false;
+      stop();
     };
   }, []);
 
@@ -188,11 +231,20 @@ export function App() {
         </DropRegion>
       </div>
 
+      <EnvironmentReadout readout={environment} shown={environmentShown} />
+
       <footer className={styles.readout}>
         <span>schema v{snapshot.schemaVersion}</span>
         <span>source: {snapshot.provenance.source}</span>
         <span>read: {snapshot.provenance.outcome.kind}</span>
         <span>age: {snapshot.provenance.fetchedAt ?? "—"}</span>
+        {/* One more field of the readout that already exists, rather than a
+            second place to look for machine facts. */}
+        <EnvironmentSummary
+          readout={environment}
+          shown={environmentShown}
+          onToggle={() => setEnvironmentShown((open) => !open)}
+        />
       </footer>
     </div>
   );

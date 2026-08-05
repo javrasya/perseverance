@@ -2143,6 +2143,7 @@ name = "perseverance-app"
 version = "0.1.0"
 dependencies = [
  "perseverance-agent",
+ "perseverance-env",
  "perseverance-github",
  "perseverance-model",
  "perseverance-pty",
@@ -2152,13 +2153,25 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
+ "tempfile",
+]
+
+[[package]]
+name = "perseverance-env"
+version = "0.1.0"
+dependencies = [
+ "tempfile",
+ "thiserror 2.0.19",
 ]
 
 [[package]]
 name = "perseverance-github"
 version = "0.1.0"
 dependencies = [
+ "perseverance-env",
  "perseverance-model",
+ "tempfile",
+ "thiserror 2.0.19",
 ]
 
 [[package]]

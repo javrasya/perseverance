@@ -64,6 +64,11 @@ jobs:
       - name: Model crate purity
         run: npm run check:model-purity
 
+      # The arrow ADR 0002 rests on: the agent crate depends on nothing, so
+      # #45's planner-side work can never be forced to name the harvest.
+      - name: Agent crate solitude
+        run: npm run check:agent-solitude
+
       - name: Frontend build
         run: npm run build
 

@@ -50,6 +50,20 @@ const FORBIDDEN = [
   { prefix: "openssl", why: "the network" },
   // Process and terminal ownership belongs to perseverance-pty
   { prefix: "portable-pty", why: "PTY ownership, which belongs to perseverance-pty" },
+  // Spawning a child belongs to perseverance-pty or to perseverance-env. Until
+  // #31 the only entry above was `portable-pty`, so any of the crates below
+  // would have given the model a child process in silence — and a model that
+  // asks the machine a question is no longer a derivation a JSON fixture can
+  // drive.
+  { prefix: "perseverance-env", why: "the environment harvest, which spawns the operator's shell" },
+  { prefix: "wait-timeout", why: "waiting on a child process" },
+  { prefix: "duct", why: "spawning child processes" },
+  { prefix: "command-group", why: "spawning child processes" },
+  { prefix: "shared_child", why: "spawning child processes" },
+  { prefix: "subprocess", why: "spawning child processes" },
+  // Resolution against a PATH is perseverance-env's, in Environment::resolve,
+  // because the PATH that matters is the harvested one and not this process's.
+  { prefix: "which", why: "resolving a program to run, which belongs to perseverance-env" },
   // Storage belongs to perseverance-store. A model that opens a file is no
   // longer a derivation a JSON fixture can drive, and the `model -> store`
   // arrow is exactly the one this list has to keep absent.
