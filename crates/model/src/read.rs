@@ -7,12 +7,13 @@
 //! can be driven by a checked-in JSON file is a parser that can be tested with
 //! no network anywhere near it.
 //!
-//! The children of the open map are deliberately **not** parsed here. They stay
-//! in the response body, which is what gets cached, so that #33 derives its
-//! model from exactly the bytes GitHub sent rather than from a lossy shadow of
-//! them taken on the way past.
-
-use crate::MapRef;
+//! The children of the open map are parsed here and classified nowhere here.
+//! What comes out of this file is what the response *said* about each child —
+//! its labels as strings, GitHub's own count of open blockers, how many people
+//! hold it — and every judgement made from those facts lives in [`crate::derive`].
+//! The split is what keeps *what arrived* separable from *what we concluded*,
+//! and it is why the whole of the derivation can be driven by a checked-in
+//! response with no network anywhere near it.
 
 /// The label a map is discovered by.
 ///
@@ -48,11 +49,57 @@ pub struct MapRead {
     /// is the thing this spec keeps refusing to build.
     pub maps: Vec<MapListing>,
     /// Which map the response carried the graph of, if the query asked for one.
-    pub map: Option<MapRef>,
+    pub map: Option<MapGraph>,
     /// Carried, never acted on. The budget floor is #39's and the backoff is
     /// #40's; this slice only makes sure the numbers arrive.
     pub rate_limit: Option<RateLimit>,
     pub truncation: Truncation,
+}
+
+/// The open map, and the children the same answer carried under it.
+///
+/// Nothing here is derived: no state, no classification, no counts. What this
+/// carries is the answer, and [`crate::derive`] is where an answer becomes a
+/// model.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MapGraph {
+    pub number: u64,
+    pub title: String,
+    /// GitHub's own state for the map itself, which is the top rung of the
+    /// phase ladder and the one rung no ticket can put the map on.
+    pub closed: bool,
+    /// **Sub-issue order**, exactly as GitHub answered — which is the order the
+    /// operator dragged them into in GitHub's own UI. Never re-sorted here, and
+    /// never re-sorted anywhere: a ranking invented by this app is a ranking the
+    /// graph on screen cannot justify.
+    pub children: Vec<ChildRead>,
+}
+
+/// One child of the open map, as the answer described it.
+///
+/// The labels cross as strings rather than as a classification, because which
+/// strings mean what is a decision and decisions live one file over. Everything
+/// else here is a count GitHub itself computed, which is the reason none of it
+/// has to be recomputed from the node lists.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChildRead {
+    pub number: u64,
+    pub title: String,
+    pub url: String,
+    /// GitHub's own state. A closed child is resolved whatever else is true of
+    /// it, which is the top of the node-state precedence.
+    pub closed: bool,
+    /// `issueDependenciesSummary.blockedBy`, which counts **open** blockers
+    /// only — `totalBlockedBy` is the one that counts them all. That is why
+    /// this single number is the entire unblocked test and why nothing here
+    /// walks the `blockedBy` node list to work it out again.
+    pub blocked_by: u32,
+    /// How many people hold it. *Claimed by me* is not a distinction this can
+    /// make — every run assigns the same login — so identity is deliberately
+    /// not carried and liveness is a later ticket's, not this one's.
+    pub assignees: u32,
+    /// Verbatim, in the order the answer listed them.
+    pub labels: Vec<String>,
 }
 
 /// `rateLimit { … }`, which rides the same query for free.
@@ -162,12 +209,57 @@ pub fn read_response(body: &str) -> Result<MapRead, ReadError> {
 
     let map = repository.issue.map(|issue| {
         truncation.children |= issue.sub_issues.page_info.has_next_page;
-        for child in issue.sub_issues.nodes.iter().flatten().flatten() {
-            truncation.blocked_by |= child.blocked_by.page_info.has_next_page;
-        }
-        MapRef {
+
+        // Flattened twice for the reason the map list is: the connection may be
+        // absent, and any single node in a GraphQL list may be null.
+        let children = issue
+            .sub_issues
+            .nodes
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|child| {
+                truncation.blocked_by |= child.blocked_by.page_info.has_next_page;
+                ChildRead {
+                    number: child.number,
+                    title: child.title,
+                    url: child.url,
+                    closed: child.state.eq_ignore_ascii_case("CLOSED"),
+                    // Absent means nothing blocks it. A missing summary read as
+                    // *blocked* would hide a takeable ticket, and read as an
+                    // error would stop the whole map drawing over one field.
+                    blocked_by: child
+                        .issue_dependencies_summary
+                        .map(|summary| summary.blocked_by)
+                        .unwrap_or(0),
+                    assignees: child
+                        .assignees
+                        .nodes
+                        .iter()
+                        .flatten()
+                        .flatten()
+                        .count()
+                        .min(u32::MAX as usize) as u32,
+                    labels: child
+                        .labels
+                        .nodes
+                        .into_iter()
+                        .flatten()
+                        .flatten()
+                        .map(|label| label.name)
+                        .collect(),
+                }
+            })
+            .collect();
+
+        MapGraph {
             number: issue.number,
+            // Absent is open. The field was added to the query by the ticket
+            // that needed it, and a recorded response taken before that is a
+            // response about a map that was open at the time.
+            closed: issue.state.eq_ignore_ascii_case("CLOSED"),
             title: issue.title,
+            children,
         }
     });
 
@@ -289,14 +381,47 @@ mod wire {
         #[serde(default)]
         pub title: String,
         #[serde(default)]
+        pub state: String,
+        #[serde(default)]
         pub sub_issues: Connection<Child>,
     }
 
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
     pub(super) struct Child {
+        pub number: u64,
+        #[serde(default)]
+        pub title: String,
+        #[serde(default)]
+        pub state: String,
+        #[serde(default)]
+        pub url: String,
+        #[serde(default)]
+        pub labels: Connection<Label>,
+        #[serde(default)]
+        pub assignees: Connection<serde_json::Value>,
+        /// Optional rather than defaulted, so *the field was not in the answer*
+        /// and *the answer said zero* stay different facts on the way in. What
+        /// they mean is decided at the call site, once, in the open.
+        pub issue_dependencies_summary: Option<DependenciesSummary>,
         #[serde(default)]
         pub blocked_by: Connection<serde_json::Value>,
+    }
+
+    #[derive(Deserialize)]
+    pub(super) struct Label {
+        #[serde(default)]
+        pub name: String,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub(super) struct DependenciesSummary {
+        /// Open blockers. `totalBlockedBy` rides the same query and is
+        /// deliberately not read: it counts closed blockers too, and a ticket
+        /// whose blockers are all closed is takeable.
+        #[serde(default)]
+        pub blocked_by: u32,
     }
 
     /// The bound is written out because `serde`'s derive would otherwise
@@ -408,15 +533,66 @@ mod tests {
 
     #[test]
     fn the_open_map_is_named_by_the_same_answer_that_listed_the_maps() {
-        let read = read_response(TWO_MAPS).expect("reads");
+        let map = read_response(TWO_MAPS).expect("reads").map.expect("a map");
 
-        assert_eq!(
-            read.map,
-            Some(MapRef {
-                number: 28,
-                title: "Spec: perseverance".to_string(),
-            })
-        );
+        assert_eq!(map.number, 28);
+        assert_eq!(map.title, "Spec: perseverance");
+        assert!(!map.closed);
+    }
+
+    #[test]
+    fn the_children_arrive_in_the_order_the_operator_dragged_them_into() {
+        let map = read_response(TWO_MAPS).expect("reads").map.expect("a map");
+
+        let numbers: Vec<u64> = map.children.iter().map(|child| child.number).collect();
+        assert_eq!(numbers, vec![32, 33]);
+    }
+
+    #[test]
+    fn a_child_carries_what_the_answer_said_about_it_and_nothing_concluded_from_it() {
+        let map = read_response(TWO_MAPS).expect("reads").map.expect("a map");
+
+        let unclaimed = &map.children[0];
+        assert_eq!(unclaimed.number, 32);
+        assert_eq!(unclaimed.title, "Maps on screen");
+        assert_eq!(unclaimed.url, "https://github.com/o/r/issues/32");
+        assert!(!unclaimed.closed);
+        assert_eq!(unclaimed.labels, vec!["wayfinder:task".to_string()]);
+        assert_eq!(unclaimed.assignees, 0);
+        // One blocker, and it is closed — so the count of *open* blockers is
+        // zero while `totalBlockedBy` says two. Reading the wrong one of those
+        // two numbers is the whole difference between a takeable ticket and a
+        // frontier that never moves.
+        assert_eq!(unclaimed.blocked_by, 0);
+
+        let claimed = &map.children[1];
+        assert_eq!(claimed.assignees, 1);
+        assert_eq!(claimed.blocked_by, 1);
+    }
+
+    #[test]
+    fn a_child_whose_answer_carried_no_dependency_summary_is_read_as_nothing_blocking_it() {
+        // Absent is not *blocked*. A field GitHub declined to answer with must
+        // not be the thing that hides the one ticket you could have started.
+        let body = r#"{
+            "data": {
+                "repository": {
+                    "maps": { "nodes": [] },
+                    "issue": {
+                        "number": 1, "title": "One", "state": "OPEN",
+                        "subIssues": { "nodes": [
+                            { "number": 2, "title": "Two", "state": "OPEN", "url": "u",
+                              "labels": { "nodes": [] }, "assignees": { "nodes": [] } }
+                        ] }
+                    }
+                },
+                "rateLimit": null
+            }
+        }"#;
+
+        let map = read_response(body).expect("reads").map.expect("a map");
+
+        assert_eq!(map.children[0].blocked_by, 0);
     }
 
     #[test]
@@ -448,7 +624,8 @@ mod tests {
                         "subIssues": {
                             "pageInfo": { "hasNextPage": true },
                             "nodes": [
-                                { "blockedBy": { "pageInfo": { "hasNextPage": true }, "nodes": [] } }
+                                { "number": 2,
+                                  "blockedBy": { "pageInfo": { "hasNextPage": true }, "nodes": [] } }
                             ]
                         }
                     }

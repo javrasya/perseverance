@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "model": {
+    "map": {
+      "number": 28,
+      "title": "Spec: perseverance",
+      "closed": false,
+      "phase": "wayfinding",
+      "counts": {
+        "tickets": 2,
+        "open": 2,
+        "specs": 0
+      },
+      "nodes": [
+        {
+          "number": 32,
+          "title": "Maps on screen",
+          "url": "https://github.com/o/r/issues/32",
+          "kind": {
+            "kind": "ticket",
+            "type": "task"
+          },
+          "state": "takeable"
+        },
+        {
+          "number": 33,
+          "title": "The derived model",
+          "url": "https://github.com/o/r/issues/33",
+          "kind": {
+            "kind": "ticket",
+            "type": "task"
+          },
+          "state": "blocked"
+        }
+      ],
+      "frontier": 32
+    }
+  },
+  "provenance": {
+    "source": "fixture",
+    "outcome": {
+      "kind": "ok"
+    },
+    "fetchedAt": "2026-08-05T08:00:00Z"
+  }
+}

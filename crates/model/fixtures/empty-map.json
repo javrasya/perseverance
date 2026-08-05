@@ -1,0 +1,35 @@
+{
+  "_why": "A map that exists and has nothing on it. `unstarted` rather than `spec-ready`: nobody has charted anything, which is a different fact from having worked through everything charted. It is also the state a map is in for the whole of the first charting session, so it is the one an operator sees first.",
+  "data": {
+    "repository": {
+      "maps": {
+        "pageInfo": { "hasNextPage": false },
+        "nodes": [
+          {
+            "number": 80,
+            "title": "Spec: nothing charted yet",
+            "state": "OPEN",
+            "url": "https://github.com/o/r/issues/80",
+            "updatedAt": "2026-08-05T09:12:44Z"
+          }
+        ]
+      },
+      "issue": {
+        "number": 80,
+        "title": "Spec: nothing charted yet",
+        "state": "OPEN",
+        "url": "https://github.com/o/r/issues/80",
+        "updatedAt": "2026-08-05T09:12:44Z",
+        "labels": { "nodes": [{ "name": "wayfinder:map" }] },
+        "subIssues": { "pageInfo": { "hasNextPage": false }, "nodes": [] }
+      }
+    },
+    "rateLimit": {
+      "cost": 1,
+      "nodeCount": 3,
+      "limit": 5000,
+      "remaining": 4990,
+      "resetAt": "2026-08-05T11:02:14Z"
+    }
+  }
+}

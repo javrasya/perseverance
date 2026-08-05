@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "model": {
+    "map": {
+      "number": 100,
+      "title": "Spec: called finished",
+      "closed": true,
+      "phase": "done",
+      "counts": {
+        "tickets": 1,
+        "open": 1,
+        "specs": 0
+      },
+      "nodes": [
+        {
+          "number": 101,
+          "title": "Never picked up, and no longer needed",
+          "url": "https://github.com/o/r/issues/101",
+          "kind": {
+            "kind": "ticket",
+            "type": "task"
+          },
+          "state": "takeable"
+        }
+      ],
+      "frontier": 101
+    }
+  },
+  "provenance": {
+    "source": "fixture",
+    "outcome": {
+      "kind": "ok"
+    },
+    "fetchedAt": "2026-08-05T08:00:00Z"
+  }
+}

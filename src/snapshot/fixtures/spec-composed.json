@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "model": {
+    "map": {
+      "number": 90,
+      "title": "Spec: worked through",
+      "closed": false,
+      "phase": "specced",
+      "counts": {
+        "tickets": 2,
+        "open": 0,
+        "specs": 1
+      },
+      "nodes": [
+        {
+          "number": 91,
+          "title": "What the terminal already knows",
+          "url": "https://github.com/o/r/issues/91",
+          "kind": {
+            "kind": "ticket",
+            "type": "research"
+          },
+          "state": "resolved"
+        },
+        {
+          "number": 92,
+          "title": "Does the shape hold",
+          "url": "https://github.com/o/r/issues/92",
+          "kind": {
+            "kind": "ticket",
+            "type": "prototype"
+          },
+          "state": "resolved"
+        },
+        {
+          "number": 93,
+          "title": "Spec: worked through, composed",
+          "url": "https://github.com/o/r/issues/93",
+          "kind": {
+            "kind": "spec"
+          },
+          "state": "takeable"
+        }
+      ],
+      "frontier": null
+    }
+  },
+  "provenance": {
+    "source": "fixture",
+    "outcome": {
+      "kind": "ok"
+    },
+    "fetchedAt": "2026-08-05T08:00:00Z"
+  }
+}

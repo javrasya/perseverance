@@ -32,6 +32,7 @@ import {
 } from "./launcher/launcher";
 import { MapList } from "./maps/MapList";
 import { loadMaps, nothingReadYet, refreshMaps, type MapsView } from "./maps/maps";
+import { describeModel } from "./snapshot/readout";
 import { loadSnapshot, noMapOpen, type Snapshot } from "./snapshot/snapshot";
 import { ThemeSwitch } from "./theme/ThemeSwitch";
 import { useTheme } from "./theme/useTheme";
@@ -276,6 +277,13 @@ export function App() {
 
       <footer className={styles.readout}>
         <span>schema v{snapshot.schemaVersion}</span>
+        {/*
+          The derived model, as one line. A diagnostic rather than the route —
+          drawing the graph is a later ticket — but `dev:web` boots from a
+          checked-in snapshot with no Rust behind it, and a fixture that boots
+          and shows nothing derived would prove nothing.
+        */}
+        <span>{describeModel(snapshot.model)}</span>
         {/*
           How old what you are reading is, on chrome that survives every state.
           It is here rather than beside the map list because it may never be a

@@ -1,0 +1,103 @@
+{
+  "schemaVersion": 1,
+  "model": {
+    "map": {
+      "number": 60,
+      "title": "Spec: the awkward map",
+      "closed": false,
+      "phase": "wayfinding",
+      "counts": {
+        "tickets": 5,
+        "open": 4,
+        "specs": 2
+      },
+      "nodes": [
+        {
+          "number": 70,
+          "title": "Someone dragged a bug report onto the map",
+          "url": "https://github.com/o/r/issues/70",
+          "kind": {
+            "kind": "unclassified"
+          },
+          "state": "takeable"
+        },
+        {
+          "number": 71,
+          "title": "Finished before the thing it waited on",
+          "url": "https://github.com/o/r/issues/71",
+          "kind": {
+            "kind": "ticket",
+            "type": "task"
+          },
+          "state": "resolved"
+        },
+        {
+          "number": 73,
+          "title": "Spec: the awkward map, composed",
+          "url": "https://github.com/o/r/issues/73",
+          "kind": {
+            "kind": "spec"
+          },
+          "state": "takeable"
+        },
+        {
+          "number": 74,
+          "title": "Spec: the awkward map, composed again",
+          "url": "https://github.com/o/r/issues/74",
+          "kind": {
+            "kind": "spec"
+          },
+          "state": "takeable"
+        },
+        {
+          "number": 72,
+          "title": "Held up, and holding this up",
+          "url": "https://github.com/o/r/issues/72",
+          "kind": {
+            "kind": "ticket",
+            "type": "research"
+          },
+          "state": "blocked"
+        },
+        {
+          "number": 77,
+          "title": "Somebody is already on this one",
+          "url": "https://github.com/o/r/issues/77",
+          "kind": {
+            "kind": "ticket",
+            "type": "grilling"
+          },
+          "state": "claimed"
+        },
+        {
+          "number": 75,
+          "title": "The first thing that can be started",
+          "url": "https://github.com/o/r/issues/75",
+          "kind": {
+            "kind": "ticket",
+            "type": "task"
+          },
+          "state": "takeable"
+        },
+        {
+          "number": 76,
+          "title": "The second thing that can be started",
+          "url": "https://github.com/o/r/issues/76",
+          "kind": {
+            "kind": "ticket",
+            "type": "prototype"
+          },
+          "state": "takeable"
+        }
+      ],
+      "frontier": 75
+    }
+  },
+  "provenance": {
+    "source": "fixture",
+    "outcome": {
+      "kind": "ok"
+    },
+    "fetchedAt": "2026-08-05T08:00:00Z"
+  }
+}

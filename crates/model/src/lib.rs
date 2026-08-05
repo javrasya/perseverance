@@ -9,12 +9,20 @@
 //! network and no browser anywhere in this crate's dependency tree**, tests
 //! included. `scripts/check-model-purity.mjs` enforces it in CI.
 
+/// The generated TypeScript and the `dev:web` fixtures, and the check that
+/// keeps both equal to what this crate actually produces. Test-only, because
+/// the `TS` derives it depends on are.
+#[cfg(test)]
+mod bindings;
+pub mod derive;
 mod read;
 mod snapshot;
 
+pub use derive::{
+    ChildKind, Counts, Map, Model, Node, NodeState, Phase, TicketType, WAYFINDER_PREFIX,
+};
 pub use read::{
-    read_response, rfc3339, MapListing, MapRead, RateLimit, ReadError, Truncation, MAP_LABEL,
+    read_response, rfc3339, ChildRead, MapGraph, MapListing, MapRead, RateLimit, ReadError,
+    Truncation, MAP_LABEL,
 };
-pub use snapshot::{
-    MapRef, Provenance, ReadOutcome, Snapshot, SnapshotError, Source, SCHEMA_VERSION,
-};
+pub use snapshot::{Provenance, ReadOutcome, Snapshot, SnapshotError, Source, SCHEMA_VERSION};
