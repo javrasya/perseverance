@@ -13,10 +13,20 @@ repository.workspace = true
 # this crate still constructs no child process of its own — it names `run_in` and
 # nothing else, which is what keeps the socket crate the socket crate.
 # `docs/adr/0002` records why the mechanism is not sited here.
+#
+# `ureq` is the socket. Blocking on purpose: every other long read in this app
+# is a named thread (`crates/app` argues the case for the harvest), and an async
+# runtime acquired to make one request every ten seconds would be a scheduler
+# bought to do what a thread already does. `platform-verifier` means the
+# operator's own certificate store decides what is trusted, which is what makes
+# the app work behind a corporate proxy that a bundled root list cannot see.
+# `docs/adr/0003` records why this is not `octocrab`.
 [dependencies]
 perseverance-model = { workspace = true }
 perseverance-env = { workspace = true }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
+ureq = { workspace = true }
 
 # For the temporary directory the fake-`gh` tests name on a hand-built PATH. A
 # real `gh` cannot be part of any assertion: a GitHub runner has one installed

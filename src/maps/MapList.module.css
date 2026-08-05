@@ -1,0 +1,193 @@
+/*
+ * Tier 3 — component tokens, defined from semantic tokens only.
+ */
+
+.maps {
+  display: flex;
+  width: 100%;
+  max-width: 76ch;
+  flex-direction: column;
+  gap: var(--s-space-snug);
+  text-align: left;
+}
+
+.heading {
+  margin: 0;
+  color: var(--s-ink-primary);
+  font-size: var(--s-text-title);
+  font-weight: var(--s-weight-emphasis);
+}
+
+.preamble {
+  max-width: 60ch;
+  margin: 0;
+  color: var(--s-ink-secondary);
+  font-size: var(--s-text-small);
+  line-height: 1.5;
+}
+
+/*
+ * A page GitHub's own limits say cannot exist. Stated in ink rather than as an
+ * alarm: it is a fact about the answer, and there is nothing for the operator
+ * to do about it.
+ */
+.caveat {
+  max-width: 60ch;
+  margin: 0;
+  padding: var(--s-space-tight) var(--s-space-snug);
+  border-left: var(--s-border-emphasis) solid var(--s-line-strong);
+  border-radius: var(--s-radius-control);
+  background: var(--s-surface-sunken);
+  color: var(--s-ink-secondary);
+  font-size: var(--s-text-small);
+  line-height: 1.5;
+}
+
+.list {
+  margin: 0;
+  padding: 0;
+  border: var(--s-border-hairline) solid var(--s-line-quiet);
+  border-radius: var(--s-radius-panel);
+  background: var(--s-surface-raised);
+  list-style: none;
+  overflow: hidden;
+}
+
+.list > :last-child {
+  border-bottom: none;
+}
+
+.row {
+  --c-row-ink: var(--s-ink-primary);
+  --c-row-number: var(--s-ink-secondary);
+
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+  gap: var(--s-space-snug);
+  padding: var(--s-space-snug) var(--s-space-base);
+  border-bottom: var(--s-border-hairline) solid var(--s-line-quiet);
+}
+
+/*
+ * Resolved recedes in salience and stays locatable. It is ink weight only —
+ * never display, never opacity on the whole row — so a finished map is still
+ * readable, selectable and countable.
+ */
+.row[data-closed="true"] {
+  --c-row-ink: var(--s-ink-secondary);
+  --c-row-number: var(--s-ink-faint);
+}
+
+.number {
+  color: var(--c-row-number);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-small);
+}
+
+.title {
+  overflow: hidden;
+  color: var(--c-row-ink);
+  font-size: var(--s-text-body);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/*
+ * The two absences. A folder with no map is normal and a folder nobody has read
+ * is unknown, and the rail is the only thing that differs — because the copy is
+ * what carries the difference and a second colour would imply a severity
+ * neither of them has.
+ */
+.absence {
+  --c-absence-rail: var(--s-line-strong);
+
+  display: flex;
+  max-width: 60ch;
+  flex-direction: column;
+  gap: var(--s-space-hair);
+  padding: var(--s-space-snug) var(--s-space-base);
+  border-left: var(--s-border-emphasis) solid var(--c-absence-rail);
+  border-radius: var(--s-radius-control);
+  background: var(--s-surface-sunken);
+}
+
+.absence[data-state="unread"] {
+  --c-absence-rail: var(--s-line-quiet);
+}
+
+.absenceHeadline {
+  color: var(--s-ink-primary);
+  font-size: var(--s-text-micro);
+  font-weight: var(--s-weight-emphasis);
+  letter-spacing: var(--s-tracking-label);
+  text-transform: uppercase;
+}
+
+.absenceDetail {
+  color: var(--s-ink-secondary);
+  font-size: var(--s-text-small);
+  line-height: 1.5;
+}
+
+/* ------------------------------------------------------------ completed --- */
+
+.completed {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-space-tight);
+}
+
+.completedToggle {
+  --c-toggle-fill: transparent;
+
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-space-tight);
+  padding: var(--s-space-tight) var(--s-space-snug);
+  border: none;
+  border-radius: var(--s-radius-control);
+  background: var(--c-toggle-fill);
+  color: var(--s-ink-secondary);
+  font: inherit;
+  font-size: var(--s-text-small);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--s-motion-fast) var(--s-motion-ease);
+}
+
+.completedToggle:hover {
+  --c-toggle-fill: var(--s-surface-hover);
+}
+
+.completedToggle:focus-visible {
+  outline: var(--s-border-emphasis) solid var(--s-focus-ring);
+  outline-offset: -2px;
+}
+
+.completedCaret {
+  color: var(--s-ink-faint);
+}
+
+.completedName {
+  color: var(--s-ink-primary);
+  font-weight: var(--s-weight-emphasis);
+}
+
+/*
+ * How many are put away. A count of things that exist, never a count standing
+ * in for an absence — the group is not drawn at all when it is empty.
+ */
+.completedCount {
+  color: var(--s-ink-faint);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-micro);
+}
+
+.completedHint {
+  max-width: 60ch;
+  margin: 0;
+  color: var(--s-ink-faint);
+  font-size: var(--s-text-micro);
+  line-height: 1.5;
+}

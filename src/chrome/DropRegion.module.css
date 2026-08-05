@@ -4,8 +4,28 @@
   display: flex;
   flex: 1;
   flex-direction: column;
+  /*
+   * This is the scrollport, not the box around it. The region is stretched to
+   * the window, so content taller than it would otherwise paint straight
+   * through the dashed border — the frame stopping at the window while the list
+   * carried on past it. Scrolling here means the content moves *inside* the
+   * border, which is what makes the border mean something. `min-height: 0` is
+   * what lets this flex child shrink far enough for that to take effect.
+   */
+  min-height: 0;
+  overflow: auto;
   align-items: center;
+  /*
+   * `safe` is the whole point, and the plain value above it is the fallback a
+   * browser that does not know the keyword lands on.
+   *
+   * Ordinary centring in a scrollport puts the first half of any overflow
+   * *above* the scrollable origin, where no amount of scrolling can reach it —
+   * the heading simply goes missing. `safe` says: centre while it fits, align
+   * to the start the moment it does not.
+   */
   justify-content: center;
+  justify-content: safe center;
   gap: var(--s-space-base);
   margin: var(--s-space-base);
   padding: var(--s-space-room);

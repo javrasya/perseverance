@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { CacheStamp } from "./chrome/CacheStamp";
 import { DropRegion } from "./chrome/DropRegion";
 import { NoMapChip } from "./chrome/NoMapChip";
 import {
@@ -29,6 +30,8 @@ import {
   type LauncherOutcome,
   type LauncherView,
 } from "./launcher/launcher";
+import { MapList } from "./maps/MapList";
+import { loadMaps, nothingReadYet, refreshMaps, type MapsView } from "./maps/maps";
 import { loadSnapshot, noMapOpen, type Snapshot } from "./snapshot/snapshot";
 import { ThemeSwitch } from "./theme/ThemeSwitch";
 import { useTheme } from "./theme/useTheme";
@@ -48,6 +51,7 @@ export function App() {
   const [note, setNote] = useState<LauncherNote | null>(null);
   const [environment, setEnvironment] = useState(stillHarvesting);
   const [environmentShown, setEnvironmentShown] = useState(false);
+  const [maps, setMaps] = useState<MapsView>(() => nothingReadYet(0));
 
   useEffect(() => {
     let live = true;
@@ -117,6 +121,31 @@ export function App() {
   }, []);
 
   /*
+   * The cache first, then GitHub. Both, in that order, every time a folder is
+   * opened: the first paint of a folder is the copy it already had — which is
+   * what makes the stamp honest before anything has been reached — and the live
+   * read is what replaces it and what may write.
+   *
+   * A read that lands after you have moved on is dropped on the folder id
+   * rather than on a flag, because two folders opened quickly is the ordinary
+   * case and the wrong maps under the right name is the worst of the outcomes.
+   */
+  const readMapsFor = useCallback((folderId: number) => {
+    const forThisFolder = (next: MapsView) =>
+      setMaps((current) => (current.folderId === folderId ? next : current));
+
+    setMaps(nothingReadYet(folderId));
+    loadMaps(folderId)
+      .then(forThisFolder)
+      .then(() => refreshMaps(folderId))
+      .then(forThisFolder)
+      // A read that could not even be asked for leaves what is on screen where
+      // it is. The shell answers a failed read with the cached list and a stale
+      // stamp, so arriving here at all means the call itself did not return.
+      .catch(() => {});
+  }, []);
+
+  /*
    * Opening a folder is what records that you opened it. Picking a row from the
    * list is the ordinary way that happens — far more often than picking a path
    * from the OS dialog — so the row you come back to every day is the row that
@@ -129,13 +158,14 @@ export function App() {
           updateList((view) => withFolder(view, entry));
           setSelectedId(entry.id);
           setNote(null);
+          readMapsFor(entry.id);
           return bindRepo(entry.path).then((binding) =>
             setNote({ kind: "binding", binding }),
           );
         })
         .catch(refuse);
     },
-    [updateList, refuse],
+    [updateList, refuse, readMapsFor],
   );
 
   const onOpen = useCallback(
@@ -176,6 +206,11 @@ export function App() {
         .then(() => {
           updateList((view) => withoutFolder(view, entry.id));
           setSelectedId((chosen) => (chosen === entry.id ? null : chosen));
+          // The registry took its cache with it, so the screen may not go on
+          // showing maps read for a folder that is no longer on the list.
+          setMaps((current) =>
+            current.folderId === entry.id ? nothingReadYet(0) : current,
+          );
           setNote(null);
         })
         .catch(refuse);
@@ -228,6 +263,12 @@ export function App() {
             onForget={onForget}
             onOpenNew={onOpenNew}
           />
+          {/*
+            The folder is what you pick; the maps in it are what you find once
+            you are inside. So the list appears under the folder you picked
+            rather than replacing the launcher — there is no mode to be in.
+          */}
+          {selectedId === null ? null : <MapList view={maps} />}
         </DropRegion>
       </div>
 
@@ -235,9 +276,13 @@ export function App() {
 
       <footer className={styles.readout}>
         <span>schema v{snapshot.schemaVersion}</span>
-        <span>source: {snapshot.provenance.source}</span>
-        <span>read: {snapshot.provenance.outcome.kind}</span>
-        <span>age: {snapshot.provenance.fetchedAt ?? "—"}</span>
+        {/*
+          How old what you are reading is, on chrome that survives every state.
+          It is here rather than beside the map list because it may never be a
+          casualty of what else is on screen — the moment it is conditional is
+          the moment a stale screen can look fresh.
+        */}
+        <CacheStamp view={maps} now={nowSeconds()} />
         {/* One more field of the readout that already exists, rather than a
             second place to look for machine facts. */}
         <EnvironmentSummary

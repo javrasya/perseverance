@@ -23,14 +23,17 @@
 //!
 //! Filled in by:
 //! - #30 the launcher folder list
+//! - #32 the read cache: `graph_cache`, a copy and never an authority
 //!
 //! [`perseverance_app`]: https://github.com/javrasya/perseverance
 
+mod cache;
 mod folders;
 mod repo;
 mod schema;
 mod store;
 
+pub use cache::CachedGraph;
 pub use folders::Folder;
 pub use repo::{bind_repo, RepoBindingError, RepoRef};
 pub use schema::STORE_SCHEMA_VERSION;

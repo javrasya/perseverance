@@ -6,7 +6,7 @@ use crate::StoreError;
 /// version this binary does not know is refused rather than guessed at, because
 /// the alternative is a silent upgrade or a wipe, and both of those lose data
 /// that is not ours to lose.
-pub const STORE_SCHEMA_VERSION: u32 = 1;
+pub const STORE_SCHEMA_VERSION: u32 = 2;
 
 /// The version lives as a row in `app` rather than in `PRAGMA user_version`
 /// because the ticket's schema names it, and because a value you can read with
@@ -17,8 +17,8 @@ const SCHEMA_VERSION_KEY: &str = "schema_version";
 /// only — never edit a shipped entry, because a database in the wild has
 /// already run it.
 ///
-/// `map_view` and `graph_cache` are deliberately absent: they belong to later
-/// tickets, and a table nobody writes is a claim the schema cannot keep.
+/// `map_view` is deliberately absent: it belongs to a later ticket, and a table
+/// nobody writes is a claim the schema cannot keep.
 const MIGRATIONS: &[&str] = &[
     // 0 -> 1: the folder list, and the app-level key/value bag.
     "CREATE TABLE folders (
@@ -31,6 +31,33 @@ const MIGRATIONS: &[&str] = &[
          key   TEXT PRIMARY KEY,
          value TEXT
      );",
+    // 1 -> 2: the read cache. A copy, never an authority.
+    //
+    // No `fingerprint` column, although the spec's SQL sketch carries one. The
+    // fingerprint existed to decide whether the expensive half of a poll/refetch
+    // split was worth running, and #32 killed the split: there is one query
+    // shape, always, so there is nothing left for a fingerprint to gate. A
+    // column nobody writes is the same unkeepable claim as a table nobody
+    // writes.
+    //
+    // `map_number` is **nullable**, and NULL means *no map was open when this
+    // was read*. That is a different fact from any number, and the response
+    // still carries the folder's whole map list — which is exactly what the
+    // first paint of a folder needs and what a sentinel `0` would have
+    // disguised as a map that cannot exist.
+    //
+    // `ON DELETE CASCADE` is the one deletion that is not a GitHub read's:
+    // taking a folder off the list is the operator disposing of their own row,
+    // not the cache being invalidated behind their back. Everything else here
+    // is deleted only by a successful read.
+    "CREATE TABLE graph_cache (
+         folder_id  INTEGER NOT NULL REFERENCES folders(id) ON DELETE CASCADE,
+         map_number INTEGER,
+         graph_json TEXT    NOT NULL,
+         fetched_at INTEGER NOT NULL
+     );
+     CREATE UNIQUE INDEX graph_cache_one_row_per_map
+         ON graph_cache (folder_id, IFNULL(map_number, 0));",
 ];
 
 // The two must agree or a fresh file would be stamped with a version whose
@@ -279,6 +306,49 @@ mod tests {
 
         assert!(message.contains("99"));
         assert!(message.contains(&STORE_SCHEMA_VERSION.to_string()));
+    }
+
+    /// The first migration this schema has ever had to perform on a file that
+    /// already existed. Forward-only means the folders an operator accumulated
+    /// under version 1 are still theirs under version 2 — and the read cache
+    /// arrives empty rather than arriving instead of them.
+    #[test]
+    fn a_registry_written_by_the_previous_version_keeps_its_folders_through_the_upgrade() {
+        let (_dir, path) = scratch();
+        {
+            let mut version_one = Connection::open(&path).expect("opens");
+            configure(&version_one).expect("configures");
+            let tx = version_one.transaction().expect("begins");
+            tx.execute_batch(MIGRATIONS[0]).expect("creates version 1");
+            tx.execute(
+                "INSERT INTO app (key, value) VALUES (?1, '1')",
+                [SCHEMA_VERSION_KEY],
+            )
+            .expect("stamps version 1");
+            tx.execute(
+                "INSERT INTO folders (path, adapter, last_opened) VALUES ('/work/perseverance', 'claude', 42)",
+                [],
+            )
+            .expect("writes a folder the operator opened under version 1");
+            tx.commit().expect("commits");
+        }
+
+        let store = Store::open(&path).expect("opens and upgrades");
+
+        assert_eq!(
+            store.get_app(SCHEMA_VERSION_KEY).expect("reads"),
+            Some(STORE_SCHEMA_VERSION.to_string())
+        );
+        let folders = store.folders().expect("lists");
+        assert_eq!(folders.len(), 1);
+        assert_eq!(folders[0].path, "/work/perseverance");
+        assert_eq!(folders[0].adapter, Some("claude".to_string()));
+        // The cache exists and is empty, which is *first open* rather than a
+        // map list of zero.
+        assert_eq!(
+            store.cached_graph(folders[0].id, None).expect("reads"),
+            None
+        );
     }
 
     #[test]

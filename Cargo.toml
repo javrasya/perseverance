@@ -39,6 +39,11 @@ thiserror = "2"
 rusqlite = { version = "0.37", features = ["bundled"] }
 tempfile = "3"
 
+# The only HTTP client in the workspace, and only `perseverance-github` may name
+# it — `scripts/check-model-purity.mjs` already forbids it, by name, in the one
+# tree where it would break the primary seam.
+ureq = { version = "3", features = ["platform-verifier"] }
+
 [profile.release]
 codegen-units = 1
 lto = true

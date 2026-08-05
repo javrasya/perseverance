@@ -17,9 +17,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
 use perseverance_env::{Environment, HarvestAttempt, Shell, Stderr, StderrKind, Tally};
-use perseverance_github::{acquire_token, TokenOutcome};
-use perseverance_model::Snapshot;
-use perseverance_store::{Folder, RepoBindingError, Store};
+use perseverance_github::{acquire_token, read_maps, FreshRead, ReadFailure, TokenOutcome};
+use perseverance_model::{read_response, MapRead, Provenance, ReadOutcome, Snapshot, Source};
+use perseverance_store::{Folder, RepoBindingError, Store, StoreError};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_dialog::DialogExt;
@@ -34,6 +34,246 @@ fn snapshot() -> Snapshot {
     // No map is open yet, and no read has been attempted. Later tickets replace
     // this constant with the poller's latest derivation.
     Snapshot::no_map_open()
+}
+
+/* ---------------------------------------------------------------- maps --- */
+
+/// One row of the map list.
+///
+/// Discovered by label rather than registered, which is why nothing here has an
+/// id of ours: a map is an issue on GitHub, and the number is its whole
+/// identity. Nothing is derived — no phase, no counts, no frontier — because
+/// derivation is #33's and a number invented here would be a number the graph
+/// could disagree with.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MapEntry {
+    number: u64,
+    title: String,
+    /// Closed maps group under *Completed*. This is a grouping fact, never a
+    /// filter: a finished map is reopened to read the decisions it made.
+    closed: bool,
+    url: String,
+    updated_at: String,
+}
+
+impl From<&perseverance_model::MapListing> for MapEntry {
+    fn from(listing: &perseverance_model::MapListing) -> MapEntry {
+        MapEntry {
+            number: listing.number,
+            title: listing.title.clone(),
+            closed: listing.closed,
+            url: listing.url.clone(),
+            updated_at: listing.updated_at.clone(),
+        }
+    }
+}
+
+/// `rateLimit`, carried to the WebView and acted on by nobody yet.
+///
+/// It rides the query for free and #39 is the ticket that spends it. Putting it
+/// on screen now would be inventing that ticket's UI; dropping it would mean
+/// #39 arrives to find the field it needs is not being read.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WireRateLimit {
+    cost: u32,
+    node_count: u32,
+    limit: u32,
+    remaining: u32,
+    reset_at: String,
+}
+
+/// The map list, and where it came from.
+///
+/// Provenance is *in* this value rather than beside it, for the same reason it
+/// is fused into [`Snapshot`]: two streams would let a fresh list paint against
+/// a stale stamp for a frame, which is absence disguised as presence.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MapsView {
+    folder_id: i64,
+    maps: Vec<MapEntry>,
+    provenance: Provenance,
+    rate_limit: Option<WireRateLimit>,
+    /// A page that cannot exist, if one ever does. Rendered as a caveat rather
+    /// than paged through, because a paging loop for a page GitHub's own limits
+    /// forbid is code nobody has ever run.
+    truncated: bool,
+}
+
+impl MapsView {
+    /// The state a folder is in before anything has been read for it. An
+    /// absence, never an empty list — a folder with no map is a normal thing to
+    /// be, and *we have not looked yet* is a different thing again.
+    fn nothing_read_yet(folder_id: i64) -> MapsView {
+        MapsView {
+            folder_id,
+            maps: Vec::new(),
+            provenance: Provenance {
+                source: Source::None,
+                outcome: ReadOutcome::NotAttempted,
+                fetched_at: None,
+            },
+            rate_limit: None,
+            truncated: false,
+        }
+    }
+
+    /// One parsed read, dressed as a view. `source` is the caller's to state,
+    /// because the same bytes mean *live* the moment they arrive and *cache*
+    /// every time afterwards.
+    fn of(folder_id: i64, read: &MapRead, source: Source, fetched_at: i64) -> MapsView {
+        MapsView {
+            folder_id,
+            maps: read.maps.iter().map(MapEntry::from).collect(),
+            provenance: Provenance {
+                source,
+                outcome: ReadOutcome::Ok,
+                fetched_at: Some(perseverance_model::rfc3339(fetched_at)),
+            },
+            rate_limit: read.rate_limit.as_ref().map(|limit| WireRateLimit {
+                cost: limit.cost,
+                node_count: limit.node_count,
+                limit: limit.limit,
+                remaining: limit.remaining,
+                reset_at: limit.reset_at.clone(),
+            }),
+            truncated: read.truncation.any(),
+        }
+    }
+
+    /// What is on screen when a read did not happen, or did not survive.
+    ///
+    /// The cached list stays; only the stamp changes. A failed poll that emptied
+    /// the screen would be the harness asserting that the operator's maps are
+    /// gone on the strength of not having been able to look.
+    fn stale(mut self, why: String) -> MapsView {
+        self.provenance.outcome = ReadOutcome::Failed(why);
+        self.rate_limit = None;
+        self
+    }
+}
+
+/// The cached read for a folder, as a view — or the *nothing read yet* state.
+///
+/// A cached body that cannot be parsed is reported as a failed read of the
+/// cache rather than deleted: **only a successful GitHub read may delete
+/// anything**, and that rule has no exception for a row we happen to dislike.
+fn from_cache(store: &Store, folder_id: i64) -> MapsView {
+    let cached = match store.cached_graph(folder_id, None) {
+        Ok(Some(cached)) => cached,
+        // A registry that cannot be read is not a map list that is empty, but
+        // there is nothing to paint either way and the launcher already carries
+        // the registry's own refusal.
+        Ok(None) | Err(_) => return MapsView::nothing_read_yet(folder_id),
+    };
+
+    match read_response(&cached.graph_json) {
+        Ok(read) => MapsView::of(folder_id, &read, Source::Cache, cached.fetched_at),
+        Err(unreadable) => MapsView {
+            provenance: Provenance {
+                source: Source::Cache,
+                outcome: ReadOutcome::Failed(unreadable.to_string()),
+                fetched_at: Some(perseverance_model::rfc3339(cached.fetched_at)),
+            },
+            ..MapsView::nothing_read_yet(folder_id)
+        },
+    }
+}
+
+/// The whole of *written only on a successful GitHub read*, as a signature.
+///
+/// [`FreshRead`] has no constructor outside `perseverance-github`, and the only
+/// thing that hands one out is an answer from GitHub that parsed. So a cache
+/// write from a cached value is not a rule someone has to remember — it is a
+/// call nobody can spell.
+///
+/// The prune rides along for the same reason: the live list is the evidence
+/// that entitles a deletion, and it arrives in the same value.
+fn remember_read(store: &Store, folder_id: i64, fresh: &FreshRead) -> Result<(), StoreError> {
+    store.cache_graph(folder_id, None, fresh.body(), fresh.fetched_at())?;
+
+    let still_listed: Vec<u64> = fresh.read().maps.iter().map(|map| map.number).collect();
+    store.forget_cached_maps_except(folder_id, &still_listed)?;
+
+    Ok(())
+}
+
+/// The map list as the store last saw it — cache only, and structurally so.
+///
+/// This command cannot reach GitHub: nothing on this path holds a token. That
+/// is what makes *first paint is cache-sourced* a property of the wiring rather
+/// than an ordering someone has to preserve.
+#[tauri::command]
+fn maps(registry: State<'_, Registry>, folder_id: i64) -> Result<MapsView, String> {
+    let store = registry.store()?;
+
+    Ok(from_cache(&store, folder_id))
+}
+
+/// One live read, and the cache write it entitles.
+///
+/// `(async)` is load-bearing for the same reason the picker's is: this blocks on
+/// a socket, and blocking the main thread would stop the window drawing while
+/// it waited.
+///
+/// A failure returns the cached list with a stale stamp rather than a rejected
+/// call. Nothing here classifies *why* — `Unreachable` versus `AuthFailed`
+/// versus `MapGone`, and which of them retries, is #40's whole ticket — so the
+/// condition crosses in the words of whichever crate established it.
+#[tauri::command(async)]
+fn refresh_maps(
+    registry: State<'_, Registry>,
+    ambient: State<'_, Ambient>,
+    folder_id: i64,
+) -> Result<MapsView, String> {
+    let store = registry.store()?;
+    let held = from_cache(&store, folder_id);
+
+    let folder = match store.folders() {
+        Ok(folders) => folders.into_iter().find(|folder| folder.id == folder_id),
+        Err(refusal) => return Ok(held.stale(refusal.to_string())),
+    };
+    let Some(folder) = folder else {
+        return Ok(held.stale(StoreError::UnknownFolder(folder_id).to_string()));
+    };
+
+    // A fact about a folder on this disk, established without a network — and
+    // the store's own sentence for it, so a folder with no GitHub remote never
+    // reads as a failure to reach GitHub.
+    let repo = match perseverance_store::bind_repo(Path::new(&folder.path)) {
+        Ok(repo) => repo,
+        Err(refusal) => return Ok(held.stale(refusal.to_string())),
+    };
+
+    let token = match ambient.token.get() {
+        Some(TokenOutcome::Acquired(token)) => token,
+        // The harvest has not settled, so `gh` has not been asked yet. Nothing
+        // was attempted and nothing failed, so nothing is stamped: the copy
+        // stays exactly as it was, with the age it already had. Reporting *no
+        // token* here would be a Windows launch — 1.5 to 1.9 seconds of real
+        // harvest — telling an operator they have never signed in.
+        None => return Ok(held),
+        // Never signed in, or the harvest was discarded so `gh` was never
+        // looked for. Both leave a working app with no poller, which is a
+        // sentence rather than a stack.
+        Some(_) => return Ok(held.stale(ReadFailure::NoToken.to_string())),
+    };
+
+    match read_maps(token, &repo.owner, &repo.name, None) {
+        Ok(fresh) => {
+            let view = MapsView::of(folder_id, fresh.read(), Source::Github, fresh.fetched_at());
+            // A cache the registry declined to write is not a read that did not
+            // happen: the answer is on screen either way, and the store's
+            // refusal is what the stamp then carries.
+            match remember_read(&store, folder_id, &fresh) {
+                Ok(()) => Ok(view),
+                Err(refusal) => Ok(view.stale(refusal.to_string())),
+            }
+        }
+        Err(failure) => Ok(held.stale(failure.to_string())),
+    }
 }
 
 /* ------------------------------------------------------------ registry --- */
@@ -579,6 +819,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             snapshot,
+            maps,
+            refresh_maps,
             launcher,
             remember_folder,
             forget_folder,
@@ -653,6 +895,169 @@ mod tests {
         assert_eq!(bound["kind"], "bound");
         assert_eq!(bound["owner"], "javrasya");
         assert_eq!(bound["name"], "perseverance");
+    }
+
+    /* -------------------------------------------------------------- maps --- */
+
+    const TWO_MAPS: &str = include_str!("../../model/fixtures/two-maps-one-open.json");
+
+    /// The only way to hold one, here as anywhere: an answer from GitHub that
+    /// parsed. There is no constructor, which is the whole mechanism this slice
+    /// rests on — so a test that wants one has to produce an answer too.
+    fn a_fresh_read(body: &str, fetched_at: i64) -> FreshRead {
+        perseverance_github::interpret_read(
+            Ok(perseverance_github::Answer {
+                status: 200,
+                body: body.to_string(),
+            }),
+            fetched_at,
+        )
+        .expect("reads")
+    }
+
+    fn registry_with_a_folder() -> (Store, i64) {
+        let store = Store::open_in_memory().expect("opens");
+        let folder = store
+            .remember_folder(Path::new("/work/perseverance"))
+            .expect("remembers");
+        (store, folder.id)
+    }
+
+    /// `src/maps/maps.ts` is a hand-written mirror of this, pinned from both
+    /// sides for the same reason [`FolderEntry`] is.
+    #[test]
+    fn a_map_row_crosses_in_the_shape_the_frontend_declares() {
+        let read = read_response(TWO_MAPS).expect("reads");
+        let view = MapsView::of(3, &read, Source::Github, 1_785_888_000);
+
+        let json = serde_json::to_value(&view).expect("serialises");
+
+        assert_eq!(json["folderId"], 3);
+        assert_eq!(json["provenance"]["source"], "github");
+        assert_eq!(json["provenance"]["outcome"]["kind"], "ok");
+        assert_eq!(json["provenance"]["fetchedAt"], "2026-08-05T00:00:00Z");
+        assert_eq!(json["truncated"], false);
+        assert_eq!(json["rateLimit"]["remaining"], 4_417);
+        assert_eq!(json["rateLimit"]["resetAt"], "2026-08-05T11:02:14Z");
+
+        let first = &json["maps"][0];
+        assert_eq!(first["number"], 28);
+        assert_eq!(first["title"], "Spec: perseverance");
+        assert_eq!(first["closed"], false);
+        assert_eq!(first["url"], "https://github.com/o/r/issues/28");
+        assert_eq!(first["updatedAt"], "2026-08-05T09:12:44Z");
+        assert_eq!(first.as_object().expect("an object").len(), 5);
+        // The finished map is in the list rather than filtered out of it.
+        assert_eq!(json["maps"][1]["closed"], true);
+        assert_eq!(json.as_object().expect("an object").len(), 5);
+    }
+
+    #[test]
+    fn a_folder_nothing_has_been_read_for_crosses_as_an_absence_and_not_as_an_empty_list() {
+        let (store, folder_id) = registry_with_a_folder();
+
+        let json = serde_json::to_value(from_cache(&store, folder_id)).expect("serialises");
+
+        // *Nobody has looked* and *there are no maps here* are different facts,
+        // and the source is the field that keeps them apart.
+        assert_eq!(json["provenance"]["source"], "none");
+        assert_eq!(json["provenance"]["outcome"]["kind"], "notAttempted");
+        assert_eq!(json["provenance"]["fetchedAt"], serde_json::Value::Null);
+        assert_eq!(json["maps"].as_array().expect("an array").len(), 0);
+    }
+
+    #[test]
+    fn the_first_paint_after_a_read_comes_from_the_cache_and_says_so() {
+        let (store, folder_id) = registry_with_a_folder();
+
+        remember_read(&store, folder_id, &a_fresh_read(TWO_MAPS, 1_785_888_000)).expect("caches");
+
+        // The same bytes, read back the way the next launch will read them.
+        let json = serde_json::to_value(from_cache(&store, folder_id)).expect("serialises");
+        assert_eq!(json["provenance"]["source"], "cache");
+        assert_eq!(json["provenance"]["fetchedAt"], "2026-08-05T00:00:00Z");
+        assert_eq!(json["maps"][0]["number"], 28);
+    }
+
+    /// The rule, mechanically. A read that failed has no [`FreshRead`] to pass,
+    /// so the only thing it can do to the cache is nothing.
+    #[test]
+    fn a_read_that_did_not_succeed_leaves_the_cache_exactly_as_it_was() {
+        let (store, folder_id) = registry_with_a_folder();
+        remember_read(&store, folder_id, &a_fresh_read(TWO_MAPS, 100)).expect("caches");
+        let before = store.cached_graph(folder_id, None).expect("reads");
+
+        let failed = perseverance_github::interpret_read(
+            Ok(perseverance_github::Answer {
+                status: 401,
+                body: "{\"message\":\"Bad credentials\"}".to_string(),
+            }),
+            200,
+        );
+        assert!(failed.is_err());
+        let held = from_cache(&store, folder_id).stale("Bad credentials".to_string());
+
+        assert_eq!(store.cached_graph(folder_id, None).expect("reads"), before);
+        // What was read last time is still on screen; only the stamp moved.
+        let json = serde_json::to_value(held).expect("serialises");
+        assert_eq!(json["provenance"]["source"], "cache");
+        assert_eq!(json["provenance"]["outcome"]["kind"], "failed");
+        assert_eq!(json["provenance"]["fetchedAt"], "1970-01-01T00:01:40Z");
+        assert_eq!(json["maps"][0]["number"], 28);
+    }
+
+    #[test]
+    fn a_map_the_last_successful_read_no_longer_lists_is_dropped_by_that_read() {
+        let (store, folder_id) = registry_with_a_folder();
+        // A map that was cached under its own number by an earlier read.
+        store
+            .cache_graph(folder_id, Some(99), "a map that has since gone", 10)
+            .expect("caches");
+
+        remember_read(&store, folder_id, &a_fresh_read(TWO_MAPS, 100)).expect("caches");
+
+        assert_eq!(
+            store.cached_graph(folder_id, Some(99)).expect("reads"),
+            None
+        );
+    }
+
+    #[test]
+    fn a_cached_body_that_cannot_be_read_is_reported_rather_than_deleted() {
+        let (store, folder_id) = registry_with_a_folder();
+        remember_read(&store, folder_id, &a_fresh_read(TWO_MAPS, 100)).expect("caches");
+        store
+            .cache_graph(folder_id, None, "<html>a proxy got at it</html>", 100)
+            .expect("overwrites with something unreadable");
+
+        let json = serde_json::to_value(from_cache(&store, folder_id)).expect("serialises");
+
+        assert_eq!(json["provenance"]["source"], "cache");
+        assert_eq!(json["provenance"]["outcome"]["kind"], "failed");
+        // Only a successful GitHub read may delete anything, and that rule has
+        // no exception for a row this build happens to dislike.
+        assert!(store
+            .cached_graph(folder_id, None)
+            .expect("reads")
+            .is_some());
+    }
+
+    #[test]
+    fn the_cached_body_is_the_one_github_sent_rather_than_a_shadow_of_it() {
+        let (store, folder_id) = registry_with_a_folder();
+
+        remember_read(&store, folder_id, &a_fresh_read(TWO_MAPS, 100)).expect("caches");
+
+        // #33 derives its model from this, so it has to be the bytes and not a
+        // re-serialisation of what this slice happened to parse out of them.
+        assert_eq!(
+            store
+                .cached_graph(folder_id, None)
+                .expect("reads")
+                .expect("is there")
+                .graph_json,
+            TWO_MAPS
+        );
     }
 
     /* ------------------------------------------------------- environment --- */

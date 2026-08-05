@@ -1,9 +1,12 @@
 //! GitHub access and the poller.
 //!
 //! Boundary: this is the only crate in the workspace permitted to open a
-//! socket. It is read-only — no assign, close, label, comment or edit ever
-//! originates here — and the token comes from `gh auth token` at runtime and is
-//! never stored.
+//! socket, and [`read::send`] is the only place in it that does. It is
+//! read-only — no assign, close, label, comment or edit ever originates here —
+//! and the token comes from `gh auth token` at runtime, is spent in a header,
+//! and is never stored.
+//!
+//! [`read::send`]: read
 //!
 //! It depends on [`perseverance_model`] and never the other way round. That
 //! direction is what keeps the model crate free of the network.
@@ -24,9 +27,14 @@
 //!
 //! [`perseverance_env`]: https://github.com/javrasya/perseverance
 
+mod read;
 mod token;
 
 /// The type every read in this crate ultimately produces. Re-exported so the
 /// direction of the seam is visible from the crate that crosses it.
 pub use perseverance_model::Snapshot;
+pub use read::{
+    interpret_read, read_maps, request_body, Answer, FreshRead, ReadFailure, GRAPHQL_ENDPOINT,
+    MAP_READ_QUERY,
+};
 pub use token::{acquire_token, interpret, Token, TokenOutcome, TokenRefusal};
