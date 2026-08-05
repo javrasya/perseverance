@@ -28,12 +28,18 @@
  * A long list scrolls between the header and the readout rather than pushing
  * either off the window. `min-height: 0` is what lets a flex child shrink far
  * enough for its own overflow to take effect.
+ *
+ * The scrolling itself belongs to the drop region inside this, not here. A
+ * region stretched to this box's height while its content is taller paints
+ * straight through its own dashed border — the frame stops at the window and
+ * the list carries on past it. Owning the scrollport is what keeps the frame a
+ * frame: the content moves inside the border rather than across it.
  */
 .body {
   display: flex;
   flex: 1;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
 }
 
 .readout {
