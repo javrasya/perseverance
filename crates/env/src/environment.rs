@@ -218,6 +218,36 @@ mod tests {
         }
     }
 
+    /// The same file on disk, which on Windows is not the same string.
+    ///
+    /// [`Environment::spellings`] appends the operator's `PATHEXT` entry
+    /// verbatim, and Windows spells that entry `.CMD` while a test writes
+    /// `wf31stub.cmd` — so `resolve` hands back `wf31stub.CMD` for a file named
+    /// `wf31stub.cmd`. Keeping the declared spelling is the deliberate
+    /// behaviour: an operator who added `.PY` to `PATHEXT` in the shell this
+    /// harvest just asked should get `.PY` back, and re-deriving the on-disk
+    /// casing would cost a directory scan per candidate to change nothing but
+    /// how the path looks. Windows opens either, which is what the existence
+    /// check below actually proves — and proving the path opens is a stronger
+    /// claim than the string equality this replaced.
+    fn assert_same_file(found: &Path, expected: &Path) {
+        assert!(found.exists(), "{found:?} does not open");
+        assert_eq!(found.parent(), expected.parent());
+
+        let (found_name, expected_name) = (
+            found.file_name().expect("a file name").to_string_lossy(),
+            expected.file_name().expect("a file name").to_string_lossy(),
+        );
+        if cfg!(windows) {
+            assert!(
+                found_name.eq_ignore_ascii_case(&expected_name),
+                "{found_name} is not {expected_name} in any casing"
+            );
+        } else {
+            assert_eq!(found_name, expected_name);
+        }
+    }
+
     /// Writes a file and, on unix, gives it the bit that makes it a program.
     fn program_file(directory: &Path, name: &str, executable: bool) -> PathBuf {
         let path = directory.join(name);
@@ -290,7 +320,7 @@ mod tests {
             .resolve("wf31stub")
             .expect("resolves against the harvested PATH");
 
-        assert_eq!(found, directory.path().join(name));
+        assert_same_file(&found, &directory.path().join(name));
         // `sh` is on this process's own PATH on every runner this repo builds
         // on. It is not on the one above, and that difference is the bug the
         // harvest exists to fix, re-entered through the back door.
@@ -378,10 +408,8 @@ mod tests {
             ("PATHEXT", b".COM;.EXE"),
         ]);
 
-        assert_eq!(
-            with.resolve("wf31stub"),
-            Some(directory.path().join("wf31stub.cmd"))
-        );
+        let found = with.resolve("wf31stub").expect("walks PATHEXT");
+        assert_same_file(&found, &directory.path().join("wf31stub.cmd"));
         // The harvested PATHEXT decides, not a constant in here.
         assert_eq!(without.resolve("wf31stub"), None);
     }
