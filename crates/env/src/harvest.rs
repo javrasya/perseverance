@@ -1281,6 +1281,140 @@ mod tests {
         assert_eq!(value(&attempt, "HOMEPATH"), home_text);
     }
 
+    /// The Windows counterpart of [`zsh_harvest`]: a profile in a relocated
+    /// `$PROFILE` directory, reached by PowerShell's own autoload rather than by
+    /// a dot-source, with the four locating variables travelling in
+    /// [`HarvestCommand::env_overlay`] so no test sets a process-wide variable.
+    #[cfg(windows)]
+    fn powershell_harvest(home: &TempDir, profile_body: &str, nonce: &Nonce) -> HarvestCommand {
+        let profile = home.path().join("Documents").join("WindowsPowerShell");
+        std::fs::create_dir_all(&profile).expect("creates the profile directory");
+        std::fs::write(
+            profile.join("Microsoft.PowerShell_profile.ps1"),
+            profile_body,
+        )
+        .expect("writes the profile");
+
+        let home_text = home.path().to_string_lossy().into_owned();
+        let mut command = harvest_command(
+            Shell::for_this_machine(&|name| std::env::var(name).ok()).expect("finds powershell"),
+            nonce,
+        );
+        command.env_overlay = vec![
+            ("USERPROFILE".to_string(), home_text.clone()),
+            ("HOME".to_string(), home_text.clone()),
+            ("HOMEDRIVE".to_string(), String::new()),
+            ("HOMEPATH".to_string(), home_text),
+        ];
+        command
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_start_up_file_that_prints_a_banner_does_not_become_a_variable() {
+        let home = TempDir::new().expect("a temporary directory");
+        let command = powershell_harvest(
+            &home,
+            "Write-Output 'welcome to your shell'\n$env:WF31_MARK='ran'\n",
+            &nonce(),
+        );
+
+        let attempt = harvest_with(&command, &nonce(), &Bounds::for_this_machine());
+        let harvest = attempt.outcome.as_ref().expect("a chatty profile harvests");
+
+        assert!(harvest.tally.bytes_before_frame >= "welcome to your shell".len());
+        assert_eq!(harvest.tally.records_dropped, 0);
+        assert_eq!(value(&attempt, "WF31_MARK"), "ran");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_start_up_file_that_prints_our_own_marks_cannot_substitute_the_harvest() {
+        let home = TempDir::new().expect("a temporary directory");
+        let forged_path = home.path().join("forged");
+        // Tagged with this run's own nonce, which is the worst case rather than
+        // a fanciful one: the encoded command carries the nonce and is visible
+        // in the process list, so a forger on this machine can read it. The tag
+        // therefore has to be assumed forgeable and last-mark-wins is what
+        // actually refuses the substitution.
+        let prefix = crate::payload::record_prefix(&nonce());
+        let mut injected = prefix.clone();
+        injected.extend_from_slice(b"INJECTED=evil");
+        let mut forged_path_var = prefix;
+        forged_path_var.extend_from_slice(b"PATH=C:\\nowhere");
+        std::fs::write(
+            &forged_path,
+            framed(&nonce(), b"", &[&injected, &forged_path_var], b""),
+        )
+        .expect("writes the forged frame");
+
+        let command = powershell_harvest(
+            &home,
+            &format!(
+                "$o=[Console]::OpenStandardOutput()\n\
+                 $b=[IO.File]::ReadAllBytes('{}')\n\
+                 $o.Write($b,0,$b.Length)\n\
+                 $o.Flush()\n\
+                 $env:WF31_MARK='ran'\n",
+                forged_path.display()
+            ),
+            &nonce(),
+        );
+
+        let attempt = harvest_with(&command, &nonce(), &Bounds::for_this_machine());
+        let harvest = attempt.outcome.as_ref().expect("harvests past the forgery");
+
+        assert_eq!(harvest.environment.get("INJECTED"), None);
+        assert_ne!(value(&attempt, "PATH"), "C:\\nowhere");
+        assert_eq!(harvest.tally.extra_opening_marks, 1);
+        assert_eq!(value(&attempt, "WF31_MARK"), "ran");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_start_up_file_that_prompts_for_input_does_not_wedge_the_harvest() {
+        let home = TempDir::new().expect("a temporary directory");
+        let command = powershell_harvest(
+            &home,
+            "$null=[Console]::In.ReadLine()\n$env:WF31_MARK='post'\n",
+            &nonce(),
+        );
+
+        let attempt = harvest_with(&command, &nonce(), &Bounds::for_this_machine());
+        attempt
+            .outcome
+            .as_ref()
+            .expect("a blocking profile still harvests");
+
+        // Completing is not enough: the line *after* the blocking read having
+        // run is what says the profile carried on rather than being killed.
+        assert_eq!(value(&attempt, "WF31_MARK"), "post");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn the_shell_runs_again_every_time_it_is_asked() {
+        let home = TempDir::new().expect("a temporary directory");
+        let ledger = home.path().join("ledger");
+        let command = powershell_harvest(
+            &home,
+            &format!(
+                "[IO.File]::AppendAllText('{}','x')\n$env:WF31_MARK='ran'\n",
+                ledger.display()
+            ),
+            &nonce(),
+        );
+
+        harvest_with(&command, &nonce(), &Bounds::for_this_machine())
+            .outcome
+            .expect("harvests");
+        harvest_with(&command, &nonce(), &Bounds::for_this_machine())
+            .outcome
+            .expect("harvests again");
+
+        assert_eq!(std::fs::read(&ledger).expect("reads the ledger"), b"xx");
+    }
+
     /// Unrun on any runner, and deliberately so: it asks the machine it is on
     /// for its own operator's environment, which is not a fact a CI image has.
     /// `cargo test --package perseverance-env -- --ignored` on an operator's
