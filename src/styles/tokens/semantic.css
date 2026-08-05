@@ -22,6 +22,9 @@
   --s-surface-app: var(--p-gray-50);
   --s-surface-raised: var(--p-white);
   --s-surface-sunken: var(--p-gray-100);
+  /* One step off a raised surface: the row under the pointer, and the row you
+     have chosen. A hover that changed anything but fill would move the list. */
+  --s-surface-hover: var(--p-gray-50);
 
   /* Ink */
   --s-ink-primary: var(--p-gray-900);
@@ -77,6 +80,7 @@
     --s-surface-app: var(--p-gray-900);
     --s-surface-raised: var(--p-gray-800);
     --s-surface-sunken: var(--p-gray-850);
+    --s-surface-hover: var(--p-gray-750);
 
     --s-ink-primary: var(--p-gray-50);
     --s-ink-secondary: var(--p-gray-300);
@@ -97,6 +101,7 @@
   --s-surface-app: var(--p-gray-900);
   --s-surface-raised: var(--p-gray-800);
   --s-surface-sunken: var(--p-gray-850);
+  --s-surface-hover: var(--p-gray-750);
 
   --s-ink-primary: var(--p-gray-50);
   --s-ink-secondary: var(--p-gray-300);

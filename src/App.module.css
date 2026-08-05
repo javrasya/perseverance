@@ -24,18 +24,16 @@
   margin-left: auto;
 }
 
-.invitation {
-  margin: 0;
-  color: var(--s-ink-primary);
-  font-size: var(--s-text-title);
-}
-
-.absolution {
-  max-width: 46ch;
-  margin: 0;
-  color: var(--s-ink-secondary);
-  font-size: var(--s-text-small);
-  line-height: 1.5;
+/*
+ * A long list scrolls between the header and the readout rather than pushing
+ * either off the window. `min-height: 0` is what lets a flex child shrink far
+ * enough for its own overflow to take effect.
+ */
+.body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
 }
 
 .readout {

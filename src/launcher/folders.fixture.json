@@ -1,0 +1,61 @@
+{
+  "folders": [
+    {
+      "id": 3,
+      "path": "C:\\Users\\you\\Workspace\\scratch-notes",
+      "name": "scratch-notes",
+      "adapter": null,
+      "lastOpened": 1784400000,
+      "present": true
+    },
+    {
+      "id": 1,
+      "path": "C:\\Users\\you\\Workspace\\perseverance",
+      "name": "perseverance",
+      "adapter": "claude",
+      "lastOpened": 1785880000,
+      "present": true
+    },
+    {
+      "id": 5,
+      "path": "C:\\Users\\you\\Workspace\\forked-tooling",
+      "name": "forked-tooling",
+      "adapter": null,
+      "lastOpened": 1779000000,
+      "present": true
+    },
+    {
+      "id": 2,
+      "path": "D:\\Archive\\atlas",
+      "name": "atlas",
+      "adapter": null,
+      "lastOpened": 1785600000,
+      "present": false
+    },
+    {
+      "id": 4,
+      "path": "C:\\Users\\you\\Workspace\\ledger",
+      "name": "ledger",
+      "adapter": null,
+      "lastOpened": 1780000000,
+      "present": true
+    }
+  ],
+  "bindings": {
+    "C:\\Users\\you\\Workspace\\perseverance": {
+      "kind": "bound",
+      "owner": "javrasya",
+      "name": "perseverance"
+    },
+    "C:\\Users\\you\\Workspace\\scratch-notes": {
+      "kind": "notAGitRepo"
+    },
+    "C:\\Users\\you\\Workspace\\ledger": {
+      "kind": "noGitHubRemote"
+    },
+    "C:\\Users\\you\\Workspace\\forked-tooling": {
+      "kind": "ambiguousRemotes",
+      "candidates": ["origin", "upstream"]
+    }
+  }
+}

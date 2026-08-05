@@ -1,0 +1,175 @@
+/*
+ * Tier 3 — component tokens, defined from semantic tokens only.
+ */
+
+.launcher {
+  display: flex;
+  width: 100%;
+  max-width: 76ch;
+  flex-direction: column;
+  gap: var(--s-space-snug);
+  text-align: left;
+}
+
+.heading {
+  margin: 0;
+  color: var(--s-ink-primary);
+  font-size: var(--s-text-title);
+  font-weight: var(--s-weight-emphasis);
+}
+
+.preamble {
+  max-width: 52ch;
+  margin: 0;
+  color: var(--s-ink-secondary);
+  font-size: var(--s-text-small);
+  line-height: 1.5;
+}
+
+.list {
+  margin: 0;
+  padding: 0;
+  border: var(--s-border-hairline) solid var(--s-line-quiet);
+  border-radius: var(--s-radius-panel);
+  background: var(--s-surface-raised);
+  list-style: none;
+  overflow: hidden;
+}
+
+.list > :last-child {
+  border-bottom: none;
+}
+
+/*
+ * Open a new folder is a row of this list, not a button beside it. Starting
+ * somewhere new needs no separate flow, so it gets no separate chrome.
+ */
+.newRow {
+  --c-new-line: var(--s-line-quiet);
+
+  display: grid;
+  border-bottom: var(--s-border-hairline) solid var(--c-new-line);
+  border-left: var(--s-border-emphasis) solid transparent;
+}
+
+.new {
+  --c-new-fill: transparent;
+
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+  gap: var(--s-space-snug);
+  padding: var(--s-space-snug) var(--s-space-base);
+  border: none;
+  background: var(--c-new-fill);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--s-motion-fast) var(--s-motion-ease);
+}
+
+.new:hover {
+  --c-new-fill: var(--s-surface-hover);
+}
+
+.new:focus-visible {
+  outline: var(--s-border-emphasis) solid var(--s-focus-ring);
+  outline-offset: -3px;
+}
+
+.newName {
+  color: var(--s-accent);
+  font-size: var(--s-text-body);
+  font-weight: var(--s-weight-emphasis);
+}
+
+.newHint {
+  overflow: hidden;
+  color: var(--s-ink-secondary);
+  font-size: var(--s-text-micro);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/*
+ * What the folder's git remote says, read just now. `owner/repo` is derived
+ * every time it is shown and is stored in no row, so a rename cannot rot the
+ * list. A refusal here is a fact about this folder, which is why it is styled
+ * as ink rather than as an alarm.
+ */
+.note {
+  --c-note-rail: var(--s-line-strong);
+  --c-note-ink: var(--s-ink-secondary);
+
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-space-hair);
+  padding: var(--s-space-snug) var(--s-space-base);
+  border-left: var(--s-border-emphasis) solid var(--c-note-rail);
+  border-radius: var(--s-radius-control);
+  background: var(--s-surface-sunken);
+  color: var(--c-note-ink);
+}
+
+.note[data-tone="bound"] {
+  --c-note-rail: var(--s-accent);
+}
+
+.noteHeadline {
+  color: var(--s-ink-primary);
+  font-size: var(--s-text-micro);
+  font-weight: var(--s-weight-emphasis);
+  letter-spacing: var(--s-tracking-label);
+  text-transform: uppercase;
+}
+
+.noteDetail {
+  max-width: 60ch;
+  font-size: var(--s-text-small);
+  line-height: 1.5;
+}
+
+.aside {
+  margin: 0;
+  color: var(--s-ink-faint);
+  font-size: var(--s-text-micro);
+}
+
+/*
+ * A registry this build cannot read replaces the list rather than emptying it.
+ * An empty list would be a lie: the folders are still there, in a file this
+ * build declines to guess at.
+ */
+.refusal {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-space-snug);
+  padding: var(--s-space-loose);
+  border: var(--s-border-hairline) solid var(--s-line-strong);
+  border-radius: var(--s-radius-panel);
+  background: var(--s-surface-raised);
+}
+
+.refusalHeadline {
+  margin: 0;
+  color: var(--s-ink-primary);
+  font-size: var(--s-text-title);
+  font-weight: var(--s-weight-emphasis);
+}
+
+.refusalDetail {
+  max-width: 60ch;
+  margin: 0;
+  color: var(--s-ink-primary);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-small);
+  line-height: 1.5;
+}
+
+.refusalCounsel {
+  max-width: 60ch;
+  margin: 0;
+  color: var(--s-ink-secondary);
+  font-size: var(--s-text-small);
+  line-height: 1.5;
+}
