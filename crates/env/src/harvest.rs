@@ -482,13 +482,28 @@ mod tests {
     /// machine will lose a 500 ms race that means nothing. The grace stays
     /// short so the stubs that sleep for thirty seconds still cost a fifth of
     /// one.
+    ///
+    /// Twenty rather than ten, and it costs nothing: no test using these bounds
+    /// expects the frame to expire — the expiry tests take [`quick`] — so every
+    /// one of them ends at its mark or at EOF and the figure is only ever a
+    /// ceiling. It was raised after `windows-latest` was seen taking 9.05 s to
+    /// reach a mark with a dozen PowerShells spawning at once: at ten the next
+    /// slow spawn would not have made this suite flaky, it would have made it
+    /// wrong, discarding a harvest that had lost a race against a busy runner
+    /// and reporting the operator's shell as silent.
     fn roomy() -> Bounds {
         Bounds {
-            frame: Duration::from_secs(10),
+            frame: Duration::from_secs(20),
             exit_grace: Duration::from_millis(200),
             ..quick()
         }
     }
+
+    /// How long a stub that sleeps, or a grandchild that holds the write handle,
+    /// keeps hold of it. Spelled once and read by both scripts and by the two
+    /// wall-clock assertions, so the number the stubs sleep for and the number
+    /// those assertions are measured against cannot drift apart.
+    const STUB_HOLDS: Duration = Duration::from_secs(30);
 
     /// The pathology a stub exists to inflict. The bytes it emits are always
     /// the ones [`framed`] built, so the two languages differ only in "sleep,
@@ -541,8 +556,12 @@ mod tests {
         let emit = "cat \"$WF31_TRANSCRIPT\"\n";
         match pathology {
             Pathology::Plain => format!("#!/bin/sh\n{emit}"),
-            Pathology::ThenSleep => format!("#!/bin/sh\n{emit}sleep 30\n"),
-            Pathology::Grandchild => format!("#!/bin/sh\nsleep 30 &\n{emit}"),
+            Pathology::ThenSleep => {
+                format!("#!/bin/sh\n{emit}sleep {}\n", STUB_HOLDS.as_secs())
+            }
+            Pathology::Grandchild => {
+                format!("#!/bin/sh\nsleep {} &\n{emit}", STUB_HOLDS.as_secs())
+            }
             Pathology::FloodStderr => {
                 format!("#!/bin/sh\ncat \"$WF31_FLOOD\" >&2\n{emit}")
             }
@@ -580,10 +599,16 @@ mod tests {
                     $o.Flush()\n";
         match pathology {
             Pathology::Plain => emit.to_string(),
-            Pathology::ThenSleep => format!("{emit}Start-Sleep -Seconds 30\n"),
+            Pathology::ThenSleep => {
+                format!("{emit}Start-Sleep -Seconds {}\n", STUB_HOLDS.as_secs())
+            }
+            // `ping` sends its first packet at once and waits a second between
+            // the rest, so one more than the seconds wanted is the count that
+            // holds the handle for them.
             Pathology::Grandchild => format!(
-                "Start-Process -FilePath cmd.exe -ArgumentList '/c','ping','-n','31','127.0.0.1' \
-                 -NoNewWindow\n{emit}"
+                "Start-Process -FilePath cmd.exe -ArgumentList \
+                 '/c','ping','-n','{}','127.0.0.1' -NoNewWindow\n{emit}",
+                STUB_HOLDS.as_secs() + 1
             ),
             Pathology::FloodStderr => format!(
                 "$e=[Console]::OpenStandardError()\n\
@@ -817,22 +842,21 @@ mod tests {
         let attempt = harvest_with(&command, &nonce(), &roomy());
 
         assert_eq!(value(&attempt, "PATH"), "/opt/homebrew/bin");
-        // The stub sleeps thirty seconds after writing. Waiting for the exit
-        // would have cost all of it, so anything comfortably under thirty
-        // proves the claim; the expected figure is the 200 ms grace.
+        // The stub sleeps [`STUB_HOLDS`] after writing. Waiting for the exit
+        // would have cost all of it, so anything comfortably under it proves
+        // the claim; the expected figure is the 200 ms grace.
         //
-        // Five rather than two, and the number is not arbitrary: at two this
-        // assertion was observed failing once at 2.60 s, on a loaded machine,
-        // with a dozen stubs spawning beside it. A wall-clock bound with ten
-        // times its expected value in hand still lost that race. Tightening it
-        // buys nothing — the thing being denied costs thirty seconds — and a
-        // red build that means only "the runner was busy" is worse than no
-        // assertion, because it teaches everyone to re-run rather than read.
-        assert!(
-            attempt.elapsed < Duration::from_secs(5),
-            "{:?}",
-            attempt.elapsed
-        );
+        // Half of what is being denied, rather than a number of its own. A
+        // fixed five seconds was observed failing at 9.05 s on a four-core
+        // `windows-latest` with PowerShell stubs spawning beside it, and a
+        // fixed two before that at 2.60 s: every absolute figure picked so far
+        // has eventually measured the runner rather than the harvest. Tying it
+        // to the sleep keeps the only thing this can distinguish — a harvest
+        // that waited for EOF from one that stopped at the mark — while a
+        // margin that wide cannot be crossed by load alone. A red build that
+        // means "the runner was busy" is worse than no assertion, because it
+        // teaches everyone to re-run rather than read.
+        assert!(attempt.elapsed < STUB_HOLDS / 2, "{:?}", attempt.elapsed);
     }
 
     #[test]
@@ -848,14 +872,11 @@ mod tests {
         // to EOF would have parked on that handle; stopping at the mark does
         // not, and the grace expiring is not a failure.
         assert_eq!(value(&attempt, "PATH"), "/opt/homebrew/bin");
-        // Five seconds against a grandchild that holds the handle for thirty,
-        // for the reason given on the test above: the margin is there to
-        // survive a busy runner, not to measure one.
-        assert!(
-            attempt.elapsed < Duration::from_secs(5),
-            "{:?}",
-            attempt.elapsed
-        );
+        // Half of what the grandchild holds the handle for, for the reason
+        // given on the test above: the margin is there to survive a busy
+        // runner, not to measure one. This is the assertion that was seen
+        // failing at 9.05 s on `windows-latest` with a fixed five in place.
+        assert!(attempt.elapsed < STUB_HOLDS / 2, "{:?}", attempt.elapsed);
     }
 
     #[test]
