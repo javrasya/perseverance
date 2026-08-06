@@ -1,24 +1,32 @@
 /**
- * The Route's arithmetic: how far along each ticket sits, how many it opens up,
- * and where every box lands.
+ * The Route's arithmetic: which section each ticket belongs in, what mark it
+ * carries, and how much of what it waits on is still in the way.
  *
  * A pure module, and deliberately so. Nothing here imports React, touches the
  * DOM, reads a clock or a store, or asks anything a second time — `routeOf`
- * called twice on the same model answers with the same numbers, which is what
- * buys the layout the right not to be stored anywhere. There are no node
- * positions in this app; there are only these constants and this arithmetic.
+ * called twice on the same model answers with the same sections, which is what
+ * lets the pane be a function of the derived model and of nothing a caller
+ * could vary.
  *
- * The failure it exists to prevent is a ranking the map cannot justify. Two
- * halves of that. **Rank comes from an explicit edge set**, so a rank on screen
- * is always *this ticket waits on that one* and never a heuristic — and the
- * edge set is the model's own, transposed rather than inferred, so a column
- * that cannot be justified from the map is a column that cannot be drawn.
- * **Intra-rank order comes from `map.nodes` and nothing else**, walked once in
- * array order into buckets:
- * there is no comparator in this file, no sort call, and no crossing
- * minimisation, because the operator dragged these into this order in GitHub's
- * own UI and re-arranging their rows to make lines cross less is answering a
- * question nobody asked with an authority nobody granted.
+ * **There is no rank in this file, no coordinate and no edge geometry — not
+ * here and not anywhere else in the view.** The Route is a grouped list in one
+ * column: position in the column is the encoding, membership of a section is
+ * the whole of what the structure says, and everything a row adds to that it
+ * adds in words. Nothing is drawn between two rows, so there is nothing to
+ * place, nothing to route and nothing to route around. ADR 0006.
+ *
+ * The failure it exists to prevent is a section or a count the map cannot
+ * justify. Three parts to that. **Every section comes from the model's own
+ * words** — a node's state, or the one number `map.frontier` names — so a row's
+ * group is always *the model said so* and never a heuristic. **Every count is
+ * the rows it heads**, built with them rather than beside them, because a
+ * heading that disagrees with what is under it is a lie an operator can see and
+ * the only sure way to prevent it is to leave nothing to disagree. **Order
+ * inside a section is `map.nodes` order and nothing else**, walked once in
+ * array order into buckets: there is no comparator in this file and no sort
+ * call, because the operator dragged these into this order in GitHub's own UI
+ * and re-arranging their rows is answering a question nobody asked with an
+ * authority nobody granted.
  */
 
 import type { Map, Node, NodeState } from "../../snapshot/model.generated";
@@ -31,350 +39,268 @@ import type { Map, Node, NodeState } from "../../snapshot/model.generated";
  */
 const Lookup = globalThis.Map;
 
-/* -------------------------------------------------------- dependencies --- */
+/* ------------------------------------------------------------ blockers --- */
 
 /**
- * One dependency, as the graph reads it: `before` must be resolved first and
- * `after` is the one waiting. Issue numbers on both ends, never indices —
- * `map.nodes` order is the operator's and an index into it is a fact about an
- * array rather than about the work.
+ * What a node waits on, split by whether this map is in a position to judge it.
  */
-export type RouteEdge = { readonly before: number; readonly after: number };
-
-/**
- * The dependency edges of a map, read off the nodes that carry them.
- *
- * A transposition and not a derivation. The derived [`Node`] arrives with
- * `waitsOn` — every blocker GitHub named for it, decided in Rust, filtered
- * there to this repository and carried verbatim — so all this does is turn a
- * list hanging off the one waiting into a pair naming both ends. Nothing here
- * judges an edge: an edge naming something with no row on this map is counted
- * by `rankNodes` and said in words by the view, because dropping it silently
- * would move a rank with nothing on screen to account for the move.
- *
- * There is deliberately no *nobody read them* case. Adjacency crosses the seam
- * beside the node it belongs to, so the numbers arrive with the model or the
- * model did not arrive — and a node that waits on nothing is a source, which
- * is a fact rather than an absence.
- */
-export function edgesOf(map: Map): readonly RouteEdge[] {
-  const edges: RouteEdge[] = [];
-  for (const node of map.nodes) {
-    for (const before of node.waitsOn) edges.push({ before, after: node.number });
-  }
-  return edges;
-}
-
-/* ------------------------------------------------------------- ranking --- */
-
-/**
- * A ranking, with what it could not do reported beside what it could.
- *
- * `unsettled` and `beyondTheMap` are here rather than swallowed because both
- * are ways a rank can be quietly wrong: a cycle has no longest path, and an
- * edge to a node with no row changes a rank while being invisible on screen.
- * A ranker that dropped either would answer confidently and be unjustifiable
- * from what is drawn.
- */
-export type Ranking = {
-  readonly ranks: ReadonlyMap<number, number>;
-  /** Both ends of every back edge, de-duplicated and in map order. */
-  readonly unsettled: readonly number[];
-  /** Edges naming a number that is not a child of this map, counted. */
+export type BlockerTally = {
+  /** Named blockers with a row on this map that this map does not show as resolved. */
+  readonly unresolved: number;
+  /** Named blockers with no row here, which this map cannot judge either way. */
   readonly beyondTheMap: number;
 };
 
-/**
- * Longest path, which is the only ranking that reads as *how far along*.
- *
- * A node with nothing before it is rank 0; anything else is one past the
- * furthest thing it waits on. Longest and not shortest, because a ticket that
- * waits on both a source and a four-deep chain is four deep — the short way in
- * says nothing about when it can start.
- *
- * A memoised descent with a grey set, so a cycle terminates instead of
- * recursing forever: re-entering a node that is still on the stack contributes
- * nothing for that edge and puts both of its ends in `unsettled`. Terminating
- * quietly with a plausible number would be the worse failure of the two.
- */
-export function rankNodes(nodes: readonly Node[], edges: readonly RouteEdge[]): Ranking {
-  const waitedOn = new Lookup<number, number[]>();
-  for (const node of nodes) waitedOn.set(node.number, []);
+const NOTHING_IN_THE_WAY: BlockerTally = { unresolved: 0, beyondTheMap: 0 };
 
-  let beyondTheMap = 0;
-  for (const edge of edges) {
-    const after = waitedOn.get(edge.after);
-    if (after === undefined || !waitedOn.has(edge.before)) {
-      // A node with no row is not drawable, and an edge to one would move a
-      // rank with nothing on screen to account for the move.
-      beyondTheMap += 1;
+/**
+ * Every node's blockers, counted once against the states this map is showing.
+ *
+ * **This is why `waitsOn` crosses the seam at all.** The derived model carries
+ * no per-node blocker count — [`Counts`] is tickets, open and specs, and
+ * [`Node`] deliberately withholds the count GitHub decided the state from — so
+ * these numbers are the only source for `blocked by N`, which is the whole of
+ * what a blocked row says about what holds it up. They are also the only source
+ * for the second fact, which is rarer and worse to lose: that a blocker names
+ * an issue with no row here, so this map cannot say whether it is done.
+ *
+ * The two are counted apart rather than summed. A blocker this map can see and
+ * a blocker it cannot are different claims, and adding them would print a
+ * number the rows on screen cannot account for — the failure this whole file is
+ * arranged around. A blocker this map shows as resolved is counted into
+ * neither: it is out of the way, which is a fact rather than an absence.
+ *
+ * **A node this map shows as resolved waits on nothing**, whatever it still
+ * names, and that is the same rule read from the other end. GitHub closes an
+ * issue without clearing what it was blocked by, so a finished ticket arrives
+ * carrying open blockers — the awkward fixture's *finished before the thing it
+ * waited on* is exactly that — and tallying them would put `blocked by 1` on a
+ * row under the heading *Resolved*. Nothing holds up work that is already done,
+ * so the emptying happens here, where the arithmetic is, rather than in the
+ * view: a row that reads its own tally can then say all of it.
+ */
+export function blockersOf(nodes: readonly Node[]): ReadonlyMap<number, BlockerTally> {
+  const resolved = new Lookup<number, boolean>();
+  for (const node of nodes) resolved.set(node.number, node.state === "resolved");
+
+  const tallies = new Lookup<number, BlockerTally>();
+  for (const node of nodes) {
+    if (node.state === "resolved") {
+      tallies.set(node.number, NOTHING_IN_THE_WAY);
       continue;
     }
-    after.push(edge.before);
-  }
 
-  const ranks = new Lookup<number, number>();
-  const onTheStack = new Set<number>();
-  const unsettled = new Set<number>();
-
-  function rankOf(number: number): number {
-    const settled = ranks.get(number);
-    if (settled !== undefined) return settled;
-
-    onTheStack.add(number);
-    let rank = 0;
-    for (const predecessor of waitedOn.get(number) ?? []) {
-      if (onTheStack.has(predecessor)) {
-        // A back edge. Descending would not terminate, so it contributes
-        // nothing and both ends are reported rather than silently mis-ranked.
-        unsettled.add(predecessor);
-        unsettled.add(number);
-        continue;
-      }
-      rank = Math.max(rank, 1 + rankOf(predecessor));
+    let unresolved = 0;
+    let beyondTheMap = 0;
+    for (const before of node.waitsOn) {
+      const settled = resolved.get(before);
+      if (settled === undefined) beyondTheMap += 1;
+      else if (!settled) unresolved += 1;
     }
-    onTheStack.delete(number);
-
-    ranks.set(number, rank);
-    return rank;
+    tallies.set(node.number, { unresolved, beyondTheMap });
   }
-
-  for (const node of nodes) rankOf(node.number);
-
-  return {
-    ranks,
-    // Map order, because every list this app puts on screen is in map order and
-    // a numerically sorted one would be the only exception.
-    unsettled: nodes.map((node) => node.number).filter((number) => unsettled.has(number)),
-    beyondTheMap,
-  };
+  return tallies;
 }
 
+/* --------------------------------------------------------------- marks --- */
+
 /**
- * How many tickets each node opens up: out-degree over distinct on-map
- * successors.
+ * The five marks a row can carry, which are the model's four states plus the
+ * one designation.
  *
- * Distinct, because two edges saying the same thing are one thing being
- * unlocked. On-map, because a number with no row here is not something this
- * screen can claim to unlock.
+ * Two of C5's seven glyphs are not here and neither is #34's. `g-oos` decorates
+ * a resolved row rather than being a sixth state — #36. `g-done` is *resolved
+ * by this session*, which needs a run lifecycle and a session identity the
+ * derived model does not carry at all, so building it would mean inventing
+ * state rather than reading it.
  */
-export function unlocksFrom(
-  nodes: readonly Node[],
-  edges: readonly RouteEdge[],
-): ReadonlyMap<number, number> {
-  const opened = new Lookup<number, Set<number>>();
-  for (const node of nodes) opened.set(node.number, new Set());
-
-  for (const edge of edges) {
-    const from = opened.get(edge.before);
-    if (from === undefined || !opened.has(edge.after)) continue;
-    from.add(edge.after);
-  }
-
-  const counts = new Lookup<number, number>();
-  for (const node of nodes) counts.set(node.number, opened.get(node.number)?.size ?? 0);
-  return counts;
-}
-
-/* ------------------------------------------------------------ geometry --- */
-
-/*
- * Six numbers, and the layout is all of them. Ranks are columns left to right;
- * nodes stack top to bottom inside a column, in map order. Rank 0 being
- * structurally wide — a charting session produces a burst of independent
- * tickets — is therefore a long first column that scrolls, which is a shape
- * this is indifferent to rather than one it has to cope with.
- */
-
-export const NODE_WIDTH = 220;
-export const NODE_HEIGHT = 56;
-export const RANK_GAP = 96;
-export const ROW_GAP = 16;
-export const MARGIN = 24;
+export type Mark = "claimed" | "designated" | "takeable" | "blocked" | "resolved";
 
 /**
- * How much title fits on a node. SVG text does not wrap, so a budget is the
- * whole of the wrapping story — there is no second measure and no ellipsis
- * that the browser applies for us.
+ * Whether a ticket is worked with someone at the keyboard or without.
+ *
+ * The wayfinder's vocabulary and not the model's: nothing crossing the seam
+ * says this, so it is derived here from the ticket type — research runs AFK,
+ * every other kind of ticket is human-in-the-loop. That makes this the first
+ * thing to move the day the model carries attendance itself, and until then a
+ * rule with exactly one home.
  */
-export const TITLE_BUDGET = 34;
+export type Attendance = "AFK" | "HITL";
 
-export function elide(title: string, budget = TITLE_BUDGET): string {
-  if (title.length <= budget) return title;
-  return `${title.slice(0, budget - 1)}…`;
+/**
+ * One row's precedence, top down: claimed beats designated, designated beats
+ * the node's state.
+ *
+ * Claimed first because *somebody is on this* is the stronger of the two claims
+ * — a designated node with a session against it is being worked, and marking it
+ * as the next thing to pick up would send two operators at one ticket. It keeps
+ * `designated` on the row underneath, which is how the heading swaps to *Now*
+ * without losing what the frontier said.
+ */
+function markOf(state: NodeState, designated: boolean): Mark {
+  if (state === "claimed") return "claimed";
+  if (designated) return "designated";
+  return state;
 }
 
-/** One node, ranked, placed and labelled. Nothing here is stored anywhere. */
-export type RouteNode = {
+function attendanceOf(node: Node): Attendance | null {
+  if (node.kind.kind !== "ticket") return null;
+  return node.kind.type === "research" ? "AFK" : "HITL";
+}
+
+/* ------------------------------------------------------------ sections --- */
+
+/**
+ * The sections the pane can draw, in document order.
+ *
+ * Four, and two more belong to tickets that are not this one: out of scope is
+ * #36, which owns the decoration and the argument that it is not progress, and
+ * fog is #35. Neither is stubbed here. A stubbed section would have to carry a
+ * count, and a count nobody derived is the zero that `—` exists to keep apart
+ * from a real one.
+ */
+export type SectionName = "now" | "frontier" | "blocked" | "resolved";
+
+export type RouteRow = {
   readonly node: Node;
-  readonly rank: number;
   /** `map.frontier` said so. Never re-resolved on this side. */
-  readonly frontier: boolean;
-  /**
-   * How many tickets this one opens up, over distinct on-map successors. Zero
-   * is *this opens nothing up* — a fact, and one worth no ink, which is why
-   * the view draws the number only when there is something to draw.
-   */
-  readonly unlocks: number;
-  readonly label: string;
-  readonly x: number;
-  readonly y: number;
-  readonly width: number;
-  readonly height: number;
+  readonly designated: boolean;
+  readonly mark: Mark;
+  readonly blockers: BlockerTally;
+  /** null for a spec or an unclassified child: the wayfinder's rule has nothing to say. #37. */
+  readonly attendance: Attendance | null;
 };
 
-export type RouteRow = { readonly rank: number; readonly nodes: readonly RouteNode[] };
-
-/**
- * One drawable edge. Computed for every on-map dependency; **which of them get
- * drawn is the view's decision, and the Route's answer is almost none of
- * them** — see `Route.tsx` and ADR 0005.
- */
-export type RouteLink = {
-  readonly before: number;
-  readonly after: number;
-  readonly path: string;
-};
-
-export type Route = {
+export type RouteSection = {
+  readonly name: SectionName;
+  readonly heading: string;
   readonly rows: readonly RouteRow[];
-  readonly links: readonly RouteLink[];
-  readonly width: number;
-  readonly height: number;
-  /**
-   * What the columns cannot account for, carried out beside them: tickets that
-   * wait on each other, and edges naming something with no row here. Both are
-   * the caller's to say in words — rows that are quietly a guess are the one
-   * thing this may not hand back.
-   */
-  readonly unsettled: readonly number[];
-  readonly beyondTheMap: number;
+  /** Always `rows.length`. A count that is not the rows it heads is a lie. */
+  readonly count: number;
 };
 
+export type Route = { readonly sections: readonly RouteSection[] };
+
+function sectionOf(
+  name: SectionName,
+  heading: string,
+  rows: readonly RouteRow[],
+): RouteSection {
+  return { name, heading, rows, count: rows.length };
+}
+
 /**
- * The whole layout, computed from the model and six constants, every call.
+ * The whole pane, derived from the model and from nothing else, every call.
  *
- * One argument, because there is nothing else to give it: the edges are the
- * map's own and the geometry is these constants, so the picture is a function
- * of the derived model and of nothing a caller could vary.
+ * One walk of `map.nodes`, in array order, appending each node to the bucket
+ * its state names. That single pass is the entirety of intra-section ordering:
+ * no comparator, no second pass, nothing that could reorder rows the operator
+ * arranged.
  *
- * The rows are built by walking `map.nodes` exactly once in array order and
- * appending into the bucket for each node's rank. That single pass is the
- * entirety of intra-rank ordering: no comparator, no second pass, nothing that
- * could reorder a row the operator arranged.
+ * The top section is one section with two headings. It holds every claimed node
+ * and reads *Now*; with nothing claimed it holds the single node `map.frontier`
+ * names and reads *Next*; with neither it is absent, because *nothing on this
+ * map can be started* is a state with its own reading and an empty group under
+ * a heading would draw it as a shrug. The designated row is looked for among
+ * the takeable ones and not everywhere: `map.frontier` is by construction the
+ * first node in map order that is takeable, and looking for it where it can be
+ * is what stops a number naming something else from putting one node in two
+ * sections at once.
+ *
+ * A section with no rows is left out of the answer entirely rather than handed
+ * back empty — the rule `MapList` already established for the same reason. The
+ * group is a claim that there is something in it.
  */
 export function routeOf(map: Map): Route {
-  const edges = edgesOf(map);
+  const blockers = blockersOf(map.nodes);
 
-  const ranking = rankNodes(map.nodes, edges);
-  const unlocks = unlocksFrom(map.nodes, edges);
-
-  const buckets = new Lookup<number, RouteNode[]>();
-  const placed = new Lookup<number, RouteNode>();
-  let deepest = -1;
+  const claimed: RouteRow[] = [];
+  const takeable: RouteRow[] = [];
+  const blocked: RouteRow[] = [];
+  const resolved: RouteRow[] = [];
 
   for (const node of map.nodes) {
-    const rank = ranking.ranks.get(node.number) ?? 0;
-
-    let bucket = buckets.get(rank);
-    if (bucket === undefined) {
-      bucket = [];
-      buckets.set(rank, bucket);
-    }
-
-    const placedNode: RouteNode = {
+    const designated = node.number === map.frontier;
+    const row: RouteRow = {
       node,
-      rank,
-      frontier: node.number === map.frontier,
-      unlocks: unlocks.get(node.number) ?? 0,
-      label: elide(node.title),
-      x: MARGIN + rank * (NODE_WIDTH + RANK_GAP),
-      y: MARGIN + bucket.length * (NODE_HEIGHT + ROW_GAP),
-      width: NODE_WIDTH,
-      height: NODE_HEIGHT,
+      designated,
+      mark: markOf(node.state, designated),
+      blockers: blockers.get(node.number) ?? NOTHING_IN_THE_WAY,
+      attendance: attendanceOf(node),
     };
 
-    bucket.push(placedNode);
-    placed.set(node.number, placedNode);
-    if (rank > deepest) deepest = rank;
-  }
-
-  // Counted up from zero rather than collected and ordered, so the columns are
-  // left to right without anything being sorted into place.
-  const rows: RouteRow[] = [];
-  for (let rank = 0; rank <= deepest; rank += 1) {
-    const bucket = buckets.get(rank);
-    if (bucket !== undefined) rows.push({ rank, nodes: bucket });
-  }
-
-  const links: RouteLink[] = [];
-  for (const edge of edges) {
-    const from = placed.get(edge.before);
-    const to = placed.get(edge.after);
-    if (from === undefined || to === undefined) continue;
-    links.push({ before: edge.before, after: edge.after, path: linkPath(from, to) });
-  }
-
-  // A map with nothing on it is a margin and nothing in it, not a zero-sized
-  // canvas that collapses whatever is drawn around it.
-  let width = 2 * MARGIN;
-  let height = 2 * MARGIN;
-  for (const row of rows) {
-    for (const one of row.nodes) {
-      width = Math.max(width, one.x + one.width + MARGIN);
-      height = Math.max(height, one.y + one.height + MARGIN);
+    switch (node.state) {
+      case "claimed":
+        claimed.push(row);
+        break;
+      case "takeable":
+        takeable.push(row);
+        break;
+      case "blocked":
+        blocked.push(row);
+        break;
+      case "resolved":
+        resolved.push(row);
+        break;
     }
   }
 
-  return {
-    rows,
-    links,
-    width,
-    height,
-    unsettled: ranking.unsettled,
-    beyondTheMap: ranking.beyondTheMap,
-  };
-}
+  const working = claimed.length > 0;
+  const next = working ? undefined : takeable.find((row) => row.designated);
 
-/**
- * A hand-written cubic bezier from the right edge of one node to the left edge
- * of the next, leaving and arriving horizontally.
- *
- * Hand-written because a router is a dozen lines and a layout library is a
- * dependency that owns rendering — and because the control offset being half a
- * rank gap is the only thing that makes a link read as *crosses one column*.
- */
-export function linkPath(from: RouteNode, to: RouteNode): string {
-  const reach = RANK_GAP / 2;
-  const x1 = from.x + from.width;
-  const y1 = from.y + from.height / 2;
-  const x2 = to.x;
-  const y2 = to.y + to.height / 2;
-  return `M ${x1} ${y1} C ${x1 + reach} ${y1}, ${x2 - reach} ${y2}, ${x2} ${y2}`;
+  const now = working ? claimed : next === undefined ? [] : [next];
+  const frontier =
+    next === undefined ? takeable : takeable.filter((row) => row !== next);
+
+  return {
+    sections: [
+      sectionOf("now", working ? NOW_HEADING : SECTION_HEADINGS.now, now),
+      sectionOf("frontier", SECTION_HEADINGS.frontier, frontier),
+      sectionOf("blocked", SECTION_HEADINGS.blocked, blocked),
+      sectionOf("resolved", SECTION_HEADINGS.resolved, resolved),
+    ].filter((section) => section.count > 0),
+  };
 }
 
 /* ---------------------------------------------------------------- copy --- */
 
-/**
- * Said when tickets wait on each other. There is no longest path through a
- * cycle, so the columns around it are a guess — and a guess that says so is
- * worth more than a confident number nobody can check.
- */
-export const UNSETTLED_NOTE =
-  "these tickets wait on each other, so no order among them is the true one";
-
-/**
- * Said when a dependency points at something that is not a child of this map.
- * The edge is real and the row is not, so it is reported rather than drawn to
- * nowhere or dropped in silence.
- */
-export const BEYOND_THE_MAP =
-  "some of what these tickets wait on is not a child of this map, so it has no row here";
-
-/** What a node opens up, as a number and never as a spray of edges. */
-export function unlocksLabel(count: number): string {
-  return `unlocks ${count}`;
+/** What holds a row up, as a number and never as a spray of edges. */
+export function blockedByLabel(count: number): string {
+  return `blocked by ${count}`;
 }
+
+/**
+ * Said on the row that waits, when one of the numbers it waits on has no row
+ * here. The blocker is real and this map cannot judge it either way, so it is
+ * said in words rather than counted into `blocked by N` — which would be this
+ * map asserting something it has nothing on screen to back.
+ */
+export function beyondTheMapNote(count: number): string {
+  return count === 1
+    ? "1 blocker, not a child of this map, has no row here"
+    : `${count} blockers, each not a child of this map, have no row here`;
+}
+
+/** The word on the cold tag, and the only place the designation is named. */
+export const DESIGNATED_TAG = "designated";
+
+export const NOW_HEADING = "Now";
+export const NEXT_HEADING = "Next";
+
+/**
+ * The headings at rest, in sentence case. The stylesheet uppercases them, so a
+ * hard-coded capital here would be a divergence from the design nobody sees
+ * until they read the DOM.
+ *
+ * `now` reads *Next* because that is what the section says when nothing is
+ * being worked; `NOW_HEADING` replaces it when something is.
+ */
+export const SECTION_HEADINGS: Record<SectionName, string> = {
+  now: NEXT_HEADING,
+  frontier: "Frontier",
+  blocked: "Blocked",
+  resolved: "Resolved",
+};
 
 /**
  * The on-screen word for each of the four states.

@@ -1,11 +1,11 @@
 /**
  * The derived model, as one line of text.
  *
- * Deliberately a **diagnostic and not the route**. The graph is drawn — the
+ * Deliberately a **diagnostic and not the route**. The view is built — the
  * nodes, their four states, the singular frontier — and this stays beside it
- * rather than being replaced by it: these are the numbers the graph is drawn
- * from, spelled, so a graph that drew the wrong thing has something on screen
- * to disagree with. A picture and a sentence derived from one model can only
+ * rather than being replaced by it: these are the numbers the view is built
+ * from, spelled, so a view that listed the wrong thing has something on screen
+ * to disagree with. A list and a sentence derived from one model can only
  * differ if one of them is wrong, and one line of text is the cheapest witness
  * a rendering ticket can be held to.
  *

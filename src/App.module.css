@@ -43,15 +43,18 @@
 }
 
 /*
- * The view has the window while a map is open. How much window it has once the
- * dial exists is #52's, not this file's.
+ * The view stands beside the launcher rather than in place of it, because a
+ * surface that cannot be got back to is a surface that has been deleted. How
+ * the two share the window once the dial exists is #52's, not this file's, so
+ * they share it evenly and nothing here claims that is the answer.
  *
  * The scrollport is here rather than inside the view, for the same reason the
- * drop region owns its own: rank 0 is structurally wide, so the first column is
- * routinely taller than the window, and a view stretched to this box's height
- * while its content is taller would push the readout off the bottom — where a
- * stamp may never go. `min-height: 0` is what lets this flex child shrink far
- * enough for its own overflow to take effect.
+ * drop region owns its own: a map is routinely taller than the window, and a
+ * view stretched to this box's height while its content is taller would push
+ * the readout off the bottom — where a stamp may never go. `min-height: 0` is
+ * what lets this flex child shrink far enough for its own overflow to take
+ * effect. The Route also scrolls its own list, and the child scrolls first, so
+ * this is the backstop rather than the scrollbar anyone sees.
  */
 .view {
   display: flex;

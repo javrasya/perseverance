@@ -263,16 +263,39 @@ export function App() {
 
       <div className={styles.body}>
         {/*
-          A map open means the map is what the window is for, so the view has
-          the window and the launcher is where you came from. This is the
-          smallest arrangement that lets the Route be looked at, and it is not
-          the arrangement: the dial with its four detents, the view switcher and
-          the chrome that survives every detent are #52's, and deciding any of
-          that here would be making a later ticket's call early. What this file
-          settles is only that the two do not fight over the same pixels while
-          #52 is still open.
+          Both at once, and neither is a mode. A map being open is not a reason
+          to take the launcher off the screen: the snapshot is read once at
+          mount and nothing re-reads it, so a shell that swapped the launcher
+          out for the view would put open, locate, forget and *open a new
+          folder* somewhere unreachable for the life of the process — and the
+          view has no way back to them.
+
+          How much window each of the two is worth is emphatically not settled
+          here. The dial with its four detents, the view switcher and the chrome
+          that survives every detent are #52's, and deciding any of that in this
+          file would be making a later ticket's call early. What this file
+          settles is only that neither surface can disappear while #52 is open.
         */}
-        {snapshot.model.map !== null && view === "route" ? (
+        <DropRegion onFoldersDropped={onFoldersDropped}>
+          <FolderList
+            outcome={outcome}
+            now={nowSeconds()}
+            selectedId={selectedId}
+            note={note}
+            onOpen={onOpen}
+            onLocate={onLocate}
+            onForget={onForget}
+            onOpenNew={onOpenNew}
+          />
+          {/*
+            The folder is what you pick; the maps in it are what you find once
+            you are inside. So the list appears under the folder you picked
+            rather than replacing the launcher — there is no mode to be in.
+          */}
+          {selectedId === null ? null : <MapList view={maps} />}
+        </DropRegion>
+
+        {snapshot.model.map === null || view !== "route" ? null : (
           <div className={styles.view}>
             <Route
               model={snapshot.model}
@@ -280,25 +303,6 @@ export function App() {
               onSelect={setSelectedNode}
             />
           </div>
-        ) : (
-          <DropRegion onFoldersDropped={onFoldersDropped}>
-            <FolderList
-              outcome={outcome}
-              now={nowSeconds()}
-              selectedId={selectedId}
-              note={note}
-              onOpen={onOpen}
-              onLocate={onLocate}
-              onForget={onForget}
-              onOpenNew={onOpenNew}
-            />
-            {/*
-              The folder is what you pick; the maps in it are what you find once
-              you are inside. So the list appears under the folder you picked
-              rather than replacing the launcher — there is no mode to be in.
-            */}
-            {selectedId === null ? null : <MapList view={maps} />}
-          </DropRegion>
         )}
       </div>
 
@@ -307,9 +311,9 @@ export function App() {
       <footer className={styles.readout}>
         <span>schema v{snapshot.schemaVersion}</span>
         {/*
-          The derived model, as one line. A diagnostic beside the graph rather
-          than a substitute for it: these are the numbers the graph is drawn
-          from, spelled, so a graph that drew the wrong thing has something on
+          The derived model, as one line. A diagnostic beside the view rather
+          than a substitute for it: these are the numbers the view is built
+          from, spelled, so a view that listed the wrong thing has something on
           screen to disagree with.
         */}
         <span>{describeModel(snapshot.model)}</span>

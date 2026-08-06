@@ -13,13 +13,7 @@ import { NO_MAP_OPEN } from "../src/snapshot/readout";
  * `Route.tsx` under bundler resolution and matches only that file. Anything
  * importing this component has to spell it the same way.
  */
-import { Route, upstreamLinks } from "../src/views/route/Route.jsx";
-import {
-  BEYOND_THE_MAP,
-  UNSETTLED_NOTE,
-  routeOf,
-  type RouteEdge,
-} from "../src/views/route/route";
+import { Route } from "../src/views/route/Route.jsx";
 import { collect } from "./support/sources";
 
 /**
@@ -27,11 +21,10 @@ import { collect } from "./support/sources";
  *
  * `tests/route.test.ts` pins the arithmetic; this pins the picture. The claim
  * under test is that the second is a pure function of the first — so what is
- * asserted here is that every coordinate on screen came back from `routeOf`,
- * that the four states and the one frontier are the model's answers carried
- * verbatim, and that the fan-out the Route declines to draw is a thing a test
- * can catch it drawing. A deviation nobody can fail is a deviation nobody
- * declared.
+ * asserted here is that every section, count and mark on screen came back from
+ * `routeOf`, that the four states and the one designation are the model's
+ * answers carried verbatim, and that the pane draws no edge at all in any state
+ * it can be put into. A thesis nobody can fail is a thesis nobody declared.
  */
 
 /* Same reason as `tests/dev-web.test.tsx`: a suite that always warns is a suite
@@ -81,19 +74,26 @@ function awkward(): Map {
   return map;
 }
 
-function edge(before: number, after: number): RouteEdge {
+/**
+ * A dependency, for building fixtures with. Declared here and not imported:
+ * adjacency reaches the pane hanging off the node that waits and is never
+ * transposed into pairs, so nothing in the view has this shape. ADR 0006.
+ */
+type Waiting = { readonly before: number; readonly after: number };
+
+function edge(before: number, after: number): Waiting {
   return { before, after };
 }
 
 /**
  * The awkward map, waiting on exactly these edges.
  *
- * The component takes a model and derives its picture from that alone, so an
- * edge set under test is painted rather than passed — which is the point: the
- * three sentences the Route says about edges it cannot rank are reachable from
- * the component's own API and can therefore be failed from it.
+ * The component takes a model and derives its list from that alone, so an edge
+ * set under test is painted rather than passed — which is the point: what the
+ * Route says about the edges it will not draw is reachable from the component's
+ * own API and can therefore be failed from it.
  */
-function mapWaitingOn(edges: readonly RouteEdge[]): Map {
+function mapWaitingOn(edges: readonly Waiting[]): Map {
   const map = awkward();
   return {
     ...map,
@@ -104,7 +104,7 @@ function mapWaitingOn(edges: readonly RouteEdge[]): Map {
   };
 }
 
-function waitingOn(edges: readonly RouteEdge[]): Model {
+function waitingOn(edges: readonly Waiting[]): Model {
   return { map: mapWaitingOn(edges) };
 }
 
@@ -124,7 +124,59 @@ async function fire(target: Element, event: Event) {
   });
 }
 
-describe("the four states and the one frontier are the model's answers, drawn", () => {
+/* ------------------------------------------------------------- readers --- */
+
+interface DrawnSection {
+  heading: string;
+  count: number;
+  rows: number[];
+}
+
+/** Each heading, the count it carries, and the rows the heading names. */
+function sectionsIn(host: HTMLElement): DrawnSection[] {
+  return all(host, "h2").map((heading) => {
+    const rows = host.querySelector(`[aria-labelledby="${heading.id}"]`);
+    if (rows === null) throw new Error(`nothing is labelled by ${heading.id}`);
+    const [name, , count] = [...heading.children];
+    return {
+      heading: name?.textContent ?? "",
+      count: Number(count?.textContent),
+      rows: [...rows.querySelectorAll("[data-node]")].map((row) =>
+        Number(row.getAttribute("data-node")),
+      ),
+    };
+  });
+}
+
+/** The class the glyph wears, which is the shape rather than the colour. */
+function shapeOn(row: Element): string {
+  const glyph = row.firstElementChild?.firstElementChild;
+  if (!glyph) throw new Error(`no glyph on ${row.getAttribute("data-node")}`);
+  return glyph.className;
+}
+
+function numbersIn(host: HTMLElement): number[] {
+  return all(host, "[data-node]").map((row) => Number(row.getAttribute("data-node")));
+}
+
+/** The map with nobody working, so the top section rests at *Next*. */
+function nothingClaimed(): Model {
+  const map = awkward();
+  return {
+    map: {
+      ...map,
+      nodes: map.nodes.map((node) =>
+        node.state === "claimed" ? { ...node, state: "takeable" as const } : node,
+      ),
+    },
+  };
+}
+
+/* Every way a browser can be made to draw a line between two things, plus the
+   attribute the old ranked view hung on the ones it drew. */
+const ANY_DRAWN_EDGE = "svg, path, line, polyline, polygon, canvas, [data-link]";
+
+describe("the four states and the one designation are the model's answers, drawn", () => {
   it("draws all four states, each spelled as well as styled", async () => {
     const host = await paint(FIXTURES["awkward-map"].model);
     const states = all(host, "[data-node]").map((el) => el.getAttribute("data-state"));
@@ -132,7 +184,7 @@ describe("the four states and the one frontier are the model's answers, drawn", 
     expect(new Set(states)).toEqual(
       new Set(["resolved", "blocked", "claimed", "takeable"]),
     );
-    // The palette is neutrals and one indigo, so the word is not decoration.
+    // The palette is two accents and neutrals, so the word is not decoration.
     expect(host.textContent).toContain("blocked");
     expect(host.textContent).toContain("claimed");
   });
@@ -165,6 +217,15 @@ describe("the four states and the one frontier are the model's answers, drawn", 
     }
   });
 
+  it("says what the model said and what the pane made of it, separately", async () => {
+    const host = await paint(FIXTURES["awkward-map"].model);
+    const designated = nodeFor(host, 75);
+
+    // The state is GitHub's word, carried; the mark folds the designation in.
+    expect(designated.getAttribute("data-state")).toBe("takeable");
+    expect(designated.getAttribute("data-mark")).toBe("designated");
+  });
+
   it("is the chrome's own words when there is no map, and nothing else", async () => {
     const host = await paint(FIXTURES["no-map-open"].model);
 
@@ -173,113 +234,157 @@ describe("the four states and the one frontier are the model's answers, drawn", 
   });
 });
 
-describe("what a node opens up is a number on the node", () => {
-  /**
-   * ADR 0005's decision, in the document rather than in prose: `unlocks N` is
-   * the whole of what the Route says about downstream. Asserted on the mounted
-   * component and from the model alone, so deleting the text element fails
-   * here.
-   */
-  it("puts the count on the node the model's own edges opened up", async () => {
+describe("a grouped list in one column", () => {
+  it("heads every section with the rows it holds and nothing else", async () => {
     const host = await paint(FIXTURES["awkward-map"].model);
+    const sections = sectionsIn(host);
 
-    // #72 holds up #71, and nothing else on this map holds up more than one.
-    expect(nodeFor(host, 72).textContent).toContain("unlocks 1");
-    expect(nodeFor(host, 75).textContent).toContain("unlocks 1");
+    expect(sections.map((section) => section.heading)).toEqual([
+      "Now",
+      "Frontier",
+      "Blocked",
+      "Resolved",
+    ]);
+    for (const section of sections) {
+      expect(section.count).toBe(section.rows.length);
+    }
+
+    /*
+     * Four, and the two that would follow are named holes rather than stubs.
+     * Out of scope is #36 and fog is #35, and a stubbed heading here would have
+     * to carry a count — which is the zero `—` exists to be told apart from,
+     * and the exact failure #35 is open to prevent.
+     */
+    expect(host.textContent).not.toContain("Out of scope");
+    expect(host.textContent).not.toContain("Fog");
   });
 
-  it("counts a fan rather than drawing one", async () => {
-    const host = await paint(waitingOn([edge(70, 74), edge(70, 72)]));
-
-    expect(nodeFor(host, 70).textContent).toContain("unlocks 2");
-    // Two things opened up, and no line leaving the node that opened them.
-    expect(all(host, "[data-link]")).toEqual([]);
-  });
-
-  it("spends no ink on a node that opens nothing up", async () => {
+  it("puts the sections in one column, each in the operator's own order", async () => {
     const host = await paint(FIXTURES["awkward-map"].model);
 
-    expect(nodeFor(host, 70).textContent).not.toContain("unlocks");
-    expect(host.textContent).not.toContain("unlocks 0");
+    /*
+     * Grouping is the only thing that moves a row. Inside a section the order
+     * is `map.nodes` order, unmodified — a numeric sort anywhere fails this
+     * line, and so does anything that re-arranges what the operator dragged.
+     */
+    expect(sectionsIn(host).map((section) => section.rows)).toEqual([
+      [77],
+      [70, 73, 74, 75, 76],
+      [72],
+      [71],
+    ]);
+    expect(numbersIn(host)).toEqual([77, 70, 73, 74, 75, 76, 72, 71]);
+  });
+
+  it("rests at Next, and reads Now only while something is claimed", async () => {
+    const resting = sectionsIn(await paint(nothingClaimed()));
+    const working = sectionsIn(await paint(FIXTURES["awkward-map"].model));
+
+    // Nobody working: the top section is the one node the map designates.
+    expect(resting[0]).toEqual({ heading: "Next", count: 1, rows: [75] });
+    expect(working[0]).toEqual({ heading: "Now", count: 1, rows: [77] });
+  });
+
+  it("draws no section for a map with nothing on it", async () => {
+    const host = await paint(FIXTURES["empty-map"].model);
+
+    // A heading is a claim that there is something under it, and a count
+    // standing in for an absence is the zero `—` exists to be told apart from.
+    expect(all(host, "h2")).toEqual([]);
+    expect(all(host, "[data-node]")).toEqual([]);
+  });
+
+  it("draws five marks, each a different shape", async () => {
+    const host = await paint(FIXTURES["awkward-map"].model);
+    const drawn = all(host, "[data-node]").map((row) => ({
+      mark: row.getAttribute("data-mark"),
+      shape: shapeOn(row),
+    }));
+
+    expect(new Set(drawn.map((row) => row.mark))).toEqual(
+      new Set(["takeable", "designated", "claimed", "blocked", "resolved"]),
+    );
+    // Five marks and five shapes: a mark told apart by colour alone is a mark
+    // lost to a monochrome screen and to the operator who cannot see the hue.
+    expect(new Set(drawn.map((row) => row.shape)).size).toBe(5);
+    expect(drawn.every((row) => row.shape.length > 0)).toBe(true);
   });
 });
 
-describe("a ranking the map cannot justify says so above the picture", () => {
-  it("says the tickets wait on each other when the fixture's own edges close a cycle", async () => {
+describe("edges get words, never pixels", () => {
+  it("counts what holds a row up on the row that waits", async () => {
     const host = await paint(FIXTURES["awkward-map"].model);
 
-    // #71 waits on #72, which waits on #75, which waits on #71. There is no
-    // longest path through that, so the columns around it are a guess.
-    expect(host.textContent).toContain(UNSETTLED_NOTE);
+    // #72 waits on #75 and #76, and this map shows both of them open.
+    expect(nodeFor(host, 72).textContent).toContain("blocked by 2");
   });
 
-  it("says a ticket waits on something that has no row here", async () => {
+  it("spends no ink saying nothing is in the way", async () => {
+    const host = await paint(FIXTURES["awkward-map"].model);
+
+    // #75 waits only on #71, which is resolved: out of the way, and a
+    // `blocked by 0` on any row is a contradiction of the row above it.
+    expect(nodeFor(host, 75).textContent).not.toContain("blocked by");
+    expect(host.textContent).not.toContain("blocked by 0");
+  });
+
+  it("says nothing about what holds up a row that is already finished", async () => {
+    const host = await paint(FIXTURES["awkward-map"].model);
+    const resolved = sectionsIn(host).find((section) => section.heading === "Resolved");
+
+    /*
+     * #71 is closed and still names #72, which this map shows as blocked.
+     * GitHub does not clear what a closed issue was blocked by, so the number
+     * survives the close — and `blocked by 1` on a row sitting under the
+     * heading *Resolved* is a contradiction between a row and the heading over
+     * it, which is the failure class this whole pane is arranged around.
+     */
+    expect(resolved?.rows).toEqual([71]);
+    for (const number of resolved?.rows ?? []) {
+      expect(nodeFor(host, number).textContent).not.toContain("blocked by");
+    }
+  });
+
+  it("says on the row itself when a blocker has no row here", async () => {
     const host = await paint(waitingOn([edge(999, 74)]));
 
-    expect(host.textContent).toContain(BEYOND_THE_MAP);
+    expect(nodeFor(host, 74).textContent).toContain("not a child of this map");
     // The edge is real and the row is not, so nothing is drawn to nowhere.
     expect(all(host, "[data-node]")).toHaveLength(awkward().nodes.length);
   });
 
-  it("says neither of them about a graph that ranks cleanly", async () => {
-    const host = await paint(waitingOn([edge(70, 74), edge(74, 77)]));
-
-    expect(host.textContent).not.toContain(UNSETTLED_NOTE);
-    expect(host.textContent).not.toContain(BEYOND_THE_MAP);
-  });
-});
-
-describe("intra-rank order reaches the document in map order", () => {
-  it("draws the nodes of every rank in the order the operator arranged them", async () => {
-    const map = awkward();
+  it("keeps the whole title in the document and lets the browser cut it", async () => {
     const host = await paint(FIXTURES["awkward-map"].model);
-    const inMapOrder = map.nodes.map((node) => node.number);
-    const ranks = all(host, "[data-rank]").map((rank) =>
-      [...rank.querySelectorAll("[data-node]")].map((el) =>
-        Number(el.getAttribute("data-node")),
-      ),
-    );
 
-    // Non-monotonic on purpose: a numeric sort anywhere fails this line, and a
-    // crossing-minimiser fails it by moving a row the operator arranged.
-    expect(ranks).toEqual([[70, 73, 74, 77, 75, 76], [72], [71]]);
-    for (const drawn of ranks) {
-      expect(drawn).toEqual(inMapOrder.filter((number) => drawn.includes(number)));
+    for (const node of awkward().nodes) {
+      expect(nodeFor(host, node.number).textContent).toContain(node.title);
     }
   });
-});
 
-describe("the fan-out the Route declines to draw", () => {
   /**
-   * The declaration in `Route.tsx`'s doc comment and in ADR 0005, made
-   * falsifiable. Prose cannot fail; this can.
+   * ADR 0006's decision, in the document rather than in prose: The Route is a
+   * grouped list and not a graph, so it draws no edge in any state. Prose
+   * cannot fail; this can — and it is unconditional, because a rule with an
+   * exception is a rule with a place for a graph to come back.
    */
-  it("draws no link at all with nothing selected", async () => {
+  it("draws no edge with nothing selected", async () => {
     const host = await paint(FIXTURES["awkward-map"].model);
 
-    expect(all(host, "[data-link]")).toEqual([]);
+    expect(all(host, ANY_DRAWN_EDGE)).toEqual([]);
   });
 
-  it("draws no link downstream of the node that is selected", async () => {
+  it("draws no edge for the node that is selected either", async () => {
     const edges = [edge(70, 74), edge(70, 72), edge(74, 77)];
     const host = await paint(waitingOn(edges), 74);
 
-    // #74 waits on one thing and opens up another. Only the wait is drawn —
-    // and the link says which pair it joins, so this cannot pass by counting.
-    expect(all(host, "[data-link]").map((el) => el.getAttribute("data-link"))).toEqual([
-      "70-74",
-    ]);
+    // #74 waits on one thing and holds up another. Neither is a line.
+    expect(all(host, ANY_DRAWN_EDGE)).toEqual([]);
+    expect(nodeFor(host, 74).hasAttribute("data-selected")).toBe(true);
   });
 
-  it("computes every link and hands the view only the upstream ones", () => {
-    /* The same claim under the DOM: the layout knows all three edges, and the
-       filter is what declines to draw two of them. */
-    const edges: RouteEdge[] = [edge(70, 74), edge(70, 72), edge(74, 77)];
-    const route = routeOf(mapWaitingOn(edges));
-
-    expect(route.links).toHaveLength(3);
-    expect(upstreamLinks(route.links, 74).map((link) => link.before)).toEqual([70]);
-    expect(upstreamLinks(route.links, null)).toEqual([]);
+  it("draws no edge on an empty map or on no map at all", async () => {
+    expect(all(await paint(FIXTURES["empty-map"].model), ANY_DRAWN_EDGE)).toEqual([]);
+    expect(all(await paint(FIXTURES["no-map-open"].model), ANY_DRAWN_EDGE)).toEqual([]);
   });
 });
 
@@ -314,42 +419,38 @@ describe("selection", () => {
     expect(picked).toEqual([null]);
   });
 
-  it("is reachable from the keyboard, because a graph is not a place to be trapped", async () => {
+  it("is reachable from the keyboard, because a list is not a place to be trapped", async () => {
     const picked: (number | null)[] = [];
     const host = await paint(FIXTURES["awkward-map"].model, null, (number) =>
       picked.push(number),
     );
     const node = nodeFor(host, 76);
+    const space = new KeyboardEvent("keydown", {
+      key: " ",
+      bubbles: true,
+      cancelable: true,
+    });
 
     expect(node.getAttribute("tabindex")).toBe("0");
     await fire(node, new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-    await fire(node, new KeyboardEvent("keydown", { key: " ", bubbles: true }));
+    await fire(node, space);
 
     expect(picked).toEqual([76, 76]);
+    // Space would otherwise scroll the pane, which moves the row being picked
+    // out from under the pointer that picked it.
+    expect(space.defaultPrevented).toBe(true);
   });
 });
 
-describe("every coordinate came back from routeOf, and none of them is stored", () => {
-  it("places each node exactly where the arithmetic said", async () => {
-    const host = await paint(FIXTURES["awkward-map"].model);
-    const route = routeOf(awkward());
-    const expected = route.rows
-      .flatMap((row) => row.nodes)
-      .map((entry) => `translate(${entry.x} ${entry.y})`);
+describe("the same model twice, and nothing of its own kept between", () => {
+  it("paints the same model twice into the same list", async () => {
+    const drawn = async () => {
+      const host = await paint(FIXTURES["awkward-map"].model);
+      return sectionsIn(host);
+    };
 
-    expect(all(host, "[data-node]").map((el) => el.getAttribute("transform"))).toEqual(
-      expected,
-    );
-  });
-
-  it("paints the same model twice into the same picture", async () => {
-    const transforms = async () =>
-      all(await paint(FIXTURES["awkward-map"].model), "[data-node]").map((el) =>
-        el.getAttribute("transform"),
-      );
-
-    const first = await transforms();
-    const second = await transforms();
+    const first = await drawn();
+    const second = await drawn();
 
     expect(second).toEqual(first);
     expect(first).not.toEqual([]);
@@ -371,11 +472,64 @@ describe("every coordinate came back from routeOf, and none of them is stored", 
     }
 
     /*
-     * The tier check scans stylesheets only, so a colour inlined on an SVG
-     * attribute would survive every retheme and every check but this one.
+     * The tier check scans stylesheets only, so a colour written into the
+     * markup would survive every retheme and every check but this one.
      */
     expect(view?.text).not.toContain(`fill="#`);
     expect(view?.text).not.toContain(`stroke="#`);
     expect(view?.text).not.toContain("rgb(");
+
+    // And a coordinate written into the markup is the ranked view coming back.
+    expect(view?.text).not.toContain("<svg");
+    expect(view?.text).not.toContain("viewBox");
+    expect(view?.text).not.toContain("translate(");
+
+    // The middle tier is the rule: this sheet reads jobs, never values.
+    expect(stylesheet?.text).not.toContain("--p-");
+
+    /*
+     * And no focus ring of its own. A row is an `<li>` in the document now, so
+     * the app's one ring reaches it; a second one painted here is a second
+     * thing to keep in step with the first.
+     */
+    expect(stylesheet?.text).not.toContain("outline:");
+  });
+
+  it("leaves a still ring where the ping was when motion is refused", () => {
+    /*
+     * The global rule kills `animation` outright, so a halo that *is* the
+     * animation vanishes and *live* stops being visible at all. The ring is
+     * authored in the base rule and the animation is added on top of it, which
+     * this fails if the two are ever merged: the keyframes may move the ring
+     * and may not be what draws it.
+     */
+    const stylesheet = collect([".css"]).find(
+      (file) => file.path === "src/views/route/Route.module.css",
+    );
+    const css = stylesheet?.text ?? "";
+    const halo = block(css, ".markClaimed::after");
+    const frames = block(css, "@keyframes");
+
+    expect(halo).toContain("border:");
+    expect(halo).toContain("animation:");
+    for (const drawing of ["border", "background", "content", "inset"]) {
+      expect(frames).not.toContain(drawing);
+    }
   });
 });
+
+/** One rule or at-rule, braces balanced, so a nested block comes back whole. */
+function block(css: string, opener: string): string {
+  const at = css.indexOf(opener);
+  if (at < 0) throw new Error(`no ${opener} in the stylesheet`);
+
+  let depth = 0;
+  for (let i = css.indexOf("{", at); i < css.length; i += 1) {
+    if (css[i] === "{") depth += 1;
+    if (css[i] === "}") {
+      depth -= 1;
+      if (depth === 0) return css.slice(at, i + 1);
+    }
+  }
+  throw new Error(`${opener} is never closed`);
+}

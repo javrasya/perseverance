@@ -1,175 +1,356 @@
 /*
  * Tier 3 — component tokens, defined from semantic tokens only.
  *
- * Every difference between the four states is a `--c-node-*` reassignment, so
- * the whole of *what a state looks like* is the four blocks below and a retheme
- * reaches all of it. No colour is named here and none is inlined on an SVG
- * attribute either — a `fill="#…"` in the markup is a colour the retheme cannot
- * see and the stylesheet check cannot scan.
+ * Every difference between the five marks is a `--c-node-*` reassignment, so
+ * the whole of *what a mark looks like* is the blocks below and a retheme
+ * reaches all of it. No colour is named here and none is written into the
+ * markup either — a literal in the `.tsx` is a colour the retheme cannot see
+ * and the stylesheet check cannot scan.
+ *
+ * There is no geometry here beyond the shape of a glyph, because there is
+ * nothing to place: the pane is a list, position in it is the encoding, and
+ * nothing is drawn between two rows. ADR 0006.
  */
 
+/*
+ * The column, and its own scrollport.
+ *
+ * A finished map is a long list of resolved rows and they are all rendered —
+ * nothing is capped, nothing is sliced, and there is no *N more*. Scrolling is
+ * what the pane does about length, exactly as C5 does.
+ *
+ * The pane is paper and not the app's own ground, also as C5 has it, and that
+ * is load bearing rather than decorative: `--s-surface-hover` is defined as one
+ * step off a *raised* surface, and it is the whole of what marks the row you
+ * picked. On the ground it resolves to the ground's own primitive, so the pick
+ * would be painted in the colour it is painted on — a selection at 1.00:1,
+ * visible only for as long as a focus ring is up.
+ */
 .route {
   display: flex;
   width: 100%;
+  min-width: 0;
+  flex: 1;
   flex-direction: column;
-  gap: var(--s-space-snug);
+  padding-bottom: var(--s-space-loose);
+  overflow-x: hidden;
+  overflow-y: auto;
+  background: var(--s-surface-raised);
   text-align: left;
 }
 
-/*
- * What the picture cannot account for. Ink rather than an alarm: an unread
- * dependency set is a fact about the answer, not a failure the operator caused.
- */
-.note {
-  max-width: 60ch;
-  margin: 0;
-  padding: var(--s-space-tight) var(--s-space-snug);
-  border-left: var(--s-border-emphasis) solid var(--s-line-quiet);
-  border-radius: var(--s-radius-control);
-  background: var(--s-surface-sunken);
-  color: var(--s-ink-secondary);
-  font-size: var(--s-text-small);
-  line-height: 1.5;
+/* Thin, and inset from the edge by the pane's own surface, so a long list is
+   scrolled past rather than boxed in. */
+.route::-webkit-scrollbar {
+  width: var(--s-space-tight);
+}
+
+.route::-webkit-scrollbar-thumb {
+  border: var(--s-border-emphasis) solid var(--s-surface-raised);
+  border-radius: var(--s-radius-panel);
+  background: var(--s-line-quiet);
 }
 
 .absence {
   margin: 0;
+  padding: var(--s-space-base);
   color: var(--s-ink-secondary);
   font-size: var(--s-text-small);
 }
 
+/* ------------------------------------------------------------- section --- */
+
 /*
- * Rank 0 is structurally wide — a charting session produces a burst of
- * independent tickets — so the first column is long and the frame scrolls. It
- * is the shape the Route is indifferent to rather than the one it copes with.
+ * The heading is a label rather than a title: mono, small, tracked and
+ * uppercased, the same treatment `MapList` gives `.absenceHeadline`. The rule
+ * takes the slack so the count is pushed hard right, which is what makes a
+ * heading and its count read as one line instead of two words.
  */
-.frame {
-  border: var(--s-border-hairline) solid var(--s-line-quiet);
-  border-radius: var(--s-radius-panel);
-  background: var(--s-surface-app);
-  overflow: auto;
+.sectionHeading {
+  display: flex;
+  align-items: center;
+  gap: var(--s-space-tight);
+  margin: 0;
+  padding: var(--s-space-base) var(--s-space-base) var(--s-space-hair);
+  color: var(--s-ink-faint);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-micro);
+  font-weight: var(--s-weight-emphasis);
+  letter-spacing: var(--s-tracking-label);
+  text-transform: uppercase;
 }
 
-.canvas {
-  display: block;
+.sectionName {
+  flex: 0 0 auto;
 }
+
+.rule {
+  flex: 1;
+  height: var(--s-border-hairline);
+  background: var(--s-line-quiet);
+}
+
+/* Always the rows it heads, and the arithmetic builds it with them rather than
+   beside them. There is no number here a section could disagree with. */
+.sectionCount {
+  font-variant-numeric: tabular-nums;
+}
+
+.rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* ----------------------------------------------------------------- row --- */
 
 /*
- * The default is takeable: raised off the surface, solid, in full ink. The
- * three other states are subtractions from it.
+ * The default is takeable, and the four other marks are departures from it.
+ * The rail is reserved on every row and coloured on the marked ones, so a
+ * designation arriving on a row moves nothing on the rows around it.
+ *
+ * The glyph is drawn in ink and never in a line colour, which is C5's own
+ * choice and an accessibility floor as well as a likeness: a line token is a
+ * hairline drawn *between* things and lands around 1.7:1 on the pane's paper,
+ * where a 1.5px ring carrying the whole of *this is yours to take* needs 3:1.
+ * Takeable and blocked share the one ink, as C5 has them, so the shape
+ * everything else is read against is never fainter than a departure from it.
  */
 .node {
-  --c-node-fill: var(--s-surface-raised);
-  --c-node-line: var(--s-line-strong);
-  --c-node-line-width: var(--s-border-hairline);
-  --c-node-dash: none;
+  --c-node-fill: transparent;
+  --c-node-rail: transparent;
+  --c-node-glyph: var(--s-ink-faint);
   --c-node-ink: var(--s-ink-primary);
   --c-node-quiet: var(--s-ink-secondary);
   --c-node-faint: var(--s-ink-faint);
 
+  display: flex;
+  align-items: center;
+  gap: var(--s-space-tight);
+  padding: var(--s-space-tight) var(--s-space-base);
+  border-left: var(--s-border-rail) solid var(--c-node-rail);
+  background: var(--c-node-fill);
+  font-size: var(--s-text-small);
   cursor: pointer;
+  transition: background-color var(--s-motion-fast) var(--s-motion-ease);
 }
 
-.box {
-  fill: var(--c-node-fill);
-  stroke: var(--c-node-line);
-  stroke-width: var(--c-node-line-width);
-  stroke-dasharray: var(--c-node-dash);
-  transition:
-    fill var(--s-motion-fast) var(--s-motion-ease),
-    stroke var(--s-motion-fast) var(--s-motion-ease);
+/* Inside, because the pane is its own scrollport and a ring drawn outside the
+   row is a ring clipped at the top and bottom of the scroll. The ring itself
+   is the global rule's; this only says where it sits. */
+.node:focus-visible {
+  outline-offset: -3px;
 }
 
-/* Somebody is on it: sunken, because it is not yours to take. */
-.node[data-state="claimed"] {
-  --c-node-fill: var(--s-surface-sunken);
-  --c-node-ink: var(--s-ink-secondary);
-}
-
-/* Waiting on something: the dash is the wait, and it is not a colour, so the
-   state survives a monochrome screen and a retheme alike. */
-.node[data-state="blocked"] {
-  --c-node-fill: var(--s-surface-sunken);
-  --c-node-line: var(--s-line-quiet);
-  --c-node-dash: 4 3;
-  --c-node-ink: var(--s-ink-secondary);
+.id {
+  flex: 0 0 auto;
+  min-width: 4ch;
+  color: var(--c-node-quiet);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-small);
 }
 
 /*
- * Resolved recedes and stays locatable. Ink weight only — never opacity on the
- * group, never display — because a finished ticket is still read, still found
- * and still counted, and the thing it opened up points back at it.
+ * Ellipsised by the browser and not by the view, which is what keeps the whole
+ * title in the document: a title cut in TypeScript is a title nobody can find
+ * with a search and no test can assert.
  */
-.node[data-state="resolved"] {
-  --c-node-fill: var(--s-surface-sunken);
-  --c-node-line: var(--s-line-quiet);
+.title {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--c-node-ink);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* One fact about one row, said in words. The slot C5 has and the place the
+   ancestor always wanted blocker facts. */
+.note {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--c-node-faint);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-micro);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.tags {
+  display: flex;
+  flex: 0 0 auto;
+  margin-left: auto;
+  gap: var(--s-space-hair);
+  padding-left: var(--s-space-tight);
+}
+
+.tag {
+  padding: 0 var(--s-space-hair);
+  border: var(--s-border-hairline) solid var(--s-line-quiet);
+  border-radius: var(--s-radius-control);
+  color: var(--c-node-faint);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-micro);
+  letter-spacing: var(--s-tracking-label);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* Worked with nobody at the keyboard. The dash is the whole difference, so it
+   survives a monochrome screen and a retheme alike. */
+.tagAfk {
+  border-style: dashed;
+}
+
+.tagDesignated {
+  border-color: var(--s-designated-edge);
+  background: var(--s-designated-bg);
+  color: var(--s-designated);
+}
+
+.tagLive {
+  border-color: var(--s-live-edge);
+  background: var(--s-live-bg);
+  color: var(--s-live);
+}
+
+/* --------------------------------------------------------------- marks --- */
+
+/*
+ * Five marks: the model's four states plus the one designation. Two of C5's
+ * seven are not here — `g-oos` is #36's decoration on a resolved row, and
+ * `g-done` is *resolved by this session*, which needs a run lifecycle the
+ * derived model does not carry.
+ *
+ * The row's colours come from `[data-mark]`; the shape comes from a class on
+ * the glyph itself, because a ring, a dot and a hatch are different geometry
+ * rather than one shape in five colours.
+ */
+.glyph {
+  display: flex;
+  flex: 0 0 14px;
+  width: 14px;
+  height: 14px;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Yours to take: an open ring in the row's ink, and the shape everything else
+   is read against. */
+.markTakeable {
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid var(--c-node-glyph);
+  border-radius: 50%;
+}
+
+/* The one answer to *what next*: the same ring, thicker and cold. */
+.markDesignated {
+  width: 14px;
+  height: 14px;
+  border: 2.5px solid var(--c-node-glyph);
+  border-radius: 50%;
+}
+
+/* Somebody is on it: filled rather than open, because it is not yours to take. */
+.markClaimed {
+  position: relative;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--c-node-glyph);
+}
+
+/*
+ * The halo is authored as a still ring and the animation is added on top of
+ * it. The global `prefers-reduced-motion` rule kills `animation` outright, so
+ * what is left there is the ring rather than nothing — and *live or not* is a
+ * bit that has to survive the media query. C5 omits this guard; the omission is
+ * not copied. CSS keyframes, never SMIL: tests/no-smil.test.ts.
+ */
+.markClaimed::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border: 1.5px solid var(--c-node-glyph);
+  border-radius: 50%;
+  opacity: 0.5;
+  animation: ping 2.1s var(--s-motion-ease) infinite;
+}
+
+@keyframes ping {
+  0% {
+    opacity: 0.7;
+    transform: scale(0.7);
+  }
+
+  70%,
+  100% {
+    opacity: 0;
+    transform: scale(1.25);
+  }
+}
+
+/* Waiting on something: the hatch is the wait, and it is not a colour. */
+.markBlocked {
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid var(--c-node-glyph);
+  border-radius: 50%;
+  background: repeating-linear-gradient(
+    45deg,
+    var(--c-node-glyph) 0 1.5px,
+    transparent 1.5px 4px
+  );
+}
+
+/* Finished: filled and faded, still a disc and still in the column. */
+.markResolved {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--c-node-glyph);
+  opacity: 0.55;
+}
+
+.node[data-mark="designated"] {
+  --c-node-fill: var(--s-designated-bg);
+  --c-node-rail: var(--s-designated);
+  --c-node-glyph: var(--s-designated);
+}
+
+.node[data-mark="claimed"] {
+  --c-node-fill: var(--s-live-bg);
+  --c-node-rail: var(--s-live);
+  --c-node-glyph: var(--s-live);
+}
+
+/*
+ * Blocked has no block of its own: the hatch is the whole of what it says, and
+ * its ink is the row default, because a wait is not a fainter version of *yours
+ * to take*. C5 gives the two the same ink for that reason.
+ *
+ * Resolved recedes in ink weight and nothing else — never opacity on the row,
+ * never display — so a finished ticket is still read, still found and still
+ * counted. Its glyph is the one that recedes below the others, and it recedes
+ * on the shape rather than here, so the fade cannot reach the title. #34 ships
+ * C5's muted title and id; #37 owns the rule that a resolved row stays
+ * focusable, locatable and countable through a retheme, and owns the test that
+ * would catch this block losing it.
+ */
+.node[data-mark="resolved"] {
   --c-node-ink: var(--s-ink-secondary);
   --c-node-quiet: var(--s-ink-faint);
 }
 
 /*
- * Selection is the fill first and the stroke second, and it comes before the
- * frontier on purpose: the two can land on one node, and when they do the
- * accent has to survive. What you picked is a fact about the pointer; the
- * frontier is a fact about the map.
+ * The row you have chosen, and it is a fill change and nothing else — the
+ * repo's own answer, and the token's own comment says so. It comes after the
+ * marks on purpose: a designated or claimed row that you pick keeps its rail
+ * and its glyph, which are facts about the map, and gives up only its wash,
+ * which is decoration of the same fact.
  */
 .node[data-selected] {
   --c-node-fill: var(--s-surface-hover);
-  --c-node-line: var(--s-ink-primary);
-  --c-node-line-width: var(--s-border-emphasis);
-}
-
-/* One node, and there is never a second: *what next* has one answer. */
-.node[data-frontier] {
-  --c-node-line: var(--s-accent);
-  --c-node-line-width: var(--s-border-emphasis);
-  --c-node-dash: none;
-}
-
-/*
- * The ring is painted on the box rather than left to the outline, because an
- * outline around a translated `<g>` boxes the whole group and reads as a
- * second rectangle.
- */
-.node:focus-visible {
-  outline: none;
-}
-
-.node:focus-visible .box {
-  stroke: var(--s-focus-ring);
-  stroke-width: var(--s-border-emphasis);
-}
-
-.title {
-  fill: var(--c-node-ink);
-  font-size: var(--s-text-micro);
-  font-weight: var(--s-weight-emphasis);
-}
-
-.number {
-  fill: var(--c-node-faint);
-  font-family: var(--s-font-mono);
-  font-size: var(--s-text-micro);
-}
-
-/* The model's own word for the state, carrying what the palette cannot. */
-.state {
-  fill: var(--c-node-quiet);
-  font-size: var(--s-text-micro);
-}
-
-.unlocks {
-  fill: var(--c-node-faint);
-  font-family: var(--s-font-mono);
-  font-size: var(--s-text-micro);
-}
-
-/*
- * Drawn only for the node you picked, and only upstream of it. There is no
- * fan-out rule here to relax — the view never asks for those links at all.
- */
-.link {
-  fill: none;
-  stroke: var(--s-accent);
-  stroke-width: var(--s-border-emphasis);
 }

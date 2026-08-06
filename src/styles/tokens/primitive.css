@@ -31,6 +31,34 @@
   --p-indigo-500: #5865e0;
   --p-indigo-600: #4450c8;
 
+  /*
+   * A second accent, and the values are C5's own.
+   *
+   * The palette was neutrals plus one indigo, which is one hue short of what
+   * the Route needs: the pane has to tell *the one you should start* from *the
+   * one already running*, and a single hue saying both says neither.
+   *
+   * Each accent also needs a wash and a hairline edge, and they are written
+   * out rather than derived, because CSS cannot take an alpha of a token
+   * without `color-mix` — which sits on the browser floor this repo builds to
+   * rather than safely inside it. The `-300` alphas are the ones that read on
+   * a dark surface and the others are for a light one; the theme they belong
+   * to is semantic.css's business, not this file's.
+   *
+   * The light wash is a step brighter than the amber it washes under, exactly
+   * as C5 has it: the darker amber at 13% goes muddy rather than warm.
+   */
+  --p-amber-300: #ffb84d;
+  --p-amber-600: #a86200;
+  --p-amber-300-wash: rgba(255, 184, 77, 0.13);
+  --p-amber-300-edge: rgba(255, 184, 77, 0.5);
+  --p-amber-500-wash: rgba(217, 138, 0, 0.13);
+  --p-amber-600-edge: rgba(168, 98, 0, 0.45);
+  --p-indigo-300-wash: rgba(165, 176, 245, 0.12);
+  --p-indigo-300-edge: rgba(165, 176, 245, 0.42);
+  --p-indigo-500-wash: rgba(88, 101, 224, 0.11);
+  --p-indigo-500-edge: rgba(88, 101, 224, 0.4);
+
   /* Space */
   --p-space-1: 4px;
   --p-space-2: 8px;
@@ -48,6 +76,7 @@
   /* Border widths */
   --p-border-1: 1px;
   --p-border-2: 2px;
+  --p-border-3: 3px;
 
   /* Type */
   --p-font-ui:

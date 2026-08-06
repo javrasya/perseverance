@@ -6,7 +6,6 @@ import { App } from "../src/App";
 import { FIXTURES, FIXTURE_NAMES } from "../src/snapshot/fixtures";
 import { NO_MAP_OPEN } from "../src/snapshot/readout";
 import { hasRustBehindIt } from "../src/snapshot/snapshot";
-import { elide } from "../src/views/route/route";
 
 /**
  * `dev:web` boots the whole frontend from a checked-in snapshot with no Rust
@@ -74,6 +73,32 @@ function theReadout(): string {
   return document.querySelector("footer")?.textContent ?? "";
 }
 
+/** One row, by the number it carries. */
+function theRow(number: number): Element {
+  const row = theRoute().querySelector(`[data-node="${number}"]`);
+  if (row === null) throw new Error(`no row for #${number}`);
+  return row;
+}
+
+/**
+ * The heading a row sits under, which is the whole of what the pane says about
+ * where that ticket stands. The list is labelled by its heading's id, so this
+ * reads the association the screen reader reads rather than a sibling walk.
+ */
+function theHeadingOver(number: number): string {
+  const list = theRow(number).closest("[aria-labelledby]");
+  const id = list?.getAttribute("aria-labelledby");
+  const heading = id === null || id === undefined ? null : document.getElementById(id);
+  if (heading === null) throw new Error(`#${number} sits under no heading`);
+  return heading.firstElementChild?.textContent ?? "";
+}
+
+/*
+ * Every way a browser can be made to draw a line between two things, plus the
+ * attribute the ranked view that preceded this one hung on the ones it drew.
+ */
+const ANY_DRAWN_EDGE = "svg, path, line, polyline, polygon, canvas, [data-link]";
+
 function teardown() {
   if (mounted === null) return;
   const { root, host } = mounted;
@@ -99,7 +124,7 @@ describe("dev:web", () => {
     expect(text).toContain(`frontier #${map.frontier}`);
   });
 
-  it("opens on the Route and draws the map's own nodes, ranked and in map order", async () => {
+  it("opens on the Route and lists the map's own nodes, grouped and in map order", async () => {
     await boot("/?map=awkward-map");
     const map = FIXTURES["awkward-map"].model.map;
     if (map === null) throw new Error("the awkward fixture has no map");
@@ -108,24 +133,39 @@ describe("dev:web", () => {
     const drawn = [...route.querySelectorAll("[data-node]")];
     const numbers = drawn.map((el) => Number(el.getAttribute("data-node")));
 
-    // Every node, once, and columns the map's own edges account for — 73
-    // before 74 in the first of them, which no sort would produce.
+    // Every node, once.
     expect([...numbers].sort((a, b) => a - b)).toEqual(
       [...map.nodes.map((node) => node.number)].sort((a, b) => a - b),
     );
-    expect(
-      [...route.querySelectorAll('[data-rank="0"] [data-node]')].map((el) =>
-        Number(el.getAttribute("data-node")),
-      ),
-    ).toEqual([70, 73, 74, 77, 75, 76]);
-    expect(route.textContent).toContain(elide("Held up, and holding this up"));
-    expect(route.textContent).toContain(elide("Somebody is already on this one"));
+    /*
+     * And in section order down the one column: what is being worked, then what
+     * can be started, then what is held up, then what is done — with `map.nodes`
+     * order kept inside each of them. 73 before 74 and 75 before 76 are the
+     * operator's own arrangement, which no sort would produce and nothing here
+     * is allowed to improve on.
+     */
+    expect(numbers).toEqual([77, 70, 73, 74, 75, 76, 72, 71]);
+    expect(theHeadingOver(77)).toBe("Now");
+    expect(theHeadingOver(75)).toBe("Frontier");
+
+    // In full. The browser cuts the title with CSS, so the whole string is
+    // still in the document to be found, read aloud and asserted on.
+    expect(route.textContent).toContain("Held up, and holding this up");
+    expect(route.textContent).toContain("Somebody is already on this one");
 
     // The four states arrive from Rust and are spelled, not re-derived here.
     const stateOf = new Map(map.nodes.map((node) => [node.number, node.state]));
     expect(drawn.map((el) => el.getAttribute("data-state"))).toEqual(
       numbers.map((number) => stateOf.get(number)),
     );
+  });
+
+  it("heads the top section Next when the map has nobody working on it", async () => {
+    await boot("/?map=two-maps-one-open");
+
+    // Nothing is claimed here, so the section that would read *Now* reads what
+    // it rests at, and under it is the one node the map designates.
+    expect(theHeadingOver(32)).toBe("Next");
   });
 
   it("marks exactly one node as the frontier, so what next has one answer", async () => {
@@ -137,38 +177,62 @@ describe("dev:web", () => {
     expect(frontier[0]?.getAttribute("data-node")).toBe("75");
   });
 
-  it("declines to draw fan-out, which is the declaration made falsifiable", async () => {
-    // ADR 0005. Nothing is selected on a fresh boot, so nothing is drawn — and
-    // this is the assertion that a fan-out quietly reinstated would fail.
+  it("is a list rather than a drawing, on every fixture there is", async () => {
+    /*
+     * ADR 0006's decision, at the end of the shipped path: The Route is a
+     * grouped list and draws no edge. Unconditional and over every fixture,
+     * because a rule with an exception is a rule with a place for a graph to
+     * come back — and a mounted app is where one would come back unnoticed.
+     */
+    for (const name of FIXTURE_NAMES) {
+      await boot(`/?map=${name}`);
+      // The pane is open wherever there is a map to open it on, so nothing here
+      // passes by there being nothing on screen to look at.
+      const open = FIXTURES[name].model.map !== null;
+      const route = document.querySelector('[aria-label="The Route"]');
+      expect([name, route !== null]).toEqual([name, open]);
+      expect([name, [...(route?.querySelectorAll(ANY_DRAWN_EDGE) ?? [])]]).toEqual([
+        name,
+        [],
+      ]);
+    }
+  });
+
+  it("counts what holds a ticket up, from the fixture's own edges", async () => {
     await boot("/?map=awkward-map");
 
-    expect(theRoute().querySelectorAll("[data-link]")).toHaveLength(0);
-  });
-
-  it("says what each node opens up, from the fixture's own edges", async () => {
-    const text = await boot("/?map=awkward-map");
-
-    // The other half of ADR 0005: fan-out declined, and the number shown. The
-    // fixture's edges are the model's, so this is the shipped path end to end.
-    expect(text).toContain("unlocks 1");
-    // A zero is worth no ink, so no node claims to unlock nothing.
-    expect(text).not.toContain("unlocks 0");
-  });
-
-  it("says the ranking is a guess where the fixture's tickets wait on each other", async () => {
-    const text = await boot("/?map=awkward-map");
-
-    // #71, #72 and #75 close a cycle. Columns drawn around one are a guess,
-    // and a guess that says so is worth more than a confident number.
-    expect(text).toContain("wait on each other");
+    // #72 waits on #75 and #76, and this map shows both of them open. The
+    // fixture's edges are the model's, so this is the shipped path end to end:
+    // the edge reaches the screen as a word rather than as a line.
+    expect(theRow(72).textContent).toContain("blocked by 2");
+    // A zero is worth no ink, and `blocked by 0` on a blocked row is a
+    // contradiction an operator can see.
+    expect(theRoute().textContent).not.toContain("blocked by 0");
   });
 
   it("says a ticket waits on something that has no row on this map", async () => {
-    const text = await boot("/?map=two-maps-one-open");
+    await boot("/?map=two-maps-one-open");
 
-    // #32 waits on #30, which is closed and is not a child of this map. The
-    // edge moved a rank, and nothing on screen could otherwise account for it.
-    expect(text).toContain("not a child of this map");
+    // #32 waits on #30, which is closed and is not a child of this map. This
+    // map cannot say whether it is done, so it is said on #32's own row rather
+    // than counted into a number nothing on screen accounts for.
+    expect(theRow(32).textContent).toContain("not a child of this map");
+  });
+
+  it("keeps the launcher on screen while a map is open, because nothing brings it back", async () => {
+    const text = await boot("/?map=awkward-map");
+
+    /*
+     * The snapshot is read once at mount and nothing re-reads it, so a shell
+     * that put the view where the launcher had been would take open, locate,
+     * forget and *open a new folder* off the screen for the rest of the
+     * process — and there is nothing on the Route that reaches them. Both
+     * surfaces, and neither of them a mode. What each is worth once the dial
+     * exists is #52's; that neither can vanish is this.
+     */
+    expect(document.querySelector('[aria-label="Folders"]')).not.toBeNull();
+    expect(document.querySelector('[aria-label="The Route"]')).not.toBeNull();
+    expect(text).toContain("Open a new folder");
   });
 
   it("opens on the launcher when there is no map, rather than on an empty Route", async () => {
@@ -190,7 +254,7 @@ describe("dev:web", () => {
     if (map === null) throw new Error("the awkward fixture has no map");
 
     // The chip shipped as a constant, so this is the assertion that would have
-    // failed the moment #34 drew a graph under a header saying nothing was open.
+    // failed the moment #34 listed a map under a header saying none was open.
     const chip = theChip();
     expect(chip.getAttribute("data-state")).toBe("open");
     expect(chip.textContent).toContain(`#${map.number}`);
@@ -223,14 +287,20 @@ describe("dev:web", () => {
     }
   });
 
-  it("draws a map with nothing on it without throwing on the way", async () => {
+  it("opens a map with nothing on it without throwing on the way", async () => {
     await boot("/?map=empty-map");
     const route = theRoute();
 
-    // A canvas with no nodes on it, rather than no canvas — an empty map is a
-    // map, and the frame it would be drawn in is still there.
-    expect(route.querySelector("svg")).not.toBeNull();
+    /*
+     * The pane is there and it is empty: no sections, no rows, and no frame
+     * kept alive around the absence. A heading is a claim that there is
+     * something under it and a count standing in for nothing is the zero that
+     * `—` exists to be told apart from, so neither is drawn. What an empty map
+     * should *say* — as opposed to what it may not claim — is #37's.
+     */
+    expect(route.querySelectorAll("h2")).toHaveLength(0);
     expect(route.querySelectorAll("[data-node]")).toHaveLength(0);
+    expect(route.querySelectorAll(ANY_DRAWN_EDGE)).toHaveLength(0);
   });
 
   it("boots whichever map the url named", async () => {
@@ -247,7 +317,7 @@ describe("dev:web", () => {
     expect(text).toContain("nothing to start");
   });
 
-  it("still draws the graph when the last poll failed", async () => {
+  it("still lists the map when the last poll failed", async () => {
     const text = await boot("/?map=unreachable");
     const map = FIXTURES.unreachable.model.map;
     if (map === null) throw new Error("the unreachable fixture has no map");

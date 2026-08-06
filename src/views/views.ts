@@ -22,9 +22,9 @@ export type ViewName = "route";
 export const VIEWS: readonly ViewName[] = ["route"];
 
 /**
- * The Route, unanimously: it serves any n, it is indifferent to a structurally
- * wide rank 0, and it is the one view that answers the question the operator
- * actually opens the app with.
+ * The Route, unanimously: it serves any n, it is indifferent to a map whose
+ * takeable half is enormous, and it is the one view that answers the question
+ * the operator actually opens the app with.
  */
 export const DEFAULT_VIEW: ViewName = "route";
 
