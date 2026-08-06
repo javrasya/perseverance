@@ -4,7 +4,9 @@ import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 import { App } from "../src/App";
 import { FIXTURES } from "../src/snapshot/fixtures";
+import { NO_MAP_OPEN } from "../src/snapshot/readout";
 import { hasRustBehindIt } from "../src/snapshot/snapshot";
+import { elide } from "../src/views/route/route";
 
 /**
  * `dev:web` boots the whole frontend from a checked-in snapshot with no Rust
@@ -53,6 +55,13 @@ async function boot(search: string): Promise<string> {
   return host.textContent ?? "";
 }
 
+/** The view itself, rather than the whole window it is mounted in. */
+function theRoute(): Element {
+  const section = document.querySelector('[aria-label="The Route"]');
+  if (section === null) throw new Error("the app did not open on the Route");
+  return section;
+}
+
 function teardown() {
   if (mounted === null) return;
   const { root, host } = mounted;
@@ -76,6 +85,95 @@ describe("dev:web", () => {
     expect(text).toContain("perseverance");
     expect(text).toContain("wayfinding");
     expect(text).toContain(`frontier #${map.frontier}`);
+  });
+
+  it("opens on the Route and draws the map's own nodes, ranked and in map order", async () => {
+    await boot("/?map=awkward-map");
+    const map = FIXTURES["awkward-map"].model.map;
+    if (map === null) throw new Error("the awkward fixture has no map");
+
+    const route = theRoute();
+    const drawn = [...route.querySelectorAll("[data-node]")];
+    const numbers = drawn.map((el) => Number(el.getAttribute("data-node")));
+
+    // Every node, once, and columns the map's own edges account for — 73
+    // before 74 in the first of them, which no sort would produce.
+    expect([...numbers].sort((a, b) => a - b)).toEqual(
+      [...map.nodes.map((node) => node.number)].sort((a, b) => a - b),
+    );
+    expect(
+      [...route.querySelectorAll('[data-rank="0"] [data-node]')].map((el) =>
+        Number(el.getAttribute("data-node")),
+      ),
+    ).toEqual([70, 73, 74, 77, 75, 76]);
+    expect(route.textContent).toContain(elide("Held up, and holding this up"));
+    expect(route.textContent).toContain(elide("Somebody is already on this one"));
+
+    // The four states arrive from Rust and are spelled, not re-derived here.
+    const stateOf = new Map(map.nodes.map((node) => [node.number, node.state]));
+    expect(drawn.map((el) => el.getAttribute("data-state"))).toEqual(
+      numbers.map((number) => stateOf.get(number)),
+    );
+  });
+
+  it("marks exactly one node as the frontier, so what next has one answer", async () => {
+    await boot("/?map=awkward-map");
+
+    const frontier = [...theRoute().querySelectorAll("[data-frontier]")];
+
+    expect(frontier).toHaveLength(1);
+    expect(frontier[0]?.getAttribute("data-node")).toBe("75");
+  });
+
+  it("declines to draw fan-out, which is the declaration made falsifiable", async () => {
+    // ADR 0005. Nothing is selected on a fresh boot, so nothing is drawn — and
+    // this is the assertion that a fan-out quietly reinstated would fail.
+    await boot("/?map=awkward-map");
+
+    expect(theRoute().querySelectorAll("[data-link]")).toHaveLength(0);
+  });
+
+  it("says what each node opens up, from the fixture's own edges", async () => {
+    const text = await boot("/?map=awkward-map");
+
+    // The other half of ADR 0005: fan-out declined, and the number shown. The
+    // fixture's edges are the model's, so this is the shipped path end to end.
+    expect(text).toContain("unlocks 1");
+    // A zero is worth no ink, so no node claims to unlock nothing.
+    expect(text).not.toContain("unlocks 0");
+  });
+
+  it("says the ranking is a guess where the fixture's tickets wait on each other", async () => {
+    const text = await boot("/?map=awkward-map");
+
+    // #71, #72 and #75 close a cycle. Columns drawn around one are a guess,
+    // and a guess that says so is worth more than a confident number.
+    expect(text).toContain("wait on each other");
+  });
+
+  it("says a ticket waits on something that has no row on this map", async () => {
+    const text = await boot("/?map=two-maps-one-open");
+
+    // #32 waits on #30, which is closed and is not a child of this map. The
+    // edge moved a rank, and nothing on screen could otherwise account for it.
+    expect(text).toContain("not a child of this map");
+  });
+
+  it("opens on the Route with no map without inventing a second way to say so", async () => {
+    await boot("/?map=no-map-open");
+
+    // The chrome's own words, from `readout.ts`, rather than a view-local copy.
+    expect(theRoute().textContent).toContain(NO_MAP_OPEN);
+  });
+
+  it("draws a map with nothing on it without throwing on the way", async () => {
+    await boot("/?map=empty-map");
+    const route = theRoute();
+
+    // A canvas with no nodes on it, rather than no canvas — an empty map is a
+    // map, and the frame it would be drawn in is still there.
+    expect(route.querySelector("svg")).not.toBeNull();
+    expect(route.querySelectorAll("[data-node]")).toHaveLength(0);
   });
 
   it("boots whichever map the url named", async () => {

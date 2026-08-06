@@ -1,0 +1,175 @@
+/*
+ * Tier 3 — component tokens, defined from semantic tokens only.
+ *
+ * Every difference between the four states is a `--c-node-*` reassignment, so
+ * the whole of *what a state looks like* is the four blocks below and a retheme
+ * reaches all of it. No colour is named here and none is inlined on an SVG
+ * attribute either — a `fill="#…"` in the markup is a colour the retheme cannot
+ * see and the stylesheet check cannot scan.
+ */
+
+.route {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: var(--s-space-snug);
+  text-align: left;
+}
+
+/*
+ * What the picture cannot account for. Ink rather than an alarm: an unread
+ * dependency set is a fact about the answer, not a failure the operator caused.
+ */
+.note {
+  max-width: 60ch;
+  margin: 0;
+  padding: var(--s-space-tight) var(--s-space-snug);
+  border-left: var(--s-border-emphasis) solid var(--s-line-quiet);
+  border-radius: var(--s-radius-control);
+  background: var(--s-surface-sunken);
+  color: var(--s-ink-secondary);
+  font-size: var(--s-text-small);
+  line-height: 1.5;
+}
+
+.absence {
+  margin: 0;
+  color: var(--s-ink-secondary);
+  font-size: var(--s-text-small);
+}
+
+/*
+ * Rank 0 is structurally wide — a charting session produces a burst of
+ * independent tickets — so the first column is long and the frame scrolls. It
+ * is the shape the Route is indifferent to rather than the one it copes with.
+ */
+.frame {
+  border: var(--s-border-hairline) solid var(--s-line-quiet);
+  border-radius: var(--s-radius-panel);
+  background: var(--s-surface-app);
+  overflow: auto;
+}
+
+.canvas {
+  display: block;
+}
+
+/*
+ * The default is takeable: raised off the surface, solid, in full ink. The
+ * three other states are subtractions from it.
+ */
+.node {
+  --c-node-fill: var(--s-surface-raised);
+  --c-node-line: var(--s-line-strong);
+  --c-node-line-width: var(--s-border-hairline);
+  --c-node-dash: none;
+  --c-node-ink: var(--s-ink-primary);
+  --c-node-quiet: var(--s-ink-secondary);
+  --c-node-faint: var(--s-ink-faint);
+
+  cursor: pointer;
+}
+
+.box {
+  fill: var(--c-node-fill);
+  stroke: var(--c-node-line);
+  stroke-width: var(--c-node-line-width);
+  stroke-dasharray: var(--c-node-dash);
+  transition:
+    fill var(--s-motion-fast) var(--s-motion-ease),
+    stroke var(--s-motion-fast) var(--s-motion-ease);
+}
+
+/* Somebody is on it: sunken, because it is not yours to take. */
+.node[data-state="claimed"] {
+  --c-node-fill: var(--s-surface-sunken);
+  --c-node-ink: var(--s-ink-secondary);
+}
+
+/* Waiting on something: the dash is the wait, and it is not a colour, so the
+   state survives a monochrome screen and a retheme alike. */
+.node[data-state="blocked"] {
+  --c-node-fill: var(--s-surface-sunken);
+  --c-node-line: var(--s-line-quiet);
+  --c-node-dash: 4 3;
+  --c-node-ink: var(--s-ink-secondary);
+}
+
+/*
+ * Resolved recedes and stays locatable. Ink weight only — never opacity on the
+ * group, never display — because a finished ticket is still read, still found
+ * and still counted, and the thing it opened up points back at it.
+ */
+.node[data-state="resolved"] {
+  --c-node-fill: var(--s-surface-sunken);
+  --c-node-line: var(--s-line-quiet);
+  --c-node-ink: var(--s-ink-secondary);
+  --c-node-quiet: var(--s-ink-faint);
+}
+
+/*
+ * Selection is the fill first and the stroke second, and it comes before the
+ * frontier on purpose: the two can land on one node, and when they do the
+ * accent has to survive. What you picked is a fact about the pointer; the
+ * frontier is a fact about the map.
+ */
+.node[data-selected] {
+  --c-node-fill: var(--s-surface-hover);
+  --c-node-line: var(--s-ink-primary);
+  --c-node-line-width: var(--s-border-emphasis);
+}
+
+/* One node, and there is never a second: *what next* has one answer. */
+.node[data-frontier] {
+  --c-node-line: var(--s-accent);
+  --c-node-line-width: var(--s-border-emphasis);
+  --c-node-dash: none;
+}
+
+/*
+ * The ring is painted on the box rather than left to the outline, because an
+ * outline around a translated `<g>` boxes the whole group and reads as a
+ * second rectangle.
+ */
+.node:focus-visible {
+  outline: none;
+}
+
+.node:focus-visible .box {
+  stroke: var(--s-focus-ring);
+  stroke-width: var(--s-border-emphasis);
+}
+
+.title {
+  fill: var(--c-node-ink);
+  font-size: var(--s-text-micro);
+  font-weight: var(--s-weight-emphasis);
+}
+
+.number {
+  fill: var(--c-node-faint);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-micro);
+}
+
+/* The model's own word for the state, carrying what the palette cannot. */
+.state {
+  fill: var(--c-node-quiet);
+  font-size: var(--s-text-micro);
+}
+
+.unlocks {
+  fill: var(--c-node-faint);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-micro);
+}
+
+/*
+ * Drawn only for the node you picked, and only upstream of it. There is no
+ * fan-out rule here to relax — the view never asks for those links at all.
+ */
+.link {
+  fill: none;
+  stroke: var(--s-accent);
+  stroke-width: var(--s-border-emphasis);
+}

@@ -98,6 +98,21 @@ pub struct ChildRead {
     /// make — every run assigns the same login — so identity is deliberately
     /// not carried and liveness is a later ticket's, not this one's.
     pub assignees: u32,
+    /// The numbers of the issues this child waits on, in the order the answer
+    /// listed them. The graph's edges, and the only adjacency there is.
+    ///
+    /// **Every blocker the answer named, resolved ones included.** That is what
+    /// makes a rank read as *how far along*: a ticket whose one predecessor is
+    /// finished is still one step in from the start, and an edge set that
+    /// dropped the closed half would slide it back into the first column. How
+    /// many of them are still in the way is a different question, and
+    /// [`ChildRead::blocked_by`] is the one number that answers it.
+    ///
+    /// Blockers in another repository are not here. An issue number means
+    /// nothing outside the repository that issued it, so keeping them would
+    /// draw `other/repo#75` as an edge from whatever this map's `#75` happens
+    /// to be.
+    pub waits_on: Vec<u64>,
     /// Verbatim, in the order the answer listed them.
     pub labels: Vec<String>,
 }
@@ -207,6 +222,10 @@ pub fn read_response(body: &str) -> Result<MapRead, ReadError> {
         })
         .collect();
 
+    // Which repository the whole answer is about, so that a blocker naming
+    // another one can be told apart from a blocker naming a child of this map.
+    let repository_name = repository.name_with_owner;
+
     let map = repository.issue.map(|issue| {
         truncation.children |= issue.sub_issues.page_info.has_next_page;
 
@@ -219,7 +238,8 @@ pub fn read_response(body: &str) -> Result<MapRead, ReadError> {
             .flatten()
             .flatten()
             .map(|child| {
-                truncation.blocked_by |= child.blocked_by.page_info.has_next_page;
+                let blocked_by = child.blocked_by;
+                truncation.blocked_by |= blocked_by.page_info.has_next_page;
                 ChildRead {
                     number: child.number,
                     title: child.title,
@@ -247,6 +267,14 @@ pub fn read_response(body: &str) -> Result<MapRead, ReadError> {
                         .flatten()
                         .flatten()
                         .map(|label| label.name)
+                        .collect(),
+                    waits_on: blocked_by
+                        .nodes
+                        .into_iter()
+                        .flatten()
+                        .flatten()
+                        .filter(|blocker| blocker.belongs_to(&repository_name))
+                        .filter_map(|blocker| blocker.number)
                         .collect(),
                 }
             })
@@ -352,7 +380,11 @@ mod wire {
     }
 
     #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
     pub(super) struct Repository {
+        /// `owner/name`, as GitHub spells it on both ends of a dependency.
+        #[serde(default)]
+        pub name_with_owner: String,
         #[serde(default)]
         pub maps: Connection<MapNode>,
         /// Absent when no map is open, because the query skips the field rather
@@ -405,7 +437,44 @@ mod wire {
         /// they mean is decided at the call site, once, in the open.
         pub issue_dependencies_summary: Option<DependenciesSummary>,
         #[serde(default)]
-        pub blocked_by: Connection<serde_json::Value>,
+        pub blocked_by: Connection<Blocker>,
+    }
+
+    /// One end of one dependency edge.
+    #[derive(Deserialize)]
+    pub(super) struct Blocker {
+        /// Optional rather than defaulted: a blocker with no number is not
+        /// blocker zero, and an answer that carried one must not become an edge
+        /// to whatever `#0` would be.
+        #[serde(default)]
+        pub number: Option<u64>,
+        pub repository: Option<BlockerRepository>,
+    }
+
+    impl Blocker {
+        /// Whether this blocker is an issue of the repository the answer was
+        /// about — the whole of the cross-repository test, spelled once.
+        ///
+        /// A name that neither end stated is not evidence of a difference, so a
+        /// silence never drops an edge: only two names that are both known and
+        /// unequal do. The failure that ordering avoids is a recorded answer
+        /// from before either field was asked for losing its whole graph.
+        pub(super) fn belongs_to(&self, repository: &str) -> bool {
+            let named = self
+                .repository
+                .as_ref()
+                .map(|repository| repository.name_with_owner.as_str())
+                .unwrap_or_default();
+
+            named.is_empty() || repository.is_empty() || named == repository
+        }
+    }
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub(super) struct BlockerRepository {
+        #[serde(default)]
+        pub name_with_owner: String,
     }
 
     #[derive(Deserialize)]
@@ -482,6 +551,7 @@ mod tests {
     use super::*;
 
     const TWO_MAPS: &str = include_str!("../fixtures/two-maps-one-open.json");
+    const AWKWARD: &str = include_str!("../fixtures/awkward-children.json");
     const NO_MAP: &str = include_str!("../fixtures/no-map-in-this-repo.json");
 
     #[test]
@@ -568,6 +638,92 @@ mod tests {
         let claimed = &map.children[1];
         assert_eq!(claimed.assignees, 1);
         assert_eq!(claimed.blocked_by, 1);
+    }
+
+    #[test]
+    fn a_child_carries_the_numbers_it_waits_on_in_the_order_the_answer_listed_them() {
+        let map = read_response(AWKWARD).expect("reads").map.expect("a map");
+
+        let held_up = map
+            .children
+            .iter()
+            .find(|child| child.number == 72)
+            .expect("#72 is on this map");
+        assert_eq!(held_up.waits_on, vec![75, 76]);
+    }
+
+    #[test]
+    fn a_blocker_that_has_since_closed_is_still_an_edge_of_the_graph() {
+        let map = read_response(AWKWARD).expect("reads").map.expect("a map");
+
+        let startable = map
+            .children
+            .iter()
+            .find(|child| child.number == 75)
+            .expect("#75 is on this map");
+        // Nothing is in its way — and it is still one step in from the start.
+        // The count and the edge list answer different questions, and an edge
+        // set that dropped the resolved half would answer neither.
+        assert_eq!(startable.blocked_by, 0);
+        assert_eq!(startable.waits_on, vec![71]);
+    }
+
+    #[test]
+    fn a_blocker_in_another_repository_is_not_an_edge_on_this_map() {
+        // `other/repo#75` and this map's `#75` are different tickets, and an
+        // edge drawn between the two boxes this map has would be a dependency
+        // nobody declared.
+        let body = r#"{
+            "data": {
+                "repository": {
+                    "nameWithOwner": "o/r",
+                    "maps": { "nodes": [] },
+                    "issue": {
+                        "number": 1, "title": "One", "state": "OPEN",
+                        "subIssues": { "nodes": [
+                            { "number": 2, "title": "Two", "state": "OPEN", "url": "u",
+                              "labels": { "nodes": [] }, "assignees": { "nodes": [] },
+                              "blockedBy": { "nodes": [
+                                { "number": 75, "repository": { "nameWithOwner": "other/repo" } },
+                                { "number": 3, "repository": { "nameWithOwner": "o/r" } }
+                              ] } }
+                        ] }
+                    }
+                },
+                "rateLimit": null
+            }
+        }"#;
+
+        let map = read_response(body).expect("reads").map.expect("a map");
+
+        assert_eq!(map.children[0].waits_on, vec![3]);
+    }
+
+    #[test]
+    fn an_answer_that_named_no_repository_at_either_end_keeps_its_edges() {
+        // A silence is not a difference. Dropping an edge for want of a name
+        // would lose the whole graph of a recorded answer taken before either
+        // field was asked for.
+        let body = r#"{
+            "data": {
+                "repository": {
+                    "maps": { "nodes": [] },
+                    "issue": {
+                        "number": 1, "title": "One", "state": "OPEN",
+                        "subIssues": { "nodes": [
+                            { "number": 2, "title": "Two", "state": "OPEN", "url": "u",
+                              "labels": { "nodes": [] }, "assignees": { "nodes": [] },
+                              "blockedBy": { "nodes": [ { "number": 3 } ] } }
+                        ] }
+                    }
+                },
+                "rateLimit": null
+            }
+        }"#;
+
+        let map = read_response(body).expect("reads").map.expect("a map");
+
+        assert_eq!(map.children[0].waits_on, vec![3]);
     }
 
     #[test]

@@ -79,6 +79,21 @@ pub struct Node {
     pub url: String,
     pub kind: ChildKind,
     pub state: NodeState,
+    /// What this one waits on, by number, in the order the answer listed them.
+    /// The graph's edges, and the only adjacency that crosses.
+    ///
+    /// Adjacency is not one of the inputs above and cannot be turned back into
+    /// one. A node's state is decided from GitHub's count of the blockers still
+    /// in the way, which stays behind; these numbers are *every* blocker the
+    /// answer named, finished ones included, and one of them may be an issue
+    /// that is not a child of this map and so has no state on this side at all.
+    /// A second state resolver written from these would be wrong in both
+    /// directions, which is the reason the count it would need is still absent.
+    ///
+    /// It crosses as edges rather than as a count of what each node opens up,
+    /// because a rank is *how far along* and there is no way to compute one
+    /// from a number.
+    pub waits_on: Vec<u64>,
 }
 
 impl Node {
@@ -89,6 +104,7 @@ impl Node {
             url: child.url.clone(),
             kind: ChildKind::of(&child.labels),
             state: NodeState::of(child),
+            waits_on: child.waits_on.clone(),
         }
     }
 
@@ -522,6 +538,44 @@ mod tests {
         // here, and the numbers are chosen so that a number sort and the
         // operator's order cannot be confused for one another.
         assert_eq!(numbers, vec![70, 71, 73, 74, 72, 77, 75, 76]);
+    }
+
+    /* ------------------------------------------------------------- edges --- */
+
+    #[test]
+    fn what_each_node_waits_on_crosses_beside_the_node_that_waits() {
+        let map = map_of(AWKWARD);
+
+        assert_eq!(node(&map, 72).waits_on, vec![75, 76]);
+        assert!(node(&map, 70).waits_on.is_empty());
+        // Nothing is in #75's way any more, and it is still one step in from
+        // the start. The state answers *can I begin* and the edges answer *how
+        // far along*, and neither is recoverable from the other.
+        assert_eq!(node(&map, 75).state, NodeState::Takeable);
+        assert_eq!(node(&map, 75).waits_on, vec![71]);
+    }
+
+    #[test]
+    fn a_ticket_waiting_on_something_that_is_not_on_this_map_still_says_what() {
+        let map = map_of(TWO_MAPS);
+
+        // #30 is what #32 waited on, and it is not a child of this map. Filtered
+        // out here, a rank drawn from it would rest on something the screen has
+        // no row for and no way to admit to.
+        assert_eq!(node(&map, 32).waits_on, vec![30]);
+        assert!(!map.nodes.iter().any(|node| node.number == 30));
+    }
+
+    #[test]
+    fn an_edge_that_moved_is_a_change_in_the_whole_model() {
+        let before = map_of(AWKWARD);
+        let after = {
+            let mut map = before.clone();
+            map.nodes[0].waits_on.push(76);
+            map
+        };
+
+        assert_ne!(before, after);
     }
 
     /* ------------------------------------------------------------ counts --- */

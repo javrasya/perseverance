@@ -36,6 +36,11 @@ import { describeModel } from "./snapshot/readout";
 import { loadSnapshot, noMapOpen, type Snapshot } from "./snapshot/snapshot";
 import { ThemeSwitch } from "./theme/ThemeSwitch";
 import { useTheme } from "./theme/useTheme";
+/* `Route.jsx` rather than `Route`: it sits beside `route.ts`, and on a
+   case-insensitive filesystem the extensionless specifier resolves to the
+   arithmetic module instead of the component. */
+import { Route } from "./views/route/Route.jsx";
+import { useDefaultView } from "./views/useDefaultView";
 import styles from "./App.module.css";
 
 /**
@@ -46,9 +51,11 @@ import styles from "./App.module.css";
  */
 export function App() {
   const [preference, chooseTheme] = useTheme();
+  const [view] = useDefaultView();
   const [snapshot, setSnapshot] = useState<Snapshot>(noMapOpen);
   const [outcome, setOutcome] = useState<LauncherOutcome>(nothingListedYet);
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [selectedNode, setSelectedNode] = useState<number | null>(null);
   const [note, setNote] = useState<LauncherNote | null>(null);
   const [environment, setEnvironment] = useState(stillHarvesting);
   const [environmentShown, setEnvironmentShown] = useState(false);
@@ -253,6 +260,23 @@ export function App() {
       </header>
 
       <div className={styles.body}>
+        {/*
+          The graph is what the app is for; the launcher is how you got here.
+          So the Route takes the room and the folder list keeps its own beside
+          it, rather than one replacing the other — there is no mode to be in
+          here either. Which view this is comes from the remembered default and
+          not from what happens to be on screen.
+        */}
+        {view === "route" ? (
+          <div className={styles.view}>
+            <Route
+              model={snapshot.model}
+              selected={selectedNode}
+              onSelect={setSelectedNode}
+            />
+          </div>
+        ) : null}
+
         <DropRegion onFoldersDropped={onFoldersDropped}>
           <FolderList
             outcome={outcome}
@@ -278,10 +302,10 @@ export function App() {
       <footer className={styles.readout}>
         <span>schema v{snapshot.schemaVersion}</span>
         {/*
-          The derived model, as one line. A diagnostic rather than the route —
-          drawing the graph is a later ticket — but `dev:web` boots from a
-          checked-in snapshot with no Rust behind it, and a fixture that boots
-          and shows nothing derived would prove nothing.
+          The derived model, as one line. A diagnostic beside the graph rather
+          than a substitute for it: these are the numbers the graph is drawn
+          from, spelled, so a graph that drew the wrong thing has something on
+          screen to disagree with.
         */}
         <span>{describeModel(snapshot.model)}</span>
         {/*

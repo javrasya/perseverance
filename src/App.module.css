@@ -43,6 +43,25 @@
 }
 
 /*
+ * The view gets the room and the launcher keeps its own beside it, which is
+ * what the two numbers below say and all they say.
+ *
+ * The scrollport is here rather than inside the view, for the same reason the
+ * drop region owns its own: rank 0 is structurally wide, so the first column is
+ * routinely taller than the window, and a view stretched to this box's height
+ * while its content is taller would push the readout off the bottom — where a
+ * stamp may never go. `min-height: 0` is what lets this flex child shrink far
+ * enough for its own overflow to take effect.
+ */
+.view {
+  display: flex;
+  flex: 2;
+  min-height: 0;
+  padding: var(--s-space-base);
+  overflow: auto;
+}
+
+/*
  * Two stamps now share this strip with the model's readout, and a stamp may
  * never be pushed off the window — the moment staleness stops being visible is
  * the moment a stale screen looks fresh. So the row wraps rather than

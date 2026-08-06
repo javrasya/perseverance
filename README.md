@@ -58,6 +58,19 @@ acquired token with nothing to do.
 records the decision, why the client is `ureq` rather than `octocrab`, and what
 it costs.
 
+The Route is the first view, and it is hand-rolled SVG with no graph or layout
+library behind it: ranking a DAG whose edges are explicit is a dozen lines of
+longest path, and the order inside a rank is the order the operator dragged
+their sub-issues into, so crossing minimisation is not merely unnecessary but
+unwanted. It also declines to draw fan-out — what a node opens up is `unlocks N`
+on the node rather than a spray of edges, because a drawn fan reads as capacity,
+and on a map whose takeable tickets are all human-in-the-loop that capacity is
+one. The cost is that the Route cannot say *which* tickets a node unlocks
+without a selection; that question belongs to the three views that do draw the
+fan.
+[ADR 0005](docs/adr/0005-the-route-declines-to-draw-fan-out.md) records the
+deviation, the readings on both sides of it, and what it costs.
+
 App-level artifacts are named **perseverance**. `wayfinder` stays reserved for
 the skill's vocabulary and never appears in a shipped name.
 
@@ -132,6 +145,27 @@ check that cannot fail.
   app-global and survives restart, which is what "persisted globally" requires,
   but the `app` key/value table — which now exists — is where it belongs. The
   swap is one file (`src/theme/theme.ts`).
+- **The remembered default view persists to `localStorage` too**, the same
+  compromise and the same remedy: app-global, survives restart, and belongs in
+  the `app` table the day a command exposes it. The swap is one file
+  (`src/views/views.ts`).
+- **A dependency on an issue in another repository is not an edge.** The derived
+  `Node` carries `waitsOn` — the numbers of every blocker GitHub named, finished
+  ones included, which is what makes a rank read as *how far along* — and
+  `crates/model` drops the ones belonging to another repository, because an
+  issue number means nothing outside the repository that issued it and
+  `other/repo#75` would otherwise draw as an edge to this map's `#75`. The
+  filter compares `nameWithOwner` at both ends and a silence never drops an
+  edge, so an answer recorded before either field was asked for keeps its graph.
+  The cost is that a genuine cross-repository dependency is invisible on the
+  graph rather than reported: it is not in `waitsOn` at all, so the Route cannot
+  say it is beyond the map either.
+- **Whether GitHub's blocked-by connection lists resolved blockers is taken on
+  the evidence of one recorded answer.** `docs/research/github-graph-api-coverage.md`
+  names it as unverified — the fixture it was written against had no closed
+  issues. Every ranking rests on it: if the connection ever omits them, a ticket
+  whose predecessors are all finished slides back to the first column and reads
+  as a source. It is one query against a real map to settle.
 - **The launcher registry has no capabilities file, and needs none.** The folder
   picker is answered in Rust and hands back a path, so the WebView calls only
   app-defined commands, which Tauri v2 does not gate. The day the frontend calls

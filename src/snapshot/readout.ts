@@ -1,11 +1,13 @@
 /**
  * The derived model, as one line of text.
  *
- * Deliberately a **diagnostic and not the route**. Drawing the graph — the
- * nodes, their four states, the spec as a destination, the receding resolved
- * ones — is the next tickets' work, and inventing it here would be building
- * their UI badly and early. What this is for is that `dev:web` has to show
- * *something* derived, or a fixture that boots proves nothing.
+ * Deliberately a **diagnostic and not the route**. The graph is drawn — the
+ * nodes, their four states, the singular frontier — and this stays beside it
+ * rather than being replaced by it: these are the numbers the graph is drawn
+ * from, spelled, so a graph that drew the wrong thing has something on screen
+ * to disagree with. A picture and a sentence derived from one model can only
+ * differ if one of them is wrong, and one line of text is the cheapest witness
+ * a rendering ticket can be held to.
  *
  * Every value in it was decided in Rust. Nothing on this side counts, filters,
  * ranks or resolves; the phase, the three counts and the frontier arrive

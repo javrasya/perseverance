@@ -2,6 +2,7 @@
   "_why": "The rung above wayfinding: every ticket closed, one spec published as a child of the map. There is nothing to start, so the frontier is an absence rather than the first row — and the map is still open, because reaching the destination is not the same act as closing the map.",
   "data": {
     "repository": {
+      "nameWithOwner": "o/r",
       "maps": {
         "pageInfo": { "hasNextPage": false },
         "nodes": [

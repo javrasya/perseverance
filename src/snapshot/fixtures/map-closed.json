@@ -20,7 +20,8 @@
             "kind": "ticket",
             "type": "task"
           },
-          "state": "takeable"
+          "state": "takeable",
+          "waitsOn": []
         }
       ],
       "frontier": 101

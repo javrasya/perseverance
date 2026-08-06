@@ -2,6 +2,7 @@
   "_why": "A map that exists and has nothing on it. `unstarted` rather than `spec-ready`: nobody has charted anything, which is a different fact from having worked through everything charted. It is also the state a map is in for the whole of the first charting session, so it is the one an operator sees first.",
   "data": {
     "repository": {
+      "nameWithOwner": "o/r",
       "maps": {
         "pageInfo": { "hasNextPage": false },
         "nodes": [
