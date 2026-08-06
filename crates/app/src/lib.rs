@@ -17,7 +17,10 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
 use perseverance_env::{Environment, HarvestAttempt, Shell, Stderr, StderrKind, Tally};
-use perseverance_github::{acquire_token, read_maps, FreshRead, ReadFailure, TokenOutcome};
+use perseverance_github::{
+    acquire_token, read_maps, Attention, FreshRead, Poke, Poker, ReadFailure, Tick, Timings,
+    TokenOutcome, Watched,
+};
 use perseverance_model::{read_response, MapRead, Provenance, ReadOutcome, Snapshot, Source};
 use perseverance_store::{Folder, RepoBindingError, Store, StoreError};
 use serde::Serialize;
@@ -45,7 +48,7 @@ fn snapshot() -> Snapshot {
 /// identity. Nothing is derived — no phase, no counts, no frontier — because
 /// derivation is #33's and a number invented here would be a number the graph
 /// could disagree with.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct MapEntry {
     number: u64,
@@ -74,7 +77,7 @@ impl From<&perseverance_model::MapListing> for MapEntry {
 /// It rides the query for free and #39 is the ticket that spends it. Putting it
 /// on screen now would be inventing that ticket's UI; dropping it would mean
 /// #39 arrives to find the field it needs is not being read.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct WireRateLimit {
     cost: u32,
@@ -89,7 +92,11 @@ struct WireRateLimit {
 /// Provenance is *in* this value rather than beside it, for the same reason it
 /// is fused into [`Snapshot`]: two streams would let a fresh list paint against
 /// a stale stamp for a frame, which is absence disguised as presence.
-#[derive(Debug, Serialize)]
+///
+/// `Clone` is here for one reason: Tauri's `Emitter::emit` asks for it, and the
+/// live read now leaves this process as an event rather than as the answer to a
+/// command. It moves nothing on the wire.
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct MapsView {
     folder_id: i64,
@@ -212,39 +219,79 @@ fn maps(registry: State<'_, Registry>, folder_id: i64) -> Result<MapsView, Strin
     Ok(from_cache(&store, folder_id))
 }
 
-/// One live read, and the cache write it entitles.
+/// The event every live read arrives on. There is no command that performs one.
 ///
-/// `(async)` is load-bearing for the same reason the picker's is: this blocks on
-/// a socket, and blocking the main thread would stop the window drawing while
-/// it waited.
-///
-/// A failure returns the cached list with a stale stamp rather than a rejected
-/// call. Nothing here classifies *why* — `Unreachable` versus `AuthFailed`
-/// versus `MapGone`, and which of them retries, is #40's whole ticket — so the
-/// condition crosses in the words of whichever crate established it.
-#[tauri::command(async)]
-fn refresh_maps(
-    registry: State<'_, Registry>,
-    ambient: State<'_, Ambient>,
-    folder_id: i64,
-) -> Result<MapsView, String> {
-    let store = registry.store()?;
-    let held = from_cache(&store, folder_id);
+/// `refresh_maps` used to be that command, and deleting it is the point rather
+/// than a side effect: two independent live readers — a button and a loop —
+/// would both be entitled to write `graph_cache`, and *the cadence decided this*
+/// would stop being true of any particular read. The poller is the only thing
+/// that reaches GitHub now, and a click is a poke into it.
+const MAPS_EVENT: &str = "maps";
 
-    let folder = match store.folders() {
-        Ok(folders) => folders.into_iter().find(|folder| folder.id == folder_id),
-        Err(refusal) => return Ok(held.stale(refusal.to_string())),
-    };
-    let Some(folder) = folder else {
-        return Ok(held.stale(StoreError::UnknownFolder(folder_id).to_string()));
+/// Nobody listening is not a failure, exactly as it is not one for the harvest.
+fn emit_view(app: &AppHandle, view: MapsView) {
+    let _ = app.emit(MAPS_EVENT, view);
+}
+
+/// One poll, as the poller's thread runs it.
+///
+/// The registry guard is **taken twice and held across nothing**. That is the
+/// whole difference between this and the command it replaces: that one took the
+/// lock and kept it through `read_maps`, which at one click is invisible and at
+/// a ten-second cadence against a twenty-second deadline would stall `maps`,
+/// `launcher` and every other command for as long as GitHub was slow, forever.
+/// So the folder and its path are resolved under the lock, the guard goes, the
+/// socket is opened with nothing held, and the lock comes back only for the
+/// cache write.
+///
+/// A failure emits the cached list with a stale stamp rather than nothing.
+/// Nothing here classifies *why* — `Unreachable` versus `AuthFailed` versus
+/// `MapGone`, and which of them retries, is #40's whole ticket — so the
+/// condition crosses in the words of whichever crate established it, and all
+/// this hands back is which of the three kinds of tick it was.
+fn poll_once(app: &AppHandle, watched: &Watched) -> Tick {
+    let registry = app.state::<Registry>();
+    let ambient = app.state::<Ambient>();
+    let folder_id = watched.folder_id;
+
+    let (held, path) = {
+        let store = match registry.store() {
+            Ok(store) => store,
+            Err(refusal) => {
+                emit_view(app, MapsView::nothing_read_yet(folder_id).stale(refusal));
+                return Tick::Failed;
+            }
+        };
+        let held = from_cache(&store, folder_id);
+
+        let folder = match store.folders() {
+            Ok(folders) => folders.into_iter().find(|folder| folder.id == folder_id),
+            Err(refusal) => {
+                emit_view(app, held.stale(refusal.to_string()));
+                return Tick::Failed;
+            }
+        };
+        match folder {
+            Some(folder) => (held, folder.path),
+            None => {
+                emit_view(
+                    app,
+                    held.stale(StoreError::UnknownFolder(folder_id).to_string()),
+                );
+                return Tick::Failed;
+            }
+        }
     };
 
     // A fact about a folder on this disk, established without a network — and
     // the store's own sentence for it, so a folder with no GitHub remote never
     // reads as a failure to reach GitHub.
-    let repo = match perseverance_store::bind_repo(Path::new(&folder.path)) {
+    let repo = match perseverance_store::bind_repo(Path::new(&path)) {
         Ok(repo) => repo,
-        Err(refusal) => return Ok(held.stale(refusal.to_string())),
+        Err(refusal) => {
+            emit_view(app, held.stale(refusal.to_string()));
+            return Tick::Failed;
+        }
     };
 
     let token = match ambient.token.get() {
@@ -254,26 +301,58 @@ fn refresh_maps(
         // stays exactly as it was, with the age it already had. Reporting *no
         // token* here would be a Windows launch — 1.5 to 1.9 seconds of real
         // harvest — telling an operator they have never signed in.
-        None => return Ok(held),
+        None => {
+            emit_view(app, held);
+            return Tick::NotAttempted;
+        }
         // Never signed in, or the harvest was discarded so `gh` was never
         // looked for. Both leave a working app with no poller, which is a
         // sentence rather than a stack.
-        Some(_) => return Ok(held.stale(ReadFailure::NoToken.to_string())),
+        Some(_) => {
+            emit_view(app, held.stale(ReadFailure::NoToken.to_string()));
+            return Tick::Failed;
+        }
     };
 
-    match read_maps(token, &repo.owner, &repo.name, None) {
-        Ok(fresh) => {
-            let view = MapsView::of(folder_id, fresh.read(), Source::Github, fresh.fetched_at());
-            // A cache the registry declined to write is not a read that did not
-            // happen: the answer is on screen either way, and the store's
-            // refusal is what the stamp then carries.
-            match remember_read(&store, folder_id, &fresh) {
-                Ok(()) => Ok(view),
-                Err(refusal) => Ok(view.stale(refusal.to_string())),
-            }
+    let fresh = match read_maps(token, &repo.owner, &repo.name, None) {
+        Ok(fresh) => fresh,
+        Err(failure) => {
+            emit_view(app, held.stale(failure.to_string()));
+            return Tick::Failed;
         }
-        Err(failure) => Ok(held.stale(failure.to_string())),
+    };
+
+    let view = MapsView::of(folder_id, fresh.read(), Source::Github, fresh.fetched_at());
+    // A cache the registry declined to write is not a read that did not happen:
+    // the answer is on screen either way, the store's refusal is what the stamp
+    // then carries, and the tick still counts as a read — the backoff #40 will
+    // build counts failures to reach GitHub, and this was not one.
+    let stored = match registry.store() {
+        Ok(store) => {
+            remember_read(&store, folder_id, &fresh).map_err(|refusal| refusal.to_string())
+        }
+        Err(refusal) => Err(refusal),
+    };
+    match stored {
+        Ok(()) => emit_view(app, view),
+        Err(refusal) => emit_view(app, view.stale(refusal)),
     }
+    Tick::Read
+}
+
+/// What the WebView is looking at, told to the poller.
+///
+/// Both the poke and the answer to *what should be read*: nothing on the Rust
+/// side has ever known which folder is selected, because until now the only
+/// thing that triggered a read was a command that was handed the id. `None` is
+/// the launcher with nothing picked, and it is the state whose ladder floor is
+/// *never* — a poller that kept reading a folder you closed would be spending
+/// the budget on a screen nobody is looking at.
+#[tauri::command]
+fn watching(poker: State<'_, Poker>, folder_id: Option<i64>, map: Option<u64>) {
+    poker.poke(Poke::Watching(
+        folder_id.map(|folder_id| Watched { folder_id, map }),
+    ));
 }
 
 /* ------------------------------------------------------------ registry --- */
@@ -620,6 +699,13 @@ fn start_harvesting(app: AppHandle) -> std::io::Result<()> {
             // either way and the WebView asks as well as subscribing, because a
             // fast harvest can settle before there is a WebView to hear it.
             let _ = app.emit("environment", &readout);
+            // And the token this just bought is what the poller was missing. A
+            // Windows launch spends 1.5–1.9 s here; without this poke its first
+            // tick reports *nothing attempted* and the second one is a whole
+            // rung away, so the first list anybody sees is a minute late.
+            if let Some(poker) = app.try_state::<Poker>() {
+                poker.poke(Poke::EnvironmentSettled);
+            }
         })
         .map(|_| ())
 }
@@ -814,13 +900,40 @@ pub fn run() {
         .setup(|app| {
             app.manage(Registry::open(app.handle()));
             app.manage(Ambient::harvesting());
+            // Before the harvest, because the harvest's thread pokes the poller
+            // the moment it settles and a poke into a state nobody manages yet
+            // would be the first read of a launch, dropped.
+            let handle = app.handle().clone();
+            app.manage(perseverance_github::start(
+                Timings::shipped(),
+                move |watched| poll_once(&handle, watched),
+            )?);
             start_harvesting(app.handle().clone())?;
             Ok(())
+        })
+        /*
+         * Focus is read here rather than in the WebView, and that is the whole
+         * of the difference. A `visibilitychange` listener would need the
+         * WebView to be alive and correct to be believed, and a bug there would
+         * leave the app convinced it was being watched; this is the window
+         * manager's own account of itself, needs no capability the app does not
+         * already have, and cannot be wrong about which window has the operator.
+         */
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::Focused(has_it) = event {
+                if let Some(poker) = window.try_state::<Poker>() {
+                    poker.poke(Poke::Attention(if *has_it {
+                        Attention::Focused
+                    } else {
+                        Attention::Unfocused
+                    }));
+                }
+            }
         })
         .invoke_handler(tauri::generate_handler![
             snapshot,
             maps,
-            refresh_maps,
+            watching,
             launcher,
             remember_folder,
             forget_folder,
