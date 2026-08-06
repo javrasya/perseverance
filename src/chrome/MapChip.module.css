@@ -1,0 +1,55 @@
+.chip {
+  --c-chip-line: var(--s-line-absent);
+  --c-chip-ink: var(--s-ink-secondary);
+
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-space-tight);
+  padding: var(--s-space-hair) var(--s-space-snug);
+  border: var(--s-border-hairline) dashed var(--c-chip-line);
+  border-radius: var(--s-radius-chip);
+  background: transparent;
+  color: var(--c-chip-ink);
+  font-size: var(--s-text-small);
+}
+
+/*
+ * A filled socket, told from an empty one by its edge rather than by a hue —
+ * the dashed border is the drawing convention for a thing that is not there.
+ * The palette is neutrals and one indigo, and the indigo is the accent's.
+ */
+.chip[data-state="open"] {
+  --c-chip-line: var(--s-line-strong);
+  --c-chip-ink: var(--s-ink-primary);
+
+  border-style: solid;
+}
+
+.mark {
+  color: var(--s-ink-faint);
+  font-family: var(--s-font-mono);
+}
+
+.chip[data-state="open"] .mark {
+  color: var(--s-ink-secondary);
+}
+
+/*
+ * The header is one row and a GitHub title has no length limit, so the budget
+ * is a CSS one. It is here rather than a truncation this side computes: a
+ * shortened title is a different string from the model's, and the elision the
+ * Route needs exists only because SVG text cannot wrap.
+ */
+.label {
+  overflow: hidden;
+  max-width: 36ch;
+  letter-spacing: var(--s-tracking-label);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The chrome's own words, cased like the rest of the chrome. A map's title is
+   the operator's text, and nothing here re-cases it. */
+.chip[data-state="empty"] .label {
+  text-transform: lowercase;
+}

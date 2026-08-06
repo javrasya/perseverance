@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { CacheStamp } from "./chrome/CacheStamp";
 import { DropRegion } from "./chrome/DropRegion";
-import { NoMapChip } from "./chrome/NoMapChip";
+import { MapChip } from "./chrome/MapChip";
 import {
   EnvironmentReadout,
   EnvironmentSummary,
@@ -255,7 +255,9 @@ export function App() {
     <div className={styles.app}>
       <header className={styles.chrome}>
         <span className={styles.brand}>perseverance</span>
-        <NoMapChip />
+        {/* The same `model` the footer readout spells and the Route is drawn
+            from. One value, three renderings, and no way for them to disagree. */}
+        <MapChip model={snapshot.model} />
         <ThemeSwitch preference={preference} onChoose={chooseTheme} />
       </header>
 

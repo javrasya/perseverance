@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 import { App } from "../src/App";
-import { FIXTURES } from "../src/snapshot/fixtures";
+import { FIXTURES, FIXTURE_NAMES } from "../src/snapshot/fixtures";
 import { NO_MAP_OPEN } from "../src/snapshot/readout";
 import { hasRustBehindIt } from "../src/snapshot/snapshot";
 import { elide } from "../src/views/route/route";
@@ -60,6 +60,18 @@ function theRoute(): Element {
   const section = document.querySelector('[aria-label="The Route"]');
   if (section === null) throw new Error("the app did not open on the Route");
   return section;
+}
+
+/** The chip in the chrome: the header's whole claim about the model. */
+function theChip(): Element {
+  const chip = document.querySelector("header [data-state]");
+  if (chip === null) throw new Error("the chrome has no map chip");
+  return chip;
+}
+
+/** The same model, spelled by `describeModel`, at the other end of the window. */
+function theReadout(): string {
+  return document.querySelector("footer")?.textContent ?? "";
 }
 
 function teardown() {
@@ -170,6 +182,45 @@ describe("dev:web", () => {
     expect(document.querySelector('[aria-label="The Route"]')).toBeNull();
     expect(text).toContain("Folders");
     expect(text).toContain(NO_MAP_OPEN);
+  });
+
+  it("names the open map in the chrome rather than asserting there is none", async () => {
+    await boot("/?map=awkward-map");
+    const map = FIXTURES["awkward-map"].model.map;
+    if (map === null) throw new Error("the awkward fixture has no map");
+
+    // The chip shipped as a constant, so this is the assertion that would have
+    // failed the moment #34 drew a graph under a header saying nothing was open.
+    const chip = theChip();
+    expect(chip.getAttribute("data-state")).toBe("open");
+    expect(chip.textContent).toContain(`#${map.number}`);
+    expect(chip.textContent).toContain(map.title);
+    expect(chip.textContent).not.toContain(NO_MAP_OPEN);
+  });
+
+  it("says the chrome's own words for an absence, in the chrome, when there is none", async () => {
+    await boot("/?map=no-map-open");
+
+    const chip = theChip();
+    expect(chip.getAttribute("data-state")).toBe("empty");
+    expect(chip.textContent).toContain(NO_MAP_OPEN);
+  });
+
+  it("never lets the header and the readout disagree, on any fixture there is", async () => {
+    /*
+     * The claim in the form it is actually made: one model, two renderings, at
+     * opposite ends of the window. Over every fixture rather than the two that
+     * make the point, because a fixture added later is exactly where a third
+     * account of *is anything open* would come from — and both readings reach
+     * for the same constant, so neither can drift into agreeing by accident.
+     */
+    for (const name of FIXTURE_NAMES) {
+      await boot(`/?map=${name}`);
+      const openInTheChrome = theChip().getAttribute("data-state") === "open";
+      const openInTheReadout = !theReadout().includes(NO_MAP_OPEN);
+
+      expect([name, openInTheChrome]).toEqual([name, openInTheReadout]);
+    }
   });
 
   it("draws a map with nothing on it without throwing on the way", async () => {
