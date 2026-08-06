@@ -18,8 +18,8 @@ use std::sync::{Mutex, MutexGuard, OnceLock};
 
 use perseverance_env::{Environment, HarvestAttempt, Shell, Stderr, StderrKind, Tally};
 use perseverance_github::{
-    acquire_token, read_maps, Attention, FreshRead, Poke, Poker, ReadFailure, Tick, Timings,
-    TokenOutcome, Watched,
+    acquire_token, read_maps, Ahead, Attention, FreshRead, Held, Poke, Poker, ReadFailure, Tick,
+    Timings, TokenOutcome, Watched,
 };
 use perseverance_model::{read_response, MapRead, Provenance, ReadOutcome, Snapshot, Source};
 use perseverance_store::{Folder, RepoBindingError, Store, StoreError};
@@ -72,11 +72,14 @@ impl From<&perseverance_model::MapListing> for MapEntry {
     }
 }
 
-/// `rateLimit`, carried to the WebView and acted on by nobody yet.
+/// `rateLimit`, carried to the WebView and read by nobody on that side.
 ///
-/// It rides the query for free and #39 is the ticket that spends it. Putting it
-/// on screen now would be inventing that ticket's UI; dropping it would mean
-/// #39 arrives to find the field it needs is not being read.
+/// #39 spent it, and spent it in Rust: the poller paces itself from these
+/// numbers and the WebView is handed the conclusion —
+/// [`MapsView::yielding_to_rate_limit`] — rather than the arithmetic. This stays
+/// on the wire as the diagnostic it always was, next to the flag derived from
+/// it, so a readout that disagreed with the clause has something to disagree
+/// with.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct WireRateLimit {
@@ -107,6 +110,22 @@ struct MapsView {
     /// than paged through, because a paging loop for a page GitHub's own limits
     /// forbid is code nobody has ever run.
     truncated: bool,
+    /// Whether the rate-limit budget is what is holding the poller's interval
+    /// down, right now — already decided, on the Rust side, by the composition
+    /// in `cadence.rs`. The WebView paints a clause from it and computes
+    /// nothing: it has no `resetAt` arithmetic, no reserve to compare against
+    /// and no notion of which floor won, which is the whole of ADR 0004 applied
+    /// to one boolean.
+    ///
+    /// It lives here rather than on [`Provenance`] because it is a fact about
+    /// the poller and the model crate may not know what a poller is. And it is
+    /// the *winning term* rather than *a budget exists*, because the clause it
+    /// feeds is only true while the yielding is what you are waiting for.
+    ///
+    /// **The `maps` command always answers `false`**: nothing is behind it but
+    /// the store, and a cached list is not a statement about an interval. So the
+    /// clause arrives with the first poll rather than with first paint.
+    yielding_to_rate_limit: bool,
 }
 
 impl MapsView {
@@ -124,6 +143,7 @@ impl MapsView {
             },
             rate_limit: None,
             truncated: false,
+            yielding_to_rate_limit: false,
         }
     }
 
@@ -147,7 +167,26 @@ impl MapsView {
                 reset_at: limit.reset_at.clone(),
             }),
             truncated: read.truncation.any(),
+            yielding_to_rate_limit: false,
         }
+    }
+
+    /// Which floor holds the interval this view is being emitted *into*.
+    ///
+    /// The tense is load-bearing, and it is the poller's [`Ahead`] query that
+    /// supplies it: whoever reads a stamp is about to wait, so the clause has to
+    /// describe the wait ahead of them rather than the one that just ended. The
+    /// two differ exactly where it matters — the poll that fires at the reset
+    /// waited out a budget-held hour and is the first thing to see the refill.
+    ///
+    /// Applied by [`emit_view`] and by nothing else, so no branch of
+    /// [`poll_once`] can construct a view and forget it. A default of `false`
+    /// plus one place that sets it is the shape that makes *forgot to say* and
+    /// *said not yielding* the same answer — which is the safe one of the two,
+    /// because the clause it feeds asserts something is happening.
+    fn yielding(mut self, held: Held) -> MapsView {
+        self.yielding_to_rate_limit = held == Held::Budget;
+        self
     }
 
     /// What is on screen when a read did not happen, or did not survive.
@@ -155,6 +194,12 @@ impl MapsView {
     /// The cached list stays; only the stamp changes. A failed poll that emptied
     /// the screen would be the harness asserting that the operator's maps are
     /// gone on the strength of not having been able to look.
+    ///
+    /// The yielding flag is left alone here on purpose: a read that failed does
+    /// not stop the poller yielding, and the interval is a fact about the loop
+    /// rather than about the answer. The stamp is where the two are reconciled —
+    /// a failure and a yield are two reasons and one sentence, and the failure
+    /// is the one about what is on screen.
     fn stale(mut self, why: String) -> MapsView {
         self.provenance.outcome = ReadOutcome::Failed(why);
         self.rate_limit = None;
@@ -229,8 +274,12 @@ fn maps(registry: State<'_, Registry>, folder_id: i64) -> Result<MapsView, Strin
 const MAPS_EVENT: &str = "maps";
 
 /// Nobody listening is not a failure, exactly as it is not one for the harvest.
-fn emit_view(app: &AppHandle, view: MapsView) {
-    let _ = app.emit(MAPS_EVENT, view);
+///
+/// It stamps the floor that will hold the next wait onto every view that
+/// leaves, which is why it takes one: `poll_once` returns from seven places and
+/// a flag set at each of them would be a flag missing from one of them.
+fn emit_view(app: &AppHandle, view: MapsView, held: Held) {
+    let _ = app.emit(MAPS_EVENT, view.yielding(held));
 }
 
 /// One poll, as the poller's thread runs it.
@@ -249,16 +298,35 @@ fn emit_view(app: &AppHandle, view: MapsView) {
 /// `MapGone`, and which of them retries, is #40's whole ticket — so the
 /// condition crosses in the words of whichever crate established it, and all
 /// this hands back is which of the three kinds of tick it was.
-fn poll_once(app: &AppHandle, watched: &Watched) -> Tick {
+///
+/// `ahead` is the poller's answer to *which floor will hold the next wait*,
+/// asked with whatever this poll learned about the budget. It is stamped onto
+/// every view [`emit_view`] sends and is not otherwise looked at here: what to
+/// do about a budget is decided in `cadence.rs`, and this only carries the
+/// answer across, exactly as it carries every other one.
+///
+/// The return now carries what the read saw of the budget, which is the only
+/// route those numbers have back into the loop that paces against them.
+fn poll_once(app: &AppHandle, watched: &Watched, ahead: &Ahead<'_>) -> Tick {
     let registry = app.state::<Registry>();
     let ambient = app.state::<Ambient>();
     let folder_id = watched.folder_id;
+
+    // Every return below this line but the last one established nothing about
+    // the budget, so they all describe the wait the last known numbers pace.
+    // Asked once rather than at each of them, because six calls to the same
+    // question are six chances to ask a different one.
+    let unread = ahead(None);
 
     let (held, path) = {
         let store = match registry.store() {
             Ok(store) => store,
             Err(refusal) => {
-                emit_view(app, MapsView::nothing_read_yet(folder_id).stale(refusal));
+                emit_view(
+                    app,
+                    MapsView::nothing_read_yet(folder_id).stale(refusal),
+                    unread,
+                );
                 return Tick::Failed;
             }
         };
@@ -267,7 +335,7 @@ fn poll_once(app: &AppHandle, watched: &Watched) -> Tick {
         let folder = match store.folders() {
             Ok(folders) => folders.into_iter().find(|folder| folder.id == folder_id),
             Err(refusal) => {
-                emit_view(app, held.stale(refusal.to_string()));
+                emit_view(app, held.stale(refusal.to_string()), unread);
                 return Tick::Failed;
             }
         };
@@ -277,6 +345,7 @@ fn poll_once(app: &AppHandle, watched: &Watched) -> Tick {
                 emit_view(
                     app,
                     held.stale(StoreError::UnknownFolder(folder_id).to_string()),
+                    unread,
                 );
                 return Tick::Failed;
             }
@@ -289,7 +358,7 @@ fn poll_once(app: &AppHandle, watched: &Watched) -> Tick {
     let repo = match perseverance_store::bind_repo(Path::new(&path)) {
         Ok(repo) => repo,
         Err(refusal) => {
-            emit_view(app, held.stale(refusal.to_string()));
+            emit_view(app, held.stale(refusal.to_string()), unread);
             return Tick::Failed;
         }
     };
@@ -302,14 +371,14 @@ fn poll_once(app: &AppHandle, watched: &Watched) -> Tick {
         // token* here would be a Windows launch — 1.5 to 1.9 seconds of real
         // harvest — telling an operator they have never signed in.
         None => {
-            emit_view(app, held);
+            emit_view(app, held, unread);
             return Tick::NotAttempted;
         }
         // Never signed in, or the harvest was discarded so `gh` was never
         // looked for. Both leave a working app with no poller, which is a
         // sentence rather than a stack.
         Some(_) => {
-            emit_view(app, held.stale(ReadFailure::NoToken.to_string()));
+            emit_view(app, held.stale(ReadFailure::NoToken.to_string()), unread);
             return Tick::Failed;
         }
     };
@@ -317,12 +386,16 @@ fn poll_once(app: &AppHandle, watched: &Watched) -> Tick {
     let fresh = match read_maps(token, &repo.owner, &repo.name, None) {
         Ok(fresh) => fresh,
         Err(failure) => {
-            emit_view(app, held.stale(failure.to_string()));
+            emit_view(app, held.stale(failure.to_string()), unread);
             return Tick::Failed;
         }
     };
 
     let view = MapsView::of(folder_id, fresh.read(), Source::Github, fresh.fetched_at());
+    // The one return that learned something. Asked with the numbers this answer
+    // carried rather than with the ones the last one did, which is what makes
+    // the poll that lands at the reset stop saying the poller is yielding.
+    let paced_by = ahead(fresh.budget());
     // A cache the registry declined to write is not a read that did not happen:
     // the answer is on screen either way, the store's refusal is what the stamp
     // then carries, and the tick still counts as a read — the backoff #40 will
@@ -334,10 +407,12 @@ fn poll_once(app: &AppHandle, watched: &Watched) -> Tick {
         Err(refusal) => Err(refusal),
     };
     match stored {
-        Ok(()) => emit_view(app, view),
-        Err(refusal) => emit_view(app, view.stale(refusal)),
+        Ok(()) => emit_view(app, view, paced_by),
+        Err(refusal) => emit_view(app, view.stale(refusal), paced_by),
     }
-    Tick::Read
+    // What this answer said about the budget, anchored to when it landed. The
+    // loop ages it against its own last tick; nothing here interprets it.
+    Tick::Read(fresh.budget())
 }
 
 /// What the WebView is looking at, told to the poller.
@@ -906,7 +981,7 @@ pub fn run() {
             let handle = app.handle().clone();
             app.manage(perseverance_github::start(
                 Timings::shipped(),
-                move |watched| poll_once(&handle, watched),
+                move |watched, ahead| poll_once(&handle, watched, ahead),
             )?);
             start_harvesting(app.handle().clone())?;
             Ok(())
@@ -1052,6 +1127,10 @@ mod tests {
         assert_eq!(json["truncated"], false);
         assert_eq!(json["rateLimit"]["remaining"], 4_417);
         assert_eq!(json["rateLimit"]["resetAt"], "2026-08-05T11:02:14Z");
+        // A view nobody has told which floor held the poller says *not
+        // yielding*, which is what the `maps` command answers because there is
+        // no poller behind it.
+        assert_eq!(json["yieldingToRateLimit"], false);
 
         let first = &json["maps"][0];
         assert_eq!(first["number"], 28);
@@ -1062,7 +1141,30 @@ mod tests {
         assert_eq!(first.as_object().expect("an object").len(), 5);
         // The finished map is in the list rather than filtered out of it.
         assert_eq!(json["maps"][1]["closed"], true);
-        assert_eq!(json.as_object().expect("an object").len(), 5);
+        assert_eq!(json.as_object().expect("an object").len(), 6);
+    }
+
+    /// The clause on the stamp appears only while the budget is the winning
+    /// term, so the flag it keys on has to be exactly *the budget won* and never
+    /// *a budget exists*.
+    #[test]
+    fn a_view_says_the_budget_is_holding_it_only_while_the_budget_is() {
+        let read = read_response(TWO_MAPS).expect("reads");
+
+        let held = [
+            (Held::Budget, true),
+            (Held::Ladder, false),
+            // Named rather than left to a wildcard: #40's backoff is a different
+            // reason to be waiting, and it must not inherit this ticket's copy.
+            (Held::Backoff, false),
+        ];
+
+        for (floor, expected) in held {
+            let view = MapsView::of(3, &read, Source::Github, 1_785_888_000).yielding(floor);
+            let json = serde_json::to_value(&view).expect("serialises");
+
+            assert_eq!(json["yieldingToRateLimit"], expected, "{floor:?}");
+        }
     }
 
     #[test]

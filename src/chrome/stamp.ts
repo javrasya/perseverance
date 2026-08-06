@@ -57,8 +57,38 @@ export function stampSource(provenance: Provenance): string {
  * clauses say only what is true of the thing on screen: a live read that will
  * not survive the session, or a copy that nothing newer has replaced. The
  * reason itself rides beside this, in the words of whoever established it.
+ *
+ * `yielding` is the poller slowing itself down to leave the rate limit alone.
+ * It is Rust's answer to *is the budget the winning term of the interval's
+ * max*, arriving already decided on the map-list payload: there is no reserve
+ * on this side to compare against, no `resetAt` to subtract from anything, and
+ * no notion of which floor won — so the clause paints a state rather than
+ * concluding one.
+ *
+ * It describes **the state and not the adjustment** (#28 story 109). The
+ * interval moves on every poll and a clause carrying the number would narrate
+ * every one of them, so it names no duration and no count, and reads the same
+ * whether the poller is merely stretched or stopped at the reserve.
+ *
+ * Which is also why it says *paced against* rather than *waiting for the reset*.
+ * The budget wins the max the moment it beats the rung it is over — an hour and
+ * a hundred and nineteen points from the reserve, that is a sixty-one-second
+ * interval, and a clause announcing a reset there would be describing the far
+ * end of the curve from most of the curve. One sentence has to be true at both
+ * ends of it. It is additive, exactly as the failure clause is, because a slowed
+ * poller is the moment a screen goes quietly old and the age is what says so.
+ *
+ * A failure wins when both would apply, and by construction rather than by an
+ * ordering somebody has to keep: the failed branches return before this clause
+ * is reached. Two reasons on one stamp is a sentence nobody parses, and of the
+ * two the failure is the one about what is on screen — the budget is about what
+ * comes next.
  */
-export function describeStamp(provenance: Provenance, now?: number): string {
+export function describeStamp(
+  provenance: Provenance,
+  now?: number,
+  yielding = false,
+): string {
   const failed = provenance.outcome.kind === "failed";
 
   if (provenance.source === "none") {
@@ -66,10 +96,12 @@ export function describeStamp(provenance: Provenance, now?: number): string {
   }
 
   const said = `${stampSource(provenance)} ${stampAge(provenance, now)}`;
-  if (!failed) return said;
-  return provenance.source === "github"
-    ? `${said} — not stored for next time`
-    : `${said} — nothing newer has arrived`;
+  if (failed) {
+    return provenance.source === "github"
+      ? `${said} — not stored for next time`
+      : `${said} — nothing newer has arrived`;
+  }
+  return yielding ? `${said} — paced against your rate limit` : said;
 }
 
 /** The reason a read did not land, in the words of whoever established it. */

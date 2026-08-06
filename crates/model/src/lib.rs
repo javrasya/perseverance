@@ -22,7 +22,7 @@ pub use derive::{
     ChildKind, Counts, Map, Model, Node, NodeState, Phase, TicketType, WAYFINDER_PREFIX,
 };
 pub use read::{
-    read_response, rfc3339, ChildRead, MapGraph, MapListing, MapRead, RateLimit, ReadError,
-    Truncation, MAP_LABEL,
+    epoch_from_rfc3339, read_response, rfc3339, ChildRead, MapGraph, MapListing, MapRead,
+    RateLimit, ReadError, Truncation, MAP_LABEL,
 };
 pub use snapshot::{Provenance, ReadOutcome, Snapshot, SnapshotError, Source, SCHEMA_VERSION};

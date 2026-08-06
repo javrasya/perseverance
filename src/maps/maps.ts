@@ -39,7 +39,13 @@ export interface MapEntry {
   updatedAt: string;
 }
 
-/** `rateLimit`, carried and acted on by nobody yet — #39 is that ticket. */
+/**
+ * `rateLimit`, as GitHub reported it. Nothing on this side reads it.
+ *
+ * #39 spent it in Rust, where the poller paces itself from these numbers; what
+ * crosses for the WebView to act on is `yieldingToRateLimit`, the conclusion.
+ * This stays as the diagnostic it always was, beside the flag derived from it.
+ */
 export interface RateLimit {
   cost: number;
   nodeCount: number;
@@ -55,6 +61,17 @@ export interface MapsView {
   rateLimit: RateLimit | null;
   /** A page GitHub's own limits say cannot exist. Said, never paged through. */
   truncated: boolean;
+  /**
+   * Whether the rate-limit budget is what is holding the poller's interval
+   * down. Decided in Rust — the inputs to that decision are not on this side at
+   * all — and true only while the budget is the *winning* term, so the clause
+   * it feeds appears while the yielding is what you are waiting for and not
+   * merely while a budget exists.
+   *
+   * The `maps` command always answers `false`, because there is no poller
+   * behind it. It arrives true, if it is going to, on the event.
+   */
+  yieldingToRateLimit: boolean;
 }
 
 /* ------------------------------------------------------------- loading --- */
@@ -72,6 +89,7 @@ export function nothingReadYet(folderId: number): MapsView {
     provenance: { source: "none", outcome: { kind: "notAttempted" }, fetchedAt: null },
     rateLimit: null,
     truncated: false,
+    yieldingToRateLimit: false,
   };
 }
 

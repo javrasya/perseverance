@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 import { App } from "../src/App";
+import { CacheStamp } from "../src/chrome/CacheStamp";
 import { FIXTURES, FIXTURE_NAMES } from "../src/snapshot/fixtures";
 import { NO_MAP_OPEN } from "../src/snapshot/readout";
 import { hasRustBehindIt } from "../src/snapshot/snapshot";
@@ -383,5 +384,55 @@ describe("dev:web", () => {
     const stamp = document.querySelector('[data-outcome="failed"]');
 
     expect(stamp?.getAttribute("title")).toBe("could not reach GitHub");
+  });
+});
+
+describe("the stamp says the harness is yielding, and only while it is", () => {
+  /*
+   * Mounted directly rather than through `boot`, because the state this is
+   * about cannot be reached from a browser: a poller is what decides the flag,
+   * `dev:web` has none, and the map list there has never been read at all. What
+   * is asserted is the rendered clause, which is the thing an operator sees.
+   */
+  function render(yielding: boolean): string {
+    teardown();
+
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    mounted = { root, host };
+
+    act(() => {
+      root.render(
+        <CacheStamp
+          what="maps"
+          provenance={{
+            source: "github",
+            outcome: { kind: "ok" },
+            fetchedAt: "2026-08-05T08:00:00Z",
+          }}
+          now={1_785_916_800}
+          yielding={yielding}
+        />,
+      );
+    });
+
+    return host.textContent ?? "";
+  }
+
+  it("gains the clause with the flag and loses it without", () => {
+    expect(render(true)).toBe(
+      "maps read from GitHub just now — paced against your rate limit",
+    );
+    expect(render(false)).toBe("maps read from GitHub just now");
+  });
+
+  it("never names a number or a time, because it describes the state and not the adjustment", () => {
+    // #28 story 109. A clause carrying the interval would narrate every
+    // adjustment of it, and the interval moves on every poll.
+    const said = render(true);
+
+    expect(said).not.toMatch(/\d+\s*(second|minute|hour)s?\b(?! ago)/);
+    expect(said).not.toMatch(/\b\d{3,}\b/);
   });
 });

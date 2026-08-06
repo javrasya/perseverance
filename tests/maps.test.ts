@@ -190,6 +190,63 @@ describe("the cache age is on screen in every state", () => {
   it("carries no detail when nothing failed", () => {
     expect(stampDetail(view().provenance)).toBeNull();
   });
+
+  it("says the harness is yielding only while the budget is what is holding it", () => {
+    /*
+     * The flag is Rust's answer to *is the budget the winning term of the max*,
+     * and nothing on this side can work that out: there is no reserve here, no
+     * seconds-to-reset arithmetic, and no notion of which floor won. So the
+     * clause is on precisely when the boolean is, and the absence of the
+     * boolean is the sentence that was there before this ticket.
+     */
+    expect(describeStamp(view().provenance, READ_AT, true)).toBe(
+      "read from GitHub just now — paced against your rate limit",
+    );
+    expect(describeStamp(view().provenance, READ_AT, false)).toBe("read from GitHub just now");
+    expect(describeStamp(view().provenance, READ_AT)).toBe("read from GitHub just now");
+  });
+
+  it("keeps the age when it is yielding, because that is when it matters most", () => {
+    // A slowed poller is exactly when a screen goes quietly old. A clause that
+    // replaced the age would have taken it away at the one moment it was worth
+    // reading.
+    const said = describeStamp(view().provenance, READ_AT + 20 * MINUTE, true);
+
+    expect(said).toContain("20 minutes ago");
+    expect(said).toContain("paced against your rate limit");
+  });
+
+  it("never stacks two reasons on one stamp", () => {
+    /*
+     * A failure and a yield can both be true — a failed read does not stop the
+     * poller yielding — and a stamp says one thing about the screen. The
+     * failure wins because it is about what is on screen; the budget is about
+     * what comes next.
+     */
+    const failed = {
+      source: "cache" as const,
+      outcome: { kind: "failed" as const, detail: "GitHub answered with status 401" },
+      fetchedAt: "2026-08-05T08:00:00Z",
+    };
+
+    const said = describeStamp(failed, READ_AT, true);
+
+    expect(said).toBe("from the last read just now — nothing newer has arrived");
+    expect(said).not.toContain("rate limit");
+  });
+
+  it("says nothing about yielding before anything has been read", () => {
+    // Nothing is on screen to be stale, so there is nothing for the clause to
+    // be true of yet.
+    expect(describeStamp(nothingReadYet(1).provenance, READ_AT, true)).toBe("nothing read yet");
+  });
+
+  it("mirrors the flag the app crate emits, defaulted to not yielding", () => {
+    // The other half of a hand-written mirror. `MapsView` is pinned from the
+    // Rust side too, and a rename on either is silent on the other.
+    expect(nothingReadYet(1).yieldingToRateLimit).toBe(false);
+    expect(loadFixture(1).yieldingToRateLimit).toBe(false);
+  });
 });
 
 describe("the live read belongs to the poller, and a browser has no poller", () => {

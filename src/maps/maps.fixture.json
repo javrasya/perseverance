@@ -35,5 +35,6 @@
     "remaining": 4417,
     "resetAt": "2026-08-05T11:02:14Z"
   },
-  "truncated": false
+  "truncated": false,
+  "yieldingToRateLimit": false
 }
