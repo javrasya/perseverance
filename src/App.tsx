@@ -31,7 +31,13 @@ import {
   type LauncherView,
 } from "./launcher/launcher";
 import { MapList } from "./maps/MapList";
-import { loadMaps, nothingReadYet, refreshMaps, type MapsView } from "./maps/maps";
+import {
+  loadMaps,
+  nothingReadYet,
+  watchMaps,
+  watching,
+  type MapsView,
+} from "./maps/maps";
 import { describeModel } from "./snapshot/readout";
 import { loadSnapshot, noMapOpen, type Snapshot } from "./snapshot/snapshot";
 import { ThemeSwitch } from "./theme/ThemeSwitch";
@@ -129,28 +135,52 @@ export function App() {
   }, []);
 
   /*
-   * The cache first, then GitHub. Both, in that order, every time a folder is
-   * opened: the first paint of a folder is the copy it already had — which is
-   * what makes the stamp honest before anything has been reached — and the live
-   * read is what replaces it and what may write.
+   * Every read the poller lands, for as long as this window is open.
    *
-   * A read that lands after you have moved on is dropped on the folder id
+   * Subscribed once at mount rather than per folder, because the poller is one
+   * loop reading one thing at a time and the folder id on each arrival is what
+   * says which. A read that lands after you have moved on is dropped on that id
    * rather than on a flag, because two folders opened quickly is the ordinary
    * case and the wrong maps under the right name is the worst of the outcomes.
    */
-  const readMapsFor = useCallback((folderId: number) => {
-    const forThisFolder = (next: MapsView) =>
-      setMaps((current) => (current.folderId === folderId ? next : current));
+  useEffect(() => {
+    let live = true;
+    let stop: () => void = () => {};
 
+    watchMaps((next) => {
+      if (!live) return;
+      setMaps((current) => (current.folderId === next.folderId ? next : current));
+    }).then((off) => {
+      if (!live) {
+        off();
+        return;
+      }
+      stop = off;
+    });
+
+    return () => {
+      live = false;
+      stop();
+    };
+  }, []);
+
+  /*
+   * The cache first, then the poller. In that order, every time a folder is
+   * opened: the first paint of a folder is the copy it already had — which is
+   * what makes the stamp honest before anything has been reached — and the live
+   * read is the poller's, which is now the only thing that may write.
+   *
+   * Opening a folder is one of the three off-cadence pokes, so this does not
+   * wait for a rung: the loop reads a folder it has never read immediately.
+   */
+  const readMapsFor = useCallback((folderId: number) => {
     setMaps(nothingReadYet(folderId));
     loadMaps(folderId)
-      .then(forThisFolder)
-      .then(() => refreshMaps(folderId))
-      .then(forThisFolder)
-      // A read that could not even be asked for leaves what is on screen where
-      // it is. The shell answers a failed read with the cached list and a stale
-      // stamp, so arriving here at all means the call itself did not return.
+      .then((next) => setMaps((current) => (current.folderId === folderId ? next : current)))
+      // A cache read that could not even be asked for leaves what is on screen
+      // where it is; the poller's arrival is what replaces it either way.
       .catch(() => {});
+    watching(folderId, null).catch(() => {});
   }, []);
 
   /*
@@ -215,15 +245,18 @@ export function App() {
           updateList((view) => withoutFolder(view, entry.id));
           setSelectedId((chosen) => (chosen === entry.id ? null : chosen));
           // The registry took its cache with it, so the screen may not go on
-          // showing maps read for a folder that is no longer on the list.
-          setMaps((current) =>
-            current.folderId === entry.id ? nothingReadYet(0) : current,
-          );
+          // showing maps read for a folder that is no longer on the list — and
+          // the poller may not go on reading one either, which is what the
+          // empty declaration says.
+          if (maps.folderId === entry.id) {
+            watching(null, null).catch(() => {});
+            setMaps(nothingReadYet(0));
+          }
           setNote(null);
         })
         .catch(refuse);
     },
-    [updateList, refuse],
+    [updateList, refuse, maps.folderId],
   );
 
   const onOpenNew = useCallback(() => {

@@ -231,11 +231,32 @@ check that cannot fail.
   would all ship green. `cargo test --workspace -- --ignored` on a machine whose
   operator has signed in is the only thing that catches them, and no runner
   takes it.
-- **Nothing polls yet.** A map created outside the app appears the next time the
-  folder is opened, because that is the only thing that currently triggers a
-  read. The cadence ladder, the off-cadence pokes and the interval composition
-  are #38; the budget floor is #39 and the backoff is #40. `rateLimit` is read
-  and carried to the WebView, and acted on by nobody.
+- **Two of the three floors under the `max` return zero.** `interval =
+  max(ladder_floor, budget_floor, backoff_floor)` is composed and the ladder
+  floor is real; `budget_floor` (#39) and `backoff_floor` (#40) are stubs that
+  cannot change any answer, and a test says so in every state so that the day
+  one of them lands is the day that test fails. Until then a ten-second cadence
+  spends the rate-limit budget with nothing throttling it, and a failing read is
+  retried at the same rung as a succeeding one.
+- **Two of the three pokes have no producer in the tree.** An adapter's `Idle`
+  is #44's signal and a run's process exit is #47's, and `crates/agent` and
+  `crates/pty` are still doc-comment-only stubs — so both arrive as things the
+  poller is *told about* on a channel, and the only thing holding a `RunHandle`
+  today is a test. The run-live rung is therefore unreachable in a running
+  build: correct, asserted, and not yet exercised by anything real.
+- **A fourth poke the ticket did not ask for.** `EnvironmentSettled` fires when
+  the harvest lands, because without it a Windows launch spends 1.5–1.9 s
+  harvesting, ticks with no token, and waits a whole rung before the first list
+  anybody sees.
+- **The poller emits a map list, not a derived model.** `snapshot` is still the
+  constant `Snapshot::no_map_open()`: wiring `Model::of` and `Snapshot::aged`
+  into the tick is a slice of its own and folding it in here would have doubled
+  this diff, and the frontend still reads the snapshot once at mount. So the
+  Route pane is drawn from something nothing refreshes.
+- **Neither the rung nor the winning floor is on screen anywhere.** A poller
+  stuck on the five-minute rung looks exactly like one that is working. #39
+  needs the winning term visible for its own copy; this slice returns it from
+  the composition and paints none of it.
 - **Linux has never built the TLS stack.** `ureq` verifies certificates against
   the operator's own trust store via `rustls-platform-verifier`, which supports
   Linux — but both CI runners are Windows and macOS by design, so nothing here

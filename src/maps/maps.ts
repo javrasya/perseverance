@@ -6,11 +6,16 @@
  * rather than two. A rename on the Rust side is a silent breakage here, so both
  * sides pin the shape with a test.
  *
- * Two commands, and the difference between them is the whole cache policy:
- * `maps` reads the store and cannot reach GitHub, `refresh_maps` reads GitHub
- * and is the only thing that may write. First paint calls the first one, which
- * is why first paint is cache-sourced and stamped as such rather than merely
- * intended to be.
+ * One command reads, and it cannot reach GitHub. `maps` reads the store and
+ * holds no token, which is why first paint is cache-sourced and stamped as such
+ * rather than merely intended to be.
+ *
+ * **There is no live-read command.** The only thing that reaches GitHub is the
+ * poller, on its own thread, at the cadence #38 gave it; this side declares what
+ * it is looking at with `watching` and is told what arrived on the `maps` event.
+ * A refresh button that read GitHub itself would be a second thing entitled to
+ * write the cache, and *the cadence decided this* would stop being true of any
+ * particular read.
  *
  * `maps.fixture.json` is what stands behind this in a browser with no Rust: it
  * carries an open map, a completed one, and a stamp that is already old,
@@ -94,23 +99,44 @@ export async function loadMaps(folderId: number): Promise<MapsView> {
   return await invoke<MapsView>("maps", { folderId });
 }
 
+/** Both names are the Rust side's; neither is a string this file invented. */
+const WATCH_COMMAND = "watching";
+const MAPS_EVENT = "maps";
+
 /**
- * One live read, and the cache write it entitles.
+ * Says what this window is looking at, and answers nothing.
  *
- * A read that failed comes back as the cached list with a stale stamp rather
- * than as a rejection: what you were reading is still true of the last time
- * anybody looked, and emptying the screen would assert that the maps are gone.
+ * It is a poke and a declaration at once. The poller reads the folder named
+ * here at the cadence the ladder decides, and `null` is the launcher with
+ * nothing picked — the state where the right number of reads is none.
  *
- * A browser has nothing behind it to read, so `dev:web` answers with the same
- * fixture and the same age it already had. That is not a refresh pretending to
- * be one — the stamp does not move.
+ * There is no return value on purpose: what comes back from a read arrives on
+ * the event below, whenever the cadence produced it, and a promise resolving
+ * with a list would be a second delivery path that could disagree with the
+ * first. A browser has no poller to tell, so this is inert there.
  */
-export async function refreshMaps(folderId: number): Promise<MapsView> {
-  if (!hasRustBehindIt()) {
-    return loadFixture(folderId);
-  }
+export async function watching(folderId: number | null, map: number | null): Promise<void> {
+  if (!hasRustBehindIt()) return;
   const { invoke } = await import("@tauri-apps/api/core");
-  return await invoke<MapsView>("refresh_maps", { folderId });
+  await invoke(WATCH_COMMAND, { folderId, map });
+}
+
+/**
+ * Every read the poller lands, live or failed.
+ *
+ * A failed poll arrives too, as the cached list with a stale stamp — never as
+ * silence and never as an empty list. What you were reading is still true of
+ * the last time anybody looked, and emptying the screen would assert that the
+ * maps are gone on the strength of not having been able to look.
+ *
+ * Returns the way to stop listening, for the same reason `watchEnvironment`
+ * does: a subscription that outlives its component is a leak. A browser
+ * subscribes to nothing, because nothing behind it is polling.
+ */
+export async function watchMaps(onRead: (view: MapsView) => void): Promise<() => void> {
+  if (!hasRustBehindIt()) return () => {};
+  const { listen } = await import("@tauri-apps/api/event");
+  return await listen<MapsView>(MAPS_EVENT, ({ payload }) => onRead(payload));
 }
 
 /* --------------------------------------------------------------- lists --- */

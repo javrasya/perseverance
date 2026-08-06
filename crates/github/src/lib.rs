@@ -18,6 +18,13 @@
 //! never repeats what `gh` printed to stdout are policy and belong here; running
 //! it belongs to the crate whose subject that is.
 //!
+//! The poller is two modules and the split between them is the same one
+//! `read.rs` makes: `cadence.rs` is the arithmetic — `max(ladder_floor,
+//! budget_floor, backoff_floor)` over a value that has no clock in it — and
+//! `poller.rs` is the one thread, the one clock and the channel every
+//! off-cadence poke arrives on. Two of the three floors are stubbed at zero
+//! here and named after the tickets that fill them.
+//!
 //! Filled in by:
 //! - #31 token acquisition, in the environment `perseverance-env` harvested
 //! - #32 one query shape, discovery by label, the read cache
@@ -27,12 +34,19 @@
 //!
 //! [`perseverance_env`]: https://github.com/javrasya/perseverance
 
+mod cadence;
+mod poller;
 mod read;
 mod token;
 
+pub use cadence::{
+    backoff_floor, budget_floor, interval, ladder_floor, next_wake, Attention, Authority, Budget,
+    Cadence, Floor, Held, Interval, Rung, Wake, AWAY, POKE_FLOOR, RUN_LIVE, WATCHING,
+};
 /// The type every read in this crate ultimately produces. Re-exported so the
 /// direction of the seam is visible from the crate that crosses it.
 pub use perseverance_model::Snapshot;
+pub use poller::{start, Poke, Poker, RunHandle, Tick, Timings, Watched};
 pub use read::{
     interpret_read, read_maps, request_body, Answer, FreshRead, ReadFailure, GRAPHQL_ENDPOINT,
     MAP_READ_QUERY,

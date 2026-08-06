@@ -30,8 +30,17 @@ pub const GRAPHQL_ENDPOINT: &str = "https://api.github.com/graphql";
 /// library so that a rate-limit conversation with GitHub can identify us.
 const USER_AGENT: &str = concat!("perseverance/", env!("CARGO_PKG_VERSION"));
 
-/// Long enough for a slow answer, short enough that a poll cannot outlive the
-/// cadence that scheduled it. Measured whole-query latency is ~0.4 s.
+/// Long enough for a slow answer at fifty times the ~0.4 s whole-query latency
+/// measured, and short enough that a read which is never coming back cannot hold
+/// the poller for a minute.
+///
+/// It is deliberately **longer than the fastest rung**, which is ten seconds
+/// (`cadence.rs`), so a slow answer can still be in flight when the next tick
+/// falls due. Nothing stacks: the loop is one thread, it is not back at its
+/// channel while a read is running, and it stamps its next wait from when the
+/// read *returned* rather than from when it started. A deadline shortened to fit
+/// under the rung would be abandoning slow answers to protect an invariant the
+/// loop's shape already holds.
 const DEADLINE: Duration = Duration::from_secs(20);
 
 /// A read that GitHub answered, successfully, once.

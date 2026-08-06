@@ -14,6 +14,8 @@ import {
   openMaps,
   stampAge,
   stampDetail,
+  watchMaps,
+  watching,
   type MapEntry,
   type MapsView,
 } from "../src/maps/maps";
@@ -187,6 +189,24 @@ describe("the cache age is on screen in every state", () => {
 
   it("carries no detail when nothing failed", () => {
     expect(stampDetail(view().provenance)).toBeNull();
+  });
+});
+
+describe("the live read belongs to the poller, and a browser has no poller", () => {
+  it("declares what is being watched and answers nothing, because the answer arrives as an event", async () => {
+    // Both the folder and the launcher-with-nothing-picked state. Neither may
+    // reach for a command that is not there.
+    await expect(watching(1, null)).resolves.toBeUndefined();
+    await expect(watching(null, null)).resolves.toBeUndefined();
+  });
+
+  it("subscribes to nothing in a browser and still hands back a way to stop", async () => {
+    // A caller that had to know whether there was anything to unsubscribe from
+    // would be a caller with a leak on one of the two paths.
+    const stop = await watchMaps(() => {});
+
+    expect(typeof stop).toBe("function");
+    expect(() => stop()).not.toThrow();
   });
 });
 
