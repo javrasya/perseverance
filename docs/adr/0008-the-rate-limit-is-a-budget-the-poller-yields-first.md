@@ -1,6 +1,7 @@
 # 8. The rate limit is a budget the poller yields first, by one formula with no thresholds in it
 
-Status: accepted (2026-08-06)
+Status: accepted (2026-08-06), amended by ADR 0009 (2026-08-06) in the two
+places marked *landed* below. Still in force everywhere else.
 Context: [#39 the rate-limit budget
 floor](https://github.com/javrasya/perseverance/issues/39), under the spec
 [#28](https://github.com/javrasya/perseverance/issues/28), stories 108 and 109.
@@ -140,7 +141,13 @@ read that is asking — without which a click at a completely full budget report
 previous tick, because now is what the next wait is measured from. What it does
 not fold in is a failure this tick has not reported yet; `backoff_floor` is a
 stub that cannot change any answer, and #40 is where that argument has to be
-made.
+made. *(Landed: #40 made it the other way. `backoff_floor` is no longer a stub —
+it answers `Never` for `AuthFailed` and `MapGone` — so a tick that failed has to
+be held by the backoff it just earned rather than by the one before it, and
+`Watch::ahead` now folds the tick's own failure in through `folded`. That also
+widened `Ahead` from `Option<Budget>` to the whole `Tick`, because `None` could
+not tell *a read that reported no rateLimit* from *a read that failed* — ADR
+0009.)*
 
 **`last_tick` is the anchor every floor is measured from, so nothing erases
 it — not even a change of folder. This is the second reversal of ADR 0007**,
@@ -225,7 +232,12 @@ the only real *no constraint*.
 `Floor::Never` now has one producer and one ticket waiting for it rather than
 two. ADR 0007 introduced the variant partly on #39's account; #39 does not use
 it, #40 still will, and this is the record that it was revisited rather than
-overlooked. Nothing else about the composition moved: the `max`, the lattice,
+overlooked. *(Landed: #40 is that second producer, for `AuthFailed` and
+`MapGone`. The argument above — that `Never` is absorbing, so a floor answering
+it stops the read that would have told it otherwise — still holds and is still
+why the budget does not answer it; what differs is that a revoked token needs a
+person either way, and the human-poke clause sits one line above the stop —
+ADR 0009.)* Nothing else about the composition moved: the `max`, the lattice,
 the tie kept by the incumbent, `Held`, and the poke being a term are all
 untouched, which is what ADR 0007 set out to make possible.
 

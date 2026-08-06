@@ -11,16 +11,21 @@
  * The set is chosen for the states a graph is hard to get into on purpose — an
  * unclassified child, a closed ticket whose blocker is still open, two spec
  * children, a spec child that would otherwise be takeable, a map with nothing
- * on it, a closed map, and a poll that failed. Those are the ones worth being
- * able to look at without waiting for GitHub to produce one.
+ * on it, a closed map, and **each of the four conditions a failed poll can be
+ * in**. The last of those is why there are four failure fixtures and not one: a
+ * browser has no way to revoke a token or delete a repository, and two of the
+ * four stop the poller and print a remedy while the other two keep trying.
  */
 
 import type { Snapshot } from "./model.generated";
 
+import authFailed from "./fixtures/auth-failed.json";
 import awkwardMap from "./fixtures/awkward-map.json";
 import emptyMap from "./fixtures/empty-map.json";
 import mapClosed from "./fixtures/map-closed.json";
+import mapGone from "./fixtures/map-gone.json";
 import noMapOpen from "./fixtures/no-map-open.json";
+import rateLimited from "./fixtures/rate-limited.json";
 import specComposed from "./fixtures/spec-composed.json";
 import twoMapsOneOpen from "./fixtures/two-maps-one-open.json";
 import unreachable from "./fixtures/unreachable.json";
@@ -36,10 +41,13 @@ import unreachable from "./fixtures/unreachable.json";
 const AS_GENERATED = (json: unknown) => json as Snapshot;
 
 export const FIXTURES = {
+  "auth-failed": AS_GENERATED(authFailed),
   "awkward-map": AS_GENERATED(awkwardMap),
   "empty-map": AS_GENERATED(emptyMap),
   "map-closed": AS_GENERATED(mapClosed),
+  "map-gone": AS_GENERATED(mapGone),
   "no-map-open": AS_GENERATED(noMapOpen),
+  "rate-limited": AS_GENERATED(rateLimited),
   "spec-composed": AS_GENERATED(specComposed),
   "two-maps-one-open": AS_GENERATED(twoMapsOneOpen),
   unreachable: AS_GENERATED(unreachable),

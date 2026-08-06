@@ -35,6 +35,28 @@ open: number,
 specs: number, };
 
 /**
+ * Why a read did not land, as a structure rather than as prose.
+ *
+ * **Four conditions, and the question they answer is not *what happened* but
+ * *is waiting going to help*.** Two of them say yes and two say no, and that
+ * split is the whole of #40: backing off forever on a revoked token is silent
+ * failure wearing a retry costume, and an operator watching a stamp age
+ * assumes a flaky network when the fix is one command.
+ *
+ * It lives in the model crate because it crosses the seam in both directions.
+ * The WebView keys a condition on the graph off it; the poller keys a floor
+ * off the same taxonomy. Classifying at either end instead would be two
+ * classifiers, and two classifiers are two answers that disagree the day
+ * somebody edits one of them.
+ *
+ * The raw detail is deliberately **not** in here. It rides beside this on
+ * [`ReadOutcome::Failed`], in the words of whichever crate established it, so
+ * that what the app *concluded* and what it was *told* stay two things. A
+ * reason with the sentence folded into it is a reason somebody parses.
+ */
+export type Degraded = { "reason": "unreachable" } | { "reason": "authFailed" } | { "reason": "mapGone" } | { "reason": "rateLimited", resetsAt: string | null, };
+
+/**
  * One map, derived.
  */
 export type Map = { number: number, title: string, 
@@ -137,7 +159,7 @@ export type Provenance = { source: Source, outcome: ReadOutcome,
  */
 fetchedAt: string | null, };
 
-export type ReadOutcome = { "kind": "ok" } | { "kind": "failed", "detail": string } | { "kind": "notAttempted" };
+export type ReadOutcome = { "kind": "ok" } | { "kind": "failed", reason: Degraded, detail: string, } | { "kind": "notAttempted" };
 
 /**
  * Everything the WebView is given for one tick.

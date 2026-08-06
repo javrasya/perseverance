@@ -113,9 +113,9 @@
     "outcome": {
       "kind": "failed",
       "reason": {
-        "reason": "unreachable"
+        "reason": "mapGone"
       },
-      "detail": "the read did not complete: dns error: failed to look up the address of api.github.com"
+      "detail": "the answer carried no repository, so it is not an answer about this one"
     },
     "fetchedAt": "2026-08-05T08:00:00Z"
   }

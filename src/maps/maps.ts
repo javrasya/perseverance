@@ -19,10 +19,15 @@
  *
  * `maps.fixture.json` is what stands behind this in a browser with no Rust: it
  * carries an open map, a completed one, and a stamp that is already old,
- * because a cache with age on it is a state a fresh browser cannot conjure.
+ * because a cache with age on it is a state a fresh browser cannot conjure. The
+ * conditions a failed read can be in are conjured no more easily, and
+ * [`loadFixture`] borrows those from the generated snapshot fixtures rather
+ * than keeping a second, hand-written account of them.
  */
 
-import { hasRustBehindIt, type Provenance } from "../snapshot/snapshot";
+import { stampReason } from "../chrome/stamp";
+import { FIXTURES, requestedFixture } from "../snapshot/fixtures";
+import { hasRustBehindIt, type Degraded, type Provenance } from "../snapshot/snapshot";
 import fixture from "./maps.fixture.json";
 
 /** The label a map is discovered by. Mirrors `perseverance_model::MAP_LABEL`. */
@@ -74,6 +79,38 @@ export interface MapsView {
   yieldingToRateLimit: boolean;
 }
 
+/* ------------------------------------------------------- the condition --- */
+
+/**
+ * The two conditions that stop a read rather than delaying one, as a type.
+ *
+ * A subset of [`Degraded`] and not a parallel spelling of it: narrowing here is
+ * what lets the copy below be exhaustive over exactly the cases that can reach
+ * it, so a fifth condition added in Rust is a compile error rather than a
+ * section rendering `undefined`.
+ */
+export type StoppedReading = Extract<Degraded, { reason: "authFailed" | "mapGone" }>;
+
+/**
+ * Whether the poller has *stopped* reading, as opposed to merely not having
+ * landed a read yet.
+ *
+ * Exactly the two conditions retrying cannot fix, which is the same partition
+ * `backoff_floor` makes on the Rust side — and the reason it is spelled here
+ * rather than inferred from a boolean is that the two halves have to agree: the
+ * floor answering `Never` and this returning non-`null` are one fact, and a
+ * flag beside the condition would be a second one to keep in step.
+ *
+ * A rate limit is not on this list. It is a wait with an end on it, and a
+ * control disabled for it would come back by itself while an operator sat
+ * looking at a reason to give up.
+ */
+export function stoppedReading(view: MapsView): StoppedReading | null {
+  const reason = stampReason(view.provenance);
+  if (reason === null) return null;
+  return reason.reason === "authFailed" || reason.reason === "mapGone" ? reason : null;
+}
+
 /* ------------------------------------------------------------- loading --- */
 
 /**
@@ -95,12 +132,38 @@ export function nothingReadYet(folderId: number): MapsView {
 
 const fixtureView = fixture as unknown as MapsView;
 
-/** A copy each time, so a caller editing one cannot edit the preview itself. */
-export function loadFixture(folderId: number): MapsView {
-  return {
+/**
+ * A copy each time, so a caller editing one cannot edit the preview itself —
+ * and, when `dev:web` was asked for a failed read, the same condition on this
+ * list as on the model beside it.
+ *
+ * **The condition is taken from the snapshot fixture rather than written down
+ * here.** Those files are the model crate's own output, compared byte for byte
+ * on every `cargo test`, so a reason and a sentence lifted from one cannot come
+ * to disagree with what Rust would actually have sent. A second hand-written
+ * failure in `maps.fixture.json` would be exactly that drift, with nothing
+ * checking it.
+ *
+ * One parameter drives both, for the same reason: `?map=auth-failed` is a
+ * window in one state, and two parameters would let a browser paint a stopped
+ * stamp over a healthy list — a screen the app itself cannot produce.
+ */
+export function loadFixture(folderId: number, search?: string): MapsView {
+  const copy: MapsView = {
     ...fixtureView,
     folderId,
     maps: fixtureView.maps.map((map) => ({ ...map })),
+  };
+
+  const asked = FIXTURES[requestedFixture(search)].provenance.outcome;
+  if (asked.kind !== "failed") return copy;
+
+  return {
+    ...copy,
+    provenance: { ...copy.provenance, outcome: asked },
+    // A failed read reports no budget, exactly as `MapsView::stale` clears it
+    // on the Rust side.
+    rateLimit: null,
   };
 }
 
@@ -196,8 +259,21 @@ export function hasBeenRead(view: MapsView): boolean {
  * subsystems stamping the same `Provenance` in two vocabularies is exactly the
  * drift the phrasing is centralised to prevent. Re-exported here because a
  * caller holding a `MapsView` should not have to know where the words live.
+ *
+ * Only what a caller of that kind actually reaches for. `stampReason` was in
+ * this block and imported from it by nobody — the module above uses it, and
+ * `chrome/` uses its own — while `CONDITIONS` and `REMEDY`, which `MapList`
+ * and its tests genuinely do hold a `MapsView` to reach, were not here at all.
+ * A re-export nothing imports is a claim about callers that no caller makes.
  */
-export { describeStamp, stampAge, stampDetail, stampSource } from "../chrome/stamp";
+export {
+  CONDITIONS,
+  REMEDY,
+  describeStamp,
+  stampAge,
+  stampDetail,
+  stampSource,
+} from "../chrome/stamp";
 
 /* ---------------------------------------------------------------- copy --- */
 
@@ -246,3 +322,23 @@ export const NOT_READ_COPY =
  */
 export const TRUNCATED_NOTE =
   "GitHub answered with more than one page, which its own limits say cannot happen. Some of what is here is not on screen.";
+
+/**
+ * What a section says when the poller has stopped reading it.
+ *
+ * One sentence per condition, and each says the same two things: what is on
+ * screen is a copy, and what would replace it is not coming without somebody
+ * doing something. Neither of them says *error* — the read stopped for a reason
+ * that is now true of the world, and an operator who reads *failed* goes
+ * looking for something to have gone wrong on their machine.
+ *
+ * The command is not in here. It comes from `chrome/stamp.ts`'s `REMEDY`, which
+ * is one table for the whole app, so the fixing command an operator reads under
+ * a map list and the one on the stamp cannot be two different commands.
+ */
+export const STOPPED_COPY: Record<StoppedReading["reason"], string> = {
+  authFailed:
+    "This list is the last copy read. Nothing newer will arrive until GitHub accepts a token again, so nothing here can be started from.",
+  mapGone:
+    "This list is the last copy read. GitHub says this repository is not there, which is not something waiting fixes — open the folder you meant, or check what this one points at.",
+};

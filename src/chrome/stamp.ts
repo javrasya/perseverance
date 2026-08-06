@@ -13,7 +13,7 @@
  * on where it came from and whether the last attempt landed.
  */
 
-import type { Provenance } from "../snapshot/model.generated";
+import type { Degraded, Provenance } from "../snapshot/model.generated";
 import { relativeAge, secondsFromStamp } from "./age";
 
 /**
@@ -49,14 +49,16 @@ export function stampSource(provenance: Provenance): string {
  * a stamp that swapped the age for an error would stop reporting staleness at
  * exactly the moment staleness started mattering.
  *
- * What the failure clause may *not* do is assert which step failed. A read that
- * landed and could not be stored, a read that was never attempted because the
- * folder names no GitHub repository, and a read that could not reach anything
- * all arrive here as the same shape — telling them apart is #40's ticket, and a
- * clause that guessed would be wrong in two cases out of three. So the two
- * clauses say only what is true of the thing on screen: a live read that will
- * not survive the session, or a copy that nothing newer has replaced. The
- * reason itself rides beside this, in the words of whoever established it.
+ * What the failure clause may *not* do is assert which step failed, and that is
+ * unchanged now that the condition crosses. A read that landed and could not be
+ * stored, a read that was never attempted because the folder names no GitHub
+ * repository, and a read that could not reach anything are three different
+ * things and all three are `unreachable`: the taxonomy answers *is waiting
+ * going to help*, which is a different question from *what went wrong*. So
+ * these two clauses go on saying only what is true of the thing on screen — a
+ * live read that will not survive the session, or a copy that nothing newer has
+ * replaced — and the reason itself is [`stampReason`], rendered beside them
+ * with the detail in the words of whoever established it.
  *
  * `yielding` is the poller slowing itself down to leave the rate limit alone.
  * It is Rust's answer to *is the budget the winning term of the interval's
@@ -108,3 +110,59 @@ export function describeStamp(
 export function stampDetail(provenance: Provenance): string | null {
   return provenance.outcome.kind === "failed" ? provenance.outcome.detail : null;
 }
+
+/**
+ * What the app concluded about the read, as the structure Rust decided it in.
+ *
+ * `null` when the last read landed. This is never derived here: which condition
+ * a failure is gets decided once, in `perseverance-github`, from a status, a
+ * header and GitHub's own error `type` — none of which crosses the seam. What
+ * this side does with it is paint.
+ */
+export function stampReason(provenance: Provenance): Degraded | null {
+  return provenance.outcome.kind === "failed" ? provenance.outcome.reason : null;
+}
+
+/**
+ * How a condition reads on screen, in the app's own words.
+ *
+ * Short, because it sits beside an age on one line of chrome and the sentence
+ * that says what actually happened is rendered next to it — see [`stampDetail`]
+ * and the `detail` span in `CacheStamp`.
+ *
+ * *The read did not land* is deliberately not a diagnosis. `unreachable`
+ * classifies five things that never reached a socket as well as a dead network:
+ * an unopenable registry, a folder id nothing answers to, a folder with no
+ * usable `.git`, a folder whose remotes name nothing on GitHub, and a cache row
+ * that could not be written. What all of those share is the only thing this
+ * table may claim — that waiting is worth doing — and the earlier wording,
+ * *could not reach GitHub*, asserted a network failure over a folder that is
+ * simply not a GitHub repository. #28 story 7 asks for an unusable repo to say
+ * exactly what is wrong so it can be told apart from *cannot reach GitHub*, and
+ * what says it is the refusing crate's own sentence beside this name.
+ *
+ * The other three name what GitHub itself answered, which is a claim their
+ * conditions can carry.
+ */
+export const CONDITIONS: Record<Degraded["reason"], string> = {
+  unreachable: "the read did not land",
+  authFailed: "GitHub would not accept this token",
+  mapGone: "GitHub says this is not there",
+  rateLimited: "GitHub asked for a pause",
+};
+
+/**
+ * The one command that fixes it, or `null` where there is no command.
+ *
+ * Only the auth case has one, and it is the whole reason the taxonomy exists:
+ * an operator watching a stamp age assumes a flaky network, and the fix was one
+ * line all along. Every other condition either fixes itself or needs a decision
+ * rather than a command — inventing a remedy for those would be this app
+ * telling somebody to do something nobody established would work.
+ */
+export const REMEDY: Record<Degraded["reason"], string | null> = {
+  unreachable: null,
+  authFailed: "run gh auth login",
+  mapGone: null,
+  rateLimited: null,
+};

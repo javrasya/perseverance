@@ -113,9 +113,9 @@
     "outcome": {
       "kind": "failed",
       "reason": {
-        "reason": "unreachable"
+        "reason": "authFailed"
       },
-      "detail": "the read did not complete: dns error: failed to look up the address of api.github.com"
+      "detail": "GitHub answered with status 401: Bad credentials"
     },
     "fetchedAt": "2026-08-05T08:00:00Z"
   }

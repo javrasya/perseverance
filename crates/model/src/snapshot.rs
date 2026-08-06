@@ -66,12 +66,65 @@ pub enum Source {
     None,
 }
 
+/// Why a read did not land, as a structure rather than as prose.
+///
+/// **Four conditions, and the question they answer is not *what happened* but
+/// *is waiting going to help*.** Two of them say yes and two say no, and that
+/// split is the whole of #40: backing off forever on a revoked token is silent
+/// failure wearing a retry costume, and an operator watching a stamp age
+/// assumes a flaky network when the fix is one command.
+///
+/// It lives in the model crate because it crosses the seam in both directions.
+/// The WebView keys a condition on the graph off it; the poller keys a floor
+/// off the same taxonomy. Classifying at either end instead would be two
+/// classifiers, and two classifiers are two answers that disagree the day
+/// somebody edits one of them.
+///
+/// The raw detail is deliberately **not** in here. It rides beside this on
+/// [`ReadOutcome::Failed`], in the words of whichever crate established it, so
+/// that what the app *concluded* and what it was *told* stay two things. A
+/// reason with the sentence folded into it is a reason somebody parses.
 #[cfg_attr(test, derive(ts_rs::TS), ts(export_to = "model.generated.ts"))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", tag = "kind", content = "detail")]
+#[serde(rename_all = "camelCase", tag = "reason")]
+pub enum Degraded {
+    /// Nothing answered, or what answered could not be read. Retrying is what
+    /// fixes it. Schema drift lands here too: a build that cannot read today's
+    /// answer keeps the last good model and tries again, because a parser this
+    /// build is too old for is not a reason to assert the graph is gone.
+    Unreachable,
+    /// The token is wrong, revoked, or was never acquired. Waiting cannot fix
+    /// it and the remedy is one command.
+    AuthFailed,
+    /// The answer arrived and denied the thing exists. Gone is reported as
+    /// gone rather than retried until somebody notices.
+    MapGone,
+    /// RFC 3339, as `Retry-After` resolved against the moment the answer
+    /// landed. `None` when nothing said when.
+    ///
+    /// The per-variant `rename_all` is not decoration: the enum-level one
+    /// renames *variants*, and a struct variant's fields keep their Rust
+    /// spelling without this — which crosses the seam as `resets_at` and
+    /// deserialises back to `None` from the camel-cased text it wrote.
+    #[serde(rename_all = "camelCase")]
+    RateLimited { resets_at: Option<String> },
+}
+
+#[cfg_attr(test, derive(ts_rs::TS), ts(export_to = "model.generated.ts"))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", tag = "kind")]
 pub enum ReadOutcome {
     Ok,
-    Failed(String),
+    /// What the app concluded, and what it was told, side by side.
+    ///
+    /// Internally tagged now, where it used to be adjacently tagged. The
+    /// `content = "detail"` spelling existed only because this was a newtype
+    /// over a string; a variant carrying two fields has no single content for
+    /// a `content` key to hold.
+    Failed {
+        reason: Degraded,
+        detail: String,
+    },
     /// No read has been attempted.
     NotAttempted,
 }
@@ -124,8 +177,16 @@ impl Snapshot {
     /// Taking `self` by value is the mechanism: there is no way to emit the
     /// failure *beside* the snapshot it aged, so *no silent retry* is a shape
     /// rather than a rule somebody keeps.
-    pub fn aged(mut self, why: String) -> Self {
-        self.provenance.outcome = ReadOutcome::Failed(why);
+    ///
+    /// Both arguments, always. `reason` is what the app concluded and `why` is
+    /// the sentence it was handed; a signature that took one of them would
+    /// force whoever holds the other to invent it, and a condition invented at
+    /// the render site is a condition nobody established.
+    pub fn aged(mut self, reason: Degraded, why: String) -> Self {
+        self.provenance.outcome = ReadOutcome::Failed {
+            reason,
+            detail: why,
+        };
         self
     }
 
@@ -252,24 +313,82 @@ mod tests {
     }
 
     #[test]
-    fn a_failed_read_carries_its_reason_into_the_snapshot() {
+    fn a_failed_read_carries_both_what_was_concluded_and_what_was_said() {
         let json = r#"{
             "schemaVersion": 1,
             "model": { "map": null },
             "provenance": {
                 "source": "cache",
-                "outcome": { "kind": "failed", "detail": "rate limit exhausted" },
+                "outcome": {
+                    "kind": "failed",
+                    "reason": { "reason": "rateLimited", "resetsAt": "2026-08-05T09:00:00Z" },
+                    "detail": "rate limit exhausted"
+                },
                 "fetchedAt": "2026-08-05T08:00:00Z"
             }
         }"#;
 
         let snapshot = Snapshot::from_json_str(json).expect("parses");
 
+        // Two fields and not one. The structure is what decides whether waiting
+        // helps; the sentence is what an operator reads. A shape that folded
+        // them together would leave one of the two to be guessed at.
         assert_eq!(
             snapshot.provenance.outcome,
-            ReadOutcome::Failed("rate limit exhausted".to_string())
+            ReadOutcome::Failed {
+                reason: Degraded::RateLimited {
+                    resets_at: Some("2026-08-05T09:00:00Z".to_string())
+                },
+                detail: "rate limit exhausted".to_string(),
+            }
         );
         assert_eq!(snapshot.provenance.source, Source::Cache);
+    }
+
+    #[test]
+    fn every_condition_a_read_can_be_in_survives_a_round_trip_through_json() {
+        // The taxonomy crosses the seam, so it has to survive the crossing.
+        // One table, because four separate assertions are four chances to
+        // check three of them.
+        let conditions = [
+            (Degraded::Unreachable, "unreachable"),
+            (Degraded::AuthFailed, "authFailed"),
+            (Degraded::MapGone, "mapGone"),
+            (
+                Degraded::RateLimited {
+                    resets_at: Some("2026-08-05T09:00:00Z".to_string()),
+                },
+                "rateLimited",
+            ),
+            // Nothing said when, which is a different fact from a reset now.
+            (Degraded::RateLimited { resets_at: None }, "rateLimited"),
+        ];
+
+        for (reason, tag) in conditions {
+            let snapshot =
+                Snapshot::read(a_read(), Source::Cache, "2026-08-05T08:00:00Z".to_string())
+                    .aged(reason.clone(), "what the crate said".to_string());
+
+            let json: serde_json::Value =
+                serde_json::from_str(&snapshot.to_json_string().expect("serialises"))
+                    .expect("is JSON");
+            assert_eq!(json["provenance"]["outcome"]["kind"], "failed");
+            assert_eq!(json["provenance"]["outcome"]["reason"]["reason"], tag);
+            assert_eq!(
+                json["provenance"]["outcome"]["detail"],
+                "what the crate said"
+            );
+
+            let parsed = Snapshot::from_json_str(&snapshot.to_json_string().expect("serialises"))
+                .expect("parses");
+            assert_eq!(
+                parsed.provenance.outcome,
+                ReadOutcome::Failed {
+                    reason,
+                    detail: "what the crate said".to_string()
+                }
+            );
+        }
     }
 
     #[test]
@@ -277,7 +396,7 @@ mod tests {
         let held = Snapshot::read(a_read(), Source::Cache, "2026-08-05T08:00:00Z".to_string());
         let before = held.model.clone();
 
-        let emitted = held.aged("could not reach GitHub".to_string());
+        let emitted = held.aged(Degraded::Unreachable, "could not reach GitHub".to_string());
 
         // Never silence: there is a snapshot, it carries the same graph, and
         // the stamp is the one the copy already had — which is what makes it
@@ -285,7 +404,10 @@ mod tests {
         assert_eq!(emitted.model, before);
         assert_eq!(
             emitted.provenance.outcome,
-            ReadOutcome::Failed("could not reach GitHub".to_string())
+            ReadOutcome::Failed {
+                reason: Degraded::Unreachable,
+                detail: "could not reach GitHub".to_string(),
+            }
         );
         assert_eq!(
             emitted.provenance.fetched_at.as_deref(),
@@ -296,7 +418,9 @@ mod tests {
     #[test]
     fn a_failed_poll_is_not_a_change() {
         let held = Snapshot::read(a_read(), Source::Github, "2026-08-05T08:00:00Z".to_string());
-        let aged = held.clone().aged("could not reach GitHub".to_string());
+        let aged = held
+            .clone()
+            .aged(Degraded::Unreachable, "could not reach GitHub".to_string());
 
         // The whole reason change detection is the model's and not the
         // snapshot's: a poll that failed moved the stamp and nothing else, and

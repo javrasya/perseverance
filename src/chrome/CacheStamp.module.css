@@ -17,10 +17,68 @@
 }
 
 /*
- * A read that did not land. Ink, not colour: #40 owns the degraded stamp and
- * its dashed-and-hatched vocabulary, and inventing half of it here would be
- * that ticket arriving to find its decisions already made.
+ * A read that did not land. Ink and never colour: a condition on the graph says
+ * the screen is old, and red would make an unplugged network read as an alarm
+ * somebody has to answer.
  */
 .stamp[data-outcome="failed"] {
   --c-stamp-ink: var(--s-ink-faint);
+}
+
+/*
+ * The condition, as texture. Dashed edge and a hatched fill — the vocabulary
+ * this file reserved for #40 — so a degraded stamp is legible as degraded at a
+ * glance, in monochrome, and without reading the words.
+ *
+ * There is nothing animated here and nothing for `prefers-reduced-motion` to
+ * turn off: a pulse would draw the eye to a stamp that is deliberately quiet
+ * chrome, and a still hatch says the same thing in every motion setting. The
+ * hatch is the only fill, so the reduced-motion state and the ordinary one are
+ * the same pixels rather than two states to keep in step.
+ *
+ * Keyed on the condition's presence and not on which one it is. All four are
+ * *this is old*; which of the four is what the words beside it say, and a
+ * second texture per condition would be a legend nobody has.
+ */
+.stamp[data-degraded] {
+  padding: 0 var(--s-space-hair);
+  border: var(--s-border-hairline) dashed var(--s-degraded-edge);
+  border-radius: var(--s-radius-control);
+  background-image: repeating-linear-gradient(
+    45deg,
+    transparent 0 3px,
+    var(--s-degraded-hatch) 3px 5px
+  );
+}
+
+/*
+ * A healthy stamp is one short line and stays on one. A degraded one carries a
+ * whole sentence from whichever crate refused, and a sentence held to one line
+ * either overflows the strip or gets clipped — both of which lose the words
+ * #28 story 7 asks to be readable. So this is the one stamp allowed to wrap.
+ */
+.stamp[data-degraded] {
+  white-space: normal;
+}
+
+/* The short name for the condition, the sentence behind it, and the one
+   command that fixes it. Text rather than a hover, because a reason behind a
+   `title` is a reason nobody reads. */
+.condition {
+  color: var(--s-ink-secondary);
+}
+
+/*
+ * What the refusing crate said, verbatim. Quieter than the condition beside it
+ * because it is the longer half and the eye should land on the class first —
+ * never hidden, though: for `unreachable` this line is the only thing on screen
+ * that says which of five refusals happened.
+ */
+.detail {
+  color: var(--s-ink-faint);
+}
+
+.remedy {
+  color: var(--s-ink-primary);
+  font-weight: var(--s-weight-emphasis);
 }

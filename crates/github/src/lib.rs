@@ -22,8 +22,8 @@
 //! `read.rs` makes: `cadence.rs` is the arithmetic — `max(ladder_floor,
 //! budget_floor, backoff_floor)` over a value that has no clock in it — and
 //! `poller.rs` is the one thread, the one clock and the channel every
-//! off-cadence poke arrives on. One of the three floors is stubbed at zero
-//! here, named after the ticket that fills it.
+//! off-cadence poke arrives on. All three floors are real, and the last of them
+//! is also the only one that can answer *stop*.
 //!
 //! Filled in by:
 //! - #31 token acquisition, in the environment `perseverance-env` harvested
@@ -41,8 +41,8 @@ mod token;
 
 pub use cadence::{
     backoff_floor, budget_floor, interval, ladder_floor, next_wake, Attention, Authority, Budget,
-    Cadence, Floor, Held, Interval, Rung, Wake, AWAY, POKE_FLOOR, QUERY_COST, RESERVE, RUN_LIVE,
-    WATCHING,
+    Cadence, Fault, Floor, Held, Interval, Rung, Wake, AWAY, BACKOFF_BASE, BACKOFF_CAP, POKE_FLOOR,
+    QUERY_COST, RESERVE, RUN_LIVE, WATCHING,
 };
 /// The type every read in this crate ultimately produces. Re-exported so the
 /// direction of the seam is visible from the crate that crosses it.

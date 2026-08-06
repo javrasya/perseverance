@@ -113,9 +113,10 @@
     "outcome": {
       "kind": "failed",
       "reason": {
-        "reason": "unreachable"
+        "reason": "rateLimited",
+        "resetsAt": "2026-08-05T09:00:00Z"
       },
-      "detail": "the read did not complete: dns error: failed to look up the address of api.github.com"
+      "detail": "GitHub answered with status 403: API rate limit exceeded"
     },
     "fetchedAt": "2026-08-05T08:00:00Z"
   }

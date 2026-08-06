@@ -35,6 +35,15 @@
   --s-line-quiet: var(--p-gray-200);
   --s-line-strong: var(--p-gray-300);
   --s-line-absent: var(--p-gray-400);
+  /*
+   * A read that did not land, as a texture rather than as a colour. Neutral on
+   * purpose: a condition on the graph is a statement about what is on screen
+   * being old, and red would make an unplugged network read as an alarm the
+   * operator has to answer. The dash is the edge; the hatch is the fill behind
+   * it, and both are the same ink so a retheme moves them together.
+   */
+  --s-degraded-edge: var(--p-gray-400);
+  --s-degraded-hatch: var(--p-gray-200);
 
   /* Accent */
   --s-accent: var(--p-indigo-500);
@@ -110,6 +119,8 @@
     --s-line-quiet: var(--p-gray-750);
     --s-line-strong: var(--p-gray-600);
     --s-line-absent: var(--p-gray-500);
+    --s-degraded-edge: var(--p-gray-500);
+    --s-degraded-hatch: var(--p-gray-750);
 
     --s-accent: var(--p-indigo-300);
     --s-accent-hover: var(--p-white);
@@ -138,6 +149,8 @@
   --s-line-quiet: var(--p-gray-750);
   --s-line-strong: var(--p-gray-600);
   --s-line-absent: var(--p-gray-500);
+  --s-degraded-edge: var(--p-gray-500);
+  --s-degraded-hatch: var(--p-gray-750);
 
   --s-accent: var(--p-indigo-300);
   --s-accent-hover: var(--p-white);

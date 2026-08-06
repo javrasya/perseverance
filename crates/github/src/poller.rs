@@ -42,7 +42,9 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::cadence::{interval, next_wake, Attention, Authority, Budget, Cadence, Held, Wake};
+use crate::cadence::{
+    interval, next_wake, Attention, Authority, Budget, Cadence, Fault, Held, Wake,
+};
 
 /// Everything that reaches the loop off-cadence.
 ///
@@ -100,8 +102,9 @@ impl Poke {
     /// watched and starting a run all move the ladder; none of them is a reason
     /// to reach for GitHub before the rung they moved it to says so.
     ///
-    /// #40 is what reads this — #19 §5 binds *agent pokes respect backoff, human
-    /// pokes clear it* — so it is pinned by a test before #40 exists.
+    /// [`crate::backoff_floor`] is what reads this, and [`Watch::apply`] is the
+    /// other half: #19 §5's *agent pokes respect backoff, human pokes clear it*
+    /// is this table, a floor clause, and one assignment, and nothing else.
     pub fn authority(&self) -> Option<Authority> {
         match self {
             Poke::Attention(Attention::Focused) => Some(Authority::Human),
@@ -121,12 +124,16 @@ impl Poke {
 /// failed to read GitHub, it has not asked yet. `crates/app`'s token branch
 /// already makes that distinction and this carries it.
 ///
-/// Nothing here classifies a failure. [`crate::ReadFailure`] is deliberately not
-/// a taxonomy and #40 owns the vocabulary; the count of consecutive failures is
-/// all the loop keeps. `Failed` is therefore a unit variant, and #40 is where
-/// it learns what failed — that ticket has to stop rather than back off for the
-/// conditions retrying cannot fix, and a count can only ever say *wait longer*.
-/// [`crate::backoff_floor`] carries the whole of that argument.
+/// **`Failed` carries what failed**, because a count can only ever say *wait
+/// longer* and two of the four conditions have to say *stop*. It carries a
+/// [`Fault`] rather than the model's `Degraded` for one reason: this enum is
+/// `Copy` and the loop passes it around by value, while a `Degraded` owns a
+/// `String`. The conversion happens once, in the tick, at the only place that
+/// has a clock to resolve a stamp against.
+///
+/// Nothing here classifies. The tick is handed a classification the crate that
+/// established the failure made, which is what keeps one taxonomy from becoming
+/// two.
 ///
 /// **A read carries what it saw of the budget back with it**, which is #39's
 /// one change to this shape. #38 left this a unit-ish enum and the numbers a
@@ -148,7 +155,7 @@ impl Poke {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tick {
     Read(Option<Budget>),
-    Failed,
+    Failed(Fault),
     NotAttempted,
 }
 
@@ -251,19 +258,20 @@ impl Drop for RunHandle {
 }
 
 /// What the composition will answer for the wait that follows this tick, given
-/// whatever the tick just read of the budget.
+/// what the tick is about to return.
 ///
-/// A query rather than a value, because the only thing that has parsed those
-/// numbers is the tick that is asking. Pass `None` for *this poll established
-/// nothing about the budget* — a failure, a read with no `rateLimit`, a poll
-/// that was never attempted — and the answer is computed against whatever was
-/// last established, aged to now.
+/// A query rather than a value, because the only thing that has parsed a
+/// budget or classified a failure is the tick that is asking.
 ///
-/// It does not fold in a failure this tick is about to report: nothing knows
-/// that yet, and [`crate::backoff_floor`] is a stub that cannot change any
-/// answer. #40 is where a tick that failed starts changing which floor holds
-/// the next wait, and this is the argument that will have to carry it.
-pub type Ahead<'a> = dyn Fn(Option<Budget>) -> Held + 'a;
+/// **It takes the whole [`Tick`]**, which is the honest widening #40 needed and
+/// #39 lived without. An `Option<Budget>` could not tell *a read that reported
+/// no `rateLimit`* from *nothing was attempted* — a conflation that cost
+/// nothing while every failure held the same floor, and costs correctness now
+/// that a failure changes which floor holds the next wait. So the value passed
+/// here is literally the value the tick is about to return, and
+/// [`folded`] is what both this and the loop's own bookkeeping go through, so
+/// the prospective answer and the actual one cannot disagree.
+pub type Ahead<'a> = dyn Fn(Tick) -> Held + 'a;
 
 /// Starts the loop on its own named thread and hands back the way to poke it.
 ///
@@ -309,7 +317,27 @@ struct Watch {
     idle_since: Option<Instant>,
     last_tick: Option<Instant>,
     failures: u32,
+    last_fault: Option<Fault>,
     seen: Option<Seen>,
+}
+
+/// What a tick does to the two fields the backoff is a function of.
+///
+/// Extracted because it is asked twice — once prospectively by [`Watch::ahead`]
+/// for the floor the tick reports, and once for real by [`pump`] — and two
+/// copies of this fold are two answers that disagree about whether the poller
+/// is stopped the moment somebody edits one of them.
+///
+/// A read resets both, which is #19 §5's *reset to zero on the first success*.
+/// [`Tick::NotAttempted`] changes neither: a launch whose harvest has not
+/// settled has not failed to read GitHub, and nothing learned is not evidence
+/// against what was.
+fn folded(failures: u32, last: Option<Fault>, tick: Tick) -> (u32, Option<Fault>) {
+    match tick {
+        Tick::Read(_) => (0, None),
+        Tick::Failed(fault) => (failures.saturating_add(1), Some(fault)),
+        Tick::NotAttempted => (failures, last),
+    }
 }
 
 /// What the last answer said about the budget, and **when it said it**.
@@ -336,11 +364,24 @@ impl Watch {
             idle_since: None,
             last_tick: None,
             failures: 0,
+            last_fault: None,
             seen: None,
         }
     }
 
     fn apply(&mut self, arrived: Poke) {
+        // A person saying *try now* clears the backoff state, as well as being
+        // answered zero by the floor that reads the authority. **Both, and they
+        // are not the same thing.** The floor is what makes *this* wait zero;
+        // the clearing is what stops the tick that poke bought from falling
+        // straight back to `Never` the moment the poke is spent. Without the
+        // floor, a stopped poller could not be started at all; without the
+        // clearing, it could be started exactly once per click forever.
+        if arrived.authority() == Some(Authority::Human) {
+            self.failures = 0;
+            self.last_fault = None;
+        }
+
         match arrived {
             Poke::Attention(next) => {
                 self.attention = next;
@@ -412,6 +453,7 @@ impl Watch {
             // poll at the reset would cost another.
             budget: self.aged_to(self.last_tick),
             consecutive_failures: self.failures,
+            last_fault: self.last_fault,
         }
     }
 
@@ -431,24 +473,42 @@ impl Watch {
         })
     }
 
-    /// Which floor will hold the wait that follows a tick reporting `reported`.
+    /// Which floor will hold the wait that follows a tick reporting `tick`.
     ///
-    /// The whole of the [`Ahead`] seam, and three things separate it from
+    /// The whole of the [`Ahead`] seam, and four things separate it from
     /// [`Watch::cadence`]:
     ///
     /// - the budget is the one this very read parsed, when it parsed one. That
     ///   is what makes the poll at the reset say *not yielding* and the first
     ///   poll of a drained cold start say *yielding*;
+    /// - the failure this tick is about to report is folded in, through the
+    ///   same [`folded`] the loop below applies for real. A tick that failed is
+    ///   the first thing to be held by the backoff it just earned, and a tick
+    ///   that succeeded is the first thing not to be held by the one it just
+    ///   cleared;
     /// - the poke is spent. The tick asking is the read that poke bought, so the
     ///   wait it is handing back to is on the rung and not on `POKE_FLOOR` —
     ///   without which every click at a full budget would report `Held::Budget`,
-    ///   the two-second pacing having merely out-waited the one-second poke;
+    ///   the two-second pacing having merely out-waited the one-second poke.
+    ///   Spending it also stops a human poke reporting a cleared backoff for a
+    ///   tick that has just failed again;
     /// - and a kept horizon ages to *now* rather than to the previous tick,
     ///   because now is the moment the next wait will be measured from.
-    fn ahead(&self, runs_live: usize, reported: Option<Budget>) -> Held {
+    fn ahead(&self, runs_live: usize, tick: Tick) -> Held {
+        // Only a read establishes anything about the budget. A failure and a
+        // poll nobody attempted both fall back on what was last established,
+        // aged to now.
+        let reported = match tick {
+            Tick::Read(budget) => budget,
+            Tick::Failed(_) | Tick::NotAttempted => None,
+        };
+        let (consecutive_failures, last_fault) = folded(self.failures, self.last_fault, tick);
+
         let entering = Cadence {
             poke: None,
             budget: reported.or_else(|| self.aged_to(Some(Instant::now()))),
+            consecutive_failures,
+            last_fault,
             ..self.cadence(runs_live)
         };
 
@@ -528,32 +588,29 @@ where
         let at = Instant::now();
         watch.last_tick = Some(at);
         watch.poke = None;
-        match outcome {
-            Tick::Read(budget) => {
-                watch.failures = 0;
-                // Only when the answer actually reported one. The same moment
-                // `last_tick` was stamped with, so the horizon and the wait it
-                // will be reconciled against start together and cannot drift by
-                // however long the read took.
-                if let Some(budget) = budget {
-                    watch.seen = Some(Seen { budget, at });
-                }
-            }
-            Tick::Failed => watch.failures = watch.failures.saturating_add(1),
-            // Nothing was attempted, so nothing failed. `last_tick` still moves,
-            // which is what stops a launch whose harvest has not settled from
-            // spinning on a rung it can do nothing about — and the horizon ages
-            // with it, because that pass consumed the same seconds a read would
-            // have.
-            Tick::NotAttempted => {}
+        // Only when the answer actually reported one. The same moment
+        // `last_tick` was stamped with, so the horizon and the wait it will be
+        // reconciled against start together and cannot drift by however long
+        // the read took.
+        if let Tick::Read(Some(budget)) = outcome {
+            watch.seen = Some(Seen { budget, at });
         }
+        // The same fold the tick was already answered from, applied for real.
+        // `NotAttempted` changes neither field and still moves `last_tick`,
+        // which is what stops a launch whose harvest has not settled from
+        // spinning on a rung it can do nothing about — and the horizon ages
+        // with it, because that pass consumed the same seconds a read would
+        // have.
+        let (failures, last_fault) = folded(watch.failures, watch.last_fault, outcome);
+        watch.failures = failures;
+        watch.last_fault = last_fault;
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cadence::{POKE_FLOOR, RESERVE, RUN_LIVE, WATCHING};
+    use crate::cadence::{Floor, POKE_FLOOR, RESERVE, RUN_LIVE, WATCHING};
 
     /// A window small enough that a test waits milliseconds for it, and large
     /// enough that a scheduling hiccup between two sends does not close it.
@@ -598,7 +655,7 @@ mod tests {
     fn budgeted_by(budget: Budget) -> (Poker, Receiver<Held>) {
         let (ticks, taken) = mpsc::channel();
         let poker = start(Timings::shipped(), move |_watched, ahead| {
-            let _ = ticks.send(ahead(Some(budget)));
+            let _ = ticks.send(ahead(Tick::Read(Some(budget))));
             Tick::Read(Some(budget))
         })
         .expect("spawns");
@@ -701,7 +758,7 @@ mod tests {
         // A cold start that finds the budget already drained. Served on the
         // ladder, handing over to an hour of the budget.
         assert_eq!(interval(&watching.cadence(0)).held_by, Held::Ladder);
-        assert_eq!(watching.ahead(0, Some(drained)), Held::Budget);
+        assert_eq!(watching.ahead(0, Tick::Read(Some(drained))), Held::Budget);
 
         // And the mirror, which is the one that puts a false sentence on a
         // stamp: the poll that fires *at* the reset was served on that
@@ -718,7 +775,7 @@ mod tests {
             ..watching
         };
         assert_eq!(interval(&stopped.cadence(0)).held_by, Held::Budget);
-        assert_eq!(stopped.ahead(0, Some(refilled)), Held::Ladder);
+        assert_eq!(stopped.ahead(0, Tick::Read(Some(refilled))), Held::Ladder);
 
         // And the poke that bought this read is spent by it. A full budget paces
         // at two seconds and `POKE_FLOOR` is one, so the term that won the wait
@@ -734,7 +791,25 @@ mod tests {
             ..watching
         };
         assert_eq!(interval(&poked.cadence(0)).held_by, Held::Budget);
-        assert_eq!(poked.ahead(0, Some(refilled)), Held::Ladder);
+        assert_eq!(poked.ahead(0, Tick::Read(Some(refilled))), Held::Ladder);
+
+        // And the tick that *failed* is the first thing held by the backoff it
+        // just earned, rather than the last thing held by the floor it waited
+        // out. Four failures is eighty seconds, which beats the minute; the
+        // fourth one is reported by the tick that made it the fourth.
+        let failing = Watch {
+            failures: 3,
+            last_fault: Some(Fault::Unreachable),
+            last_tick: Some(now),
+            ..watching
+        };
+        assert_eq!(interval(&failing.cadence(0)).held_by, Held::Ladder);
+        assert_eq!(
+            failing.ahead(0, Tick::Failed(Fault::Unreachable)),
+            Held::Backoff
+        );
+        // And the read that ends the run is the first thing not held by it.
+        assert_eq!(failing.ahead(0, Tick::Read(None)), Held::Ladder);
     }
 
     #[test]
@@ -827,6 +902,178 @@ mod tests {
         );
     }
 
+    /// A poller whose reads all fail with the same condition, reporting each
+    /// attempt down a channel so a test can time the waits between them.
+    fn failing_with(fault: Fault) -> (Poker, Receiver<()>) {
+        let (ticks, taken) = mpsc::channel();
+        let poker = start(Timings::shipped(), move |_watched, _ahead| {
+            let _ = ticks.send(());
+            Tick::Failed(fault)
+        })
+        .expect("spawns");
+        (poker, taken)
+    }
+
+    #[test]
+    fn a_run_of_failures_backs_the_poller_off_and_one_success_resets_it() {
+        /*
+         * Timed against the ladder rather than against the clock: a failure
+         * earns ten seconds, which is longer than the fastest rung, so what
+         * this measures is a wait that would not exist without the backoff.
+         *
+         * **The doubling is not what this pins**, and the comments here used to
+         * say it was. A human poke clears `failures` and `last_fault` in
+         * `Watch::apply` before the read it buys is taken, so the count is back
+         * at one after that read and the wait it earns is the first rung again
+         * — the second rung is never reached inside this loop, because the only
+         * way to get a read out of a backed-off poller is the poke that zeroes
+         * it. The ladder of numbers is `backoff_floor`'s and is pinned by its
+         * own table next door.
+         *
+         * What this does pin is the half no table can: that the loop *carries*
+         * the state — an agent poke does not get under a standing backoff, a
+         * human one does, and one success clears what the failures earned.
+         */
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let counted = Arc::clone(&attempts);
+        let (ticks, taken) = mpsc::channel();
+        let poker = start(Timings::shipped(), move |_watched, _ahead| {
+            let _ = ticks.send(());
+            match counted.fetch_add(1, Ordering::SeqCst) {
+                0 | 1 => Tick::Failed(Fault::Unreachable),
+                _ => Tick::Read(None),
+            }
+        })
+        .expect("spawns");
+
+        poker.poke(Poke::Watching(Some(a_folder())));
+        taken
+            .recv_timeout(Duration::from_secs(2))
+            .expect("the first read, which failed");
+
+        // Ten seconds of backoff now stands, and an agent poke respects it —
+        // which is the whole of *`Signal::Idle` must not hammer a dead
+        // endpoint*.
+        poker.poke(Poke::Idle);
+        poker.poke(Poke::RunExited);
+        assert!(
+            taken.recv_timeout(Duration::from_secs(2)).is_err(),
+            "an agent poke got under the backoff"
+        );
+
+        // A person can — the poke clears the count and the floor answers zero,
+        // both — and the read they buy fails too, so a fresh ten seconds
+        // stands behind it.
+        poker.poke(Poke::Attention(Attention::Focused));
+        taken
+            .recv_timeout(Duration::from_secs(2))
+            .expect("the read a person asked for");
+
+        poker.poke(Poke::Idle);
+        assert!(
+            taken.recv_timeout(Duration::from_secs(2)).is_err(),
+            "an agent poke got under the backoff the second failure earned"
+        );
+
+        // The third attempt lands. The backoff resets on the first success, so
+        // an agent poke reaches GitHub again immediately afterwards.
+        poker.poke(Poke::Attention(Attention::Focused));
+        taken
+            .recv_timeout(Duration::from_secs(2))
+            .expect("the read that succeeded");
+
+        std::thread::sleep(POKE_FLOOR + Duration::from_millis(100));
+        poker.poke(Poke::Idle);
+        taken
+            .recv_timeout(Duration::from_secs(3))
+            .expect("one success is what clears the backoff");
+    }
+
+    #[test]
+    fn a_revoked_token_stops_the_poller_rather_than_leaving_it_retrying_forever() {
+        // The condition the whole taxonomy exists for. A doubling would have
+        // read as an ordinary wait here and gone on reading as one for the life
+        // of the process; `Floor::Never` is what makes the ladder stop asking.
+        let (poker, taken) = failing_with(Fault::AuthFailed);
+
+        poker.poke(Poke::Watching(Some(a_folder())));
+        taken
+            .recv_timeout(Duration::from_secs(2))
+            .expect("the read that found no token worth having");
+
+        // Everything a machine has to ask a read with. None of them may get
+        // under a stop — an adapter that went quiet during an outage is exactly
+        // what would otherwise hammer a dead endpoint.
+        for _ in 0..3 {
+            poker.poke(Poke::Idle);
+            poker.poke(Poke::RunExited);
+            poker.poke(Poke::EnvironmentSettled);
+        }
+        assert!(
+            taken.recv_timeout(Duration::from_secs(2)).is_err(),
+            "the poller went on retrying a condition retrying cannot fix"
+        );
+    }
+
+    #[test]
+    fn a_person_can_start_a_stopped_poller_again_and_an_agent_cannot() {
+        // `Never` is absorbing, so a stop with no way out is a poller that
+        // needs the app restarted. The way out is the authority, and it is the
+        // only way out — which is also what stops the ticket a poke bought from
+        // falling back into the stop before it has been read.
+        let (poker, taken) = failing_with(Fault::MapGone);
+
+        poker.poke(Poke::Watching(Some(a_folder())));
+        taken
+            .recv_timeout(Duration::from_secs(2))
+            .expect("the read that found the map gone");
+
+        poker.poke(Poke::Idle);
+        assert!(
+            taken.recv_timeout(Duration::from_millis(400)).is_err(),
+            "an agent started a stopped poller"
+        );
+
+        poker.poke(Poke::Attention(Attention::Focused));
+        taken
+            .recv_timeout(Duration::from_secs(2))
+            .expect("a person saying try now");
+
+        // And it stops again on the read they bought, rather than the clearing
+        // outliving the poke that did it.
+        poker.poke(Poke::Idle);
+        assert!(
+            taken.recv_timeout(Duration::from_millis(400)).is_err(),
+            "the clearing outlived the poke that bought it"
+        );
+    }
+
+    #[test]
+    fn a_tick_that_was_never_attempted_forgets_neither_the_count_nor_the_condition() {
+        // The fold, at the one row where *unchanged* is the answer and the
+        // other two rows are not. A launch whose harvest has not settled has
+        // learned nothing, and nothing learned is not evidence against what was.
+        let held = folded(3, Some(Fault::Unreachable), Tick::NotAttempted);
+        assert_eq!(held, (3, Some(Fault::Unreachable)));
+
+        assert_eq!(
+            folded(3, Some(Fault::Unreachable), Tick::Failed(Fault::MapGone)),
+            (4, Some(Fault::MapGone))
+        );
+        // One success clears both, and the condition with them: a poller that
+        // kept the last fault after a read that landed would go on stopping for
+        // a token that has since been renewed.
+        assert_eq!(
+            folded(3, Some(Fault::AuthFailed), Tick::Read(None)),
+            (0, None)
+        );
+        // And the count cannot wrap however long the outage runs.
+        assert_eq!(
+            folded(u32::MAX, None, Tick::Failed(Fault::Unreachable)),
+            (u32::MAX, Some(Fault::Unreachable))
+        );
+    }
+
     #[test]
     fn a_run_is_live_while_its_handle_is_held_and_no_longer_than_that() {
         let (poker, _taken) = watched_by(Timings::shipped());
@@ -868,6 +1115,11 @@ mod tests {
 
     #[test]
     fn every_poke_carries_the_authority_the_backoff_floor_will_read() {
+        // Pinned in #38 with no reader, for this day. What reads it now is
+        // `backoff_floor`'s first clause and `Watch::apply`'s first three
+        // lines, so the second half of this test walks the same table into
+        // both of them: a poke that is a person clears a stop, and a poke that
+        // is a machine does not.
         let pokes = [
             (Poke::Attention(Attention::Focused), Some(Authority::Human)),
             (Poke::Attention(Attention::Unfocused), None),
@@ -880,8 +1132,35 @@ mod tests {
             (Poke::EnvironmentSettled, Some(Authority::Agent)),
         ];
 
-        for (poke, expected) in pokes {
+        for (poke, expected) in pokes.clone() {
             assert_eq!(poke.authority(), expected, "{poke:?}");
+        }
+
+        for (poke, expected) in pokes {
+            let mut stopped = Watch {
+                failures: 4,
+                last_fault: Some(Fault::AuthFailed),
+                watched: Some(a_folder()),
+                ..Watch::new()
+            };
+            stopped.apply(poke.clone());
+
+            let cleared = (stopped.failures, stopped.last_fault) == (0, None);
+            assert_eq!(
+                cleared,
+                expected == Some(Authority::Human),
+                "{poke:?} cleared the backoff: {cleared}"
+            );
+            // And the composition agrees with the field, which is what makes
+            // the two halves of *human pokes clear it* one rule rather than
+            // two. The wait a person gets is the poke floor rather than zero —
+            // clearing a backoff is not a way round the `max` — but it is a
+            // wait, where every other poke still gets a refusal.
+            assert_eq!(
+                interval(&stopped.cadence(0)).wait != Floor::Never,
+                expected == Some(Authority::Human),
+                "{poke:?}"
+            );
         }
     }
 

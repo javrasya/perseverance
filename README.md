@@ -30,7 +30,10 @@ browser cannot conjure. So does the diagnostics panel:
 shell and a Windows transcript, none of which a browser can produce either. And
 so does the map list: `src/maps/maps.fixture.json` carries an open map, a
 completed one, and a read that is already old, because a cache with age on it is
-a state a fresh browser has no way to reach.
+a state a fresh browser has no way to reach. The four conditions a read can fail
+in — unreachable, auth-failed, map-gone, rate-limited — are four more such
+states, and they are generated from the model crate rather than written by hand,
+so `dev:web` can show a revoked token without one existing.
 
 `perseverance-store` is the sixth crate rather than a corner of the shell
 because it carries real policy — refusing a schema version this build does not
@@ -231,12 +234,25 @@ check that cannot fail.
   would all ship green. `cargo test --workspace -- --ignored` on a machine whose
   operator has signed in is the only thing that catches them, and no runner
   takes it.
-- **One of the three floors under the `max` returns zero.** `interval =
-  max(ladder_floor, budget_floor, backoff_floor)` is composed, the ladder and
-  budget floors are real, and `backoff_floor` (#40) is a stub that cannot change
-  any answer — a test says so across every failure count and authority, so the
-  day it lands is the day that test fails. Until then a failing read is retried
-  at the same rung as a succeeding one.
+- **No rate-limit header has ever been seen from a real GitHub.** Both of the
+  documented forms are read in `send` — `Retry-After`, and otherwise
+  `x-ratelimit-remaining: 0` beside `x-ratelimit-reset` — resolved to one moment
+  in `when_it_resets`, and honoured exactly by `backoff_floor`. From a
+  fabricated `Answer` in every test there is: this machine has not tripped a
+  secondary rate limit, so the parse (whole numbers, and only whole numbers — an
+  HTTP-date `Retry-After` is deliberately refused as *nothing said when*) is
+  asserted against text this repository wrote down. A 403 that named a reset in
+  neither form still falls back to `AuthFailed`, which stops: the safe direction
+  of what is left, and still the wrong answer if GitHub ever adds a third
+  form.
+- **`NoRepository` reading as `MapGone` is a judgement, not a measurement.**
+  `data.repository` is null when the repository is not there *or* when the token
+  cannot see it, and the second of those is an auth condition wearing a
+  not-found costume. It is classified as gone because the remedy in both cases
+  is a decision — pick another folder, or fix what the token can see — rather
+  than a wait, and because the alternative reading stops the poller with a
+  command that would not help. A token whose scopes were narrowed mid-session
+  therefore reads as *GitHub says this is not there*.
 - **The budget clause reports which term won, not how much yielding there is.**
   It is on while the budget beats the rung it is being compared against, and the
   rung depends on whether the window has the operator — so over an hour a
@@ -280,11 +296,21 @@ check that cannot fail.
   into the tick is a slice of its own and folding it in here would have doubled
   this diff, and the frontend still reads the snapshot once at mount. So the
   Route pane is drawn from something nothing refreshes.
-- **The rung is on screen nowhere, and only one of the three floors is.** A
-  poller stuck on the five-minute rung looks exactly like one that is working.
-  The winning term now crosses on the map list, but the only thing it paints is
-  the budget clause — a poller held by #40's backoff will look, when that lands,
-  exactly like one held by the ladder.
+- **The rung is on screen nowhere, and two of the three floors are.** A poller
+  stuck on the five-minute rung looks exactly like one that is working. The
+  budget clause paints while the budget is the winning term, and a read that did
+  not land paints its condition on the stamp — but a poller merely *backing off*
+  after one failure, with the last read still on screen and still recent, is
+  indistinguishable from one on the rung. What is visible is the condition, not
+  the wait it earned.
+- **The PTY rule is asserted against a stub.** *Nothing printed inside a
+  terminal raises a condition on the graph* is held by a test in `crates/app`
+  that reads `crates/pty/src/lib.rs` as bytes and asserts it names none of
+  `Degraded`, `ReadOutcome`, `MapsView`, `Provenance` or `emit`. That crate is
+  thirty-odd lines of doc comment, so what the test currently proves is that a
+  file with no code in it surfaces nothing. #47 is where it has to be
+  re-asserted against a crate that actually owns a terminal, and where a
+  stronger form than a byte scan becomes possible.
 - **Linux has never built the TLS stack.** `ureq` verifies certificates against
   the operator's own trust store via `rustls-platform-verifier`, which supports
   Linux — but both CI runners are Windows and macOS by design, so nothing here

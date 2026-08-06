@@ -164,8 +164,16 @@ pub enum ReadError {
 
     /// GraphQL answers `200` with an `errors` array, so this is the ordinary
     /// shape of a refusal rather than an exotic one.
-    #[error("GitHub answered the query with an error: {0}")]
-    Answered(String),
+    ///
+    /// `kind` is GitHub's own `type` on the error object — `NOT_FOUND`,
+    /// `RATE_LIMITED`, `FORBIDDEN` — carried as the structured field it is so
+    /// that whoever decides whether retrying helps can read it. The
+    /// alternative is grepping `message` for words, which is the thing this
+    /// repository keeps refusing to do: a sentence GitHub rewords is a
+    /// classification that silently changes. Empty when the answer named no
+    /// type, which is *unclassified* and never *ordinary*.
+    #[error("GitHub answered the query with an error: {message}")]
+    Answered { kind: String, message: String },
 
     /// `data.repository` is null when the repository is not there, or not
     /// visible to this token. Either way the response is not an answer about
@@ -188,7 +196,10 @@ pub fn read_response(body: &str) -> Result<MapRead, ReadError> {
     // Reading it anyway would put a half-populated map list on screen with
     // nothing on it saying so.
     if let Some(first) = response.errors.into_iter().flatten().next() {
-        return Err(ReadError::Answered(first.message));
+        return Err(ReadError::Answered {
+            kind: first.kind,
+            message: first.message,
+        });
     }
 
     let repository = response
@@ -448,6 +459,12 @@ mod wire {
     pub(super) struct GraphQlError {
         #[serde(default)]
         pub message: String,
+        /// GitHub's own classification of the refusal. `type` is a keyword
+        /// here, so it is renamed rather than spelled `r#type` — and it is
+        /// defaulted because an error object without one is a refusal this
+        /// build has no name for, not a parse failure.
+        #[serde(rename = "type", default)]
+        pub kind: String,
     }
 
     #[derive(Deserialize)]
@@ -884,16 +901,48 @@ mod tests {
     fn an_answer_carrying_an_error_beside_its_data_is_refused_rather_than_half_read() {
         let body = r#"{
             "data": { "repository": null, "rateLimit": null },
-            "errors": [ { "message": "Could not resolve to a Repository with the name 'o/r'." } ]
+            "errors": [ { "type": "NOT_FOUND",
+                          "message": "Could not resolve to a Repository with the name 'o/r'." } ]
         }"#;
 
         let refusal = read_response(body).expect_err("refuses");
 
         assert_eq!(
             refusal,
-            ReadError::Answered(
-                "Could not resolve to a Repository with the name 'o/r'.".to_string()
-            )
+            ReadError::Answered {
+                kind: "NOT_FOUND".to_string(),
+                message: "Could not resolve to a Repository with the name 'o/r'.".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn the_type_github_names_a_refusal_by_is_carried_rather_than_read_out_of_its_prose() {
+        // The whole reason `kind` exists: whether retrying helps is decided
+        // from this field and never from the sentence beside it. GitHub rewords
+        // messages; it does not rename `NOT_FOUND`.
+        let typed = r#"{ "errors": [ { "type": "RATE_LIMITED",
+                                       "message": "API rate limit exceeded" } ] }"#;
+
+        assert_eq!(
+            read_response(typed).expect_err("refuses"),
+            ReadError::Answered {
+                kind: "RATE_LIMITED".to_string(),
+                message: "API rate limit exceeded".to_string(),
+            }
+        );
+
+        // And an error object with no `type` at all is a refusal this build has
+        // no name for — an empty string, which is a fact, rather than a guess
+        // at which of the four conditions it was.
+        let untyped = r#"{ "errors": [ { "message": "Something went wrong" } ] }"#;
+
+        assert_eq!(
+            read_response(untyped).expect_err("refuses"),
+            ReadError::Answered {
+                kind: String::new(),
+                message: "Something went wrong".to_string(),
+            }
         );
     }
 
@@ -957,7 +1006,11 @@ mod tests {
 
         let refusals = [
             ReadError::NotJson("expected value at line 1".to_string()).to_string(),
-            ReadError::Answered("Could not resolve to a Repository".to_string()).to_string(),
+            ReadError::Answered {
+                kind: "NOT_FOUND".to_string(),
+                message: "Could not resolve to a Repository".to_string(),
+            }
+            .to_string(),
             ReadError::NoRepository.to_string(),
         ];
 

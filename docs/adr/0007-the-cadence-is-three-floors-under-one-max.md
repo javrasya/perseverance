@@ -1,7 +1,8 @@
 # 7. The cadence is three floors under one max, and a poke lowers one of them
 
 Status: accepted (2026-08-06), amended by ADR 0008 (2026-08-06) in the three
-places marked *amended* below. Still in force everywhere else.
+places marked *amended* below and by ADR 0009 (2026-08-06) in the one marked
+*landed*. Still in force everywhere else.
 Context: [#38 the cadence ladder and off-cadence
 pokes](https://github.com/javrasya/perseverance/issues/38), under the spec
 [#28](https://github.com/javrasya/perseverance/issues/28). The two floors this
@@ -60,10 +61,18 @@ The floor type has a `Never` variant with one producer and two waiting for it:
 `Duration`-only floor would have been reshaped twice. *(Amended: one ticket, not
 two. `Never` is absorbing, so a budget answering it would never read again and
 never learn of the reset; #39 answers `seconds_to_reset` instead and only #40
-still waits for the variant — ADR 0008.)*
+still waits for the variant — ADR 0008. Landed: #40 is the second producer, for
+`AuthFailed` and `MapGone`. Absorbing is survivable there because a person can
+get out of it and a reset cannot be waited for — the human-poke clause sits
+above the stop in the same floor — ADR 0009.)*
 
 **#40 is expected to edit one row of that array, and this is the record that it
-was foreseen rather than a shape that failed.** Stopping rather than retrying
+was foreseen rather than a shape that failed.** *(Landed: it edited that row and
+no other. `Cadence` gained `last_fault: Option<Fault>` beside the count,
+`backoff_floor` gained a third argument, `Tick::Failed` gained a payload, and
+the `max`, the lattice, `Held` and the poke-as-a-term are byte for byte what
+this decision left them. `Ahead` widened from `Option<Budget>` to `Tick`, which
+is `poller.rs` and not the composition — ADR 0009.)* Stopping rather than retrying
 requires knowing *which* condition failed, and nothing in this slice carries
 one: `Cadence` keeps `consecutive_failures: u32`, `Tick::Failed` is a unit
 variant, and the `ReadFailure` that reaches `crates/app` is stringified into the
@@ -138,7 +147,11 @@ is a shape carried before it is paid for. The defence is
 `the_two_floors_that_are_stubbed_cannot_change_any_answer_yet`, which crosses
 every budget, failure count and authority the types can express and asserts the
 answer is unchanged and `Held::Ladder` throughout. It fails the day #39 or #40
-lands, which is the day somebody should be reading it.
+lands, which is the day somebody should be reading it. *(Landed: both days have
+come. #39 took the budget dimension out of that test and #40 deleted what was
+left of it, replacing it with the five tables in `cadence.rs` that pin what the
+backoff actually answers. The shape carried before it was paid for cost one row
+of one array in the end — ADR 0009.)*
 
 `Budget { remaining, seconds_to_reset }` decides a sliver of #39 without having
 been asked to — seconds rather than the RFC 3339 text GitHub sends, because the

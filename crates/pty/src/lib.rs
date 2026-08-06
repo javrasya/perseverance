@@ -21,6 +21,18 @@
 //! the shell it spawned and reaches no further, because a daemon an rc started
 //! on purpose is the operator's and not ours to end.
 //!
+//! **The harness surfaces only its own failures.** A command that exited 1, a
+//! compiler that could not find a header, an agent that printed a stack — none
+//! of those is a condition on the graph, and nothing in this crate may raise
+//! one. An error printing three inches from your eyes is the terminal's to
+//! print, and a harness that narrated it would be saying, less well, what the
+//! operator is already reading. What the graph is for is the failures the
+//! operator *cannot* see: a poll that did not land, a token that has gone, a
+//! map that is no longer there. #40 built that vocabulary, and it is
+//! deliberately unreachable from here — `crates/app` has a test that reads
+//! these bytes and asserts this crate names none of it, which is the strongest
+//! form available while this file is a doc comment and nothing else.
+//!
 //! Filled in by:
 //! - #47 PTY ownership and the embedded terminal (the environment a session
 //!   starts in comes from [`perseverance_env`]; everything with a terminal in

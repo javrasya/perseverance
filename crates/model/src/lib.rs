@@ -25,4 +25,6 @@ pub use read::{
     epoch_from_rfc3339, read_response, rfc3339, ChildRead, MapGraph, MapListing, MapRead,
     RateLimit, ReadError, Truncation, MAP_LABEL,
 };
-pub use snapshot::{Provenance, ReadOutcome, Snapshot, SnapshotError, Source, SCHEMA_VERSION};
+pub use snapshot::{
+    Degraded, Provenance, ReadOutcome, Snapshot, SnapshotError, Source, SCHEMA_VERSION,
+};
