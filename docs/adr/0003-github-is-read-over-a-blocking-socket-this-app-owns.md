@@ -1,6 +1,7 @@
 # 3. GitHub is read over a blocking socket this app owns
 
-Status: accepted (2026-08-05)
+Status: accepted (2026-08-05), amended by ADR 0009 (2026-08-06) in the one place
+marked *landed* below. Still in force everywhere else.
 Context: [#32 Maps on screen: one query shape, discovery by label, the read
 cache](https://github.com/javrasya/perseverance/issues/32), under the spec
 [#28](https://github.com/javrasya/perseverance/issues/28), on the API coverage
@@ -95,7 +96,11 @@ On the second and third questions:
   badly, the answer could not be read — and classifies none of them.
   `Unreachable` / `AuthFailed` / `MapGone` / `RateLimited`, and which of them
   retries, are #40's, and half a vocabulary invented here would be that ticket
-  arriving to find its decisions already made.
+  arriving to find its decisions already made. *(Landed: #40 built it as
+  `ReadFailure::degraded()`, a method beside these variants rather than a
+  reshaping of them — the observations are still observations, and the
+  classifier reads a status, a `Retry-After` and GitHub's own error `type`,
+  none of which anything outside this crate holds — ADR 0009.)*
 - `map-graph.graphql` and `map-poll.graphql` stay at the repository root
   untouched. They are #3's reproduction artifacts and the research document
   quotes command lines against them by name; the query this app actually ships

@@ -6,6 +6,8 @@ import {
   NO_MAP_COPY,
   NO_MAP_HEADLINE,
   NOT_READ_COPY,
+  REMEDY,
+  STOPPED_COPY,
   completedMaps,
   describeStamp,
   hasBeenRead,
@@ -14,6 +16,7 @@ import {
   openMaps,
   stampAge,
   stampDetail,
+  stoppedReading,
   watchMaps,
   watching,
   type MapEntry,
@@ -140,7 +143,11 @@ describe("the cache age is on screen in every state", () => {
     const stale = view({
       provenance: {
         source: "cache",
-        outcome: { kind: "failed", detail: "GitHub answered with status 401" },
+        outcome: {
+          kind: "failed",
+          reason: { reason: "authFailed" },
+          detail: "GitHub answered with status 401",
+        },
         fetchedAt: "2026-08-05T08:00:00Z",
       },
     });
@@ -155,13 +162,21 @@ describe("the cache age is on screen in every state", () => {
   it("never claims which step failed, because it cannot tell", () => {
     /*
      * A read that landed and could not be stored is not a read that did not
-     * land, and the stamp has no way to tell those apart — #40 is the ticket
-     * that classifies. So neither clause may assert one.
+     * land, and this clause still may not claim which of them it was. The
+     * condition crosses now, but it answers a different question — *is waiting
+     * going to help* — and all three of these are `unreachable`. The reason is
+     * rendered beside the clause rather than folded into it.
      */
     const unstored = view({
       provenance: {
         source: "github",
-        outcome: { kind: "failed", detail: "the launcher registry could not be written" },
+        outcome: {
+          kind: "failed",
+          // A cache write that failed is retryable, and the stamp still may not
+          // claim which step it was.
+          reason: { reason: "unreachable" },
+          detail: "the launcher registry could not be written",
+        },
         fetchedAt: "2026-08-05T08:00:00Z",
       },
     });
@@ -177,7 +192,11 @@ describe("the cache age is on screen in every state", () => {
       ...nothingReadYet(1),
       provenance: {
         source: "none" as const,
-        outcome: { kind: "failed" as const, detail: "this run acquired no GitHub token" },
+        outcome: {
+          kind: "failed" as const,
+          reason: { reason: "authFailed" as const },
+          detail: "this run acquired no GitHub token",
+        },
         fetchedAt: null,
       },
     };
@@ -225,7 +244,11 @@ describe("the cache age is on screen in every state", () => {
      */
     const failed = {
       source: "cache" as const,
-      outcome: { kind: "failed" as const, detail: "GitHub answered with status 401" },
+      outcome: {
+        kind: "failed" as const,
+        reason: { reason: "authFailed" as const },
+        detail: "GitHub answered with status 401",
+      },
       fetchedAt: "2026-08-05T08:00:00Z",
     };
 
@@ -246,6 +269,77 @@ describe("the cache age is on screen in every state", () => {
     // Rust side too, and a rename on either is silent on the other.
     expect(nothingReadYet(1).yieldingToRateLimit).toBe(false);
     expect(loadFixture(1).yieldingToRateLimit).toBe(false);
+  });
+});
+
+describe("a read that stopped disables the list in place rather than hiding it", () => {
+  function failedWith(reason: MapsView["provenance"]["outcome"]): MapsView {
+    return view({
+      provenance: { source: "cache", outcome: reason, fetchedAt: "2026-08-05T08:00:00Z" },
+    });
+  }
+
+  it("tells the conditions that stop reading from the ones that only delay it", () => {
+    /*
+     * The same partition `backoff_floor` makes on the Rust side, and the reason
+     * it is spelled rather than inferred: the floor answering `Never` and this
+     * answering non-null are one fact about the app, and two accounts of it
+     * would come to disagree.
+     *
+     * A rate limit is deliberately not on this list. It is a wait with an end
+     * on it, and rows disabled for one would come back by themselves while
+     * somebody sat reading a reason to give up.
+     */
+    const stops = [
+      ["authFailed", true],
+      ["mapGone", true],
+      ["unreachable", false],
+      ["rateLimited", false],
+    ] as const;
+
+    for (const [reason, expected] of stops) {
+      const outcome =
+        reason === "rateLimited"
+          ? ({ kind: "failed", reason: { reason, resetsAt: null }, detail: "d" } as const)
+          : ({ kind: "failed", reason: { reason }, detail: "d" } as const);
+
+      expect([reason, stoppedReading(failedWith(outcome)) !== null]).toEqual([
+        reason,
+        expected,
+      ]);
+    }
+  });
+
+  it("says nothing has stopped when the last read landed", () => {
+    expect(stoppedReading(view())).toBeNull();
+    // And *nobody has looked yet* is not a stop either — there is nothing to
+    // give up on before anything has been tried.
+    expect(stoppedReading(nothingReadYet(1))).toBeNull();
+  });
+
+  it("has a sentence for each condition that stops, and none of them reads as an error", () => {
+    /*
+     * The read stopped for a reason that is now true of the world. An operator
+     * who reads *failed* goes looking for something to have gone wrong on their
+     * own machine, which is the one place the fault is not.
+     */
+    for (const reason of ["authFailed", "mapGone"] as const) {
+      const said = STOPPED_COPY[reason].toLowerCase();
+
+      expect(said.length).toBeGreaterThan(0);
+      for (const alarm of ["error", "failed", "crash", "unexpected"]) {
+        expect([reason, said.includes(alarm)]).toEqual([reason, false]);
+      }
+      // It says what is on screen instead: a copy, and what would replace it.
+      expect(said).toContain("copy");
+    }
+  });
+
+  it("takes the fixing command from the one table the whole app spells it in", () => {
+    // The command under a map list and the command on the stamp are the same
+    // command, because there is only one place it is written down.
+    expect(REMEDY.authFailed).toBe("run gh auth login");
+    expect(STOPPED_COPY.authFailed).not.toContain("gh auth");
   });
 });
 

@@ -22,11 +22,12 @@
 //! point landed in #38 with two of its three terms stubbed.
 //!
 //! #39 filled the budget one in, and the row of the array it edited is none:
-//! two constants ([`RESERVE`], [`QUERY_COST`]) and a body. #40 also widens what
-//! it is handed, because a failure count can say *back off further* and can
-//! never say *stop*, and that is one edited row of the array below.
-//! [`backoff_floor`] says so at length. Anything beyond that row is a reshaping
-//! this composition was meant to make unnecessary.
+//! two constants ([`RESERVE`], [`QUERY_COST`]) and a body. #40 filled the
+//! backoff one in and edited exactly the one row ADR 0007 foresaw, because a
+//! failure count can say *back off further* and can never say *stop* — so
+//! [`backoff_floor`] is handed the last [`Fault`] as well. Nothing else about
+//! the `max`, the lattice, [`Held`] or the poke-as-a-term moved, which is what
+//! the composition was arranged to make unnecessary.
 //!
 //! A poke does not skip that composition. It **lowers the ladder term** to
 //! [`POKE_FLOOR`] and goes through the same `max` as everything else, so no
@@ -44,6 +45,8 @@
 //! this crate.
 
 use std::time::Duration;
+
+use perseverance_model::{epoch_from_rfc3339, Degraded};
 
 /* --------------------------------------------------------- the numbers --- */
 
@@ -84,6 +87,23 @@ pub const POKE_FLOOR: Duration = Duration::from_secs(1);
 /// yields: it is the only spender here that can be told to.
 pub const RESERVE: u32 = 1_000;
 
+/// The first wait after a read that failed, and every wait after that doubles.
+///
+/// Ten seconds because it is the fastest rung, so one failure costs a tick and
+/// no more; the doubling is what makes an outage cheap rather than the first
+/// number being large. An hour offline costs about a dozen requests instead of
+/// three hundred and sixty.
+pub const BACKOFF_BASE: Duration = Duration::from_secs(10);
+
+/// Where the doubling stops.
+///
+/// Five minutes is the slowest rung, which is the point: however long an outage
+/// lasts, recovery after it is bounded by the longest wait this app would have
+/// taken anyway. An uncapped doubling reaches a day inside a morning, and a
+/// poller that needs a restart to notice the network came back is the one
+/// failure this whole floor exists to avoid.
+pub const BACKOFF_CAP: Duration = Duration::from_secs(5 * 60);
+
 /// What one poll costs, in points.
 ///
 /// A measurement rather than a policy: `rateLimit { cost }` on the checked-in
@@ -111,10 +131,11 @@ pub enum Attention {
 
 /// Who asked for the off-cadence read.
 ///
-/// Both authorities lower the ladder identically today. #40 is the ticket where
-/// they stop being the same, per #19 §5: an adapter's `Idle` respects backoff,
-/// and a person saying *try now* clears it. Carried now so that #40 fills a
-/// floor in rather than threading a new argument through everything.
+/// Both authorities lower the ladder identically. They stop being the same one
+/// term over: [`backoff_floor`] reads this and answers zero for a person and
+/// nothing at all for a machine, which is #19 §5's *agent pokes respect
+/// backoff, human pokes clear it*. Carrying it through #38 unused is what let
+/// #40 fill a floor in rather than thread a new argument through everything.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Authority {
     Human,
@@ -131,12 +152,19 @@ pub enum Rung {
 
 /// A lower bound on the wait, or a refusal to poll at all.
 ///
-/// `Never` has one producer — nothing being watched — and one ticket still
-/// waiting for it: #40 stops rather than backs off for the conditions retrying
-/// cannot fix. #38 expected #39 to be the second producer and it is not, for a
-/// reason [`budget_floor`] argues at length: `Never` is absorbing, and a floor
+/// `Never` has two producers, and they are the two things no amount of waiting
+/// improves: nothing being watched, and a read that failed for a reason
+/// retrying cannot fix. #38 expected #39 to be the second and it was not, for a
+/// reason [`budget_floor`] argues at length — `Never` is absorbing, and a floor
 /// that stops the loop stops the read that would have told it to start again.
-/// A budget that has run out is a long wait with an end on it, not a refusal.
+/// A budget that has run out is a long wait with an end on it; a revoked token
+/// is not, and neither is a repository that has gone.
+///
+/// What keeps *absorbing* from meaning *dead* here is the clause above it:
+/// [`Authority::Human`] answers zero, so a person saying *try now* is always
+/// able to get out of it. That is the difference between the two cases — a
+/// budget resets by itself and needs no operator, and an auth failure needs one
+/// and has one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Floor {
     AtLeast(Duration),
@@ -208,15 +236,74 @@ pub struct Cadence {
     /// learned is not evidence against what was.
     pub budget: Option<Budget>,
 
-    /// Counted, never classified. [`crate::ReadFailure`] is deliberately not a
-    /// taxonomy, and deciding which conditions retry is #40's whole ticket — so
-    /// this is a number and nothing more.
+    /// How many reads in a row did not land. The doubling is a function of
+    /// this and of nothing else.
     ///
-    /// **#40 adds a field beside it**, naming the last failure, because a count
-    /// alone can say *back off further* and can never say *stop*. That is the
-    /// one place this struct is expected to grow, and [`backoff_floor`] and
-    /// [`interval`]'s third row grow with it.
+    /// It is a count and stays one. What *kind* of failure it was lives in
+    /// [`Cadence::last_fault`] beside it — the field #38 predicted and #40
+    /// added — because a count can say *back off further* and can never say
+    /// *stop*, and folding the two together would make the doubling
+    /// unreadable.
     pub consecutive_failures: u32,
+
+    /// What the last read that failed failed *of*, or `None` if the last one
+    /// landed.
+    ///
+    /// A [`Fault`] and not a [`Degraded`]: this module has no clock, so the one
+    /// clock-bearing field is reduced to seconds by the caller that has one.
+    /// Exactly the move [`Budget`] made against GitHub's `resetAt`.
+    ///
+    /// Cleared by a read that succeeded and by a human poke, and by nothing
+    /// else. It is not cleared by [`Tick::NotAttempted`]: a launch whose
+    /// harvest has not settled learned nothing, and nothing learned is not
+    /// evidence against what was.
+    ///
+    /// [`Tick`]: crate::Tick
+    pub last_fault: Option<Fault>,
+}
+
+/// The model's [`Degraded`], with its one clock-bearing field already reduced
+/// to seconds by the caller that has a clock.
+///
+/// Two enums for one taxonomy, and the split is the same one [`Budget`] made
+/// against GitHub's `resetAt`: text is only a duration once somebody has read a
+/// clock, and this module deliberately has none. [`Degraded`] crosses the seam
+/// and carries a stamp because a stamp is what a WebView renders; this is the
+/// same four conditions in the units the arithmetic is done in.
+///
+/// `Fault` rather than `Failed`, because [`crate::Tick::Failed`] already exists
+/// next door and two `Failed`s in one crate is a name nobody can read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Fault {
+    Unreachable,
+    AuthFailed,
+    MapGone,
+    RateLimited { seconds_to_reset: i64 },
+}
+
+impl Fault {
+    /// One exhaustive match, so a fifth [`Degraded`] variant is a compile error
+    /// here rather than a condition that quietly retries forever.
+    ///
+    /// A `RateLimited` that named no moment becomes zero seconds, which is *no
+    /// constraint from the header* and not *the reset is now* — the two read
+    /// alike only because the doubling is the other term of the `max` below,
+    /// and zero cannot win a `max`. A header nobody sent leaves the backoff a
+    /// run of failures already earned exactly as it was.
+    pub fn of(degraded: &Degraded, now: i64) -> Fault {
+        match degraded {
+            Degraded::Unreachable => Fault::Unreachable,
+            Degraded::AuthFailed => Fault::AuthFailed,
+            Degraded::MapGone => Fault::MapGone,
+            Degraded::RateLimited { resets_at } => Fault::RateLimited {
+                seconds_to_reset: resets_at
+                    .as_deref()
+                    .and_then(epoch_from_rfc3339)
+                    .map(|at| at - now)
+                    .unwrap_or(0),
+            },
+        }
+    }
 }
 
 /// What the loop should do next: sleep for this long, or nothing until somebody
@@ -350,30 +437,89 @@ pub fn budget_floor(budget: Option<Budget>) -> Floor {
     Floor::AtLeast(Duration::from_secs(paced.min(to_reset)))
 }
 
-/// **Stub — #40 owns this.** Returns zero, which cannot beat the smallest rung.
+/// What reachability *permits*. Four clauses, top-down, and the order is the
+/// rule — the same idiom [`ladder_floor`] uses, for the same reason.
 ///
-/// #40 is 10 s doubling to a five-minute cap, reset to zero on the first
-/// success, [`Floor::Never`] for the conditions that stop rather than retry, and
-/// [`Authority::Human`] clearing the count outright (#19 §5).
+/// **1. A person saying *try now* clears everything, including a stop.** This
+/// is #19 §5's *same mechanism, different authority* landing as a floor reading
+/// the [`Authority`] it was already handed, rather than as a second code path
+/// somebody has to remember to guard. It is first because it has to outrank the
+/// [`Floor::Never`] below it: `Never` is absorbing, and a stopped poller with
+/// no way out is a poller that needs the app restarted.
 ///
-/// **This signature is half of that, knowingly.** A count and an authority are
-/// everything the doubling needs. Refusing to retry needs to know *which*
-/// condition failed, and nothing in this slice carries one: [`Cadence`] keeps a
-/// number, [`crate::Tick::Failed`] is a unit variant, and the
-/// [`crate::ReadFailure`] that reached the loop was stringified into the view
-/// and dropped. So #40 widens what this is handed — see
-/// [`Cadence::consecutive_failures`] — and edits the third row of
-/// [`interval`]'s array with it. **That row is the one edit to the composition
-/// point either stub is expected to make**, and it is written down in three
-/// places so that nobody reads *a count and an authority*, ships the doubling
-/// alone, and leaves an auth failure retrying forever at five-minute intervals.
+/// **It also outranks the `Retry-After` in clause 3, and that is a real trade
+/// rather than an oversight.** #19 §5 asks for the header to be honoured
+/// exactly in one row and for a human poke to clear the backoff in another, and
+/// a focus regained inside a pause GitHub asked for cannot satisfy both. It is
+/// resolved in favour of the person, because *exactly* is a rule about what
+/// this app schedules for itself and a poke is somebody in front of the window
+/// asking for one read now — and because the alternative is a stop with no way
+/// out for whatever the header said, which is the failure `Never` is placed
+/// below this clause to avoid. What it costs is bounded and is not the poller's
+/// pacing: [`crate::POKE_FLOOR`] is still a term in the same `max`, so clicking
+/// buys at most one read a second, and [`budget_floor`] is untouched by any of
+/// this — no poke has ever been able to get under the reserve.
 ///
-/// What this slice does not do is *classify*: `Unreachable` / `AuthFailed` /
-/// `MapGone` / `RateLimited` are #40's vocabulary to invent, and a slice with
-/// no reason to name them has not named them.
-pub fn backoff_floor(consecutive_failures: u32, poke: Option<Authority>) -> Floor {
-    let _ = (consecutive_failures, poke);
-    Floor::AtLeast(Duration::ZERO)
+/// **2. The conditions retrying cannot fix stop rather than wait longer.**
+/// Backing off forever on a revoked token is silent failure wearing a retry
+/// costume: the operator watches a stamp age, assumes a flaky network, and the
+/// fix was one command all along. A deleted map is the same shape — gone is
+/// reported as gone. These are the second producer of `Never` that ADR 0007
+/// predicted and ADR 0008 narrowed to this ticket alone.
+///
+/// **3. A `Retry-After` is honoured exactly and never guessed at** — against
+/// everything except the person in clause 1, for the reason given there — and
+/// it goes through a `max` against the doubling rather than replacing it. That `max` is
+/// not a second guess: it is this module's only composition rule, applied once
+/// more. A header shorter than the backoff a run of failures has already earned
+/// is not permission to go faster.
+///
+/// **4. Otherwise the doubling**, from [`BACKOFF_BASE`] and clamped at
+/// [`BACKOFF_CAP`]. Zero failures is zero, which cannot beat the smallest rung
+/// — so a poller that is working is paced by the ladder exactly as it was.
+///
+/// **An agent poke does nothing here, and that is *agent pokes respect
+/// backoff*.** It falls out of not branching on it rather than out of a guard,
+/// which is the difference between a rule and a thing somebody remembered.
+pub fn backoff_floor(
+    consecutive_failures: u32,
+    poke: Option<Authority>,
+    last: Option<Fault>,
+) -> Floor {
+    if poke == Some(Authority::Human) {
+        return Floor::AtLeast(Duration::ZERO);
+    }
+
+    let doubled = doubled_backoff(consecutive_failures);
+
+    match last {
+        Some(Fault::AuthFailed) | Some(Fault::MapGone) => Floor::Never,
+        Some(Fault::RateLimited { seconds_to_reset }) => Floor::AtLeast(
+            // Negative is a reset already passed, which is no constraint — and
+            // the doubling is what is left of the `max` when it is.
+            Duration::from_secs(seconds_to_reset.max(0) as u64).max(doubled),
+        ),
+        Some(Fault::Unreachable) | None => Floor::AtLeast(doubled),
+    }
+}
+
+/// Ten seconds at one failure, doubling, clamped at five minutes.
+///
+/// Saturating throughout, because `consecutive_failures` is a `u32` and an
+/// outage can run away with it: a shift by more than the width of a `u64` is
+/// undefined and a multiplication that wrapped would answer a *short* wait for
+/// a long outage, which is the one direction that matters.
+fn doubled_backoff(consecutive_failures: u32) -> Duration {
+    if consecutive_failures == 0 {
+        return Duration::ZERO;
+    }
+
+    let doublings = (consecutive_failures - 1).min(31);
+    let seconds = BACKOFF_BASE
+        .as_secs()
+        .saturating_mul(2u64.saturating_pow(doublings));
+
+    Duration::from_secs(seconds).min(BACKOFF_CAP)
 }
 
 /* ----------------------------------------------------- the composition --- */
@@ -388,7 +534,11 @@ pub fn interval(cadence: &Cadence) -> Interval {
         (Held::Budget, budget_floor(cadence.budget)),
         (
             Held::Backoff,
-            backoff_floor(cadence.consecutive_failures, cadence.poke),
+            backoff_floor(
+                cadence.consecutive_failures,
+                cadence.poke,
+                cadence.last_fault,
+            ),
         ),
     ];
 
@@ -469,8 +619,20 @@ mod tests {
             poke: None,
             budget: None,
             consecutive_failures: 0,
+            last_fault: None,
         }
     }
+
+    /// Every condition a read can have failed of, so the tables below cross all
+    /// four rather than the two somebody thought of.
+    const FAULTS: [Fault; 4] = [
+        Fault::Unreachable,
+        Fault::AuthFailed,
+        Fault::MapGone,
+        Fault::RateLimited {
+            seconds_to_reset: 30,
+        },
+    ];
 
     #[test]
     fn the_ladder_is_read_top_down_and_the_order_is_the_rule() {
@@ -600,39 +762,6 @@ mod tests {
             ),
             (Held::Budget, Floor::AtLeast(Duration::from_secs(120)))
         );
-    }
-
-    #[test]
-    fn the_backoff_floor_is_stubbed_and_cannot_change_any_answer_yet() {
-        // #38 asserted this of both zero floors and said the day it failed was
-        // the day somebody should be reading it. #39 was that day: the budget
-        // dimension left this table because it has an answer now, and the cross
-        // product that remains is #40's alone.
-        let pokes = [None, Some(Authority::Human), Some(Authority::Agent)];
-
-        for failures in [0, 1, 9] {
-            for poke in pokes {
-                let cadence = Cadence {
-                    consecutive_failures: failures,
-                    poke,
-                    ..watching()
-                };
-
-                assert_eq!(
-                    backoff_floor(failures, poke),
-                    Floor::AtLeast(Duration::ZERO),
-                    "{failures} {poke:?}"
-                );
-                assert_eq!(
-                    interval(&cadence),
-                    Interval {
-                        wait: ladder_floor(&cadence),
-                        held_by: Held::Ladder,
-                    },
-                    "{cadence:?}"
-                );
-            }
-        }
     }
 
     /* ---------------------------------------------------------- #39 --- */
@@ -1164,6 +1293,255 @@ mod tests {
                 expected,
                 "{interval:?} {since_last_tick:?} {debounce_left:?}"
             );
+        }
+    }
+
+    /* ---------------------------------------------------------- #40 --- */
+
+    #[test]
+    fn the_backoff_doubles_from_ten_seconds_and_stops_climbing_at_five_minutes() {
+        // `(consecutive failures, the floor in seconds)`. One table, hoisted so
+        // the ladder of numbers the ticket names and the assertions that walk it
+        // cannot come to disagree about which rows exist.
+        const LADDER: [(u32, u64); 9] = [
+            // Nothing has failed, so nothing is held back — which is what keeps
+            // a working poller paced by the rung exactly as it was.
+            (0, 0),
+            (1, 10),
+            (2, 20),
+            (3, 40),
+            (4, 80),
+            (5, 160),
+            // 320 would be the doubling; the cap is what says five minutes.
+            (6, 300),
+            (7, 300),
+            // A `u32` an outage ran away with. Saturating arithmetic is what
+            // makes this the cap rather than a wrap to something short.
+            (u32::MAX, 300),
+        ];
+
+        for (failures, expected) in LADDER {
+            assert_eq!(
+                backoff_floor(failures, None, Some(Fault::Unreachable)),
+                Floor::AtLeast(Duration::from_secs(expected)),
+                "{failures} failures"
+            );
+            // And a run of failures nothing has classified doubles the same
+            // way, rather than answering something else.
+            assert_eq!(
+                backoff_floor(failures, None, None),
+                Floor::AtLeast(Duration::from_secs(expected)),
+                "{failures} failures, unclassified"
+            );
+        }
+
+        assert_eq!(BACKOFF_BASE, Duration::from_secs(10));
+        assert_eq!(BACKOFF_CAP, Duration::from_secs(300));
+    }
+
+    #[test]
+    fn the_conditions_retrying_cannot_fix_stop_rather_than_waiting_longer() {
+        // At every count, including the first failure — where a doubling would
+        // still have been short enough to read as an ordinary wait, which is
+        // exactly how an operator ends up watching a stamp age for an hour with
+        // a revoked token and a one-command fix.
+        for failures in [0, 1, 2, 9, u32::MAX] {
+            for fault in [Fault::AuthFailed, Fault::MapGone] {
+                assert_eq!(
+                    backoff_floor(failures, None, Some(fault)),
+                    Floor::Never,
+                    "{failures} {fault:?}"
+                );
+                assert_eq!(
+                    backoff_floor(failures, Some(Authority::Agent), Some(fault)),
+                    Floor::Never,
+                    "an agent poke got under a stop: {failures} {fault:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_person_saying_try_now_clears_a_backoff_and_a_machine_saying_so_does_not() {
+        // The two authorities against all four conditions. #19 §5: `Signal::Idle`
+        // is machine-generated and may arrive during an outage, so it must not
+        // hammer a dead endpoint; a button press or a focus regained is a person
+        // saying *try now*, and it clears the backoff outright — including a
+        // stop, which is the only way out of one.
+        for fault in FAULTS {
+            for failures in [1, 5, u32::MAX] {
+                assert_eq!(
+                    backoff_floor(failures, Some(Authority::Human), Some(fault)),
+                    Floor::AtLeast(Duration::ZERO),
+                    "{failures} {fault:?}"
+                );
+                assert_eq!(
+                    backoff_floor(failures, Some(Authority::Agent), Some(fault)),
+                    backoff_floor(failures, None, Some(fault)),
+                    "an agent poke changed the backoff: {failures} {fault:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_retry_after_github_sent_is_honoured_rather_than_guessed_at() {
+        // `(the seconds GitHub named, consecutive failures, the floor in seconds)`.
+        let honoured = [
+            // Longer than the doubling has earned, so the header decides.
+            (900, 1, 900),
+            (60, 1, 60),
+            // Shorter than the doubling has earned, so it does not. A header
+            // under the backoff a run of failures already bought is not
+            // permission to go faster, and the `max` that says so is this
+            // module's one composition rule applied once more.
+            (5, 4, 80),
+            (0, 3, 40),
+            // Nothing said when, which arrives as zero seconds: no constraint
+            // from the header, and the doubling is what is left of the `max`.
+            (0, 1, 10),
+            (0, 0, 0),
+            // A reset already in the past, or a clock skewed enough to put one
+            // there. No horizon is no constraint, and never a negative wait.
+            (-120, 2, 20),
+            (-120, 0, 0),
+        ];
+
+        for (seconds_to_reset, failures, expected) in honoured {
+            assert_eq!(
+                backoff_floor(
+                    failures,
+                    None,
+                    Some(Fault::RateLimited { seconds_to_reset })
+                ),
+                Floor::AtLeast(Duration::from_secs(expected)),
+                "{seconds_to_reset}s named, {failures} failures"
+            );
+        }
+    }
+
+    #[test]
+    fn the_backoff_is_one_more_term_in_the_max_and_never_a_second_code_path() {
+        // A backoff under the rung leaves the ladder holding the interval, and
+        // the same arithmetic above the rung takes it. There is no branch
+        // anywhere that says *we are backing off now*; there is a third number
+        // in one `max`.
+        let one_failure = Cadence {
+            consecutive_failures: 1,
+            last_fault: Some(Fault::Unreachable),
+            ..watching()
+        };
+        assert_eq!(
+            interval(&one_failure),
+            Interval {
+                wait: Floor::AtLeast(WATCHING),
+                held_by: Held::Ladder,
+            }
+        );
+
+        // Four failures is eighty seconds, which beats the minute.
+        let four_failures = Cadence {
+            consecutive_failures: 4,
+            ..one_failure
+        };
+        assert_eq!(
+            interval(&four_failures),
+            Interval {
+                wait: Floor::AtLeast(Duration::from_secs(80)),
+                held_by: Held::Backoff,
+            }
+        );
+
+        // And a stop outranks every duration under the `max`, including the
+        // hour a drained budget answers with.
+        let stopped = Cadence {
+            last_fault: Some(Fault::AuthFailed),
+            budget: Some(Budget {
+                remaining: RESERVE,
+                seconds_to_reset: 3_600,
+            }),
+            ..four_failures
+        };
+        assert_eq!(
+            interval(&stopped),
+            Interval {
+                wait: Floor::Never,
+                held_by: Held::Backoff,
+            }
+        );
+        assert_eq!(
+            next_wake(interval(&stopped), Duration::MAX, None),
+            Wake::WhenPoked
+        );
+
+        // A person gets out of that stop, and still cannot get under the
+        // reserve — because clearing the backoff is one term of the `max`
+        // rather than a way around it.
+        let asked = Cadence {
+            poke: Some(Authority::Human),
+            ..stopped
+        };
+        assert_eq!(
+            interval(&asked),
+            Interval {
+                wait: Floor::AtLeast(Duration::from_secs(3_600)),
+                held_by: Held::Budget,
+            }
+        );
+    }
+
+    #[test]
+    fn every_condition_a_read_can_fail_of_becomes_a_fault_with_no_clock_in_it() {
+        // The seam between the model's taxonomy and this module's arithmetic. A
+        // stamp is only a duration once somebody has read a clock, and here the
+        // clock is an argument — exactly the move `Budget` made against
+        // GitHub's own `resetAt`.
+        const NOW: i64 = 1_785_888_000;
+
+        let converted = [
+            (Degraded::Unreachable, Fault::Unreachable),
+            (Degraded::AuthFailed, Fault::AuthFailed),
+            (Degraded::MapGone, Fault::MapGone),
+            (
+                Degraded::RateLimited {
+                    resets_at: Some("2026-08-05T00:01:00Z".to_string()),
+                },
+                Fault::RateLimited {
+                    seconds_to_reset: 60,
+                },
+            ),
+            // A reset already gone stays negative here. What that means is the
+            // floor's decision, and it decides *no constraint*.
+            (
+                Degraded::RateLimited {
+                    resets_at: Some("2026-08-04T23:59:00Z".to_string()),
+                },
+                Fault::RateLimited {
+                    seconds_to_reset: -60,
+                },
+            ),
+            // Nothing said when, and a stamp this build cannot read. Both are
+            // *no constraint from the header*, and neither is *the reset is
+            // now* — which they can share safely, because zero cannot win a
+            // `max` and the doubling is the other term.
+            (
+                Degraded::RateLimited { resets_at: None },
+                Fault::RateLimited {
+                    seconds_to_reset: 0,
+                },
+            ),
+            (
+                Degraded::RateLimited {
+                    resets_at: Some("the fifth of August".to_string()),
+                },
+                Fault::RateLimited {
+                    seconds_to_reset: 0,
+                },
+            ),
+        ];
+
+        for (degraded, expected) in converted {
+            assert_eq!(Fault::of(&degraded, NOW), expected, "{degraded:?}");
         }
     }
 }

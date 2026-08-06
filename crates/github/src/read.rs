@@ -14,7 +14,9 @@
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use perseverance_model::{epoch_from_rfc3339, read_response, MapRead, ReadError};
+use perseverance_model::{
+    epoch_from_rfc3339, read_response, rfc3339, Degraded, MapRead, ReadError,
+};
 
 use crate::{Budget, Token};
 
@@ -120,16 +122,46 @@ impl FreshRead {
 pub struct Answer {
     pub status: u16,
     pub body: String,
+    /// `Retry-After`, in seconds, exactly as the response header said — and the
+    /// reason this type exists separately from [`FreshRead`] at all.
+    ///
+    /// A header is not in the body, so nothing downstream of the parse can ever
+    /// recover it; carrying it here is what lets #19 §5's *honour the header
+    /// exactly, never guess* be something the code does rather than something
+    /// the ticket says. `None` covers both *no header* and *a header in a shape
+    /// this build will not guess at* — GitHub sends a count of seconds, and an
+    /// HTTP-date read as a small integer would put the reset in 1970.
+    pub retry_after: Option<u64>,
+
+    /// `x-ratelimit-remaining`, and the whole reason the field beside it is not
+    /// enough.
+    ///
+    /// GitHub documents the secondary rate limit in **two** forms: a
+    /// `Retry-After` when it sends one, and otherwise
+    /// `x-ratelimit-remaining: 0` with the moment in `x-ratelimit-reset`. A
+    /// build that read only the first classified the second as a permission
+    /// failure — which stops the poller for the life of the process and prints
+    /// `gh auth login` at an operator whose token is fine, for a condition that
+    /// heals itself in minutes. That is the inversion of the whole ticket, so
+    /// both forms are read.
+    pub rate_limit_remaining: Option<u64>,
+
+    /// `x-ratelimit-reset`: seconds since the epoch, absolute, unlike
+    /// `Retry-After`'s count forward from now. Both are resolved to the same
+    /// RFC 3339 moment in [`interpret_read`], which is the last thing here
+    /// holding a clock reading.
+    pub rate_limit_reset: Option<i64>,
 }
 
 /// Why a read produced no [`FreshRead`].
 ///
-/// Deliberately **descriptive, not a taxonomy**. Classifying these into
-/// `Unreachable` / `AuthFailed` / `MapGone` / `RateLimited`, and deciding which
-/// of them retries, is #40's whole ticket; inventing half of that vocabulary
-/// here would mean #40 arriving to find its decisions already made by a slice
-/// that had no reason to make them. What this slice owes is that the three
-/// observations stay distinguishable.
+/// **These stay observations, and [`ReadFailure::degraded`] is the one place
+/// they become a condition.** That split is what #38 and #39 were protecting
+/// when they called this "deliberately not a taxonomy" — the paragraph that
+/// stood here said #40 owned the vocabulary, and #40 has now written it one
+/// file's width away rather than inside these variants. What arrived is a fact;
+/// whether waiting helps is a judgement; a variant set that fused the two would
+/// have to be reshaped every time the judgement moved.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ReadFailure {
     /// Nothing answered. The detail is the transport's own account of itself.
@@ -137,12 +169,37 @@ pub enum ReadFailure {
     NoAnswer(String),
 
     /// Something answered, and it was not an answer to the query.
+    ///
+    /// `resets_at` is `Retry-After` already resolved against the moment the
+    /// answer landed, because [`interpret_read`] is the last thing in this
+    /// crate holding a clock reading — so the taxonomy below never needs one,
+    /// and `cadence.rs` never sees a stamp at all.
     #[error("GitHub answered with status {code}: {detail}")]
-    Status { code: u16, detail: String },
+    Status {
+        code: u16,
+        detail: String,
+        resets_at: Option<String>,
+    },
 
     /// It answered, and what came back could not be read as an answer.
     #[error(transparent)]
     Unreadable(#[from] ReadError),
+
+    /// GitHub answered `200` and refused the *query* on the budget, which is
+    /// what a primary rate limit looks like on GraphQL.
+    ///
+    /// Kept apart from [`ReadFailure::Unreadable`] for one reason: the reset is
+    /// on the response headers and `ReadError` is parsed from the body, so this
+    /// is the only refusal whose *when* has to be carried across the parse by
+    /// hand. Folding it back into `Unreadable` would mean the condition it
+    /// produces could never name a moment, and a rate limit with no moment
+    /// falls back on the doubling — polling a limit that lasts an hour every
+    /// five minutes for the whole of it.
+    #[error("GitHub refused the query: {message}")]
+    RateLimitedQuery {
+        message: String,
+        resets_at: Option<String>,
+    },
 
     /// There is no token, so there is nothing to sign a read with. Not a
     /// failure of the read — a fact about this launch, kept apart from the
@@ -150,6 +207,98 @@ pub enum ReadFailure {
     /// do with a request.
     #[error("this run acquired no GitHub token, so no read was attempted")]
     NoToken,
+}
+
+impl ReadFailure {
+    /// The taxonomy, in one exhaustive match.
+    ///
+    /// One function, because the alternative is the condition being decided
+    /// twice — once by the poller working out how long to wait, once by the
+    /// view working out what to print — and two decisions from one observation
+    /// are two decisions that come to disagree.
+    ///
+    /// Every row of #19 §5's table is here, and three are worth the ink:
+    ///
+    /// **`403` splits on the headers rather than on the number.** GitHub spends
+    /// one status on *you may not* and on *not so fast*, and only the headers
+    /// tell them apart. Both documented forms are read — a `Retry-After`, and
+    /// otherwise `x-ratelimit-remaining: 0` with `x-ratelimit-reset` — because
+    /// reading only the first left a secondary rate limit that sent no
+    /// `Retry-After` classified as a revoked token: the poller stops for the
+    /// life of the process, the screen prints `gh auth login`, and the token
+    /// was never the problem. [`when_it_resets`] is where the two forms become
+    /// one moment. A 403 that named a reset in neither form is authorisation
+    /// having failed, which stops rather than retries — the safe direction of
+    /// what is left, because a stopped poller says so on screen and prints a
+    /// command, while a permission failure read as a rate limit ages a stamp
+    /// forever.
+    ///
+    /// **A refusal is classified by GitHub's `type` and never by its prose.**
+    /// `NOT_FOUND`, `RATE_LIMITED`, `FORBIDDEN` are structured fields; the
+    /// message beside them is a sentence GitHub is free to reword. A type this
+    /// build has no name for is [`Degraded::Unreachable`], which keeps the last
+    /// good model and tries again — exactly what #19 §5 asks of schema drift.
+    ///
+    /// **`NoRepository` is [`Degraded::MapGone`], and it is the one
+    /// non-obvious row.** The answer arrived and denied the repository exists;
+    /// that is not transient, and the remedy is picking another folder rather
+    /// than waiting for a network.
+    pub fn degraded(&self) -> Degraded {
+        match self {
+            // Nothing answered, which is the definition of a thing to retry.
+            ReadFailure::NoAnswer(_) => Degraded::Unreachable,
+
+            ReadFailure::Status { code: 401, .. } => Degraded::AuthFailed,
+            ReadFailure::Status {
+                code: 403,
+                resets_at: Some(resets_at),
+                ..
+            } => Degraded::RateLimited {
+                resets_at: Some(resets_at.clone()),
+            },
+            // A 403 that named no reset in either form. The response said the
+            // budget is not why, so the remaining reading of the status is
+            // that authorisation failed.
+            ReadFailure::Status { code: 403, .. } => Degraded::AuthFailed,
+            ReadFailure::Status {
+                code: 429,
+                resets_at,
+                ..
+            } => Degraded::RateLimited {
+                resets_at: resets_at.clone(),
+            },
+            ReadFailure::Status { code: 404, .. } => Degraded::MapGone,
+            // Every 5xx, every proxy, every gateway. Something stood between
+            // this app and GitHub, and it may not be there next time.
+            ReadFailure::Status { .. } => Degraded::Unreachable,
+
+            // The moment came off the headers in `interpret_read`, which is
+            // the only place that still had them. `None` here is an answer
+            // that named no reset at all, not an answer nobody looked at.
+            ReadFailure::RateLimitedQuery { resets_at, .. } => Degraded::RateLimited {
+                resets_at: resets_at.clone(),
+            },
+
+            ReadFailure::Unreadable(ReadError::Answered { kind, .. }) => match kind.as_str() {
+                "NOT_FOUND" => Degraded::MapGone,
+                // `interpret_read` lifts this one out into
+                // `RateLimitedQuery` so it can carry the reset off the
+                // headers, so nothing in this build reaches here — the row
+                // stays because the condition is a property of the `type` and
+                // not of the route it travelled, and a refusal arriving by some
+                // other path must not read as schema drift.
+                RATE_LIMITED => Degraded::RateLimited { resets_at: None },
+                "FORBIDDEN" | "UNAUTHORIZED" => Degraded::AuthFailed,
+                _ => Degraded::Unreachable,
+            },
+            ReadFailure::Unreadable(ReadError::NotJson(_)) => Degraded::Unreachable,
+            ReadFailure::Unreadable(ReadError::NoRepository) => Degraded::MapGone,
+
+            // The fix is `gh auth login`, which is what that variant's own doc
+            // says and what the remedy on screen prints.
+            ReadFailure::NoToken => Degraded::AuthFailed,
+        }
+    }
 }
 
 /// Reads one repository's maps, and the graph of `map` if one is open.
@@ -183,6 +332,35 @@ pub fn request_body(owner: &str, repo: &str, map: Option<u64>) -> String {
     serde_json::json!({ "query": MAP_READ_QUERY, "variables": variables }).to_string()
 }
 
+/// GitHub's own `type` for a query it refused on the budget. Matched as the
+/// structured field it is, never by grepping the message beside it.
+const RATE_LIMITED: &str = "RATE_LIMITED";
+
+/// When GitHub said it would take this token back, as one moment.
+///
+/// Two headers, one answer, and the order is the rule. `Retry-After` is
+/// honoured exactly wherever it is present — #19 §5's *never guess* — and it is
+/// a count forward from the moment the answer landed. Otherwise the documented
+/// second form: `x-ratelimit-remaining: 0` with the reset in
+/// `x-ratelimit-reset`, which is already absolute.
+///
+/// **The `remaining == 0` guard is what keeps this from swallowing the other
+/// 403.** Every GitHub answer carries `x-ratelimit-reset`, including a plain
+/// permission failure with thousands of points left; reading it unconditionally
+/// would turn *you may not* into *not so fast* and leave a revoked token
+/// retrying quietly forever, which is the failure the taxonomy exists to
+/// prevent. A zero remaining is the response saying the budget is why.
+fn when_it_resets(answer: &Answer, fetched_at: i64) -> Option<String> {
+    if let Some(seconds) = answer.retry_after {
+        return Some(rfc3339(fetched_at.saturating_add(seconds as i64)));
+    }
+
+    match (answer.rate_limit_remaining, answer.rate_limit_reset) {
+        (Some(0), Some(at)) => Some(rfc3339(at)),
+        _ => None,
+    }
+}
+
 /// What a finished exchange means. Pure, and the reason every branch below is
 /// reachable on a runner that has never signed in to anything.
 pub fn interpret_read(
@@ -191,6 +369,12 @@ pub fn interpret_read(
 ) -> Result<FreshRead, ReadFailure> {
     let answer = sent?;
 
+    // Resolved here and nowhere later. This function is handed the moment the
+    // answer landed, which is the only moment a count of seconds is measured
+    // from; a clock read further downstream would be measuring from whenever
+    // somebody got round to asking.
+    let resets_at = when_it_resets(&answer, fetched_at);
+
     // GraphQL answers a refused *query* with 200 and an `errors` array, so a
     // status check alone would let a refusal through as a success — and a
     // success is the thing that writes the cache.
@@ -198,10 +382,24 @@ pub fn interpret_read(
         return Err(ReadFailure::Status {
             code: answer.status,
             detail: first_line_of(&answer.body, answer.status),
+            resets_at,
         });
     }
 
-    let read = read_response(&answer.body)?;
+    let read = match read_response(&answer.body) {
+        Ok(read) => read,
+        // The one refusal whose *when* is not in the thing that carries it. A
+        // primary rate limit on GraphQL is a 200 with `type: RATE_LIMITED` in
+        // the body, and the reset rides the headers — which `ReadError` is
+        // parsed without ever seeing. So it is lifted out here, where both
+        // halves are still in hand, rather than reaching `degraded()` as a
+        // refusal that has to answer *no idea when* to a question the response
+        // did answer.
+        Err(ReadError::Answered { kind, message }) if kind == RATE_LIMITED => {
+            return Err(ReadFailure::RateLimitedQuery { message, resets_at });
+        }
+        Err(unreadable) => return Err(ReadFailure::Unreadable(unreadable)),
+    };
 
     Ok(FreshRead {
         body: answer.body,
@@ -232,8 +430,31 @@ fn send(token: &Token, body: &str) -> Result<Answer, ReadFailure> {
     };
 
     let status = answered.status().as_u16();
+    // All three taken before the body, because reading the body consumes the
+    // response and a header nobody copied is a header that never existed.
+    // Whole numbers only: `Retry-After` also has an HTTP-date form this
+    // deliberately declines to parse, and it reads as *nothing said when*
+    // rather than as a wrong number.
+    let number = |name: &str| {
+        answered
+            .headers()
+            .get(name)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|said| said.trim().parse::<i64>().ok())
+    };
+    let retry_after = number("retry-after").and_then(|seconds| u64::try_from(seconds).ok());
+    let rate_limit_remaining =
+        number("x-ratelimit-remaining").and_then(|left| u64::try_from(left).ok());
+    let rate_limit_reset = number("x-ratelimit-reset");
+
     match answered.body_mut().read_to_string() {
-        Ok(body) => Ok(Answer { status, body }),
+        Ok(body) => Ok(Answer {
+            status,
+            body,
+            retry_after,
+            rate_limit_remaining,
+            rate_limit_reset,
+        }),
         Err(unread) => Err(ReadFailure::NoAnswer(unread.to_string())),
     }
 }
@@ -266,10 +487,45 @@ mod tests {
 
     const TWO_MAPS: &str = include_str!("../../model/fixtures/two-maps-one-open.json");
 
+    /// An answer that carried no rate-limit headers at all.
     fn answered(status: u16, body: &str) -> Result<Answer, ReadFailure> {
         Ok(Answer {
             status,
             body: body.to_string(),
+            retry_after: None,
+            rate_limit_remaining: None,
+            rate_limit_reset: None,
+        })
+    }
+
+    /// The same, with GitHub having said when to come back in the first of the
+    /// two documented forms: a count of seconds in `Retry-After`.
+    fn answered_after(status: u16, body: &str, retry_after: u64) -> Result<Answer, ReadFailure> {
+        Ok(Answer {
+            status,
+            body: body.to_string(),
+            retry_after: Some(retry_after),
+            rate_limit_remaining: None,
+            rate_limit_reset: None,
+        })
+    }
+
+    /// And in the second: no `Retry-After`, a budget reported spent, and the
+    /// moment it refills as an absolute epoch second. This is the commoner
+    /// shape of a secondary rate limit and the one this build used to read as
+    /// a revoked token.
+    fn answered_drained(
+        status: u16,
+        body: &str,
+        remaining: u64,
+        reset: i64,
+    ) -> Result<Answer, ReadFailure> {
+        Ok(Answer {
+            status,
+            body: body.to_string(),
+            retry_after: None,
+            rate_limit_remaining: Some(remaining),
+            rate_limit_reset: Some(reset),
         })
     }
 
@@ -301,7 +557,7 @@ mod tests {
             .expect_err("refuses");
 
         match failure {
-            ReadFailure::Status { code, detail } => {
+            ReadFailure::Status { code, detail, .. } => {
                 assert_eq!(code, 401);
                 assert!(detail.contains("Bad credentials"));
             }
@@ -314,12 +570,134 @@ mod tests {
         let failure = interpret_read(answered(502, "   \n  "), 0).expect_err("refuses");
 
         match failure {
-            ReadFailure::Status { code, detail } => {
+            ReadFailure::Status { code, detail, .. } => {
                 assert_eq!(code, 502);
                 assert!(detail.contains("502"), "{detail}");
             }
             other => panic!("{other:?}"),
         }
+    }
+
+    #[test]
+    fn the_moment_github_said_to_come_back_is_resolved_against_the_moment_it_answered() {
+        // A count of seconds is not a time until somebody subtracts it from
+        // one, and this function is the last thing in the crate holding the
+        // moment the answer landed. Sixty seconds after midnight on the fifth.
+        let failure = interpret_read(
+            answered_after(403, "{\"message\":\"API rate limit exceeded\"}", 60),
+            1_785_888_000,
+        )
+        .expect_err("refuses");
+
+        match &failure {
+            ReadFailure::Status {
+                code, resets_at, ..
+            } => {
+                assert_eq!(*code, 403);
+                assert_eq!(resets_at.as_deref(), Some("2026-08-05T00:01:00Z"));
+            }
+            other => panic!("{other:?}"),
+        }
+
+        // And the header is what the condition carries, unrounded and never
+        // guessed at.
+        assert_eq!(
+            failure.degraded(),
+            Degraded::RateLimited {
+                resets_at: Some("2026-08-05T00:01:00Z".to_string())
+            }
+        );
+
+        // A header this build will not read is *nothing said when* rather than
+        // *the reset is now*, which is a horizon nobody established.
+        let unsaid =
+            interpret_read(answered(429, "{\"message\":\"slow down\"}"), 0).expect_err("refuses");
+        assert_eq!(unsaid.degraded(), Degraded::RateLimited { resets_at: None });
+    }
+
+    /// **The other documented form of *not so fast*, which used to read as a
+    /// revoked token.**
+    ///
+    /// GitHub sends `Retry-After` on some secondary rate limits and, on the
+    /// rest, `x-ratelimit-remaining: 0` beside `x-ratelimit-reset`. A build
+    /// that read only the first classified the second as `AuthFailed` — the
+    /// poller answers `Floor::Never`, stops for the life of the process, and
+    /// the screen tells an operator with a perfectly good token to run
+    /// `gh auth login`. The only way back was refocusing the window, which
+    /// fires an immediate poke, re-trips the same limit and stops again. This
+    /// is the inversion of the whole ticket: a condition that heals itself,
+    /// presented as permanent, with a remedy that cannot help.
+    #[test]
+    fn a_403_that_reports_a_spent_budget_is_a_pause_and_not_a_refused_token() {
+        // Midnight on the fifth, refilling an hour later. Absolute, unlike
+        // `Retry-After`'s count forward from now.
+        let refills_at = 1_785_888_000 + 3_600;
+        let limited = interpret_read(
+            answered_drained(
+                403,
+                "{\"message\":\"You have exceeded a secondary rate limit\"}",
+                0,
+                refills_at,
+            ),
+            1_785_888_000,
+        )
+        .expect_err("refuses");
+
+        assert_eq!(
+            limited.degraded(),
+            Degraded::RateLimited {
+                resets_at: Some("2026-08-05T01:00:00Z".to_string())
+            }
+        );
+
+        // And the guard that keeps this from swallowing the other 403. Every
+        // answer carries `x-ratelimit-reset`, including a plain permission
+        // failure with most of the budget untouched; reading it there would
+        // leave a revoked token retrying quietly forever.
+        let forbidden = interpret_read(
+            answered_drained(
+                403,
+                "{\"message\":\"Resource not accessible\"}",
+                4_872,
+                refills_at,
+            ),
+            1_785_888_000,
+        )
+        .expect_err("refuses");
+
+        assert_eq!(forbidden.degraded(), Degraded::AuthFailed);
+    }
+
+    /// A primary rate limit on GraphQL: `200`, an `errors` array, and the reset
+    /// on the headers of the very same response.
+    ///
+    /// The reset has to be lifted across the body parse by hand, because
+    /// `ReadError` is parsed from the body and never sees a header. Without
+    /// that the condition can only ever say *no idea when*, and a rate limit
+    /// with no moment falls back on the doubling — a poll every five minutes
+    /// against a limit that lasts an hour, for the whole hour.
+    #[test]
+    fn a_query_refused_on_the_budget_carries_the_reset_the_same_response_named() {
+        let refused = r#"{"errors":[{"type":"RATE_LIMITED","message":"API rate limit exceeded"}]}"#;
+
+        let failure = interpret_read(
+            answered_drained(200, refused, 0, 1_785_888_000 + 3_600),
+            1_785_888_000,
+        )
+        .expect_err("refuses");
+
+        assert_eq!(
+            failure.degraded(),
+            Degraded::RateLimited {
+                resets_at: Some("2026-08-05T01:00:00Z".to_string())
+            }
+        );
+        // Still GitHub's own sentence, and still not the status line: nothing
+        // about this answer was a bad status.
+        assert!(
+            failure.to_string().contains("API rate limit exceeded"),
+            "{failure}"
+        );
     }
 
     #[test]
@@ -329,6 +707,149 @@ mod tests {
         let failure = interpret_read(answered(503, &page), 0).expect_err("refuses");
 
         assert!(failure.to_string().len() < 400, "{failure}");
+    }
+
+    /// A status, without repeating the number in three places.
+    fn status(code: u16, resets_at: Option<&str>) -> ReadFailure {
+        ReadFailure::Status {
+            code,
+            detail: "whatever the body said".to_string(),
+            resets_at: resets_at.map(str::to_string),
+        }
+    }
+
+    /// A refused query, classified by the `type` GitHub sent and never by the
+    /// sentence beside it.
+    fn refused(kind: &str) -> ReadFailure {
+        ReadFailure::Unreadable(ReadError::Answered {
+            kind: kind.to_string(),
+            message: "whatever GitHub happened to say".to_string(),
+        })
+    }
+
+    #[test]
+    fn each_way_a_read_can_fail_lands_on_the_condition_that_decides_whether_to_retry() {
+        /*
+         * The whole taxonomy in one table, because four tests over four
+         * conditions are four chances to classify three of them. #19 §5's own
+         * table, plus the rows it leaves to judgement, each with the judgement
+         * written beside it.
+         */
+        const AT: &str = "2026-08-05T00:01:00Z";
+        let at = || Some(AT.to_string());
+
+        let table = [
+            (
+                ReadFailure::NoAnswer("connection closed".to_string()),
+                Degraded::Unreachable,
+            ),
+            (status(401, None), Degraded::AuthFailed),
+            // 403 with a reset is *not so fast*; 403 without one is *you may
+            // not*. The header is the only thing that tells them apart.
+            (
+                status(403, Some(AT)),
+                Degraded::RateLimited { resets_at: at() },
+            ),
+            (status(403, None), Degraded::AuthFailed),
+            (
+                status(429, Some(AT)),
+                Degraded::RateLimited { resets_at: at() },
+            ),
+            (status(429, None), Degraded::RateLimited { resets_at: None }),
+            (status(404, None), Degraded::MapGone),
+            // Every other status: a gateway between here and GitHub having a
+            // bad afternoon, and it may not be there next time.
+            (status(500, None), Degraded::Unreachable),
+            (status(502, None), Degraded::Unreachable),
+            (status(503, None), Degraded::Unreachable),
+            (refused("NOT_FOUND"), Degraded::MapGone),
+            // Reached by no route this build takes — `interpret_read` lifts
+            // it into `RateLimitedQuery` so it can carry a reset — and still
+            // classified by its type rather than by how it arrived.
+            (
+                refused("RATE_LIMITED"),
+                Degraded::RateLimited { resets_at: None },
+            ),
+            (refused("FORBIDDEN"), Degraded::AuthFailed),
+            (refused("UNAUTHORIZED"), Degraded::AuthFailed),
+            // Schema drift keeps the last good model and tries again, per
+            // #19 §5 — including the refusal that named no type at all.
+            (refused("SOMETHING_NEW_IN_APRIL"), Degraded::Unreachable),
+            (refused(""), Degraded::Unreachable),
+            (
+                ReadFailure::Unreadable(ReadError::NotJson("expected value".to_string())),
+                Degraded::Unreachable,
+            ),
+            // The one non-obvious row. The answer arrived and denied the
+            // repository exists; that is not transient, and the remedy is
+            // picking another folder rather than waiting for a network.
+            (
+                ReadFailure::Unreadable(ReadError::NoRepository),
+                Degraded::MapGone,
+            ),
+            // The GraphQL form of a rate limit, whose reset came off the
+            // headers rather than out of the body.
+            (
+                ReadFailure::RateLimitedQuery {
+                    message: "API rate limit exceeded".to_string(),
+                    resets_at: at(),
+                },
+                Degraded::RateLimited { resets_at: at() },
+            ),
+            (
+                ReadFailure::RateLimitedQuery {
+                    message: "API rate limit exceeded".to_string(),
+                    resets_at: None,
+                },
+                Degraded::RateLimited { resets_at: None },
+            ),
+            // Not a failure of a read at all, and the remedy is one command.
+            (ReadFailure::NoToken, Degraded::AuthFailed),
+        ];
+
+        for (failure, expected) in table {
+            assert_eq!(failure.degraded(), expected, "{failure:?}");
+        }
+    }
+
+    #[test]
+    fn a_refusal_is_told_apart_by_the_type_github_sent_and_never_by_its_wording() {
+        // Two refusals whose prose points the opposite way from their type.
+        // Anything grepping the sentence gets both of these backwards, which is
+        // the whole reason `kind` is carried.
+        let misleading = ReadFailure::Unreadable(ReadError::Answered {
+            kind: "NOT_FOUND".to_string(),
+            message: "API rate limit exceeded for user ID 1".to_string(),
+        });
+        assert_eq!(misleading.degraded(), Degraded::MapGone);
+
+        let other_way = ReadFailure::Unreadable(ReadError::Answered {
+            kind: "RATE_LIMITED".to_string(),
+            message: "Could not resolve to a Repository".to_string(),
+        });
+        assert_eq!(
+            other_way.degraded(),
+            Degraded::RateLimited { resets_at: None }
+        );
+    }
+
+    #[test]
+    fn the_conditions_that_stop_the_poller_are_the_two_that_retrying_cannot_fix() {
+        // The partition, stated as the property rather than as a list of names:
+        // this is why the taxonomy exists at all.
+        let stops = |failure: &ReadFailure| {
+            matches!(failure.degraded(), Degraded::AuthFailed | Degraded::MapGone)
+        };
+
+        assert!(stops(&ReadFailure::NoToken));
+        assert!(stops(&status(401, None)));
+        assert!(stops(&status(404, None)));
+        assert!(stops(&ReadFailure::Unreadable(ReadError::NoRepository)));
+
+        assert!(!stops(&ReadFailure::NoAnswer("closed".to_string())));
+        assert!(!stops(&status(503, None)));
+        assert!(!stops(&status(429, None)));
+        assert!(!stops(&refused("SOMETHING_NEW_IN_APRIL")));
     }
 
     #[test]

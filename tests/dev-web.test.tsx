@@ -1,10 +1,13 @@
 // @vitest-environment jsdom
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "../src/App";
 import { CacheStamp } from "../src/chrome/CacheStamp";
-import { FIXTURES, FIXTURE_NAMES } from "../src/snapshot/fixtures";
+import { CONDITIONS } from "../src/chrome/stamp";
+import { MapList } from "../src/maps/MapList";
+import { STOPPED_COPY, loadFixture } from "../src/maps/maps";
+import { FIXTURES, FIXTURE_NAMES, type FixtureName } from "../src/snapshot/fixtures";
 import { NO_MAP_OPEN } from "../src/snapshot/readout";
 import { hasRustBehindIt } from "../src/snapshot/snapshot";
 
@@ -382,8 +385,247 @@ describe("dev:web", () => {
   it("carries the reason the read did not land, in the words it arrived in", async () => {
     await boot("/?map=unreachable");
     const stamp = document.querySelector('[data-outcome="failed"]');
+    const outcome = FIXTURES.unreachable.provenance.outcome;
+    if (outcome.kind !== "failed") throw new Error("the unreachable fixture landed");
 
-    expect(stamp?.getAttribute("title")).toBe("could not reach GitHub");
+    expect(stamp?.getAttribute("title")).toBe(outcome.detail);
+  });
+});
+
+/** Every fixture the model crate generates for a read that did not land. */
+const DEGRADED: FixtureName[] = ["unreachable", "auth-failed", "map-gone", "rate-limited"];
+
+describe("a harness read failure is a condition on the graph and never an interruption", () => {
+  it("raises no modal and no toast, on any condition there is", async () => {
+    /*
+     * The rule as something that can fail. A modal is a thing that interrupts
+     * you to be dismissed, and a poll that did not land is a fact about how old
+     * the screen is — so the condition paints and nothing demands an answer.
+     * Over every condition rather than the one that is easiest to reach,
+     * because the next one somebody adds is where a dialog would come back
+     * unnoticed. `aria-live="assertive"` is here for the same reason as the
+     * roles: it interrupts a screen reader mid-sentence, which is the same
+     * interruption in the other modality.
+     */
+    for (const name of DEGRADED) {
+      await boot(`/?map=${name}`);
+
+      for (const interrupting of [
+        '[role="alert"]',
+        '[role="dialog"]',
+        '[role="alertdialog"]',
+        '[aria-live="assertive"]',
+        "dialog",
+      ]) {
+        expect([name, interrupting, document.querySelectorAll(interrupting).length]).toEqual(
+          [name, interrupting, 0],
+        );
+      }
+    }
+  });
+
+  it("stamps the condition on the graph and keeps the age ageing", async () => {
+    for (const name of DEGRADED) {
+      await boot(`/?map=${name}`);
+      const stamp = document.querySelector("[data-degraded]");
+      const outcome = FIXTURES[name].provenance.outcome;
+      if (outcome.kind !== "failed") throw new Error(`${name} is not a failed read`);
+
+      // The attribute the dashed-and-hatched vocabulary keys on.
+      expect([name, stamp?.getAttribute("data-degraded")]).toEqual([
+        name,
+        outcome.reason.reason,
+      ]);
+      // The age is still beside it. A stamp that swapped the age for a reason
+      // would stop reporting staleness at the moment it began to matter, which
+      // is the moment the reason arrived.
+      expect([name, /ago|just now/.test(stamp?.textContent ?? "")]).toEqual([name, true]);
+      // The reason is text and not only a hover — #28 story 24 — and the whole
+      // detail sentence is still in the `title` beside it.
+      expect([name, stamp?.textContent]).toEqual([
+        name,
+        expect.stringContaining(CONDITIONS[outcome.reason.reason]),
+      ]);
+      expect([name, stamp?.getAttribute("title")]).toEqual([name, outcome.detail]);
+    }
+  });
+
+  it("goes on ageing while the poller is stopped and nothing is arriving", async () => {
+    /*
+     * AC6, in the one state that can defeat it. `AuthFailed` and `MapGone`
+     * answer `Floor::Never`, `next_wake` answers `Wake::WhenPoked`, and the
+     * loop blocks on its channel — so no further `maps` event is ever emitted
+     * and nothing external will re-render this window again. Before #40's
+     * review there was no ticker anywhere in `src/`: `now` was read once per
+     * paint, the last paint was the one that reported the stop, and the stamp
+     * froze on *just now* for the rest of the session while the words beside
+     * it went on asserting that freshness.
+     *
+     * Fake timers rather than a real wait, and the system clock is set just
+     * after the fixture's own stamp so the age starts at the bottom of the
+     * scale and has somewhere to go.
+     */
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-05T08:00:05Z"));
+
+    try {
+      await boot("/?map=auth-failed");
+      const said = () => document.querySelector("[data-degraded]")?.textContent ?? "";
+
+      expect(said()).toContain("just now");
+
+      // Nothing is poked, nothing is emitted, nothing is clicked. Only time.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(4 * 60_000);
+      });
+
+      expect(said()).toContain("4 minutes ago");
+      // And the condition is still beside it: the stamp aged, it did not reset.
+      expect(said()).toContain(CONDITIONS.authFailed);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("prints the refusing crate's own sentence rather than the condition's short name", async () => {
+    /*
+     * #28 story 7. `unreachable` is the condition for five refusals that never
+     * reach a socket as well as for a dead network, so its short name may not
+     * be a diagnosis and the sentence has to be on screen — as text, not in a
+     * `title`. A folder with no `.git`, or with no GitHub remote, reading as
+     * *could not reach GitHub* on permanent chrome is what this pins shut.
+     *
+     * The sentences are the store's and the reader's own `Display` output,
+     * copied here because no browser can reach these states — the same reason
+     * the map list borrows its condition from the generated fixtures.
+     */
+    const REFUSALS = [
+      "this folder holds no usable .git: either there is none here, or the .git here points at a git directory that is not there",
+      "this folder is a git repository, but none of its remotes names a repository on GitHub",
+      "the launcher registry could not be opened",
+      "the read did not complete: connection closed before a response arrived",
+    ];
+
+    for (const detail of REFUSALS) {
+      teardown();
+
+      const host = document.createElement("div");
+      document.body.appendChild(host);
+      const root = createRoot(host);
+      mounted = { root, host };
+
+      act(() => {
+        root.render(
+          <CacheStamp
+            what="maps"
+            provenance={{
+              source: "cache",
+              outcome: { kind: "failed", reason: { reason: "unreachable" }, detail },
+              fetchedAt: "2026-08-05T08:00:00Z",
+            }}
+            now={1_785_916_800}
+          />,
+        );
+      });
+
+      const said = host.textContent ?? "";
+      expect([detail, said]).toEqual([detail, expect.stringContaining(detail)]);
+    }
+  });
+
+  it("prints the one command that fixes a token, and invents one for nothing else", async () => {
+    await boot("/?map=auth-failed");
+
+    // The whole reason the taxonomy exists: an operator watching a stamp age
+    // assumes a flaky network, and the fix was one line all along. It is in the
+    // document rather than behind a hover, and nothing had to be opened.
+    expect(document.body.textContent).toContain("run gh auth login");
+
+    await boot("/?map=unreachable");
+    expect(document.body.textContent).not.toContain("gh auth login");
+  });
+});
+
+describe("the map list is disabled in place when the poller has stopped reading", () => {
+  /*
+   * Mounted directly, because nothing has opened a folder in `dev:web` and the
+   * list is not on screen until something does. `loadFixture` is given the same
+   * `?map=` name the window would carry, so what is rendered is the condition
+   * Rust generated rather than one written down here.
+   */
+  function renderMaps(fixture: FixtureName): Element {
+    teardown();
+
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    mounted = { root, host };
+
+    act(() => {
+      root.render(<MapList view={loadFixture(1, `?map=${fixture}`)} />);
+    });
+
+    const section = host.querySelector('[aria-label="Maps"]');
+    if (section === null) throw new Error("the map list did not render");
+    return section;
+  }
+
+  it("keeps every row on screen and takes the affordance off each of them", () => {
+    const listed = renderMaps("awkward-map");
+    const rows = listed.querySelectorAll("li");
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) {
+      expect(row.getAttribute("aria-disabled")).toBeNull();
+    }
+
+    const stopped = renderMaps("auth-failed");
+    const disabled = stopped.querySelectorAll("li");
+
+    // The same rows and the same count. Never hidden and never emptied: a list
+    // that emptied itself would assert the maps are gone on the strength of not
+    // having been able to look, and a missing row and a broken network must not
+    // look identical.
+    expect(disabled.length).toBe(rows.length);
+    for (const row of disabled) {
+      expect(row.getAttribute("aria-disabled")).toBe("true");
+      expect(row.getAttribute("data-disabled")).toBe("true");
+    }
+    expect(stopped.getAttribute("data-degraded")).toBe("authFailed");
+  });
+
+  it("prints the reason and the fixing command above the rows, as text", () => {
+    const stopped = renderMaps("auth-failed");
+
+    expect(stopped.textContent).toContain(CONDITIONS.authFailed);
+    expect(stopped.textContent).toContain(STOPPED_COPY.authFailed);
+    expect(stopped.textContent).toContain("run gh auth login");
+    // Not an alert. The condition is a fact about what is on screen rather than
+    // something to be dismissed.
+    expect(stopped.querySelectorAll('[role="alert"]')).toHaveLength(0);
+  });
+
+  it("says a map is gone in the words that send you to the folder rather than the network", () => {
+    const gone = renderMaps("map-gone");
+
+    expect(gone.getAttribute("data-degraded")).toBe("mapGone");
+    expect(gone.textContent).toContain(STOPPED_COPY.mapGone);
+    // No command, because there is none: a repository that is not there needs a
+    // decision, and a remedy invented for it would be this app telling somebody
+    // to do something nobody established would work.
+    expect(gone.textContent).not.toContain("gh auth login");
+  });
+
+  it("leaves the rows alone for a condition that only delays the next read", () => {
+    // A rate limit is a wait with an end on it. Rows disabled for one would come
+    // back by themselves while somebody sat reading a reason to give up.
+    for (const name of ["rate-limited", "unreachable"] as const) {
+      const limited = renderMaps(name);
+
+      expect([name, limited.getAttribute("data-degraded")]).toEqual([name, null]);
+      for (const row of limited.querySelectorAll("li")) {
+        expect([name, row.getAttribute("aria-disabled")]).toEqual([name, null]);
+      }
+    }
   });
 });
 

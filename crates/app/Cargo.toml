@@ -37,5 +37,12 @@ serde_json = { workspace = true }
 # For the one test that runs a real child and then asserts the directory it ran
 # in is exactly as it was. The compile-time half of "never touches disk" needs
 # nothing; this is the other half.
+#
+# `tauri/test` is the other dev-only feature, and it is here for one reason:
+# `poll_once` takes an `AppHandle`, so without a mock app the only assertions
+# available to a test were restatements of its own inputs. With it, five of that
+# function's seven returns are driven for real — every one that does not need a
+# socket.
 [dev-dependencies]
 tempfile = { workspace = true }
+tauri = { version = "2", features = ["test"] }

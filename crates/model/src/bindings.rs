@@ -29,7 +29,7 @@ use std::path::{Path, PathBuf};
 
 use ts_rs::TS;
 
-use crate::{read_response, Model, Snapshot, Source};
+use crate::{read_response, Degraded, Model, Snapshot, Source};
 
 /// Where the generated TypeScript lands, relative to the repository root.
 const GENERATED_TYPES: &str = "src/snapshot/model.generated.ts";
@@ -101,18 +101,76 @@ const CASES: &[Case] = &[
     },
 ];
 
-/// The one fixture that is not a successful read: the same graph as
-/// `awkward-map`, aged by a poll that failed.
+/// One `dev:web` fixture for a read that did not land: what it is called, which
+/// recorded answer it aged, what the app concluded, and what it was told.
 ///
-/// It exists because *a failed poll still emits a snapshot* is the kind of
-/// claim that is easy to believe and hard to see, and this is what seeing it
-/// looks like — the graph exactly as it was, and a stamp that has stopped
-/// moving.
-const AGED_CASE: (&str, &str, &str) = (
-    "unreachable",
-    "awkward-children.json",
-    "could not reach GitHub",
-);
+/// A struct rather than a four-column tuple, for the reason [`Case`] is one —
+/// the columns name themselves, and nothing downstream has to be read as
+/// `.map(|(slug, _, _, _)| …)`.
+///
+/// It holds [`crate::Degraded`] itself, and there is deliberately no borrowed
+/// copy of that enum in this module. A private `Degraded` shadowing the public
+/// one made every mention in the file a question about which was meant, and it
+/// made the conversion exhaustive over the *private* set — so a fifth public
+/// condition would have compiled here and quietly produced no fixture at all,
+/// while `the_fixture_directory_holds_exactly_the_cases_this_module_names` went
+/// on comparing slugs. ADR 0009 says the taxonomy lives in exactly two places;
+/// this is what keeps this file from being a third. The cost is a function
+/// rather than a `const`, which buys nothing at test time.
+struct AgedCase {
+    slug: &'static str,
+    /// The recorded GraphQL answer beside this crate, aged rather than refused:
+    /// what a failed poll shows is the last copy, not an empty screen.
+    answer: &'static str,
+    /// What the app concluded — the condition, in the enum that crosses.
+    concluded: Degraded,
+    /// What it was told, in the words of the crate that established it. A real
+    /// sentence from that crate, because a fixture carrying invented prose is a
+    /// fixture the copy on screen was never checked against — and, for
+    /// `Unreachable` especially, because the sentence and the condition's short
+    /// name are not the same claim and must not be able to look like it.
+    told: &'static str,
+}
+
+/// The fixtures that are not successful reads: the same graph as
+/// `awkward-map`, aged by a poll that failed, once per condition the taxonomy
+/// can be in.
+///
+/// One was enough while a failure was a sentence. It is not enough now that a
+/// failure is a *structure* the graph paints a condition from: two of these
+/// four stop the poller and print a remedy, two of them keep trying, and a
+/// browser with no Rust behind it has no way to reach any of them. These are
+/// exactly the states the fixture set exists for.
+fn aged_cases() -> Vec<AgedCase> {
+    vec![
+        AgedCase {
+            slug: "unreachable",
+            answer: "awkward-children.json",
+            concluded: Degraded::Unreachable,
+            told: "the read did not complete: dns error: failed to look up the address of api.github.com",
+        },
+        AgedCase {
+            slug: "auth-failed",
+            answer: "awkward-children.json",
+            concluded: Degraded::AuthFailed,
+            told: "GitHub answered with status 401: Bad credentials",
+        },
+        AgedCase {
+            slug: "map-gone",
+            answer: "awkward-children.json",
+            concluded: Degraded::MapGone,
+            told: "the answer carried no repository, so it is not an answer about this one",
+        },
+        AgedCase {
+            slug: "rate-limited",
+            answer: "awkward-children.json",
+            concluded: Degraded::RateLimited {
+                resets_at: Some("2026-08-05T09:00:00Z".to_string()),
+            },
+            told: "GitHub answered with status 403: API rate limit exceeded",
+        },
+    ]
+}
 
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -206,16 +264,17 @@ fn every_dev_web_fixture_is_this_crate_s_own_output() {
         );
     }
 
-    let (slug, answer, why) = AGED_CASE;
-    let model = Model::of(&read_response(&recorded(answer)).expect("the answer reads"));
-    let aged =
-        Snapshot::read(model, Source::Cache, crate::rfc3339(FIXTURE_STAMP)).aged(why.to_string());
-    let json = aged.to_json_string().expect("serialises");
-    agrees(
-        &root.join(FIXTURE_DIR).join(format!("{slug}.json")),
-        &format!("{json}\n"),
-        HOW_TO_FIX,
-    );
+    for case in aged_cases() {
+        let model = Model::of(&read_response(&recorded(case.answer)).expect("the answer reads"));
+        let aged = Snapshot::read(model, Source::Cache, crate::rfc3339(FIXTURE_STAMP))
+            .aged(case.concluded, case.told.to_string());
+        let json = aged.to_json_string().expect("serialises");
+        agrees(
+            &root.join(FIXTURE_DIR).join(format!("{}.json", case.slug)),
+            &format!("{json}\n"),
+            HOW_TO_FIX,
+        );
+    }
 }
 
 /// Every fixture on disk is one this module produces, and every case this
@@ -248,7 +307,11 @@ fn the_fixture_directory_holds_exactly_the_cases_this_module_names() {
     let mut named: Vec<String> = CASES
         .iter()
         .map(|case| format!("{}.json", case.slug))
-        .chain(std::iter::once(format!("{}.json", AGED_CASE.0)))
+        .chain(
+            aged_cases()
+                .iter()
+                .map(|case| format!("{}.json", case.slug)),
+        )
         .collect();
     named.sort();
 

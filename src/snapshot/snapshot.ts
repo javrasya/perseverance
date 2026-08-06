@@ -27,6 +27,7 @@ import type { Snapshot } from "./model.generated";
 export type {
   ChildKind,
   Counts,
+  Degraded,
   Map,
   Model,
   Node,

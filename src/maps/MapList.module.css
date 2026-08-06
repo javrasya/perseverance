@@ -79,6 +79,36 @@
   --c-row-number: var(--s-ink-faint);
 }
 
+/*
+ * A row the poller can no longer refresh. Greyed and never removed, and never
+ * struck out: the same change of ink `FolderRow` makes for a folder whose drive
+ * is unplugged, because a missing row and a broken network must not look
+ * identical. Nothing about the box changes, so a condition arriving moves no
+ * neighbour by a pixel.
+ */
+.row[data-disabled="true"] {
+  --c-row-ink: var(--s-ink-faint);
+  --c-row-number: var(--s-ink-faint);
+
+  cursor: default;
+}
+
+/*
+ * The whole list, hatched, so the condition is legible without reading. Same
+ * vocabulary as the stamp — dashed edge, hatched fill — because they are
+ * saying the same thing about the same read, and two textures would read as
+ * two conditions.
+ */
+.maps[data-degraded] .list {
+  border-style: dashed;
+  border-color: var(--s-degraded-edge);
+  background-image: repeating-linear-gradient(
+    45deg,
+    transparent 0 5px,
+    var(--s-degraded-hatch) 5px 7px
+  );
+}
+
 .number {
   color: var(--c-row-number);
   font-family: var(--s-font-mono);
@@ -128,6 +158,48 @@
   color: var(--s-ink-secondary);
   font-size: var(--s-text-small);
   line-height: 1.5;
+}
+
+/*
+ * Why the rows are inert, above the rows. It takes the same rail-and-sunken
+ * shape as `.absence` and `.caveat` rather than a colour of its own: this is a
+ * statement about what is on screen, not an alarm somebody has to answer.
+ */
+.stopped {
+  display: flex;
+  max-width: 60ch;
+  flex-direction: column;
+  gap: var(--s-space-hair);
+  padding: var(--s-space-snug) var(--s-space-base);
+  border-left: var(--s-border-emphasis) solid var(--s-degraded-edge);
+  border-radius: var(--s-radius-control);
+  background: var(--s-surface-sunken);
+}
+
+.stoppedHeadline {
+  color: var(--s-ink-primary);
+  font-size: var(--s-text-micro);
+  font-weight: var(--s-weight-emphasis);
+  letter-spacing: var(--s-tracking-label);
+  text-transform: uppercase;
+}
+
+.stoppedDetail {
+  color: var(--s-ink-secondary);
+  font-size: var(--s-text-small);
+  line-height: 1.5;
+}
+
+/* The one command that fixes it, spelled as a command so it can be typed. */
+.stoppedRemedy {
+  align-self: flex-start;
+  margin-top: var(--s-space-hair);
+  padding: var(--s-space-hair) var(--s-space-tight);
+  border-radius: var(--s-radius-control);
+  background: var(--s-surface-raised);
+  color: var(--s-ink-primary);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-small);
 }
 
 /* ------------------------------------------------------------ completed --- */

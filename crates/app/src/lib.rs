@@ -18,13 +18,15 @@ use std::sync::{Mutex, MutexGuard, OnceLock};
 
 use perseverance_env::{Environment, HarvestAttempt, Shell, Stderr, StderrKind, Tally};
 use perseverance_github::{
-    acquire_token, read_maps, Ahead, Attention, FreshRead, Held, Poke, Poker, ReadFailure, Tick,
-    Timings, TokenOutcome, Watched,
+    acquire_token, read_maps, Ahead, Attention, Fault, FreshRead, Held, Poke, Poker, ReadFailure,
+    Tick, Timings, TokenOutcome, Watched,
 };
-use perseverance_model::{read_response, MapRead, Provenance, ReadOutcome, Snapshot, Source};
+use perseverance_model::{
+    read_response, Degraded, MapRead, Provenance, ReadOutcome, Snapshot, Source,
+};
 use perseverance_store::{Folder, RepoBindingError, Store, StoreError};
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 use tauri_plugin_dialog::DialogExt;
 
 /// The whole model for one tick, in one call.
@@ -200,8 +202,18 @@ impl MapsView {
     /// rather than about the answer. The stamp is where the two are reconciled —
     /// a failure and a yield are two reasons and one sentence, and the failure
     /// is the one about what is on screen.
-    fn stale(mut self, why: String) -> MapsView {
-        self.provenance.outcome = ReadOutcome::Failed(why);
+    ///
+    /// Two arguments, and neither is derivable from the other. `reason` is what
+    /// this app concluded — the thing the graph paints a condition from and the
+    /// poller times a backoff from — and `why` is the sentence the crate that
+    /// refused actually wrote. A view carrying only the sentence would leave
+    /// the WebView grepping prose for a condition; a view carrying only the
+    /// condition would leave an operator with a category and no account of it.
+    fn stale(mut self, reason: Degraded, why: String) -> MapsView {
+        self.provenance.outcome = ReadOutcome::Failed {
+            reason,
+            detail: why,
+        };
         self.rate_limit = None;
         self
     }
@@ -223,10 +235,18 @@ fn from_cache(store: &Store, folder_id: i64) -> MapsView {
 
     match read_response(&cached.graph_json) {
         Ok(read) => MapsView::of(folder_id, &read, Source::Cache, cached.fetched_at),
+        // A body this build cannot read is schema drift on a copy, and drift is
+        // [`Degraded::Unreachable`] wherever it happens: the next live read
+        // replaces it, and a condition that stopped the poller over a cached
+        // row would be this app refusing to fetch the very thing that would
+        // have fixed it.
         Err(unreadable) => MapsView {
             provenance: Provenance {
                 source: Source::Cache,
-                outcome: ReadOutcome::Failed(unreadable.to_string()),
+                outcome: ReadOutcome::Failed {
+                    reason: Degraded::Unreachable,
+                    detail: unreadable.to_string(),
+                },
                 fetched_at: Some(perseverance_model::rfc3339(cached.fetched_at)),
             },
             ..MapsView::nothing_read_yet(folder_id)
@@ -278,8 +298,27 @@ const MAPS_EVENT: &str = "maps";
 /// It stamps the floor that will hold the next wait onto every view that
 /// leaves, which is why it takes one: `poll_once` returns from seven places and
 /// a flag set at each of them would be a flag missing from one of them.
-fn emit_view(app: &AppHandle, view: MapsView, held: Held) {
+fn emit_view<R: Runtime>(app: &AppHandle<R>, view: MapsView, held: Held) {
     let _ = app.emit(MAPS_EVENT, view.yielding(held));
+}
+
+/// What a refusal that never reached a socket is, and the sentence it keeps.
+///
+/// One function rather than a `Degraded::Unreachable` spelled at five returns,
+/// for the reason `poller.rs` extracted `folded`: a decision written out at
+/// every site it is taken is a decision a test can only restate. Mutate this
+/// and the table below it fails; mutate a return and there is nothing left in
+/// the return to mutate.
+///
+/// The condition is always [`Degraded::Unreachable`] because the question the
+/// taxonomy answers is *is waiting going to help*, and for every one of these
+/// it is: a drive is plugged back in, a folder mid-rename finishes, a registry
+/// that would not open this second may open the next. What it must never become
+/// is a *diagnosis* — so the sentence handed back is the refusing crate's own,
+/// unedited, because *this folder names no GitHub remote* may not be reported
+/// as *could not reach GitHub*.
+fn local_refusal(said: String) -> (Degraded, String) {
+    (Degraded::Unreachable, said)
 }
 
 /// One poll, as the poller's thread runs it.
@@ -293,11 +332,25 @@ fn emit_view(app: &AppHandle, view: MapsView, held: Held) {
 /// socket is opened with nothing held, and the lock comes back only for the
 /// cache write.
 ///
-/// A failure emits the cached list with a stale stamp rather than nothing.
-/// Nothing here classifies *why* — `Unreachable` versus `AuthFailed` versus
-/// `MapGone`, and which of them retries, is #40's whole ticket — so the
-/// condition crosses in the words of whichever crate established it, and all
-/// this hands back is which of the three kinds of tick it was.
+/// A failure emits the cached list with a stale stamp rather than nothing, and
+/// **every failing return names the condition it is**. That is #40's change to
+/// this function: a stamp used to cross in the words of whichever crate refused
+/// and nothing more, and the poller could only ever wait longer. The words still
+/// cross, unedited; what is new beside them is the app's own conclusion, taken
+/// once per return by [`ReadFailure::degraded`] or written down here for the
+/// refusals that never reached a socket.
+///
+/// The five local refusals are the ones worth arguing, and every one of them
+/// goes through [`local_refusal`] rather than naming a condition here. A
+/// registry that will not open, a folder id nothing answers to, a folder that
+/// names no GitHub repository, and a cache write that failed all recover by
+/// themselves, so none of them is a reason to stop reading. The mistake to
+/// guard against is the *reading*, not the retrying: the condition classifies
+/// whether waiting helps and nothing else, and the `detail` beside it stays the
+/// refusing crate's own sentence — which is what the WebView prints, so *this
+/// folder names no GitHub remote* is what an operator reads. The fifth,
+/// [`ReadFailure::NoToken`], is `AuthFailed`, which is also what prints
+/// `gh auth login`.
 ///
 /// `ahead` is the poller's answer to *which floor will hold the next wait*,
 /// asked with whatever this poll learned about the budget. It is stamped onto
@@ -307,27 +360,28 @@ fn emit_view(app: &AppHandle, view: MapsView, held: Held) {
 ///
 /// The return now carries what the read saw of the budget, which is the only
 /// route those numbers have back into the loop that paces against them.
-fn poll_once(app: &AppHandle, watched: &Watched, ahead: &Ahead<'_>) -> Tick {
+fn poll_once<R: Runtime>(app: &AppHandle<R>, watched: &Watched, ahead: &Ahead<'_>) -> Tick {
     let registry = app.state::<Registry>();
     let ambient = app.state::<Ambient>();
     let folder_id = watched.folder_id;
 
-    // Every return below this line but the last one established nothing about
-    // the budget, so they all describe the wait the last known numbers pace.
-    // Asked once rather than at each of them, because six calls to the same
-    // question are six chances to ask a different one.
-    let unread = ahead(None);
+    // One place where a condition becomes a stamp, a floor and a tick, so the
+    // three cannot come to disagree about what just happened. The `ahead` it
+    // asks is asked with the tick it is about to return — which is what makes
+    // a failure change the floor the view is emitted into rather than the one
+    // after that.
+    let failed = |view: MapsView, reason: Degraded, why: String| -> Tick {
+        let tick = Tick::Failed(Fault::of(&reason, epoch_seconds()));
+        emit_view(app, view.stale(reason, why), ahead(tick));
+        tick
+    };
 
     let (held, path) = {
         let store = match registry.store() {
             Ok(store) => store,
             Err(refusal) => {
-                emit_view(
-                    app,
-                    MapsView::nothing_read_yet(folder_id).stale(refusal),
-                    unread,
-                );
-                return Tick::Failed;
+                let (reason, why) = local_refusal(refusal);
+                return failed(MapsView::nothing_read_yet(folder_id), reason, why);
             }
         };
         let held = from_cache(&store, folder_id);
@@ -335,19 +389,15 @@ fn poll_once(app: &AppHandle, watched: &Watched, ahead: &Ahead<'_>) -> Tick {
         let folder = match store.folders() {
             Ok(folders) => folders.into_iter().find(|folder| folder.id == folder_id),
             Err(refusal) => {
-                emit_view(app, held.stale(refusal.to_string()), unread);
-                return Tick::Failed;
+                let (reason, why) = local_refusal(refusal.to_string());
+                return failed(held, reason, why);
             }
         };
         match folder {
             Some(folder) => (held, folder.path),
             None => {
-                emit_view(
-                    app,
-                    held.stale(StoreError::UnknownFolder(folder_id).to_string()),
-                    unread,
-                );
-                return Tick::Failed;
+                let (reason, why) = local_refusal(StoreError::UnknownFolder(folder_id).to_string());
+                return failed(held, reason, why);
             }
         }
     };
@@ -358,8 +408,11 @@ fn poll_once(app: &AppHandle, watched: &Watched, ahead: &Ahead<'_>) -> Tick {
     let repo = match perseverance_store::bind_repo(Path::new(&path)) {
         Ok(repo) => repo,
         Err(refusal) => {
-            emit_view(app, held.stale(refusal.to_string()), unread);
-            return Tick::Failed;
+            // Retryable, because a folder is renamed and a drive is plugged
+            // back in — and the sentence is the store's, so *this folder names
+            // no GitHub remote* is what reaches the screen.
+            let (reason, why) = local_refusal(refusal.to_string());
+            return failed(held, reason, why);
         }
     };
 
@@ -371,23 +424,30 @@ fn poll_once(app: &AppHandle, watched: &Watched, ahead: &Ahead<'_>) -> Tick {
         // token* here would be a Windows launch — 1.5 to 1.9 seconds of real
         // harvest — telling an operator they have never signed in.
         None => {
-            emit_view(app, held, unread);
+            emit_view(app, held, ahead(Tick::NotAttempted));
             return Tick::NotAttempted;
         }
         // Never signed in, or the harvest was discarded so `gh` was never
         // looked for. Both leave a working app with no poller, which is a
-        // sentence rather than a stack.
+        // sentence rather than a stack — and both stop rather than back off,
+        // because the remedy is `gh auth login` and no amount of waiting is it.
         Some(_) => {
-            emit_view(app, held.stale(ReadFailure::NoToken.to_string()), unread);
-            return Tick::Failed;
+            return failed(
+                held,
+                ReadFailure::NoToken.degraded(),
+                ReadFailure::NoToken.to_string(),
+            );
         }
     };
 
     let fresh = match read_maps(token, &repo.owner, &repo.name, None) {
         Ok(fresh) => fresh,
+        // The one classification this function does not make itself. The crate
+        // that held the socket is the one that saw the status, the header and
+        // the `type`, and asking it is what keeps one taxonomy from becoming
+        // two.
         Err(failure) => {
-            emit_view(app, held.stale(failure.to_string()), unread);
-            return Tick::Failed;
+            return failed(held, failure.degraded(), failure.to_string());
         }
     };
 
@@ -395,11 +455,13 @@ fn poll_once(app: &AppHandle, watched: &Watched, ahead: &Ahead<'_>) -> Tick {
     // The one return that learned something. Asked with the numbers this answer
     // carried rather than with the ones the last one did, which is what makes
     // the poll that lands at the reset stop saying the poller is yielding.
-    let paced_by = ahead(fresh.budget());
+    let paced_by = ahead(Tick::Read(fresh.budget()));
     // A cache the registry declined to write is not a read that did not happen:
     // the answer is on screen either way, the store's refusal is what the stamp
-    // then carries, and the tick still counts as a read — the backoff #40 will
-    // build counts failures to reach GitHub, and this was not one.
+    // then carries, and the tick still counts as a read — the backoff counts
+    // failures to reach GitHub, and this was not one. So the condition beside
+    // that refusal is `Unreachable` and the tick is still `Read`: the stamp
+    // says the copy will not survive the session, and nothing backs off.
     let stored = match registry.store() {
         Ok(store) => {
             remember_read(&store, folder_id, &fresh).map_err(|refusal| refusal.to_string())
@@ -408,7 +470,10 @@ fn poll_once(app: &AppHandle, watched: &Watched, ahead: &Ahead<'_>) -> Tick {
     };
     match stored {
         Ok(()) => emit_view(app, view, paced_by),
-        Err(refusal) => emit_view(app, view.stale(refusal), paced_by),
+        Err(refusal) => {
+            let (reason, why) = local_refusal(refusal);
+            emit_view(app, view.stale(reason, why), paced_by)
+        }
     }
     // What this answer said about the budget, anchored to when it landed. The
     // loop ages it against its own last tick; nothing here interprets it.
@@ -471,6 +536,19 @@ impl Registry {
             Err(refusal) => Err(refusal.clone()),
         }
     }
+}
+
+/// Seconds since the Unix epoch, saturating at zero for a clock set before
+/// 1970 — the same shape `read.rs` and the registry both take, and for the same
+/// reason: a stamp that is nonsense is not worth a crash.
+///
+/// The one clock reading this crate takes. [`Fault::of`] needs it because
+/// `cadence.rs` deliberately has none, and this is the wiring layer that does.
+fn epoch_seconds() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|since| since.as_secs() as i64)
+        .unwrap_or(0)
 }
 
 /// `app_data_dir()/perseverance.db`. The store creates the directory if it is
@@ -1097,6 +1175,9 @@ mod tests {
             Ok(perseverance_github::Answer {
                 status: 200,
                 body: body.to_string(),
+                retry_after: None,
+                rate_limit_remaining: None,
+                rate_limit_reset: None,
             }),
             fetched_at,
         )
@@ -1206,19 +1287,275 @@ mod tests {
             Ok(perseverance_github::Answer {
                 status: 401,
                 body: "{\"message\":\"Bad credentials\"}".to_string(),
+                retry_after: None,
+                rate_limit_remaining: None,
+                rate_limit_reset: None,
             }),
             200,
         );
-        assert!(failed.is_err());
-        let held = from_cache(&store, folder_id).stale("Bad credentials".to_string());
+        let refusal = failed.expect_err("refuses");
+        let held = from_cache(&store, folder_id).stale(refusal.degraded(), refusal.to_string());
 
         assert_eq!(store.cached_graph(folder_id, None).expect("reads"), before);
         // What was read last time is still on screen; only the stamp moved.
         let json = serde_json::to_value(held).expect("serialises");
         assert_eq!(json["provenance"]["source"], "cache");
         assert_eq!(json["provenance"]["outcome"]["kind"], "failed");
+        // A 401 stops rather than backs off, and the sentence beside it is
+        // still `read.rs`'s own rather than one composed here.
+        assert_eq!(
+            json["provenance"]["outcome"]["reason"]["reason"],
+            "authFailed"
+        );
+        assert!(json["provenance"]["outcome"]["detail"]
+            .as_str()
+            .expect("a sentence")
+            .contains("Bad credentials"));
         assert_eq!(json["provenance"]["fetchedAt"], "1970-01-01T00:01:40Z");
         assert_eq!(json["maps"][0]["number"], 28);
+    }
+
+    /* ------------------------------------------------ poll_once, for real --- */
+
+    use perseverance_github::TokenRefusal;
+    use std::sync::mpsc::{self, Receiver};
+    use tauri::test::{mock_app, MockRuntime};
+    use tauri::Listener;
+
+    /// A window with a registry and an ambient of this test's choosing, and
+    /// every view [`poll_once`] emits into it.
+    ///
+    /// `poll_once` is the only place in this workspace where the refusals that
+    /// never reach a socket are classified, and it takes an `AppHandle` — so
+    /// until `tauri/test` was a dev-dependency the only assertions available to
+    /// a test were restatements of the values it had written down itself. This
+    /// stands a real window up, so every assertion below consumes a value
+    /// `poll_once` produced.
+    struct Window {
+        app: tauri::App<MockRuntime>,
+        emitted: Receiver<serde_json::Value>,
+    }
+
+    impl Window {
+        fn holding(registry: Registry, ambient: Ambient) -> Window {
+            let app = mock_app();
+            app.manage(registry);
+            app.manage(ambient);
+
+            let (tx, emitted) = mpsc::channel();
+            app.listen(MAPS_EVENT, move |event| {
+                let _ = tx.send(serde_json::from_str(event.payload()).expect("a view"));
+            });
+
+            Window { app, emitted }
+        }
+
+        /// A window whose registry opened, over a folder at `path`.
+        fn over(path: &Path, ambient: Ambient) -> (Window, i64) {
+            let store = Store::open_in_memory().expect("opens");
+            let folder = store.remember_folder(path).expect("remembers");
+            let registry = Registry {
+                opened: Ok(Mutex::new(store)),
+            };
+            (Window::holding(registry, ambient), folder.id)
+        }
+
+        /// One poll: the tick it returned, and the view it put on screen.
+        ///
+        /// `Held::Ladder` for the floor because none of these tests is about
+        /// the cadence — the tables in `cadence.rs` own that — and every return
+        /// stamps whatever `ahead` answers without reading it.
+        fn poll(&self, folder_id: i64) -> (Tick, serde_json::Value) {
+            let ahead = |_: Tick| Held::Ladder;
+            let tick = poll_once(
+                self.app.handle(),
+                &Watched {
+                    folder_id,
+                    map: None,
+                },
+                &ahead,
+            );
+            let view = self
+                .emitted
+                .try_recv()
+                .expect("every return of poll_once emits a view");
+            (tick, view)
+        }
+    }
+
+    /// A registry whose file would not open, in a sentence of the shape the
+    /// store writes. It never reaches `local_refusal` as anything but a string.
+    const REGISTRY_CLOSED: &str = "the launcher registry could not be opened";
+
+    /// A config naming one repository on GitHub, so `bind_repo` gets past the
+    /// binding and the token branch is the next thing `poll_once` reaches.
+    const BOUND_TO_GITHUB: &str = "[remote \"origin\"]
+	url = https://github.com/javrasya/perseverance.git
+";
+
+    /// A real git repository whose remotes name nothing on GitHub.
+    const NO_GITHUB_REMOTE: &str = "[remote \"origin\"]
+	url = git@example.com:someone/thing.git
+";
+
+    /// A harvest that settled on `outcome`, or one that has not settled at all.
+    fn ambient_with(outcome: Option<TokenOutcome>) -> Ambient {
+        let ambient = Ambient::harvesting();
+        if let Some(outcome) = outcome {
+            ambient.token.set(outcome).expect("nothing set it first");
+        }
+        ambient
+    }
+
+    /// A folder on disk with the `.git/config` this test wants it to have, or
+    /// none at all. Returned whole, because dropping it deletes the directory.
+    fn folder_with(config: Option<&str>) -> tempfile::TempDir {
+        let dir = tempfile::tempdir().expect("a directory");
+        if let Some(config) = config {
+            let git = dir.path().join(".git");
+            std::fs::create_dir_all(&git).expect("a .git");
+            std::fs::write(git.join("config"), config).expect("a config");
+        }
+        dir
+    }
+
+    /// The condition and the sentence a view carries, as the WebView reads them.
+    fn condition(view: &serde_json::Value) -> (String, String) {
+        let outcome = &view["provenance"]["outcome"];
+        assert_eq!(outcome["kind"], "failed", "{view}");
+        (
+            outcome["reason"]["reason"]
+                .as_str()
+                .expect("a condition")
+                .to_string(),
+            outcome["detail"].as_str().expect("a sentence").to_string(),
+        )
+    }
+
+    /// **Every refusal that never reaches a socket, driven through the function
+    /// that classifies it.**
+    ///
+    /// Four of the five local refusals are reachable without a network, and all
+    /// four are here: a registry that will not open, a folder id nothing
+    /// answers to, a folder with no usable `.git`, and a folder whose remotes
+    /// name nothing on GitHub. Each has to answer a *retryable* condition — a
+    /// folder whose drive is unplugged is not a reason to stop reading GitHub —
+    /// and each has to carry the refusing crate's own sentence unedited, which
+    /// is what the screen prints. A folder that names no GitHub remote being
+    /// classified `MapGone`, and so stopping the poller for the life of the
+    /// process, is the failure this exists to catch.
+    ///
+    /// The fifth, a cache write the registry declined, needs a store that
+    /// breaks mid-session; it is covered by `local_refusal`'s own table below
+    /// rather than through here.
+    #[test]
+    fn every_refusal_that_never_reaches_a_socket_still_names_the_condition_it_is() {
+        // A registry that would not open at all. Nothing was ever read, so the
+        // view is the empty one and the sentence is the registry's.
+        let closed = Window::holding(
+            Registry {
+                opened: Err(REGISTRY_CLOSED.to_string()),
+            },
+            ambient_with(None),
+        );
+        let (tick, view) = closed.poll(7);
+        assert_eq!(tick, Tick::Failed(Fault::Unreachable));
+        assert_eq!(view["provenance"]["source"], "none");
+        assert_eq!(
+            condition(&view),
+            ("unreachable".to_string(), REGISTRY_CLOSED.to_string())
+        );
+
+        // A folder id nothing on the list answers to.
+        let here = folder_with(Some(BOUND_TO_GITHUB));
+        let (window, folder_id) = Window::over(here.path(), ambient_with(None));
+        let (tick, view) = window.poll(folder_id + 1_000);
+        assert_eq!(tick, Tick::Failed(Fault::Unreachable));
+        assert_eq!(
+            condition(&view),
+            (
+                "unreachable".to_string(),
+                StoreError::UnknownFolder(folder_id + 1_000).to_string()
+            )
+        );
+
+        // The two the store establishes about a folder on this disk. Neither
+        // ever reached GitHub, and neither may say it failed to.
+        for (config, refusal) in [
+            (None, RepoBindingError::NotAGitRepo),
+            (Some(NO_GITHUB_REMOTE), RepoBindingError::NoGitHubRemote),
+        ] {
+            let dir = folder_with(config);
+            let (window, folder_id) = Window::over(dir.path(), ambient_with(None));
+
+            let (tick, view) = window.poll(folder_id);
+
+            assert_eq!(tick, Tick::Failed(Fault::Unreachable), "{refusal}");
+            assert_eq!(
+                condition(&view),
+                ("unreachable".to_string(), refusal.to_string()),
+                "{refusal}"
+            );
+        }
+    }
+
+    /// The two returns the token branch owns, which are not failures of a read.
+    ///
+    /// A harvest that has not settled has not failed to reach GitHub — it has
+    /// not asked yet — so nothing is stamped and the copy keeps the age it had.
+    /// A harvest that settled on *no token* is `AuthFailed`, which stops rather
+    /// than backs off, because the remedy is `gh auth login` and no amount of
+    /// waiting is it.
+    #[test]
+    fn a_launch_with_no_token_yet_stamps_nothing_and_one_with_none_at_all_stops() {
+        let here = folder_with(Some(BOUND_TO_GITHUB));
+
+        let (waiting, folder_id) = Window::over(here.path(), ambient_with(None));
+        let (tick, view) = waiting.poll(folder_id);
+        assert_eq!(tick, Tick::NotAttempted);
+        assert_eq!(view["provenance"]["outcome"]["kind"], "notAttempted");
+
+        let (refused, folder_id) = Window::over(
+            here.path(),
+            ambient_with(Some(TokenOutcome::Refused(TokenRefusal::NoToken))),
+        );
+        let (tick, view) = refused.poll(folder_id);
+        assert_eq!(tick, Tick::Failed(Fault::AuthFailed));
+        assert_eq!(
+            condition(&view),
+            ("authFailed".to_string(), ReadFailure::NoToken.to_string())
+        );
+    }
+
+    /// The classification itself, over every sentence that reaches it.
+    ///
+    /// [`poll_once`] drives four of these for real above; this is the rule they
+    /// all go through, including the cache write no test can break a store
+    /// into. Two things can fail here: the condition ceasing to be retryable,
+    /// and the sentence ceasing to be the refusing crate's own.
+    #[test]
+    fn a_refusal_established_without_a_socket_is_retryable_and_keeps_its_own_words() {
+        for said in [
+            "the launcher registry could not be written".to_string(),
+            StoreError::UnknownFolder(3).to_string(),
+            RepoBindingError::NotAGitRepo.to_string(),
+            RepoBindingError::NoGitHubRemote.to_string(),
+            RepoBindingError::AmbiguousRemotes {
+                candidates: vec!["origin".to_string(), "upstream".to_string()],
+            }
+            .to_string(),
+        ] {
+            let (reason, why) = local_refusal(said.clone());
+
+            assert_eq!(reason, Degraded::Unreachable, "{said}");
+            // Verbatim. The condition is this app's conclusion about whether
+            // waiting helps; the sentence is the refusing crate's account of
+            // what happened, and an operator reads both.
+            assert_eq!(why, said);
+        }
+
+        // And the one whose remedy is a command rather than a wait.
+        assert_eq!(ReadFailure::NoToken.degraded(), Degraded::AuthFailed);
     }
 
     #[test]
@@ -1273,6 +1610,32 @@ mod tests {
                 .graph_json,
             TWO_MAPS
         );
+    }
+
+    /// **Nothing printed inside a PTY is a condition on the graph.**
+    ///
+    /// The rule is `crates/pty`'s and the test is here, for the reason #38 gave
+    /// for putting the purity check in `poller.rs`: the needle does not go in
+    /// the haystack it is searching. A test living in the crate it reads would
+    /// be a test whose own source satisfies the thing it looks for.
+    ///
+    /// It is a byte-level check because `crates/pty` is thirty-odd lines of doc
+    /// comment and there is no behaviour to exercise yet. That is a real limit
+    /// and README says so: this asserts a stub, and #47 is where it has to be
+    /// re-asserted against a crate that actually owns a terminal.
+    #[test]
+    fn nothing_inside_the_terminal_can_raise_a_condition_on_the_graph() {
+        const PTY_SOURCE: &str = include_str!("../../pty/src/lib.rs");
+
+        // Every name a child process's failure would have to reach for to put
+        // itself on the graph. A harness that narrated a compiler error would
+        // be saying, less well, what is already three inches from your eyes.
+        for surfaced in ["Degraded", "ReadOutcome", "MapsView", "Provenance", "emit"] {
+            assert!(
+                !PTY_SOURCE.contains(surfaced),
+                "crates/pty names {surfaced}, so a failure inside a terminal can reach the graph"
+            );
+        }
     }
 
     /* ------------------------------------------------------- environment --- */

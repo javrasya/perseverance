@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { CacheStamp } from "./chrome/CacheStamp";
 import { DropRegion } from "./chrome/DropRegion";
 import { MapChip } from "./chrome/MapChip";
+import { useNow } from "./chrome/useNow";
 import {
   EnvironmentReadout,
   EnvironmentSummary,
@@ -19,7 +20,6 @@ import {
   forgetFolder,
   loadLauncher,
   nothingListedYet,
-  nowSeconds,
   refusalDetail,
   relocateFolder,
   rememberFolder,
@@ -56,6 +56,15 @@ import styles from "./App.module.css";
  * decides what is on the list, and this file only carries answers between them.
  */
 export function App() {
+  /*
+   * One clock for the window, and it is what makes every age on screen age.
+   * Nothing else re-renders this component on its own: a poller that has
+   * stopped emits nothing ever again, and the two conditions that stop it are
+   * exactly the two whose stamps have a reason printed beside them. A stamp
+   * frozen on *just now* while the sentence beside it says nothing newer has
+   * turned up would be the one lie the stamp exists to prevent.
+   */
+  const now = useNow();
   const [preference, chooseTheme] = useTheme();
   const [view] = useDefaultView();
   const [snapshot, setSnapshot] = useState<Snapshot>(noMapOpen);
@@ -312,7 +321,7 @@ export function App() {
         <DropRegion onFoldersDropped={onFoldersDropped}>
           <FolderList
             outcome={outcome}
-            now={nowSeconds()}
+            now={now}
             selectedId={selectedId}
             note={note}
             onOpen={onOpen}
@@ -357,7 +366,7 @@ export function App() {
           silent — so the model alone cannot tell you which of the two you are
           looking at. Without this the two states are the same pixels.
         */}
-        <CacheStamp what="model" provenance={snapshot.provenance} now={nowSeconds()} />
+        <CacheStamp what="model" provenance={snapshot.provenance} now={now} />
         {/*
           How old what you are reading is, on chrome that survives every state.
           It is here rather than beside the map list because it may never be a
@@ -373,11 +382,19 @@ export function App() {
           And whether the poller is holding itself back to leave the rate limit
           alone, which is a fact about this stamp's subject and no other: the
           model has no poller behind it, so it is passed nothing to say.
+
+          This is also where a read that did not land says what stopped it. The
+          footer is the app's readout — the spine foot #52 will build is a
+          different surface, and this is the one that exists — so the condition
+          lands on chrome that survives every state rather than in a modal or a
+          toast. There is no branch anywhere below that removes a stamp: a
+          screen with no stamp on it is a screen whose age nobody can read, and
+          that is the state a failed poll is most likely to be in.
         */}
         <CacheStamp
           what="maps"
           provenance={maps.provenance}
-          now={nowSeconds()}
+          now={now}
           yielding={maps.yieldingToRateLimit}
         />
         {/* One more field of the readout that already exists, rather than a

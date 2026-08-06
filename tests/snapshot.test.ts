@@ -7,7 +7,7 @@ import {
   requestedFixture,
   type FixtureName,
 } from "../src/snapshot/fixtures";
-import { describeStamp, stampDetail } from "../src/chrome/stamp";
+import { CONDITIONS, REMEDY, describeStamp, stampDetail, stampReason } from "../src/chrome/stamp";
 import { NO_FRONTIER, NO_MAP_OPEN, PHASE_NAMES, describeModel } from "../src/snapshot/readout";
 import { noMapOpen } from "../src/snapshot/snapshot";
 import { collect } from "./support/sources";
@@ -198,7 +198,7 @@ describe("staleness is spelled once, for everything that was read", () => {
    */
   it("keeps the stamp's words out of every file but the one that owns them", () => {
     const phrases =
-      /from the last read|nothing newer has arrived|not stored for next time|paced against your rate limit/;
+      /from the last read|nothing newer has arrived|not stored for next time|paced against your rate limit|the read did not land|GitHub would not accept this token|GitHub says this is not there|GitHub asked for a pause|run gh auth login/;
     const offenders = collect([".ts", ".tsx"])
       .filter((file) => phrases.test(file.text))
       .map((file) => file.path);
@@ -214,7 +214,15 @@ describe("staleness is spelled once, for everything that was read", () => {
     // apart — which is the whole reason it is on screen.
     expect(describeStamp(failed, AGED_AT)).toContain("nothing newer has arrived");
     expect(describeStamp(read, AGED_AT)).not.toContain("nothing newer has arrived");
-    expect(stampDetail(failed)).toBe("could not reach GitHub");
+    // The refusing crate's own sentence, taken from the fixture rather than
+    // written down here: this side may never keep a second account of what
+    // Rust would have said. It is emphatically *not* the condition's short
+    // name — `unreachable` classifies a folder with no GitHub remote as well
+    // as a dead network, and only this sentence tells them apart.
+    expect(stampDetail(failed)).toBe(
+      failed.outcome.kind === "failed" ? failed.outcome.detail : null,
+    );
+    expect(stampDetail(failed)).not.toBe(CONDITIONS.unreachable);
     expect(stampDetail(read)).toBeNull();
   });
 
@@ -222,6 +230,84 @@ describe("staleness is spelled once, for everything that was read", () => {
     // The moment staleness starts mattering is the moment a stamp that swapped
     // the age for an error would have stopped reporting it.
     expect(describeStamp(FIXTURES.unreachable.provenance, AGED_AT)).toContain("2 hours ago");
+  });
+});
+
+describe("a read that did not land says which condition it is, and never guesses", () => {
+  /**
+   * `(the fixture, the condition Rust concluded, whether a command fixes it)`.
+   * One table over the four fixtures the model crate generates, because four
+   * separate assertions are four chances to check three of them — and these
+   * are the states a browser has no way to conjure.
+   */
+  const CONDITIONS_ON_DISK = [
+    ["unreachable", "unreachable", false],
+    ["auth-failed", "authFailed", true],
+    ["map-gone", "mapGone", false],
+    ["rate-limited", "rateLimited", false],
+  ] as const;
+
+  it("carries the condition as a structure rather than as a sentence to parse", () => {
+    for (const [name, reason] of CONDITIONS_ON_DISK) {
+      const provenance = FIXTURES[name].provenance;
+
+      expect([name, stampReason(provenance)?.reason]).toEqual([name, reason]);
+      // The detail is still there and still in the words of whoever refused.
+      // The structure is what the app concluded; the sentence is what it was
+      // told, and both are on screen.
+      expect(stampDetail(provenance)).not.toBeNull();
+    }
+
+    // And a read that landed has no condition at all — an absence, never an
+    // `unreachable` standing in for one.
+    expect(stampReason(FIXTURES["awkward-map"].provenance)).toBeNull();
+  });
+
+  it("names the moment GitHub asked us to wait for, when GitHub named one", () => {
+    // The header is honoured exactly and never guessed at, which starts here:
+    // the stamp crosses the seam carrying what GitHub sent rather than a
+    // duration this side worked out.
+    const limited = stampReason(FIXTURES["rate-limited"].provenance);
+
+    expect(limited?.reason).toBe("rateLimited");
+    expect(limited?.reason === "rateLimited" ? limited.resetsAt : null).toBe(
+      "2026-08-05T09:00:00Z",
+    );
+  });
+
+  it("prints the one command that fixes it, and invents one for nothing else", () => {
+    for (const [name, reason, fixable] of CONDITIONS_ON_DISK) {
+      expect([name, REMEDY[reason] !== null]).toEqual([name, fixable]);
+      // Every condition has a name on screen, because a stamp that went dashed
+      // without saying why is a stamp nobody can act on.
+      expect(CONDITIONS[reason].length).toBeGreaterThan(0);
+    }
+
+    // The one command, spelled once for the whole app.
+    expect(REMEDY.authFailed).toBe("run gh auth login");
+  });
+
+  it("ages every condition rather than replacing the age with it", () => {
+    for (const [name] of CONDITIONS_ON_DISK) {
+      // Two hours after the fixtures were stamped. A screen that swapped the
+      // age for a reason would stop reporting staleness at the exact moment
+      // staleness started mattering, and it would do it on all four.
+      expect([name, describeStamp(FIXTURES[name].provenance, AGED_AT)]).toEqual([
+        name,
+        expect.stringContaining("2 hours ago"),
+      ]);
+    }
+  });
+
+  it("keeps the graph on screen whichever way the read failed", () => {
+    const held = FIXTURES["awkward-map"];
+
+    for (const [name] of CONDITIONS_ON_DISK) {
+      // Never silence, and never an empty graph: emptying it would assert that
+      // the operator's tickets are gone on the strength of not having been able
+      // to look.
+      expect([name, FIXTURES[name].model]).toEqual([name, held.model]);
+    }
   });
 });
 
