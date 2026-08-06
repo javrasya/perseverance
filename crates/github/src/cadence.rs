@@ -15,17 +15,18 @@
 //! interval = max(ladder_floor, budget_floor, backoff_floor)
 //! ```
 //!
-//! The ladder floor answers *how often is useful*; the budget floor (#39) and
-//! the backoff floor (#40) answer *what is permitted*; and `max` is how
-//! permission always wins. The three are separate functions meeting in exactly
-//! one array so each can be argued about alone — which is the whole reason the
-//! composition point lands in this slice with two of its three terms stubbed.
+//! The ladder floor answers *how often is useful*; the budget floor and the
+//! backoff floor (#40) answer *what is permitted*; and `max` is how permission
+//! always wins. The three are separate functions meeting in exactly one array so
+//! each can be argued about alone — which is the whole reason the composition
+//! point landed in #38 with two of its three terms stubbed.
 //!
-//! Stubbed is not the same as *finished being designed*. #39 fills a body and
-//! touches nothing else; #40 also widens what it is handed, because a failure
-//! count can say *back off further* and can never say *stop*, and that is one
-//! edited row of the array below. [`backoff_floor`] says so at length. Anything
-//! beyond that row is a reshaping this slice was meant to make unnecessary.
+//! #39 filled the budget one in, and the row of the array it edited is none:
+//! two constants ([`RESERVE`], [`QUERY_COST`]) and a body. #40 also widens what
+//! it is handed, because a failure count can say *back off further* and can
+//! never say *stop*, and that is one edited row of the array below.
+//! [`backoff_floor`] says so at length. Anything beyond that row is a reshaping
+//! this composition was meant to make unnecessary.
 //!
 //! A poke does not skip that composition. It **lowers the ladder term** to
 //! [`POKE_FLOOR`] and goes through the same `max` as everything else, so no
@@ -64,10 +65,40 @@ pub const AWAY: Duration = Duration::from_secs(5 * 60);
 ///
 /// One second is two whole queries at the latency `read.rs` records. It is not
 /// zero because alt-tabbing across a window twice a second is an ordinary thing
-/// to do and the budget floor that would otherwise stop it is still a literal
-/// zero until #39. Measured from the *last tick*, so any real absence longer
-/// than a second still fires immediately — `saturating_sub` bottoms out at zero.
+/// to do, and [`budget_floor`] is now what stops even that from reaching the
+/// reserve. Measured from the *last tick*, so any real absence longer than a
+/// second still fires immediately — `saturating_sub` bottoms out at zero.
 pub const POKE_FLOOR: Duration = Duration::from_secs(1);
+
+/// The points this poller may never touch.
+///
+/// **Not a threshold.** Nothing branches on it; it is a subtraction inside one
+/// formula, and the poller's stopping *at* it is what that formula does at its
+/// limit rather than a case somebody wrote.
+///
+/// A thousand, because the operator's own agents draw on the same pool. Every
+/// `gh` call an agent session makes is spent from the same five thousand points
+/// an hour this loop is pacing itself against — so a harness that polled its way
+/// to zero would have taken the agents' budget in order to draw a picture of
+/// what the agents were doing. That is also the whole reason the poller is what
+/// yields: it is the only spender here that can be told to.
+pub const RESERVE: u32 = 1_000;
+
+/// What one poll costs, in points.
+///
+/// A measurement rather than a policy: `rateLimit { cost }` on the checked-in
+/// answer says two, `read.rs` pins that against the fixture, and the live test
+/// there asserts the real schema has not repriced the query *above* it. The
+/// live bound is one-sided on purpose — that call opens no map, and
+/// `map-read.graphql` guards the whole issue subtree behind `@include(if:
+/// $open)`, so it sends a strictly smaller query than the fixture was captured
+/// from and may honestly cost less.
+///
+/// A constant rather than the `cost` the last answer happened to report. An odd
+/// answer saying zero would remove the pacing entirely — the failure mode being
+/// *spend everything*, silently — and *two points per poll* is the sentence the
+/// formula below is written to be readable as.
+pub const QUERY_COST: u32 = 2;
 
 /* ----------------------------------------------------------- the state --- */
 
@@ -100,11 +131,12 @@ pub enum Rung {
 
 /// A lower bound on the wait, or a refusal to poll at all.
 ///
-/// `Never` ships with one producer and two waiting for it: #39 stops entirely at
-/// the 1000-point reserve rather than slowing down, and #40 stops rather than
-/// backs off for the conditions that retrying cannot fix. A floor that could
-/// only be a [`Duration`] would have to be reshaped twice, and the composition
-/// point with it.
+/// `Never` has one producer — nothing being watched — and one ticket still
+/// waiting for it: #40 stops rather than backs off for the conditions retrying
+/// cannot fix. #38 expected #39 to be the second producer and it is not, for a
+/// reason [`budget_floor`] argues at length: `Never` is absorbing, and a floor
+/// that stops the loop stops the read that would have told it to start again.
+/// A budget that has run out is a long wait with an end on it, not a refusal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Floor {
     AtLeast(Duration),
@@ -113,10 +145,11 @@ pub enum Floor {
 
 /// Which term of the `max` is holding the interval down.
 ///
-/// Reported rather than discarded because #39 needs it: the *waiting for your
-/// rate limit to reset* clause appears only while the budget is the winning
-/// term, and a composition that answered with a bare `Duration` would leave that
-/// clause with nothing to key on.
+/// Reported rather than discarded because #39 needs it: the *paced against your
+/// rate limit* clause appears only while the budget is the winning term, and a
+/// composition that answered with a bare `Duration` would leave that clause with
+/// nothing to key on. `poller.rs` asks for it about the wait a tick is handing
+/// over to and never about the one it waited out — the tense is argued there.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Held {
     Ladder,
@@ -131,11 +164,13 @@ pub struct Interval {
     pub held_by: Held,
 }
 
-/// #39's two numbers.
+/// The two numbers [`budget_floor`] is a function of.
 ///
 /// `seconds_to_reset` rather than `reset_at`, because the text GitHub sent is
 /// only a duration once somebody has read a clock, and this module has none.
-/// Nothing populates this in #38 — see [`budget_floor`].
+/// `poller.rs` does the conversion and ages the horizon against its own last
+/// tick, which is what makes this number mean *from the tick the wait is
+/// measured from* rather than *from whenever you happen to be asking*.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Budget {
     pub remaining: u32,
@@ -166,7 +201,11 @@ pub struct Cadence {
     /// Somebody asked for a read off-cadence, and who they were.
     pub poke: Option<Authority>,
 
-    /// #39's input. Always `None` in this slice.
+    /// What the last answer that said anything about the rate limit said, aged
+    /// to this tick. `None` only while *nothing has ever been reported*, which
+    /// is *no constraint* rather than *stop*. An answer that carried no
+    /// `rateLimit` at all does not empty this: it learned nothing, and nothing
+    /// learned is not evidence against what was.
     pub budget: Option<Budget>,
 
     /// Counted, never classified. [`crate::ReadFailure`] is deliberately not a
@@ -243,19 +282,72 @@ pub fn ladder_floor(cadence: &Cadence) -> Floor {
     }
 }
 
-/// **Stub — #39 owns this.** Returns zero, which cannot beat the smallest rung.
+/// What the budget *permits*. One formula, and no thresholds anywhere in it.
 ///
-/// #39 is `2 / ((remaining - 1000) / seconds_to_reset)`: one formula, no
-/// thresholds, and [`Floor::Never`] at or below the 1000-point reserve — which
-/// is why `Never` exists before anything produces it.
+/// ```text
+/// budget_floor = QUERY_COST / ((remaining - RESERVE) / seconds_to_reset)
+/// ```
 ///
-/// Nothing populates [`Cadence::budget`] in this slice either, and that is
-/// deliberate rather than forgotten: `RateLimit::reset_at` is RFC 3339 text and
-/// turning it into a number of seconds needs a clock this crate's pure half does
-/// not have. Writing that conversion here would be inventing half of #39.
+/// Read dimensionally it is one sentence: `remaining - RESERVE` is the points
+/// this poller may spend, `seconds_to_reset` is how long they have to last, so
+/// their quotient is points per second and [`QUERY_COST`] over that is *seconds
+/// per poll*. Seconds per poll is the same kind of thing a rung is, which is why
+/// this composes with the ladder under one `max` instead of needing a rule of
+/// its own. It degrades smoothly, it has no case in it, and it recovers by
+/// itself because `remaining` jumps at the reset and the subtraction notices.
+///
+/// **Evaluated as `COST * T / S`, never as `COST / (S / T)`.** Points per second
+/// is normally far below one, so the inner division would floor to zero and take
+/// the whole formula to a division by zero at a *full* budget — the state it is
+/// least entitled to fail in. `div_ceil` for the reason a floor is a floor:
+/// rounding down is overspending.
+///
+/// **At the reserve it waits the reset out, and it does not answer
+/// [`Floor::Never`].** ADR 0007 expected `Never` here and this is where that
+/// expectation was revisited rather than forgotten. `Never` is an *absorbing*
+/// state: [`later_of`] lets it dominate every `AtLeast`, so a budget answering
+/// `Never` means no tick, therefore no read, therefore no fresher `remaining`
+/// ever arrives, and no poke and no rung can get under it — the poller would be
+/// dead for the life of the process, and the one thing this ticket must not do
+/// is need an operator to restart it. So the answer at the reserve is
+/// `seconds_to_reset`: wait, exactly, for the thing being waited for.
+///
+/// That is the same statement as the formula rather than a second rule. `2T/S`
+/// exceeds `T` only when fewer than two points are left, so the `min` is a
+/// no-op everywhere except within one poll of the reserve, where it says the
+/// thing that was true anyway — waiting past the reset you are waiting for is
+/// waiting on numbers that are somebody else's. And it satisfies the criteria
+/// together: zero polls between now and the reset, so zero points drawn; the one
+/// poll it does schedule lands *at* the reset, when the budget has refilled; and
+/// it lands late rather than early, because the horizon is measured from when
+/// the answer arrived while the wait is measured from a tick stamped after the
+/// read returned.
 pub fn budget_floor(budget: Option<Budget>) -> Floor {
-    let _ = budget;
-    Floor::AtLeast(Duration::ZERO)
+    // Nothing has ever been reported. Silence is no constraint: a floor that
+    // read it as *stop* would stop the read that would have told it otherwise.
+    // An answer that merely *said* nothing does not reach here — `poller.rs`
+    // keeps the last numbers across one, because forgetting them is unbounded
+    // and keeping them expires by itself as the horizon ages out.
+    let Some(budget) = budget else {
+        return Floor::AtLeast(Duration::ZERO);
+    };
+
+    // A reset already in the past, or a clock skewed far enough to put one
+    // there, is no horizon — and no horizon is no constraint.
+    let to_reset = u64::try_from(budget.seconds_to_reset).unwrap_or(0);
+    // Saturating, because `remaining` is unsigned and an operator's agents can
+    // put it under the reserve between two polls.
+    let spendable = u64::from(budget.remaining.saturating_sub(RESERVE));
+
+    // `max(1)` is a division guard spelled as an expression, and deliberately
+    // not a case: at the reserve it evaluates to `2T`, which the clamp on the
+    // next line reduces to `T` — the same answer the curve is already heading
+    // for, by the same arithmetic every other point of it takes.
+    let paced = u64::from(QUERY_COST)
+        .saturating_mul(to_reset)
+        .div_ceil(spendable.max(1));
+
+    Floor::AtLeast(Duration::from_secs(paced.min(to_reset)))
 }
 
 /// **Stub — #40 owns this.** Returns zero, which cannot beat the smallest rung.
@@ -511,52 +603,260 @@ mod tests {
     }
 
     #[test]
-    fn the_two_floors_that_are_stubbed_cannot_change_any_answer_yet() {
-        // The day #39 or #40 lands, this fails — which is exactly the day
-        // somebody should be reading it.
-        let budgets = [
-            None,
-            Some(Budget {
-                remaining: 40,
-                seconds_to_reset: 3_000,
-            }),
-            Some(Budget {
-                remaining: 4_900,
-                seconds_to_reset: 60,
-            }),
-        ];
+    fn the_backoff_floor_is_stubbed_and_cannot_change_any_answer_yet() {
+        // #38 asserted this of both zero floors and said the day it failed was
+        // the day somebody should be reading it. #39 was that day: the budget
+        // dimension left this table because it has an answer now, and the cross
+        // product that remains is #40's alone.
         let pokes = [None, Some(Authority::Human), Some(Authority::Agent)];
 
-        for budget in budgets {
-            for failures in [0, 1, 9] {
-                for poke in pokes {
-                    let cadence = Cadence {
-                        budget,
-                        consecutive_failures: failures,
-                        poke,
-                        ..watching()
-                    };
+        for failures in [0, 1, 9] {
+            for poke in pokes {
+                let cadence = Cadence {
+                    consecutive_failures: failures,
+                    poke,
+                    ..watching()
+                };
 
-                    assert_eq!(
-                        budget_floor(budget),
-                        Floor::AtLeast(Duration::ZERO),
-                        "{budget:?}"
-                    );
-                    assert_eq!(
-                        backoff_floor(failures, poke),
-                        Floor::AtLeast(Duration::ZERO),
-                        "{failures} {poke:?}"
-                    );
-                    assert_eq!(
-                        interval(&cadence),
-                        Interval {
-                            wait: ladder_floor(&cadence),
-                            held_by: Held::Ladder,
-                        },
-                        "{cadence:?}"
+                assert_eq!(
+                    backoff_floor(failures, poke),
+                    Floor::AtLeast(Duration::ZERO),
+                    "{failures} {poke:?}"
+                );
+                assert_eq!(
+                    interval(&cadence),
+                    Interval {
+                        wait: ladder_floor(&cadence),
+                        held_by: Held::Ladder,
+                    },
+                    "{cadence:?}"
+                );
+            }
+        }
+    }
+
+    /* ---------------------------------------------------------- #39 --- */
+
+    /// The budget curve, from a full limit down past the reserve, as
+    /// `(remaining, seconds_to_reset, the floor in seconds)`.
+    ///
+    /// One table shared by the assertion that pins each answer and the property
+    /// that says none of them overspends, so the two cannot come to disagree
+    /// about which rows exist. A full GitHub hour throughout, except the last
+    /// row, which is the reserve reached mid-hour.
+    const CURVE: [(u32, i64, u64); 18] = [
+        (5_000, 3_600, 2),
+        // The checked-in fixture's own number, so the ordinary state of this
+        // machine is a row of the table rather than a thing nobody measured.
+        (4_417, 3_600, 3),
+        (3_000, 3_600, 4),
+        (2_000, 3_600, 8),
+        // Exactly the ten-second rung, which is where the composition test says
+        // the incumbent keeps the tie.
+        (1_720, 3_600, 10),
+        (1_600, 3_600, 12),
+        // And exactly the minute.
+        (1_120, 3_600, 60),
+        (1_100, 3_600, 72),
+        (1_050, 3_600, 144),
+        // And exactly the five minutes of the away rung.
+        (1_024, 3_600, 300),
+        (1_020, 3_600, 360),
+        (1_010, 3_600, 720),
+        // Two points left above the reserve, and the curve meets the horizon:
+        // one poll, at the reset.
+        (1_002, 3_600, 3_600),
+        // One point, which cannot buy a poll at all. The clamp is what says so.
+        (1_001, 3_600, 3_600),
+        // THE RESERVE. Nothing above it, so nothing is spent before the reset.
+        (1_000, 3_600, 3_600),
+        // And below it, which an operator's own agents can put us at between two
+        // polls. The same answer, from the same arithmetic, with no case in it:
+        // `2T/1` clamped to `T`.
+        (999, 3_600, 3_600),
+        (0, 3_600, 3_600),
+        (1_000, 900, 900),
+    ];
+
+    #[test]
+    fn the_budget_floor_walks_down_to_the_reserve_and_stops_there() {
+        let mut above: Option<(i64, u64)> = None;
+
+        for (remaining, seconds_to_reset, expected) in CURVE {
+            let budget = Budget {
+                remaining,
+                seconds_to_reset,
+            };
+
+            assert_eq!(
+                budget_floor(Some(budget)),
+                Floor::AtLeast(Duration::from_secs(expected)),
+                "{budget:?}"
+            );
+
+            // And the rows are in the order they claim to be in: over one
+            // horizon, fewer points can only ever mean a longer wait. This
+            // compares the table to itself and so catches a re-baselined
+            // column rather than a threshold — the property that no step exists
+            // *between* these rows is swept over the whole input space by
+            // `the_curve_has_no_step_between_the_rows_this_table_pins`.
+            if let Some((horizon, sooner)) = above {
+                if horizon == seconds_to_reset {
+                    assert!(
+                        expected >= sooner,
+                        "{budget:?} polls sooner than the row with more points in it"
                     );
                 }
             }
+            above = Some((seconds_to_reset, expected));
+        }
+    }
+
+    #[test]
+    fn the_pacing_never_spends_more_than_the_points_above_the_reserve() {
+        // The acceptance criterion, asserted at every point of the curve rather
+        // than only at the boundary: either the affordable polls cover the whole
+        // horizon, or no poll happens before the reset at all.
+        for (remaining, seconds_to_reset, floor) in CURVE {
+            let spendable = u64::from(remaining.saturating_sub(RESERVE));
+            let horizon = seconds_to_reset as u64;
+            let affordable = spendable / u64::from(QUERY_COST);
+
+            assert!(
+                floor >= horizon || affordable * floor >= horizon,
+                "({remaining}, {seconds_to_reset}) paces {floor}s, which draws under the reserve"
+            );
+        }
+    }
+
+    #[test]
+    fn the_curve_has_no_step_between_the_rows_this_table_pins() {
+        /*
+         * The table above pins eighteen points and compares its own literals to
+         * each other, which a step function passes: a threshold is monotone, and
+         * between `3_000` and `2_000` there is no row to land on. So the
+         * no-step claim is made here instead, over every input rather than over
+         * eighteen of them, and as *tightness* rather than as monotonicity.
+         *
+         * Stated as a rate, because a rate is what `div_ceil` pins. Polling once
+         * every `floor` seconds for `horizon` seconds costs
+         * `QUERY_COST * horizon / floor` points, and it has `spendable` to do it
+         * with — so two bounds, and a threshold has to sit between them:
+         *
+         * - it never overspends: that cost fits, or the wait swallows the whole
+         *   horizon and nothing is drawn before the reset at all; and
+         * - it never over-waits: one second sooner would *not* fit, which is
+         *   what says this is the shortest wait the points allow.
+         *
+         * `if remaining < 1_500 { AtLeast(300s) }` passes every `assert_eq!` the
+         * table does not cover and passes the monotonicity loop beside it. It
+         * fails the second bound here at every point of the band it invented.
+         */
+        let cost = u64::from(QUERY_COST);
+
+        for seconds_to_reset in [60_i64, 900, 3_600, 7_200] {
+            let horizon = seconds_to_reset as u64;
+            let mut sooner: Option<u64> = None;
+
+            for remaining in 0..=5_000_u32 {
+                let budget = Budget {
+                    remaining,
+                    seconds_to_reset,
+                };
+                let Floor::AtLeast(wait) = budget_floor(Some(budget)) else {
+                    panic!("{budget:?} refuses to poll at all");
+                };
+                let paced = wait.as_secs();
+                let spendable = u64::from(remaining.saturating_sub(RESERVE));
+
+                assert!(
+                    paced >= horizon || paced * spendable >= cost * horizon,
+                    "{budget:?} paces {paced}s, which draws under the reserve"
+                );
+                assert!(
+                    paced.saturating_sub(1) * spendable < cost * horizon,
+                    "{budget:?} paces {paced}s, which is longer than its own points need"
+                );
+                if let Some(sooner) = sooner {
+                    assert!(
+                        paced <= sooner,
+                        "{budget:?} waits longer than the same horizon with one point fewer"
+                    );
+                }
+                sooner = Some(paced);
+            }
+        }
+    }
+
+    #[test]
+    fn the_reserve_is_a_thousand_points_and_a_poll_costs_two() {
+        // The two numbers the formula is made of. `read.rs` is where the cost is
+        // checked against what the shipped document actually spends.
+        assert_eq!(RESERVE, 1_000);
+        assert_eq!(QUERY_COST, 2);
+    }
+
+    #[test]
+    fn a_budget_nobody_has_reported_yet_is_not_a_reason_to_stop_polling() {
+        // Before anything has ever been reported, and only then — an answer
+        // that carried no `rateLimit` leaves the last numbers standing next
+        // door. Silence is no constraint: a floor that read it as *stop* would
+        // be a poller that never made the read that would have told it
+        // otherwise.
+        assert_eq!(budget_floor(None), Floor::AtLeast(Duration::ZERO));
+    }
+
+    #[test]
+    fn a_reset_that_has_already_come_and_gone_says_nothing_about_the_budget_now() {
+        // Which is also the whole of *recovery needs no intervention*: the same
+        // drained numbers, one second past the reset, ask for nothing. Nothing
+        // is cleared, because there was never a flag to clear.
+        let passed = [
+            (1_000, 0),
+            (1_000, -1),
+            (5_000, -1),
+            // A clock a day out. `u64::try_from` refuses it and the answer is no
+            // horizon rather than a panic or a wrapped subtraction.
+            (1_000, -86_400),
+        ];
+
+        for (remaining, seconds_to_reset) in passed {
+            let budget = Budget {
+                remaining,
+                seconds_to_reset,
+            };
+            assert_eq!(
+                budget_floor(Some(budget)),
+                Floor::AtLeast(Duration::ZERO),
+                "{budget:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_wait_is_never_longer_than_the_reset_it_is_waiting_for() {
+        // Past the reset the numbers are somebody else's, so waiting beyond it
+        // is waiting on nothing. It is the same statement as the formula rather
+        // than a second rule: `2T/S` exceeds `T` only when fewer than two points
+        // are left, which is within one poll of the reserve.
+        let clamped = [
+            (1_001, 1, 1),
+            (1_002, 2, 2),
+            // A hostile or nonsensical `resetAt`. The multiplication saturates
+            // and the clamp brings it back to the horizon it was given.
+            (1_001, i64::MAX, i64::MAX as u64),
+        ];
+
+        for (remaining, seconds_to_reset, expected) in clamped {
+            let budget = Budget {
+                remaining,
+                seconds_to_reset,
+            };
+            assert_eq!(
+                budget_floor(Some(budget)),
+                Floor::AtLeast(Duration::from_secs(expected)),
+                "{budget:?}"
+            );
         }
     }
 
@@ -585,25 +885,237 @@ mod tests {
     #[test]
     fn a_poke_lowers_the_ladder_and_cannot_get_under_the_other_two() {
         // The design's central claim: a poke is a term of the max, never a way
-        // round it. Reduced by the same rule `interval` uses, with #39's floor
-        // standing where the stub will one day answer.
+        // round it. #38 stood a hand-written duration where the stub would one
+        // day answer; this is that duration replaced by the real reserve, so the
+        // claim is now made against arithmetic rather than against a literal.
+        let drained = Budget {
+            remaining: RESERVE,
+            seconds_to_reset: 3_600,
+        };
         let poked = Cadence {
             poke: Some(Authority::Human),
+            budget: Some(drained),
             ..watching()
         };
-        let budget_says = Floor::AtLeast(Duration::from_secs(120));
-
-        let answered = [
-            (Held::Ladder, ladder_floor(&poked)),
-            (Held::Budget, budget_says),
-            (Held::Backoff, Floor::AtLeast(Duration::ZERO)),
-        ]
-        .into_iter()
-        .reduce(later_of)
-        .expect("three is not empty");
+        let budget_says = budget_floor(Some(drained));
 
         assert_eq!(ladder_floor(&poked), Floor::AtLeast(POKE_FLOOR));
-        assert_eq!(answered, (Held::Budget, budget_says));
+        assert_eq!(
+            interval(&poked),
+            Interval {
+                wait: budget_says,
+                held_by: Held::Budget,
+            }
+        );
+    }
+
+    #[test]
+    fn the_budget_holds_the_interval_only_when_it_beats_the_rung_it_is_over() {
+        // The clause on screen keys on `held_by`, so *which term won* is as much
+        // of the acceptance criteria as the wait is. Every exact tie is here,
+        // because a tie kept by the challenger would put the yielding clause on
+        // a stamp while the ladder was really deciding.
+        let hour = |remaining| {
+            Some(Budget {
+                remaining,
+                seconds_to_reset: 3_600,
+            })
+        };
+
+        let composed = [
+            // Twelve seconds beats the ten-second rung a live run is on.
+            (
+                hour(1_600),
+                Attention::Focused,
+                1,
+                None,
+                Interval {
+                    wait: Floor::AtLeast(Duration::from_secs(12)),
+                    held_by: Held::Budget,
+                },
+            ),
+            // Exactly the run rung. The incumbent keeps it.
+            (
+                hour(1_720),
+                Attention::Focused,
+                1,
+                None,
+                Interval {
+                    wait: Floor::AtLeast(RUN_LIVE),
+                    held_by: Held::Ladder,
+                },
+            ),
+            // Exactly the minute.
+            (
+                hour(1_120),
+                Attention::Focused,
+                0,
+                None,
+                Interval {
+                    wait: Floor::AtLeast(WATCHING),
+                    held_by: Held::Ladder,
+                },
+            ),
+            // Exactly the five minutes of the away rung.
+            (
+                hour(1_024),
+                Attention::Unfocused,
+                0,
+                None,
+                Interval {
+                    wait: Floor::AtLeast(AWAY),
+                    held_by: Held::Ladder,
+                },
+            ),
+            // The same budget against the minute is the budget deciding.
+            (
+                hour(1_024),
+                Attention::Focused,
+                0,
+                None,
+                Interval {
+                    wait: Floor::AtLeast(AWAY),
+                    held_by: Held::Budget,
+                },
+            ),
+            // A poke lowers the ladder to a second and still cannot get under
+            // the reserve.
+            (
+                hour(RESERVE),
+                Attention::Focused,
+                0,
+                Some(Authority::Human),
+                Interval {
+                    wait: Floor::AtLeast(Duration::from_secs(3_600)),
+                    held_by: Held::Budget,
+                },
+            ),
+            // And a budget nobody has reported changes nothing at all, on every
+            // rung — which is what a cold start looks like.
+            (
+                None,
+                Attention::Focused,
+                0,
+                None,
+                Interval {
+                    wait: Floor::AtLeast(WATCHING),
+                    held_by: Held::Ladder,
+                },
+            ),
+            (
+                None,
+                Attention::Focused,
+                2,
+                None,
+                Interval {
+                    wait: Floor::AtLeast(RUN_LIVE),
+                    held_by: Held::Ladder,
+                },
+            ),
+            (
+                None,
+                Attention::Unfocused,
+                0,
+                None,
+                Interval {
+                    wait: Floor::AtLeast(AWAY),
+                    held_by: Held::Ladder,
+                },
+            ),
+        ];
+
+        for (budget, attention, runs_live, poke, expected) in composed {
+            let cadence = Cadence {
+                budget,
+                attention,
+                runs_live,
+                poke,
+                ..watching()
+            };
+            assert_eq!(interval(&cadence), expected, "{cadence:?}");
+        }
+
+        // And nothing being watched still outranks a drained budget: a poller
+        // reading a folder nobody picked is not made acceptable by having points
+        // left to do it with.
+        let launcher = Cadence {
+            anything_to_read: false,
+            budget: hour(RESERVE),
+            ..watching()
+        };
+        assert_eq!(
+            interval(&launcher),
+            Interval {
+                wait: Floor::Never,
+                held_by: Held::Ladder,
+            }
+        );
+    }
+
+    #[test]
+    fn the_stop_at_the_reserve_ends_at_the_reset_with_nothing_cleared() {
+        let stopped = Cadence {
+            budget: Some(Budget {
+                remaining: RESERVE,
+                seconds_to_reset: 3_600,
+            }),
+            ..watching()
+        };
+        let at_the_reserve = interval(&stopped);
+
+        assert_eq!(
+            at_the_reserve,
+            Interval {
+                wait: Floor::AtLeast(Duration::from_secs(3_600)),
+                held_by: Held::Budget,
+            }
+        );
+
+        // The whole recovery, as arithmetic. The wait runs out exactly when the
+        // reset arrives, the poll fires unpoked, and the answer it brings back
+        // carries a `remaining` that has jumped — so the ladder takes the max
+        // back on the pass after it. There is no timer, no reset handler and no
+        // flag, which is why there is nothing that can fail to be cleared.
+        let arriving = [
+            (Duration::from_secs(3_599), Wake::In(Duration::from_secs(1))),
+            (Duration::from_secs(3_600), Wake::In(Duration::ZERO)),
+            // And never negative, however long the machine was asleep.
+            (Duration::from_secs(7_200), Wake::In(Duration::ZERO)),
+            (Duration::MAX, Wake::In(Duration::ZERO)),
+        ];
+
+        for (since_last_tick, expected) in arriving {
+            assert_eq!(
+                next_wake(at_the_reserve, since_last_tick, None),
+                expected,
+                "{since_last_tick:?}"
+            );
+        }
+
+        // A stopped poller still wakes for a debounce that is open, exactly as
+        // #38 already held — it is a long wait and not a refusal.
+        let debounce = Duration::from_millis(40);
+        assert_eq!(
+            next_wake(at_the_reserve, Duration::ZERO, Some(debounce)),
+            Wake::In(debounce)
+        );
+
+        // And once the reset has passed, the same drained numbers ask for
+        // nothing: the ladder is back, with nothing having been told about it.
+        let recovered = Cadence {
+            budget: Some(Budget {
+                remaining: RESERVE,
+                seconds_to_reset: -1,
+            }),
+            ..stopped
+        };
+        assert_eq!(
+            interval(&recovered),
+            Interval {
+                wait: Floor::AtLeast(WATCHING),
+                held_by: Held::Ladder,
+            }
+        );
     }
 
     #[test]

@@ -197,7 +197,8 @@ describe("staleness is spelled once, for everything that was read", () => {
    * screen — so the words live in exactly one file, and this is what says so.
    */
   it("keeps the stamp's words out of every file but the one that owns them", () => {
-    const phrases = /from the last read|nothing newer has arrived|not stored for next time/;
+    const phrases =
+      /from the last read|nothing newer has arrived|not stored for next time|paced against your rate limit/;
     const offenders = collect([".ts", ".tsx"])
       .filter((file) => phrases.test(file.text))
       .map((file) => file.path);

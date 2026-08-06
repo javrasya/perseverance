@@ -12,6 +12,15 @@ interface CacheStampProps {
   provenance: Provenance;
   /** Epoch seconds, read once per paint rather than by the stamp itself. */
   now: number;
+  /**
+   * Whether the poller is holding itself back to leave the rate limit alone.
+   *
+   * Optional, and absent means *no*. Only the map list has a poller behind it,
+   * so the model's stamp never passes one — an optional prop is what lets the
+   * two stamps stay one component without the model's inventing an answer to a
+   * question nothing has asked it.
+   */
+  yielding?: boolean;
 }
 
 /**
@@ -31,7 +40,7 @@ interface CacheStampProps {
  * that could come to disagree. Each thing on screen that was read gets its own,
  * because they are read by different commands and go stale independently.
  */
-export function CacheStamp({ what, provenance, now }: CacheStampProps) {
+export function CacheStamp({ what, provenance, now, yielding }: CacheStampProps) {
   const detail = stampDetail(provenance);
 
   return (
@@ -41,7 +50,7 @@ export function CacheStamp({ what, provenance, now }: CacheStampProps) {
       data-outcome={provenance.outcome.kind}
       title={detail ?? undefined}
     >
-      {what} {describeStamp(provenance, now)}
+      {what} {describeStamp(provenance, now, yielding)}
     </span>
   );
 }

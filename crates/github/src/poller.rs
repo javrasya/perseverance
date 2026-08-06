@@ -42,7 +42,7 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::cadence::{interval, next_wake, Attention, Authority, Cadence, Wake};
+use crate::cadence::{interval, next_wake, Attention, Authority, Budget, Cadence, Held, Wake};
 
 /// Everything that reaches the loop off-cadence.
 ///
@@ -127,9 +127,27 @@ impl Poke {
 /// it learns what failed — that ticket has to stop rather than back off for the
 /// conditions retrying cannot fix, and a count can only ever say *wait longer*.
 /// [`crate::backoff_floor`] carries the whole of that argument.
+///
+/// **A read carries what it saw of the budget back with it**, which is #39's
+/// one change to this shape. #38 left this a unit-ish enum and the numbers a
+/// read parsed had no route into the loop at all; the tick that parsed them is
+/// the only thing that ever holds them, so the return is where they travel.
+///
+/// `Read(None)` is an answer that carried no `rateLimit` — a `rateLimit: null`,
+/// or a `resetAt` in a shape this build cannot read. It **learns nothing and
+/// therefore forgets nothing**: whatever was last established still paces the
+/// loop, exactly as it does across a `Failed` and a `NotAttempted`. An answer
+/// that said nothing about the budget is not stronger evidence than the numbers
+/// the previous answer did establish, and treating it as *no constraint* is
+/// unbounded — a `resetAt` that stopped parsing would leave the poller running
+/// at the ordinary rung for the life of the process. Keeping the last numbers
+/// is bounded in the other direction, and bounded by itself: the horizon ages
+/// against the ticks since, and a horizon that has run out is already no
+/// constraint. It is [`crate::budget_floor`] answering `None` — nothing has
+/// *ever* been reported — that is the real *no constraint*.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tick {
-    Read,
+    Read(Option<Budget>),
     Failed,
     NotAttempted,
 }
@@ -232,15 +250,41 @@ impl Drop for RunHandle {
     }
 }
 
+/// What the composition will answer for the wait that follows this tick, given
+/// whatever the tick just read of the budget.
+///
+/// A query rather than a value, because the only thing that has parsed those
+/// numbers is the tick that is asking. Pass `None` for *this poll established
+/// nothing about the budget* — a failure, a read with no `rateLimit`, a poll
+/// that was never attempted — and the answer is computed against whatever was
+/// last established, aged to now.
+///
+/// It does not fold in a failure this tick is about to report: nothing knows
+/// that yet, and [`crate::backoff_floor`] is a stub that cannot change any
+/// answer. #40 is where a tick that failed starts changing which floor holds
+/// the next wait, and this is the argument that will have to carry it.
+pub type Ahead<'a> = dyn Fn(Option<Budget>) -> Held + 'a;
+
 /// Starts the loop on its own named thread and hands back the way to poke it.
 ///
 /// `tick` is what one poll *is* — the caller supplies it because reading a
 /// folder needs a store, a repository binding and a token, none of which this
 /// crate is allowed to reach for. It is called on the poller thread, one call at
 /// a time, and never re-entered.
+///
+/// It is handed an [`Ahead`] rather than a bare [`Held`], and the tense is the
+/// whole reason. The tick is the only thing that emits a view, and a view is
+/// read by somebody who is about to wait — so what it needs is **which floor
+/// holds the wait it is being emitted into**, not which one held the wait it
+/// was served on. Those differ exactly where it matters: the poll that fires
+/// *at* the reset was served on a budget-held hour and is the first thing to
+/// see the refill, and a cold start whose first read finds the budget already
+/// drained was served on a ladder-held wait and is the first thing to see the
+/// drain. A value fixed before the sleep is one poll behind in both directions;
+/// a query answered after the read is neither.
 pub fn start<F>(timings: Timings, tick: F) -> std::io::Result<Poker>
 where
-    F: Fn(&Watched) -> Tick + Send + 'static,
+    F: Fn(&Watched, &Ahead<'_>) -> Tick + Send + 'static,
 {
     let (tx, rx) = mpsc::channel();
     let live = Arc::new(AtomicUsize::new(0));
@@ -265,6 +309,19 @@ struct Watch {
     idle_since: Option<Instant>,
     last_tick: Option<Instant>,
     failures: u32,
+    seen: Option<Seen>,
+}
+
+/// What the last answer said about the budget, and **when it said it**.
+///
+/// The moment is half the value. A `seconds_to_reset` is a horizon measured from
+/// the read that reported it, and a [`crate::Floor`] is a wait measured from the
+/// last tick — so carrying the numbers without the moment they were taken at
+/// would leave nothing able to reconcile the two.
+#[derive(Debug, Clone, Copy)]
+struct Seen {
+    budget: Budget,
+    at: Instant,
 }
 
 impl Watch {
@@ -279,6 +336,7 @@ impl Watch {
             idle_since: None,
             last_tick: None,
             failures: 0,
+            seen: None,
         }
     }
 
@@ -291,15 +349,30 @@ impl Watch {
                 }
             }
             Poke::Watching(next) => {
-                // A folder that has never been read is due *now*, not a rung
-                // from now — which is also what makes the first read of a newly
-                // opened folder immediate rather than scheduled. Only a change
-                // of folder forgets the stamp, because re-declaring the one you
-                // are already in has not made what was read of it any older.
-                if next != self.watched {
-                    self.last_tick = None;
-                }
-                // Unconditional, though. Opening a folder is the ticket's
+                // Reverses ADR 0007's *only a changed declaration forgets the
+                // last-read stamp*; `docs/adr/0008` carries that argument.
+                //
+                // `last_tick` is **not** cleared here, and a change of folder is
+                // not an exception to that. It is the anchor every floor under
+                // the `max` is measured from, and erasing it hands `next_wake` a
+                // `Duration::MAX` that saturates *every* finite floor to zero —
+                // including the hour `budget_floor` answers with at the reserve.
+                // A folder switch would then draw two points with nothing under
+                // it at all, at any budget, which is precisely what this
+                // ticket's *no poke and no rung can get under the reserve* says
+                // cannot happen. The rate limit is an account-wide fact and a
+                // folder is not; a per-folder freshness that must short-circuit
+                // the rung would have to be a field only `ladder_floor` reads,
+                // never an erased anchor the other two terms are also measured
+                // from.
+                //
+                // Nothing is lost by keeping it. A newly opened folder is still
+                // read within a second, because the line below lowers the ladder
+                // to `POKE_FLOOR` — the same trade ADR 0007 already took for
+                // focus and idle pokes — and a genuinely cold start has a
+                // `last_tick` of `None` anyway, having never ticked.
+                //
+                // Unconditional, and that is the point. Opening a folder is the ticket's
                 // *map-opened* poke and its commonest form by far is opening the
                 // folder you already had open — a person clicking the row they
                 // are looking at is asking for a read, and a guard that
@@ -330,12 +403,56 @@ impl Watch {
             runs_live,
             attention: self.attention,
             poke: self.poke,
-            // #39 fills this in. Nothing in this crate can turn GitHub's RFC
-            // 3339 `resetAt` into a number of seconds without a clock the pure
-            // half deliberately has not got.
-            budget: None,
+            // Aged to the tick the next wait will be measured from, and to
+            // nothing else. The floor next door subtracts `since_last_tick`
+            // itself, so a horizon re-based to *now* would be counted twice
+            // and the poll would fire at half of it — under the reserve.
+            // Leaving it un-aged is the opposite error: every tick that
+            // learned nothing would re-arm the whole hour, and one failed
+            // poll at the reset would cost another.
+            budget: self.aged_to(self.last_tick),
             consecutive_failures: self.failures,
         }
+    }
+
+    /// The last budget anybody reported, with the seconds between the read that
+    /// reported it and `from` taken off its horizon.
+    ///
+    /// `None` for *from* is *before any tick*, which is also the pass the read
+    /// itself was stamped on — `Seen::at` and `last_tick` are the same moment
+    /// there, so nothing has aged either way.
+    fn aged_to(&self, from: Option<Instant>) -> Option<Budget> {
+        self.seen.map(|seen| Budget {
+            seconds_to_reset: seen.budget.seconds_to_reset
+                - from
+                    .map(|at| at.saturating_duration_since(seen.at).as_secs() as i64)
+                    .unwrap_or(0),
+            ..seen.budget
+        })
+    }
+
+    /// Which floor will hold the wait that follows a tick reporting `reported`.
+    ///
+    /// The whole of the [`Ahead`] seam, and three things separate it from
+    /// [`Watch::cadence`]:
+    ///
+    /// - the budget is the one this very read parsed, when it parsed one. That
+    ///   is what makes the poll at the reset say *not yielding* and the first
+    ///   poll of a drained cold start say *yielding*;
+    /// - the poke is spent. The tick asking is the read that poke bought, so the
+    ///   wait it is handing back to is on the rung and not on `POKE_FLOOR` —
+    ///   without which every click at a full budget would report `Held::Budget`,
+    ///   the two-second pacing having merely out-waited the one-second poke;
+    /// - and a kept horizon ages to *now* rather than to the previous tick,
+    ///   because now is the moment the next wait will be measured from.
+    fn ahead(&self, runs_live: usize, reported: Option<Budget>) -> Held {
+        let entering = Cadence {
+            poke: None,
+            budget: reported.or_else(|| self.aged_to(Some(Instant::now()))),
+            ..self.cadence(runs_live)
+        };
+
+        interval(&entering).held_by
     }
 }
 
@@ -343,7 +460,7 @@ impl Watch {
 /// is reading the clock and doing as it is told.
 fn pump<F>(rx: Receiver<Poke>, live: Arc<AtomicUsize>, timings: Timings, tick: F)
 where
-    F: Fn(&Watched) -> Tick,
+    F: Fn(&Watched, &Ahead<'_>) -> Tick,
 {
     let mut watch = Watch::new();
 
@@ -397,18 +514,37 @@ where
             continue;
         };
 
-        let outcome = tick(&watched);
+        // The query, and it borrows `watch` — so it is scoped to the call and
+        // the folding below is what mutates. `runs_live` is re-read inside it
+        // rather than reused from the top of the pass, because a read takes up
+        // to twenty seconds and a run can begin inside one.
+        let outcome = {
+            let ahead = |reported| watch.ahead(live.load(Ordering::SeqCst), reported);
+            tick(&watched, &ahead)
+        };
         // Stamped after the tick returned, never before it. The read's deadline
         // is twenty seconds and the fastest rung is ten, so a wait measured from
         // when the read *started* would come due while it was still running.
-        watch.last_tick = Some(Instant::now());
+        let at = Instant::now();
+        watch.last_tick = Some(at);
         watch.poke = None;
         match outcome {
-            Tick::Read => watch.failures = 0,
+            Tick::Read(budget) => {
+                watch.failures = 0;
+                // Only when the answer actually reported one. The same moment
+                // `last_tick` was stamped with, so the horizon and the wait it
+                // will be reconciled against start together and cannot drift by
+                // however long the read took.
+                if let Some(budget) = budget {
+                    watch.seen = Some(Seen { budget, at });
+                }
+            }
             Tick::Failed => watch.failures = watch.failures.saturating_add(1),
             // Nothing was attempted, so nothing failed. `last_tick` still moves,
             // which is what stops a launch whose harvest has not settled from
-            // spinning on a rung it can do nothing about.
+            // spinning on a rung it can do nothing about — and the horizon ages
+            // with it, because that pass consumed the same seconds a read would
+            // have.
             Tick::NotAttempted => {}
         }
     }
@@ -417,7 +553,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cadence::{POKE_FLOOR, RUN_LIVE, WATCHING};
+    use crate::cadence::{POKE_FLOOR, RESERVE, RUN_LIVE, WATCHING};
 
     /// A window small enough that a test waits milliseconds for it, and large
     /// enough that a scheduling hiccup between two sends does not close it.
@@ -430,16 +566,265 @@ mod tests {
         }
     }
 
+    /// A *different* one. The launcher is a list and switching rows is an
+    /// ordinary click, so `next != self.watched` is a branch the tests have to
+    /// take — and the budget floor is account-wide, so it must survive it.
+    fn another_folder() -> Watched {
+        Watched {
+            folder_id: 9,
+            map: None,
+        }
+    }
+
     /// A poller whose ticks are reported down a channel, so a test asserts what
     /// was read and when rather than sleeping and hoping.
+    ///
+    /// Its reads report **no budget**, which is also an assertion: every test
+    /// below this line is #38's, unchanged, and a loop that is told nothing
+    /// about the rate limit still behaves exactly as #38 left it.
     fn watched_by(timings: Timings) -> (Poker, Receiver<Watched>) {
         let (ticks, taken) = mpsc::channel();
-        let poker = start(timings, move |watched| {
+        let poker = start(timings, move |watched, _ahead| {
             let _ = ticks.send(*watched);
-            Tick::Read
+            Tick::Read(None)
         })
         .expect("spawns");
         (poker, taken)
+    }
+
+    /// A poller whose reads all report the same budget, and whose ticks report
+    /// back **which floor holds the wait they are handing over to**. That is the
+    /// whole of #39's seam in one helper: numbers in, the winning term out.
+    fn budgeted_by(budget: Budget) -> (Poker, Receiver<Held>) {
+        let (ticks, taken) = mpsc::channel();
+        let poker = start(Timings::shipped(), move |_watched, ahead| {
+            let _ = ticks.send(ahead(Some(budget)));
+            Tick::Read(Some(budget))
+        })
+        .expect("spawns");
+        (poker, taken)
+    }
+
+    #[test]
+    fn the_poller_stops_at_the_reserve_and_no_poke_can_get_under_it() {
+        let (poker, taken) = budgeted_by(Budget {
+            remaining: RESERVE,
+            seconds_to_reset: 3_600,
+        });
+
+        poker.poke(Poke::Watching(Some(a_folder())));
+        // A cold start whose very first read finds the budget already drained by
+        // the operator's own agents. The wait it was *served* on was the
+        // ladder's — nothing had been reported when it was scheduled — and the
+        // hour it is handing over to is the budget's, which is what the stamp
+        // has to say.
+        assert_eq!(
+            taken
+                .recv_timeout(Duration::from_secs(2))
+                .expect("the first read"),
+            Held::Budget
+        );
+
+        // Waited out, so what this test times is the reserve rather than the
+        // poke floor.
+        std::thread::sleep(POKE_FLOOR + Duration::from_millis(100));
+
+        // Everything anybody has to ask for a read with. A poke lowers the
+        // ladder to a second and goes through the same `max` as everything else,
+        // so none of these can reach GitHub with the budget at the reserve.
+        poker.poke(Poke::Attention(Attention::Focused));
+        poker.poke(Poke::Watching(Some(a_folder())));
+        poker.poke(Poke::RunExited);
+        // And the one that used to. Switching launcher rows is an ordinary
+        // click, and it erased the anchor every floor is measured from — so an
+        // hour-long budget floor became a wake of zero and two points were drawn
+        // from under the reserve, at any budget, as fast as somebody could
+        // alternate two rows.
+        poker.poke(Poke::Watching(Some(another_folder())));
+
+        assert!(
+            taken.recv_timeout(Duration::from_secs(1)).is_err(),
+            "a poke got under the reserve"
+        );
+    }
+
+    #[test]
+    fn a_budget_a_read_reported_holds_the_next_wait_and_the_tick_is_told_so() {
+        // Two points above the reserve and two seconds to the reset: exactly one
+        // poll is affordable and it is due at the reset. Two seconds also beats
+        // the one second a poke lowers the ladder to, which is what makes this
+        // one test cover the route the numbers take — what a read parsed
+        // reaching the composition, and no poke getting under the answer.
+        let (poker, taken) = budgeted_by(Budget {
+            remaining: RESERVE + 2,
+            seconds_to_reset: 2,
+        });
+
+        poker.poke(Poke::Watching(Some(a_folder())));
+        taken
+            .recv_timeout(Duration::from_secs(2))
+            .expect("the first read");
+
+        poker.poke(Poke::Watching(Some(a_folder())));
+        assert!(
+            taken.recv_timeout(Duration::from_millis(200)).is_err(),
+            "the poke got under the budget"
+        );
+
+        taken
+            .recv_timeout(Duration::from_millis(2_500))
+            .expect("a read once the budget allowed one");
+    }
+
+    #[test]
+    fn the_tick_is_told_the_floor_it_is_handing_over_to_and_not_the_one_it_waited_out() {
+        /*
+         * The clause on the stamp keys on this, and a view is read by somebody
+         * who is about to wait. Fixing the term before the sleep makes it one
+         * poll stale in both directions — and the harmful direction is the
+         * false positive, because an absent true clause is quiet and a present
+         * false one is not.
+         */
+        let drained = Budget {
+            remaining: RESERVE,
+            seconds_to_reset: 3_600,
+        };
+        let refilled = Budget {
+            remaining: 5_000,
+            seconds_to_reset: 3_600,
+        };
+        let watching = Watch {
+            watched: Some(a_folder()),
+            ..Watch::new()
+        };
+
+        // A cold start that finds the budget already drained. Served on the
+        // ladder, handing over to an hour of the budget.
+        assert_eq!(interval(&watching.cadence(0)).held_by, Held::Ladder);
+        assert_eq!(watching.ahead(0, Some(drained)), Held::Budget);
+
+        // And the mirror, which is the one that puts a false sentence on a
+        // stamp: the poll that fires *at* the reset was served on that
+        // budget-held hour and is the first thing to see the refill. Told the
+        // term that held the wait it waited out, it would say *paced against
+        // your rate limit* for a whole rung after the pacing had stopped.
+        let now = Instant::now();
+        let stopped = Watch {
+            seen: Some(Seen {
+                budget: drained,
+                at: now,
+            }),
+            last_tick: Some(now),
+            ..watching
+        };
+        assert_eq!(interval(&stopped.cadence(0)).held_by, Held::Budget);
+        assert_eq!(stopped.ahead(0, Some(refilled)), Held::Ladder);
+
+        // And the poke that bought this read is spent by it. A full budget paces
+        // at two seconds and `POKE_FLOOR` is one, so the term that won the wait
+        // a *click* bought is the budget — reporting that would put the clause
+        // on a stamp with a completely full rate limit.
+        let poked = Watch {
+            poke: Some(Authority::Human),
+            seen: Some(Seen {
+                budget: refilled,
+                at: now,
+            }),
+            last_tick: Some(now),
+            ..watching
+        };
+        assert_eq!(interval(&poked.cadence(0)).held_by, Held::Budget);
+        assert_eq!(poked.ahead(0, Some(refilled)), Held::Ladder);
+    }
+
+    #[test]
+    fn an_answer_that_said_nothing_about_the_budget_does_not_unpace_the_poller() {
+        /*
+         * `rateLimit: null`, or a `resetAt` in a shape this build cannot read.
+         * Forgetting what was established is unbounded — a stamp that stopped
+         * parsing would leave the poller running at the ordinary rung for the
+         * life of the process, drawing against a reserve it no longer knows
+         * about — while keeping it expires by itself as the horizon ages out.
+         *
+         * Eighteen hundred points above the reserve over an hour paces at four
+         * seconds, which is long enough to time against the one second a poke
+         * lowers the ladder to.
+         */
+        let paced = Budget {
+            remaining: RESERVE + 1_800,
+            seconds_to_reset: 3_600,
+        };
+        let first = Arc::new(AtomicUsize::new(0));
+        let counted = Arc::clone(&first);
+        let (ticks, taken) = mpsc::channel();
+        let poker = start(Timings::shipped(), move |_watched, _ahead| {
+            let _ = ticks.send(());
+            match counted.fetch_add(1, Ordering::SeqCst) {
+                0 => Tick::Read(Some(paced)),
+                _ => Tick::Read(None),
+            }
+        })
+        .expect("spawns");
+
+        poker.poke(Poke::Watching(Some(a_folder())));
+        taken
+            .recv_timeout(Duration::from_secs(2))
+            .expect("the read that reported the budget");
+
+        // Waited out, so the poke below is answered by the pacing rather than by
+        // a floor that had not expired yet.
+        std::thread::sleep(Duration::from_millis(4_200));
+        poker.poke(Poke::Watching(Some(a_folder())));
+        taken
+            .recv_timeout(Duration::from_secs(2))
+            .expect("the read that reported no budget at all");
+
+        // Nothing was learned, so the four seconds still stand and the poke
+        // cannot get under them. Forgetting would have left `POKE_FLOOR` alone
+        // under the `max` and answered this in one second.
+        poker.poke(Poke::Watching(Some(a_folder())));
+        assert!(
+            taken.recv_timeout(Duration::from_millis(2_500)).is_err(),
+            "an answer that said nothing about the budget unpaced the poller"
+        );
+        taken
+            .recv_timeout(Duration::from_secs(3))
+            .expect("and the pacing still ends");
+    }
+
+    #[test]
+    fn the_horizon_a_read_reported_is_expressed_from_the_last_tick_however_long_ago_it_was() {
+        /*
+         * A floor is measured from the last tick; a `seconds_to_reset` is
+         * measured from the read that reported it. Those coincide only while the
+         * last tick *is* that read — a tick that failed, or that was never
+         * attempted, moved one and not the other.
+         *
+         * Both other anchors are wrong, and wrong in opposite directions.
+         * Leaving the horizon un-aged re-arms it on every tick, so one failed
+         * poll at the reset costs another whole hour. Re-basing it to now
+         * double-counts against `next_wake`'s own subtraction and fires at half
+         * the horizon — which is the one of the two that draws under the
+         * reserve.
+         */
+        let seen_at = Instant::now();
+        let watch = Watch {
+            watched: Some(a_folder()),
+            last_tick: Some(seen_at + Duration::from_secs(5)),
+            seen: Some(Seen {
+                budget: Budget {
+                    remaining: 4_000,
+                    seconds_to_reset: 3_600,
+                },
+                at: seen_at,
+            }),
+            ..Watch::new()
+        };
+
+        assert_eq!(
+            watch.cadence(0).budget.expect("a budget").seconds_to_reset,
+            3_595
+        );
     }
 
     #[test]
@@ -653,13 +1038,13 @@ mod tests {
         let (entered, entries) = mpsc::channel();
         let (release, released) = mpsc::channel::<()>();
 
-        let poker = start(Timings::shipped(), move |_| {
+        let poker = start(Timings::shipped(), move |_, _| {
             let now = counted.fetch_add(1, Ordering::SeqCst) + 1;
             peak.fetch_max(now, Ordering::SeqCst);
             let _ = entered.send(());
             let _ = released.recv();
             counted.fetch_sub(1, Ordering::SeqCst);
-            Tick::Read
+            Tick::Read(None)
         })
         .expect("spawns");
 
@@ -690,7 +1075,7 @@ mod tests {
     fn a_tick_that_was_never_attempted_is_neither_a_failure_nor_a_spin() {
         let calls = Arc::new(AtomicUsize::new(0));
         let counted = Arc::clone(&calls);
-        let poker = start(Timings::shipped(), move |_| {
+        let poker = start(Timings::shipped(), move |_, _| {
             counted.fetch_add(1, Ordering::SeqCst);
             Tick::NotAttempted
         })

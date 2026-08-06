@@ -14,9 +14,9 @@
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use perseverance_model::{read_response, MapRead, ReadError};
+use perseverance_model::{epoch_from_rfc3339, read_response, MapRead, ReadError};
 
-use crate::Token;
+use crate::{Budget, Token};
 
 /// The one document. Held as a file rather than a string literal so that it can
 /// be pasted into `gh api graphql -F query=@…` unchanged when someone needs to
@@ -77,6 +77,38 @@ impl FreshRead {
     /// screen is measured from this.
     pub fn fetched_at(&self) -> i64 {
         self.fetched_at
+    }
+
+    /// What this answer said about the rate limit, as the two numbers
+    /// [`crate::budget_floor`] is a function of.
+    ///
+    /// It is here rather than in `cadence.rs` for the reason every clock in this
+    /// crate is on this side of the line: turning GitHub's RFC 3339 `resetAt`
+    /// into a number of seconds needs a moment to subtract it from, and the pure
+    /// half deliberately has none. `perseverance_model` owns the text-to-second
+    /// conversion because it already owns its inverse.
+    ///
+    /// **The horizon is anchored to [`FreshRead::fetched_at`]**, which is when
+    /// this answer arrived and not when anybody is asking. That is what lets it
+    /// compose with the loop's own subtraction rather than double-counting
+    /// against it: the loop measures its wait from the tick that carried this
+    /// read, ages the horizon by however much of it that tick has since
+    /// consumed, and never re-bases either to *now*.
+    ///
+    /// `None` for an answer that carried no `rateLimit`, and for a stamp in a
+    /// shape this build will not guess at. Both are *this answer said nothing
+    /// about the budget*, which the floor reads as no constraint — a horizon of
+    /// zero invented here would instead read as *the reset is now*.
+    ///
+    /// The subtraction is signed and stays that way. A reset already in the past
+    /// is a fact, and deciding what it means is the floor's.
+    pub fn budget(&self) -> Option<Budget> {
+        let limit = self.read.rate_limit.as_ref()?;
+
+        Some(Budget {
+            remaining: limit.remaining,
+            seconds_to_reset: epoch_from_rfc3339(&limit.reset_at)? - self.fetched_at,
+        })
     }
 }
 
@@ -311,6 +343,74 @@ mod tests {
     }
 
     #[test]
+    fn the_budget_a_read_reports_is_measured_from_the_moment_that_read_landed() {
+        // The fixture's reset is 2026-08-05T11:02:14Z, and this read landed at
+        // midnight the same day — so the horizon is the eleven hours between
+        // them, anchored to the answer rather than to whenever anybody asks.
+        let fresh = interpret_read(answered(200, TWO_MAPS), 1_785_888_000).expect("reads");
+
+        assert_eq!(
+            fresh.budget(),
+            Some(Budget {
+                remaining: 4_417,
+                seconds_to_reset: 39_734,
+            })
+        );
+
+        // A read that landed on the reset itself, and one that landed after it.
+        // The negative is carried honestly rather than clamped here: what a
+        // reset in the past *means* is the floor's decision, and a zero invented
+        // on the way would be indistinguishable from a reset arriving now.
+        let landed = [
+            (1_785_927_734, 0),
+            (1_785_930_000, -2_266),
+            (1_785_888_000, 39_734),
+        ];
+
+        for (fetched_at, seconds_to_reset) in landed {
+            let fresh = interpret_read(answered(200, TWO_MAPS), fetched_at).expect("reads");
+            assert_eq!(
+                fresh.budget().expect("a budget").seconds_to_reset,
+                seconds_to_reset,
+                "{fetched_at}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_answer_that_said_nothing_usable_about_the_budget_reports_none_of_one() {
+        // Both silences, and they are the same silence to the loop: no
+        // constraint. A stamp GitHub sent in a shape this build cannot read must
+        // not become a horizon of zero, which the floor would read as *the reset
+        // is now* — an answer nobody established.
+        let unbudgeted = [
+            r#"{ "data": { "repository": { "maps": { "nodes": [] } }, "rateLimit": null } }"#,
+            r#"{ "data": { "repository": { "maps": { "nodes": [] } }, "rateLimit": {
+                 "cost": 2, "nodeCount": 4, "limit": 5000, "remaining": 4417,
+                 "resetAt": "the fifth of August" } } }"#,
+        ];
+
+        for body in unbudgeted {
+            let fresh = interpret_read(answered(200, body), 1_785_888_000).expect("reads");
+            assert_eq!(fresh.budget(), None, "{body}");
+        }
+    }
+
+    #[test]
+    fn the_query_costs_what_the_budget_floor_paces_for() {
+        // The pacing is two points a poll and this is the document that spends
+        // them. A field added here that repriced the query would under-wait by
+        // whatever it added, and the reserve assertions next door would go on
+        // passing against a number that had stopped being true.
+        let read = perseverance_model::read_response(TWO_MAPS).expect("reads");
+
+        assert_eq!(
+            read.rate_limit.expect("the budget rode along").cost,
+            crate::QUERY_COST
+        );
+    }
+
+    #[test]
     fn the_shipped_document_asks_for_the_four_things_the_slice_is_named_after() {
         // A typo in the document is invisible to every test that does not read
         // the document, and the live test below is `#[ignore]`d on every runner.
@@ -382,10 +482,26 @@ mod tests {
             .as_ref()
             .expect("the budget rides the same query");
         assert!(budget.remaining > 0);
+        // Against the constant the pacing is built on, so a legitimate reprice
+        // moves this and the fixture test together rather than leaving a bare
+        // literal here that nothing points at. One-sided, and that is not
+        // slack: this call opens no map, `map-read.graphql` guards the whole
+        // issue subtree behind `@include(if: $open)`, and a strictly smaller
+        // query may honestly cost less than the fixture it was captured from.
+        // What the pacing needs to know is that it has not grown.
         assert!(
-            budget.cost <= 2,
-            "the one query shape costs {}",
-            budget.cost
+            budget.cost <= crate::QUERY_COST,
+            "the one query shape costs {} rather than the {} the pacing is built on",
+            budget.cost,
+            crate::QUERY_COST
+        );
+        // The one place GitHub's own `resetAt` meets the conversion the pacing
+        // is built on. Every test above drives it from a stamp this repository
+        // wrote down; only this one has been sent a real one.
+        assert!(
+            fresh.budget().is_some(),
+            "GitHub's own resetAt did not read back as a second: {:?}",
+            budget.reset_at
         );
         assert!(
             !fresh.read().truncation.any(),

@@ -50,8 +50,9 @@ pub struct MapRead {
     pub maps: Vec<MapListing>,
     /// Which map the response carried the graph of, if the query asked for one.
     pub map: Option<MapGraph>,
-    /// Carried, never acted on. The budget floor is #39's and the backoff is
-    /// #40's; this slice only makes sure the numbers arrive.
+    /// Carried, never acted on *here*. The poller's budget floor is what spends
+    /// these numbers, and it needs a clock to do it; this crate has none, so
+    /// what this file owes is only that they arrive intact.
     pub rate_limit: Option<RateLimit>,
     pub truncation: Truncation,
 }
@@ -326,6 +327,83 @@ pub fn rfc3339(epoch_seconds: i64) -> String {
         (seconds % 3600) / 60,
         seconds % 60
     )
+}
+
+/// The inverse: the second an RFC 3339 stamp names, or nothing.
+///
+/// It exists because GitHub sends `resetAt` as text and the poller's budget
+/// floor is a number of seconds, and it lives beside [`rfc3339`] because a
+/// conversion and its inverse that drift apart are the failure worth spending a
+/// file's attention on — the round trip is one assertion when they are three
+/// lines apart and no assertion at all when they are two crates apart.
+///
+/// **Strict about the one shape GitHub sends**: `YYYY-MM-DDTHH:MM:SSZ`, UTC,
+/// no fraction and no offset. Everything else is `None` rather than a best
+/// guess, because the caller reads `None` as *this answer said nothing about
+/// when the budget resets* and degrades to no constraint at all. Failing open
+/// costs one poll at the ordinary rung; guessing an offset and then pacing an
+/// hour's spending against the guess costs the reserve.
+pub fn epoch_from_rfc3339(text: &str) -> Option<i64> {
+    const SECONDS_PER_DAY: i64 = 86_400;
+    const SHAPE: [(usize, u8); 6] = [
+        (4, b'-'),
+        (7, b'-'),
+        (10, b'T'),
+        (13, b':'),
+        (16, b':'),
+        (19, b'Z'),
+    ];
+
+    let bytes = text.as_bytes();
+    if bytes.len() != 20 || SHAPE.iter().any(|&(at, expected)| bytes[at] != expected) {
+        return None;
+    }
+
+    // `parse` alone would accept a sign and a leading space, neither of which is
+    // this shape, and both of which would land inside a fixed-width field.
+    let number = |from: usize, to: usize| -> Option<i64> {
+        let field = &text[from..to];
+        field
+            .bytes()
+            .all(|byte| byte.is_ascii_digit())
+            .then(|| field.parse().ok())
+            .flatten()
+    };
+
+    let year = number(0, 4)?;
+    let month = number(5, 7)?;
+    let day = number(8, 10)?;
+    let hour = number(11, 13)?;
+    let minute = number(14, 16)?;
+    let second = number(17, 19)?;
+
+    if hour > 23 || minute > 59 || second > 59 {
+        return None;
+    }
+
+    Some(days_from_civil(year, month, day)? * SECONDS_PER_DAY + hour * 3600 + minute * 60 + second)
+}
+
+/// Hinnant's `days_from_civil`, and the whole of what makes a date a date.
+///
+/// The 31st of February is six digits that parse and is not a day, and the
+/// month lengths are already known to [`civil_from_days`] — so rather than a
+/// second table that could disagree with the first, the answer is read back.
+/// A day that comes back as a different day was never that day, and that one
+/// comparison covers every month length and every leap-year rule at once.
+fn days_from_civil(year: i64, month: i64, day: i64) -> Option<i64> {
+    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+        return None;
+    }
+
+    let shifted = year - i64::from(month <= 2);
+    let era = shifted.div_euclid(400);
+    let year_of_era = shifted.rem_euclid(400);
+    let day_of_year = (153 * (month + if month > 2 { -3 } else { 9 }) + 2) / 5 + day - 1;
+    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+    let days = era * 146_097 + day_of_era - 719_468;
+
+    (civil_from_days(days) == (year, month as u32, day as u32)).then_some(days)
 }
 
 /// Howard Hinnant's `civil_from_days`, which is the shortest correct answer to
@@ -910,5 +988,68 @@ mod tests {
     #[test]
     fn a_clock_set_before_the_epoch_still_stamps_a_date_rather_than_panicking() {
         assert_eq!(rfc3339(-1), "1969-12-31T23:59:59Z");
+    }
+
+    #[test]
+    fn the_stamp_text_this_crate_writes_reads_back_as_the_second_it_came_from() {
+        // Round-trip first, because a conversion that disagrees with its own
+        // inverse is worse than one that refuses: the two halves are three lines
+        // apart and would still be wrong in opposite directions.
+        let stamps = [
+            0,
+            1_785_888_000,
+            // A leap day and the last second of a year — the two places the
+            // one-line civil-date arithmetic goes wrong if it is going to.
+            1_709_164_800,
+            1_798_761_599,
+            951_782_400,
+            -1,
+        ];
+
+        for epoch in stamps {
+            assert_eq!(epoch_from_rfc3339(&rfc3339(epoch)), Some(epoch), "{epoch}");
+        }
+
+        // GitHub's own text, taken from the checked-in answer rather than
+        // written out here, because the shape it sends is the whole contract.
+        assert_eq!(
+            epoch_from_rfc3339(
+                &read_response(TWO_MAPS)
+                    .expect("reads")
+                    .rate_limit
+                    .expect("a budget")
+                    .reset_at
+            ),
+            Some(1_785_927_734)
+        );
+    }
+
+    #[test]
+    fn a_stamp_in_any_shape_but_the_one_github_sends_is_refused_rather_than_guessed() {
+        // The caller reads `None` as *this answer said nothing about when the
+        // budget resets*, which degrades to no constraint at all. Failing open
+        // is safe; guessing an offset and then pacing an hour's spending against
+        // the guess is not.
+        let refused = [
+            "",
+            "nonsense",
+            "2026-08-05",
+            // An offset is a different instant, not a different spelling.
+            "2026-08-05T11:02:14+02:00",
+            "2026-08-05 11:02:14Z",
+            "2026-08-05T11:02:14.5Z",
+            "2026-13-05T00:00:00Z",
+            "2026-08-32T00:00:00Z",
+            // Digits that are not a date. The month lengths are known to the
+            // conversion already, so this must not need a second table.
+            "2026-02-31T00:00:00Z",
+            "2026-08-05T25:00:00Z",
+            "2026-08-05T11:62:14Z",
+            "2026-08-05T11:02:99Z",
+        ];
+
+        for text in refused {
+            assert_eq!(epoch_from_rfc3339(text), None, "{text:?}");
+        }
     }
 }

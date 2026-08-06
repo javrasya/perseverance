@@ -369,7 +369,17 @@ export function App() {
           stamp covering both would have to report the fresher or the staler,
           either of which is a lie about the other.
         */}
-        <CacheStamp what="maps" provenance={maps.provenance} now={nowSeconds()} />
+        {/*
+          And whether the poller is holding itself back to leave the rate limit
+          alone, which is a fact about this stamp's subject and no other: the
+          model has no poller behind it, so it is passed nothing to say.
+        */}
+        <CacheStamp
+          what="maps"
+          provenance={maps.provenance}
+          now={nowSeconds()}
+          yielding={maps.yieldingToRateLimit}
+        />
         {/* One more field of the readout that already exists, rather than a
             second place to look for machine facts. */}
         <EnvironmentSummary

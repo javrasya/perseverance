@@ -231,13 +231,40 @@ check that cannot fail.
   would all ship green. `cargo test --workspace -- --ignored` on a machine whose
   operator has signed in is the only thing that catches them, and no runner
   takes it.
-- **Two of the three floors under the `max` return zero.** `interval =
-  max(ladder_floor, budget_floor, backoff_floor)` is composed and the ladder
-  floor is real; `budget_floor` (#39) and `backoff_floor` (#40) are stubs that
-  cannot change any answer, and a test says so in every state so that the day
-  one of them lands is the day that test fails. Until then a ten-second cadence
-  spends the rate-limit budget with nothing throttling it, and a failing read is
-  retried at the same rung as a succeeding one.
+- **One of the three floors under the `max` returns zero.** `interval =
+  max(ladder_floor, budget_floor, backoff_floor)` is composed, the ladder and
+  budget floors are real, and `backoff_floor` (#40) is a stub that cannot change
+  any answer — a test says so across every failure count and authority, so the
+  day it lands is the day that test fails. Until then a failing read is retried
+  at the same rung as a succeeding one.
+- **The budget clause reports which term won, not how much yielding there is.**
+  It is on while the budget beats the rung it is being compared against, and the
+  rung depends on whether the window has the operator — so over an hour a
+  `remaining` between 1024 and 1119 carries the clause in front of you and not
+  behind you, at the same budget. That is the acceptance criterion working as
+  written; it is also why the clause says *paced against* and never names a
+  duration.
+- **The `maps` command always answers *not yielding*.** It reads the store and
+  has no poller behind it, so first paint never carries the clause; it arrives
+  with the first poll. The flag means something only on the `maps` event.
+- **A cold process spends two points before it can know it should not.** Nothing
+  has been reported yet, so `budget_floor` is handed `None` — no constraint — and
+  a poller that has never ticked is due now, so the first poll fires immediately
+  even if the budget is already under the reserve. It is unavoidable in this
+  shape: reading is the only way to learn the budget, and the number the pacing
+  needs arrives on the answer to the read it would have had to skip. Every poll
+  after the first is paced.
+- **The reserve is defended by this machine's clock against GitHub's `resetAt`.**
+  The bias is deliberately late — the horizon is anchored at `fetched_at` while
+  the wait is measured from a tick stamped after the read returned — so skew
+  polls later than necessary rather than earlier. A badly wrong clock makes the
+  pacing nonsense in either direction, and nothing detects that.
+- **`QUERY_COST = 2` is a measurement of today's document, not a law.** A field
+  added to `map-read.graphql` that repriced the query would make the pacing
+  under-wait by whatever it added, and the reserve property would go on passing
+  against a number that had stopped being true. The fixture pins it only for as
+  long as somebody refreshes the fixture, and the `#[ignore]`d live test is the
+  only thing that meets a real schema.
 - **Two of the three pokes have no producer in the tree.** An adapter's `Idle`
   is #44's signal and a run's process exit is #47's, and `crates/agent` and
   `crates/pty` are still doc-comment-only stubs — so both arrive as things the
@@ -253,10 +280,11 @@ check that cannot fail.
   into the tick is a slice of its own and folding it in here would have doubled
   this diff, and the frontend still reads the snapshot once at mount. So the
   Route pane is drawn from something nothing refreshes.
-- **Neither the rung nor the winning floor is on screen anywhere.** A poller
-  stuck on the five-minute rung looks exactly like one that is working. #39
-  needs the winning term visible for its own copy; this slice returns it from
-  the composition and paints none of it.
+- **The rung is on screen nowhere, and only one of the three floors is.** A
+  poller stuck on the five-minute rung looks exactly like one that is working.
+  The winning term now crosses on the map list, but the only thing it paints is
+  the budget clause — a poller held by #40's backoff will look, when that lands,
+  exactly like one held by the ladder.
 - **Linux has never built the TLS stack.** `ureq` verifies certificates against
   the operator's own trust store via `rustls-platform-verifier`, which supports
   Linux — but both CI runners are Windows and macOS by design, so nothing here
