@@ -261,13 +261,16 @@ export function App() {
 
       <div className={styles.body}>
         {/*
-          The graph is what the app is for; the launcher is how you got here.
-          So the Route takes the room and the folder list keeps its own beside
-          it, rather than one replacing the other — there is no mode to be in
-          here either. Which view this is comes from the remembered default and
-          not from what happens to be on screen.
+          A map open means the map is what the window is for, so the view has
+          the window and the launcher is where you came from. This is the
+          smallest arrangement that lets the Route be looked at, and it is not
+          the arrangement: the dial with its four detents, the view switcher and
+          the chrome that survives every detent are #52's, and deciding any of
+          that here would be making a later ticket's call early. What this file
+          settles is only that the two do not fight over the same pixels while
+          #52 is still open.
         */}
-        {view === "route" ? (
+        {snapshot.model.map !== null && view === "route" ? (
           <div className={styles.view}>
             <Route
               model={snapshot.model}
@@ -275,26 +278,26 @@ export function App() {
               onSelect={setSelectedNode}
             />
           </div>
-        ) : null}
-
-        <DropRegion onFoldersDropped={onFoldersDropped}>
-          <FolderList
-            outcome={outcome}
-            now={nowSeconds()}
-            selectedId={selectedId}
-            note={note}
-            onOpen={onOpen}
-            onLocate={onLocate}
-            onForget={onForget}
-            onOpenNew={onOpenNew}
-          />
-          {/*
-            The folder is what you pick; the maps in it are what you find once
-            you are inside. So the list appears under the folder you picked
-            rather than replacing the launcher — there is no mode to be in.
-          */}
-          {selectedId === null ? null : <MapList view={maps} />}
-        </DropRegion>
+        ) : (
+          <DropRegion onFoldersDropped={onFoldersDropped}>
+            <FolderList
+              outcome={outcome}
+              now={nowSeconds()}
+              selectedId={selectedId}
+              note={note}
+              onOpen={onOpen}
+              onLocate={onLocate}
+              onForget={onForget}
+              onOpenNew={onOpenNew}
+            />
+            {/*
+              The folder is what you pick; the maps in it are what you find once
+              you are inside. So the list appears under the folder you picked
+              rather than replacing the launcher — there is no mode to be in.
+            */}
+            {selectedId === null ? null : <MapList view={maps} />}
+          </DropRegion>
+        )}
       </div>
 
       <EnvironmentReadout readout={environment} shown={environmentShown} />

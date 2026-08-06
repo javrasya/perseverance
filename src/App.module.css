@@ -43,8 +43,8 @@
 }
 
 /*
- * The view gets the room and the launcher keeps its own beside it, which is
- * what the two numbers below say and all they say.
+ * The view has the window while a map is open. How much window it has once the
+ * dial exists is #52's, not this file's.
  *
  * The scrollport is here rather than inside the view, for the same reason the
  * drop region owns its own: rank 0 is structurally wide, so the first column is
@@ -55,7 +55,7 @@
  */
 .view {
   display: flex;
-  flex: 2;
+  flex: 1;
   min-height: 0;
   padding: var(--s-space-base);
   overflow: auto;

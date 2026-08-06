@@ -159,11 +159,17 @@ describe("dev:web", () => {
     expect(text).toContain("not a child of this map");
   });
 
-  it("opens on the Route with no map without inventing a second way to say so", async () => {
-    await boot("/?map=no-map-open");
+  it("opens on the launcher when there is no map, rather than on an empty Route", async () => {
+    const text = await boot("/?map=no-map-open");
 
-    // The chrome's own words, from `readout.ts`, rather than a view-local copy.
-    expect(theRoute().textContent).toContain(NO_MAP_OPEN);
+    // A window with no map open is not a map with nothing in it: it is the
+    // folder list, which is what the app opens on. The Route keeps its own
+    // words for an absent map — `route-view.test.tsx` holds that to the
+    // chrome's phrasing rather than a view-local copy — but a window with
+    // nothing open is never what those words are for.
+    expect(document.querySelector('[aria-label="The Route"]')).toBeNull();
+    expect(text).toContain("Folders");
+    expect(text).toContain(NO_MAP_OPEN);
   });
 
   it("draws a map with nothing on it without throwing on the way", async () => {
