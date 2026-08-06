@@ -1,6 +1,7 @@
 # 7. The cadence is three floors under one max, and a poke lowers one of them
 
-Status: accepted (2026-08-06)
+Status: accepted (2026-08-06), amended by ADR 0008 (2026-08-06) in the three
+places marked *amended* below. Still in force everywhere else.
 Context: [#38 the cadence ladder and off-cadence
 pokes](https://github.com/javrasya/perseverance/issues/38), under the spec
 [#28](https://github.com/javrasya/perseverance/issues/28). The two floors this
@@ -19,8 +20,10 @@ ten-second rung as its case.
 Three numbers were asked for — ten seconds with a run live, sixty watching, five
 minutes unfocused — and three events that fire off-cadence. The interesting part
 was never the numbers. It was that two more things will decide the same number
-later: #39 stops polling near the rate-limit reserve, and #40 backs off after
-consecutive failures and stops outright for the conditions retrying cannot fix.
+later: #39 stops polling near the rate-limit reserve *(amended: it paces against
+the reserve and waits the reset out; it never stops — ADR 0008)*, and #40 backs
+off after consecutive failures and stops outright for the conditions retrying
+cannot fix.
 Whatever shape #38 lands, those two have to fit into it with at most a known,
 named edit, or this slice will have pre-decided two tickets by accident.
 
@@ -54,7 +57,10 @@ The composition reports **which floor won** alongside the wait, because #39's
 winning term, and a bare `Duration` would leave that clause nothing to key on.
 The floor type has a `Never` variant with one producer and two waiting for it:
 #39 stops at the reserve and #40 stops rather than backs off, and a
-`Duration`-only floor would have been reshaped twice.
+`Duration`-only floor would have been reshaped twice. *(Amended: one ticket, not
+two. `Never` is absorbing, so a budget answering it would never read again and
+never learn of the reset; #39 answers `seconds_to_reset` instead and only #40
+still waits for the variant — ADR 0008.)*
 
 **#40 is expected to edit one row of that array, and this is the record that it
 was foreseen rather than a shape that failed.** Stopping rather than retrying
@@ -115,7 +121,11 @@ row is the only way anybody has to ask for a read off the rung, and re-opening
 the folder you are already in is the commonest form of it. `POKE_FLOOR` is what
 rate-limits a repeated click, so nothing is bought by suppressing it. Only a
 *changed* declaration forgets the last-read stamp, because re-declaring the same
-folder has not made what was read of it any older. Focus is read from
+folder has not made what was read of it any older. *(Amended: nothing forgets it
+now. The stamp is the anchor `budget_floor`'s horizon is measured from too, and
+erasing it fires every finite floor immediately — a launcher click under the
+reserve. The poke on the next line already reads a new folder within a second —
+ADR 0008.)* Focus is read from
 `WindowEvent::Focused` in
 Rust rather than from a `visibilitychange` listener, so a WebView bug cannot
 leave the app convinced it is being watched, and the capability file is

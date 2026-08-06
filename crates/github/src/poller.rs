@@ -349,6 +349,9 @@ impl Watch {
                 }
             }
             Poke::Watching(next) => {
+                // Reverses ADR 0007's *only a changed declaration forgets the
+                // last-read stamp*; `docs/adr/0008` carries that argument.
+                //
                 // `last_tick` is **not** cleared here, and a change of folder is
                 // not an exception to that. It is the anchor every floor under
                 // the `max` is measured from, and erasing it hands `next_wake` a

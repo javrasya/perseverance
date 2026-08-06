@@ -4,8 +4,10 @@ Status: accepted (2026-08-06)
 Context: [#39 the rate-limit budget
 floor](https://github.com/javrasya/perseverance/issues/39), under the spec
 [#28](https://github.com/javrasya/perseverance/issues/28), stories 108 and 109.
-It fills the floor ADR 0007 left at zero and revisits one thing that ADR
-predicted. ADR 0003 settled that `perseverance-github` is the only crate that
+It fills the floor ADR 0007 left at zero and reverses **two** things that ADR
+settled: the `Never` it predicted at the reserve, and its rule that a changed
+`watching` declaration forgets the last-read stamp. Both reversals are argued
+below and marked in ADR 0007 where they land. ADR 0003 settled that `perseverance-github` is the only crate that
 opens a socket and that classifying failures — `RateLimited` among them —
 belongs to [#40](https://github.com/javrasya/perseverance/issues/40) and not
 here. ADR 0004 settled that derivation is Rust's and the WebView is paint, which
@@ -141,22 +143,33 @@ stub that cannot change any answer, and #40 is where that argument has to be
 made.
 
 **`last_tick` is the anchor every floor is measured from, so nothing erases
-it — not even a change of folder.** `next_wake` subtracts it from whatever the
-`max` answered, and a `None` there means `Duration::MAX`, which saturates
-*every* finite floor to zero. The hour the budget answers with at the reserve is
-a finite floor. So a poller that forgot its anchor when the watched folder
-changed would draw two points with nothing under it at all, at any budget,
-against a reserve it is not allowed to touch — and switching launcher rows is an
-ordinary click, reachable from the WebView through the `watching` command, with
-`Watched` carrying the open map as well as the folder. That is the thing the
-`max` exists to make impossible, defeated after the `max` by a subtraction.
-Nothing is bought by the erasure either: the unconditional poke on the next line
-lowers the ladder to `POKE_FLOOR`, so a newly opened folder is still read within
-a second — the same trade ADR 0007 already took for focus and idle pokes — and a
-genuinely cold start has never ticked and so has no anchor to keep. The rate
-limit is an account-wide fact and a folder is not; per-folder freshness, if it
-ever needs to short-circuit the rung, has to be a field only `ladder_floor`
-reads.
+it — not even a change of folder. This is the second reversal of ADR 0007**,
+whose *only a **changed** declaration forgets the last-read stamp* is deleted
+here rather than qualified. That rule was right about the only term that existed
+when it was written and wrong about the two that were still stubs, which is
+exactly the accident ADR 0007 set out to avoid and did not see coming from this
+direction. `next_wake` subtracts the anchor from whatever the `max` answered,
+and a `None` reaches it as `Duration::MAX`, which `saturating_sub` collapses to
+an immediate wake for *every* finite floor. The hour `budget_floor` answers with
+at the reserve is a finite floor. So the ADR 0007 rule, left standing, means a
+launcher click draws two points from under a reserve this ticket says is
+untouchable — at any budget, with nothing under it at all — and switching
+launcher rows is an ordinary click, reachable from the WebView through the
+`watching` command, with `Watched` carrying the open map as well as the folder.
+That is the thing the `max` exists to make impossible, defeated after the `max`
+by a subtraction.
+
+What makes the deletion *safe* rather than merely necessary is that the erasure
+was buying nothing by the time it was deleted. ADR 0007 wanted *a folder that
+has never been read is due now, not a rung from now*, and both halves survive
+without it: the unconditional `self.poke = …` on the very next line lowers the
+ladder to `POKE_FLOOR`, so a newly opened folder is still read within a second —
+the same trade ADR 0007 already took for focus and idle pokes — and a genuinely
+cold start has never ticked, so its anchor is already `None` and there is
+nothing to erase. The rate limit is an account-wide fact and a folder is not;
+per-folder freshness, if it ever needs to short-circuit the rung, has to be a
+field only `ladder_floor` reads, never an erased anchor the other two terms are
+measured from as well.
 
 **The winning term crosses on `MapsView` and not on `Provenance`.** `Provenance`
 is the model crate's, the model crate may not know what a poller is, and
@@ -215,6 +228,15 @@ it, #40 still will, and this is the record that it was revisited rather than
 overlooked. Nothing else about the composition moved: the `max`, the lattice,
 the tie kept by the incumbent, `Held`, and the poke being a term are all
 untouched, which is what ADR 0007 set out to make possible.
+
+**ADR 0007 keeps its accepted status and carries an amendment note.** It is
+overwhelmingly still in force — two reversals against a decision that also
+settled the ladder, the poke as a term, the handle count and `POKE_FLOOR` is not
+a superseding — but a reader who lands on it first would otherwise believe three
+sentences that have stopped being true, so the header says *amended by ADR 0008*
+and each of the three is marked where it stands. It is the first ADR here to
+carry such a note; a later one that needs the same should follow this shape
+rather than invent a second.
 
 `the_two_floors_that_are_stubbed_cannot_change_any_answer_yet` was rewritten
 rather than deleted, as `the_backoff_floor_is_stubbed_and_cannot_change_any_answer_yet`.

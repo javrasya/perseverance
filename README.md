@@ -247,6 +247,13 @@ check that cannot fail.
 - **The `maps` command always answers *not yielding*.** It reads the store and
   has no poller behind it, so first paint never carries the clause; it arrives
   with the first poll. The flag means something only on the `maps` event.
+- **A cold process spends two points before it can know it should not.** Nothing
+  has been reported yet, so `budget_floor` is handed `None` — no constraint — and
+  a poller that has never ticked is due now, so the first poll fires immediately
+  even if the budget is already under the reserve. It is unavoidable in this
+  shape: reading is the only way to learn the budget, and the number the pacing
+  needs arrives on the answer to the read it would have had to skip. Every poll
+  after the first is paced.
 - **The reserve is defended by this machine's clock against GitHub's `resetAt`.**
   The bias is deliberately late — the horizon is anchored at `fetched_at` while
   the wait is measured from a tick stamped after the read returned — so skew
