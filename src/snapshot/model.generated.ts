@@ -82,7 +82,24 @@ map: Map | null, };
  * already made, and re-exporting them is how a second frontier resolver gets
  * written by accident; the third is a timestamp, and this model reads none.
  */
-export type Node = { number: number, title: string, url: string, kind: ChildKind, state: NodeState, };
+export type Node = { number: number, title: string, url: string, kind: ChildKind, state: NodeState, 
+/**
+ * What this one waits on, by number, in the order the answer listed them.
+ * The graph's edges, and the only adjacency that crosses.
+ *
+ * Adjacency is not one of the inputs above and cannot be turned back into
+ * one. A node's state is decided from GitHub's count of the blockers still
+ * in the way, which stays behind; these numbers are *every* blocker the
+ * answer named, finished ones included, and one of them may be an issue
+ * that is not a child of this map and so has no state on this side at all.
+ * A second state resolver written from these would be wrong in both
+ * directions, which is the reason the count it would need is still absent.
+ *
+ * It crosses as edges rather than as a count of what each node opens up,
+ * because a rank is *how far along* and there is no way to compute one
+ * from a number.
+ */
+waitsOn: Array<number>, };
 
 /**
  * The four states, and there is no fifth.

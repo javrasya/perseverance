@@ -58,6 +58,18 @@ acquired token with nothing to do.
 records the decision, why the client is `ureq` rather than `octocrab`, and what
 it costs.
 
+The Route is the first view, and it is a grouped list in one column with no
+graph library, no layout library and no drawn edge anywhere behind it. A fan of
+edges reads as capacity, and on a map whose takeable tickets are all
+human-in-the-loop that capacity is one — so structure is section membership and
+position in the column, and edges get words instead: `blocked by N` on the row
+that waits, and a note when a blocker names an issue with no row on this map.
+The cost is that the Route cannot say *which* tickets a node opens up, which
+belongs to the views that draw the fan, or *which* one blocks a row, which
+belongs to the detail panel.
+[ADR 0006](docs/adr/0006-the-route-is-a-grouped-list-not-a-graph.md) records the
+decision, the readings on both sides of it, and the test that falsifies it.
+
 App-level artifacts are named **perseverance**. `wayfinder` stays reserved for
 the skill's vocabulary and never appears in a shipped name.
 
@@ -132,6 +144,31 @@ check that cannot fail.
   app-global and survives restart, which is what "persisted globally" requires,
   but the `app` key/value table — which now exists — is where it belongs. The
   swap is one file (`src/theme/theme.ts`).
+- **The remembered default view persists to `localStorage` too**, the same
+  compromise and the same remedy: app-global, survives restart, and belongs in
+  the `app` table the day a command exposes it. The swap is one file
+  (`src/views/views.ts`).
+- **A dependency on an issue in another repository is not an edge.** The derived
+  `Node` carries `waitsOn` — the numbers of every blocker GitHub named, finished
+  ones included, which is what a blocked row's `blocked by N` is computed from —
+  and `crates/model` drops the ones belonging to another repository, because an
+  issue number means nothing outside the repository that issued it and
+  `other/repo#75` would otherwise be counted against this map's `#75`. The
+  filter compares `nameWithOwner` at both ends and a silence never drops an
+  edge, so an answer recorded before either field was asked for keeps its
+  blockers. The cost is that a genuine cross-repository dependency is invisible
+  rather than reported: it is not in `waitsOn` at all, so it is counted into no
+  row's `blocked by N` and the Route cannot say it is beyond the map either —
+  which is exactly what it does say for a blocker it can see and cannot judge.
+- **Whether GitHub's blocked-by connection lists resolved blockers is taken on
+  the evidence of one recorded answer.** `docs/research/github-graph-api-coverage.md`
+  names it as unverified — the fixture it was written against had no closed
+  issues. `waitsOn` rests on it, and the omission would now be invisible rather
+  than loud: nothing ranks, and `blocked by N` skips resolved blockers anyway,
+  so the only visible casualty would be a *no row on this map* note about a
+  blocker that is both closed and elsewhere. `crates/model` still documents the
+  field as carrying every blocker the answer named, so the next reader will
+  believe it. It is one query against a real map to settle.
 - **The launcher registry has no capabilities file, and needs none.** The folder
   picker is answered in Rust and hands back a path, so the WebView calls only
   app-defined commands, which Tauri v2 does not gate. The day the frontend calls

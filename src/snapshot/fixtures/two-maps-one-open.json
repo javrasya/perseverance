@@ -20,7 +20,10 @@
             "kind": "ticket",
             "type": "task"
           },
-          "state": "takeable"
+          "state": "takeable",
+          "waitsOn": [
+            30
+          ]
         },
         {
           "number": 33,
@@ -30,7 +33,10 @@
             "kind": "ticket",
             "type": "task"
           },
-          "state": "blocked"
+          "state": "blocked",
+          "waitsOn": [
+            32
+          ]
         }
       ],
       "frontier": 32

@@ -20,7 +20,8 @@
             "kind": "ticket",
             "type": "research"
           },
-          "state": "resolved"
+          "state": "resolved",
+          "waitsOn": []
         },
         {
           "number": 92,
@@ -30,7 +31,10 @@
             "kind": "ticket",
             "type": "prototype"
           },
-          "state": "resolved"
+          "state": "resolved",
+          "waitsOn": [
+            91
+          ]
         },
         {
           "number": 93,
@@ -39,7 +43,8 @@
           "kind": {
             "kind": "spec"
           },
-          "state": "takeable"
+          "state": "takeable",
+          "waitsOn": []
         }
       ],
       "frontier": null

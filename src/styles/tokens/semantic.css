@@ -42,6 +42,24 @@
   --s-accent-ink: var(--p-white);
   --s-focus-ring: var(--p-indigo-500);
 
+  /*
+   * Two accents, because a list of work has to tell *the one you should start*
+   * from *the one already running*, and one hue cannot carry both. They are
+   * two jobs and not two colours: cold is the map's single answer to *what
+   * next*, warm is a ticket somebody is on right now, and a retheme that swaps
+   * the hues has to keep them apart or the pane stops answering the question.
+   *
+   * Each is a solid for ink and a glyph, an edge for a hairline border, and a
+   * wash for the row tint. `--s-accent` stays what it was: the chrome's one
+   * accent, which is the same indigo but a different job.
+   */
+  --s-designated: var(--p-indigo-500);
+  --s-designated-edge: var(--p-indigo-500-edge);
+  --s-designated-bg: var(--p-indigo-500-wash);
+  --s-live: var(--p-amber-600);
+  --s-live-edge: var(--p-amber-600-edge);
+  --s-live-bg: var(--p-amber-500-wash);
+
   /* Space */
   --s-space-hair: var(--p-space-1);
   --s-space-tight: var(--p-space-2);
@@ -57,6 +75,9 @@
   --s-radius-chip: var(--p-radius-pill);
   --s-border-hairline: var(--p-border-1);
   --s-border-emphasis: var(--p-border-2);
+  /* The rail down the left edge of a row, reserved on every row and coloured
+     on the marked ones, so a mark arriving cannot move the column. */
+  --s-border-rail: var(--p-border-3);
 
   /* Type */
   --s-font-ui: var(--p-font-ui);
@@ -94,6 +115,13 @@
     --s-accent-hover: var(--p-white);
     --s-accent-ink: var(--p-gray-900);
     --s-focus-ring: var(--p-indigo-300);
+
+    --s-designated: var(--p-indigo-300);
+    --s-designated-edge: var(--p-indigo-300-edge);
+    --s-designated-bg: var(--p-indigo-300-wash);
+    --s-live: var(--p-amber-300);
+    --s-live-edge: var(--p-amber-300-edge);
+    --s-live-bg: var(--p-amber-300-wash);
   }
 }
 
@@ -115,4 +143,11 @@
   --s-accent-hover: var(--p-white);
   --s-accent-ink: var(--p-gray-900);
   --s-focus-ring: var(--p-indigo-300);
+
+  --s-designated: var(--p-indigo-300);
+  --s-designated-edge: var(--p-indigo-300-edge);
+  --s-designated-bg: var(--p-indigo-300-wash);
+  --s-live: var(--p-amber-300);
+  --s-live-edge: var(--p-amber-300-edge);
+  --s-live-bg: var(--p-amber-300-wash);
 }

@@ -19,7 +19,8 @@
           "kind": {
             "kind": "unclassified"
           },
-          "state": "takeable"
+          "state": "takeable",
+          "waitsOn": []
         },
         {
           "number": 71,
@@ -29,7 +30,10 @@
             "kind": "ticket",
             "type": "task"
           },
-          "state": "resolved"
+          "state": "resolved",
+          "waitsOn": [
+            72
+          ]
         },
         {
           "number": 73,
@@ -38,7 +42,8 @@
           "kind": {
             "kind": "spec"
           },
-          "state": "takeable"
+          "state": "takeable",
+          "waitsOn": []
         },
         {
           "number": 74,
@@ -47,7 +52,8 @@
           "kind": {
             "kind": "spec"
           },
-          "state": "takeable"
+          "state": "takeable",
+          "waitsOn": []
         },
         {
           "number": 72,
@@ -57,7 +63,11 @@
             "kind": "ticket",
             "type": "research"
           },
-          "state": "blocked"
+          "state": "blocked",
+          "waitsOn": [
+            75,
+            76
+          ]
         },
         {
           "number": 77,
@@ -67,7 +77,8 @@
             "kind": "ticket",
             "type": "grilling"
           },
-          "state": "claimed"
+          "state": "claimed",
+          "waitsOn": []
         },
         {
           "number": 75,
@@ -77,7 +88,10 @@
             "kind": "ticket",
             "type": "task"
           },
-          "state": "takeable"
+          "state": "takeable",
+          "waitsOn": [
+            71
+          ]
         },
         {
           "number": 76,
@@ -87,7 +101,8 @@
             "kind": "ticket",
             "type": "prototype"
           },
-          "state": "takeable"
+          "state": "takeable",
+          "waitsOn": []
         }
       ],
       "frontier": 75

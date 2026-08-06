@@ -76,7 +76,10 @@ const CASES: &[Case] = &[
         why: "An unclassified child, a closed ticket with an open blocker, two \
               spec children, a spec child that would otherwise be takeable, a \
               ticket that is both blocked and claimed, and two takeable \
-              tickets so that the frontier is visibly the first and not the only.",
+              tickets so that the frontier is visibly the first and not the \
+              only. Its dependencies also close a cycle, so the view that ranks \
+              it has to say on screen that no order among those three is the \
+              true one.",
     },
     Case {
         slug: "two-maps-one-open",

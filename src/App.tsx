@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { CacheStamp } from "./chrome/CacheStamp";
 import { DropRegion } from "./chrome/DropRegion";
-import { NoMapChip } from "./chrome/NoMapChip";
+import { MapChip } from "./chrome/MapChip";
 import {
   EnvironmentReadout,
   EnvironmentSummary,
@@ -36,6 +36,11 @@ import { describeModel } from "./snapshot/readout";
 import { loadSnapshot, noMapOpen, type Snapshot } from "./snapshot/snapshot";
 import { ThemeSwitch } from "./theme/ThemeSwitch";
 import { useTheme } from "./theme/useTheme";
+/* `Route.jsx` rather than `Route`: it sits beside `route.ts`, and on a
+   case-insensitive filesystem the extensionless specifier resolves to the
+   arithmetic module instead of the component. */
+import { Route } from "./views/route/Route.jsx";
+import { useDefaultView } from "./views/useDefaultView";
 import styles from "./App.module.css";
 
 /**
@@ -46,9 +51,11 @@ import styles from "./App.module.css";
  */
 export function App() {
   const [preference, chooseTheme] = useTheme();
+  const [view] = useDefaultView();
   const [snapshot, setSnapshot] = useState<Snapshot>(noMapOpen);
   const [outcome, setOutcome] = useState<LauncherOutcome>(nothingListedYet);
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [selectedNode, setSelectedNode] = useState<number | null>(null);
   const [note, setNote] = useState<LauncherNote | null>(null);
   const [environment, setEnvironment] = useState(stillHarvesting);
   const [environmentShown, setEnvironmentShown] = useState(false);
@@ -248,11 +255,27 @@ export function App() {
     <div className={styles.app}>
       <header className={styles.chrome}>
         <span className={styles.brand}>perseverance</span>
-        <NoMapChip />
+        {/* The same `model` the footer readout spells and the Route is drawn
+            from. One value, three renderings, and no way for them to disagree. */}
+        <MapChip model={snapshot.model} />
         <ThemeSwitch preference={preference} onChoose={chooseTheme} />
       </header>
 
       <div className={styles.body}>
+        {/*
+          Both at once, and neither is a mode. A map being open is not a reason
+          to take the launcher off the screen: the snapshot is read once at
+          mount and nothing re-reads it, so a shell that swapped the launcher
+          out for the view would put open, locate, forget and *open a new
+          folder* somewhere unreachable for the life of the process — and the
+          view has no way back to them.
+
+          How much window each of the two is worth is emphatically not settled
+          here. The dial with its four detents, the view switcher and the chrome
+          that survives every detent are #52's, and deciding any of that in this
+          file would be making a later ticket's call early. What this file
+          settles is only that neither surface can disappear while #52 is open.
+        */}
         <DropRegion onFoldersDropped={onFoldersDropped}>
           <FolderList
             outcome={outcome}
@@ -271,6 +294,16 @@ export function App() {
           */}
           {selectedId === null ? null : <MapList view={maps} />}
         </DropRegion>
+
+        {snapshot.model.map === null || view !== "route" ? null : (
+          <div className={styles.view}>
+            <Route
+              model={snapshot.model}
+              selected={selectedNode}
+              onSelect={setSelectedNode}
+            />
+          </div>
+        )}
       </div>
 
       <EnvironmentReadout readout={environment} shown={environmentShown} />
@@ -278,10 +311,10 @@ export function App() {
       <footer className={styles.readout}>
         <span>schema v{snapshot.schemaVersion}</span>
         {/*
-          The derived model, as one line. A diagnostic rather than the route —
-          drawing the graph is a later ticket — but `dev:web` boots from a
-          checked-in snapshot with no Rust behind it, and a fixture that boots
-          and shows nothing derived would prove nothing.
+          The derived model, as one line. A diagnostic beside the view rather
+          than a substitute for it: these are the numbers the view is built
+          from, spelled, so a view that listed the wrong thing has something on
+          screen to disagree with.
         */}
         <span>{describeModel(snapshot.model)}</span>
         {/*

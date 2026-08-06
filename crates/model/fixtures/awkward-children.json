@@ -1,7 +1,8 @@
 {
-  "_why": "Every child a map should not have, on one map. An unclassified child that satisfies every state predicate, a closed ticket whose blocker is still open, two spec children, a spec child that would otherwise be takeable, a ticket that is both blocked and claimed, and two takeable tickets so that *first* is distinguishable from *only*. The order is the operator's drag order and is deliberately not the number order.",
+  "_why": "Every child a map should not have, on one map. An unclassified child that satisfies every state predicate, a closed ticket whose blocker is still open, two spec children, a spec child that would otherwise be takeable, a ticket that is both blocked and claimed, and two takeable tickets so that *first* is distinguishable from *only*. The order is the operator's drag order and is deliberately not the number order. The dependencies close a cycle — #71 waits on #72, which waits on #75, which waits on #71 — because a map an operator has tangled is a map that has to draw, and a view that ranked it confidently would be answering *what next* from a longest path that does not exist.",
   "data": {
     "repository": {
+      "nameWithOwner": "o/r",
       "maps": {
         "pageInfo": { "hasNextPage": false },
         "nodes": [

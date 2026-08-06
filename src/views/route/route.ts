@@ -1,0 +1,319 @@
+/**
+ * The Route's arithmetic: which section each ticket belongs in, what mark it
+ * carries, and how much of what it waits on is still in the way.
+ *
+ * A pure module, and deliberately so. Nothing here imports React, touches the
+ * DOM, reads a clock or a store, or asks anything a second time — `routeOf`
+ * called twice on the same model answers with the same sections, which is what
+ * lets the pane be a function of the derived model and of nothing a caller
+ * could vary.
+ *
+ * **There is no rank in this file, no coordinate and no edge geometry — not
+ * here and not anywhere else in the view.** The Route is a grouped list in one
+ * column: position in the column is the encoding, membership of a section is
+ * the whole of what the structure says, and everything a row adds to that it
+ * adds in words. Nothing is drawn between two rows, so there is nothing to
+ * place, nothing to route and nothing to route around. ADR 0006.
+ *
+ * The failure it exists to prevent is a section or a count the map cannot
+ * justify. Three parts to that. **Every section comes from the model's own
+ * words** — a node's state, or the one number `map.frontier` names — so a row's
+ * group is always *the model said so* and never a heuristic. **Every count is
+ * the rows it heads**, built with them rather than beside them, because a
+ * heading that disagrees with what is under it is a lie an operator can see and
+ * the only sure way to prevent it is to leave nothing to disagree. **Order
+ * inside a section is `map.nodes` order and nothing else**, walked once in
+ * array order into buckets: there is no comparator in this file and no sort
+ * call, because the operator dragged these into this order in GitHub's own UI
+ * and re-arranging their rows is answering a question nobody asked with an
+ * authority nobody granted.
+ */
+
+import type { Map, Node, NodeState } from "../../snapshot/model.generated";
+
+/*
+ * `Map` above is the derived model's map, which shadows the built-in one for
+ * the whole of this file. The alias is how the lookup tables here are built —
+ * the model's vocabulary is the one worth keeping, and the collection is the
+ * incidental thing that gets renamed.
+ */
+const Lookup = globalThis.Map;
+
+/* ------------------------------------------------------------ blockers --- */
+
+/**
+ * What a node waits on, split by whether this map is in a position to judge it.
+ */
+export type BlockerTally = {
+  /** Named blockers with a row on this map that this map does not show as resolved. */
+  readonly unresolved: number;
+  /** Named blockers with no row here, which this map cannot judge either way. */
+  readonly beyondTheMap: number;
+};
+
+const NOTHING_IN_THE_WAY: BlockerTally = { unresolved: 0, beyondTheMap: 0 };
+
+/**
+ * Every node's blockers, counted once against the states this map is showing.
+ *
+ * **This is why `waitsOn` crosses the seam at all.** The derived model carries
+ * no per-node blocker count — [`Counts`] is tickets, open and specs, and
+ * [`Node`] deliberately withholds the count GitHub decided the state from — so
+ * these numbers are the only source for `blocked by N`, which is the whole of
+ * what a blocked row says about what holds it up. They are also the only source
+ * for the second fact, which is rarer and worse to lose: that a blocker names
+ * an issue with no row here, so this map cannot say whether it is done.
+ *
+ * The two are counted apart rather than summed. A blocker this map can see and
+ * a blocker it cannot are different claims, and adding them would print a
+ * number the rows on screen cannot account for — the failure this whole file is
+ * arranged around. A blocker this map shows as resolved is counted into
+ * neither: it is out of the way, which is a fact rather than an absence.
+ *
+ * **A node this map shows as resolved waits on nothing**, whatever it still
+ * names, and that is the same rule read from the other end. GitHub closes an
+ * issue without clearing what it was blocked by, so a finished ticket arrives
+ * carrying open blockers — the awkward fixture's *finished before the thing it
+ * waited on* is exactly that — and tallying them would put `blocked by 1` on a
+ * row under the heading *Resolved*. Nothing holds up work that is already done,
+ * so the emptying happens here, where the arithmetic is, rather than in the
+ * view: a row that reads its own tally can then say all of it.
+ */
+export function blockersOf(nodes: readonly Node[]): ReadonlyMap<number, BlockerTally> {
+  const resolved = new Lookup<number, boolean>();
+  for (const node of nodes) resolved.set(node.number, node.state === "resolved");
+
+  const tallies = new Lookup<number, BlockerTally>();
+  for (const node of nodes) {
+    if (node.state === "resolved") {
+      tallies.set(node.number, NOTHING_IN_THE_WAY);
+      continue;
+    }
+
+    let unresolved = 0;
+    let beyondTheMap = 0;
+    for (const before of node.waitsOn) {
+      const settled = resolved.get(before);
+      if (settled === undefined) beyondTheMap += 1;
+      else if (!settled) unresolved += 1;
+    }
+    tallies.set(node.number, { unresolved, beyondTheMap });
+  }
+  return tallies;
+}
+
+/* --------------------------------------------------------------- marks --- */
+
+/**
+ * The five marks a row can carry, which are the model's four states plus the
+ * one designation.
+ *
+ * Two of C5's seven glyphs are not here and neither is #34's. `g-oos` decorates
+ * a resolved row rather than being a sixth state — #36. `g-done` is *resolved
+ * by this session*, which needs a run lifecycle and a session identity the
+ * derived model does not carry at all, so building it would mean inventing
+ * state rather than reading it.
+ */
+export type Mark = "claimed" | "designated" | "takeable" | "blocked" | "resolved";
+
+/**
+ * Whether a ticket is worked with someone at the keyboard or without.
+ *
+ * The wayfinder's vocabulary and not the model's: nothing crossing the seam
+ * says this, so it is derived here from the ticket type — research runs AFK,
+ * every other kind of ticket is human-in-the-loop. That makes this the first
+ * thing to move the day the model carries attendance itself, and until then a
+ * rule with exactly one home.
+ */
+export type Attendance = "AFK" | "HITL";
+
+/**
+ * One row's precedence, top down: claimed beats designated, designated beats
+ * the node's state.
+ *
+ * Claimed first because *somebody is on this* is the stronger of the two claims
+ * — a designated node with a session against it is being worked, and marking it
+ * as the next thing to pick up would send two operators at one ticket. It keeps
+ * `designated` on the row underneath, which is how the heading swaps to *Now*
+ * without losing what the frontier said.
+ */
+function markOf(state: NodeState, designated: boolean): Mark {
+  if (state === "claimed") return "claimed";
+  if (designated) return "designated";
+  return state;
+}
+
+function attendanceOf(node: Node): Attendance | null {
+  if (node.kind.kind !== "ticket") return null;
+  return node.kind.type === "research" ? "AFK" : "HITL";
+}
+
+/* ------------------------------------------------------------ sections --- */
+
+/**
+ * The sections the pane can draw, in document order.
+ *
+ * Four, and two more belong to tickets that are not this one: out of scope is
+ * #36, which owns the decoration and the argument that it is not progress, and
+ * fog is #35. Neither is stubbed here. A stubbed section would have to carry a
+ * count, and a count nobody derived is the zero that `—` exists to keep apart
+ * from a real one.
+ */
+export type SectionName = "now" | "frontier" | "blocked" | "resolved";
+
+export type RouteRow = {
+  readonly node: Node;
+  /** `map.frontier` said so. Never re-resolved on this side. */
+  readonly designated: boolean;
+  readonly mark: Mark;
+  readonly blockers: BlockerTally;
+  /** null for a spec or an unclassified child: the wayfinder's rule has nothing to say. #37. */
+  readonly attendance: Attendance | null;
+};
+
+export type RouteSection = {
+  readonly name: SectionName;
+  readonly heading: string;
+  readonly rows: readonly RouteRow[];
+  /** Always `rows.length`. A count that is not the rows it heads is a lie. */
+  readonly count: number;
+};
+
+export type Route = { readonly sections: readonly RouteSection[] };
+
+function sectionOf(
+  name: SectionName,
+  heading: string,
+  rows: readonly RouteRow[],
+): RouteSection {
+  return { name, heading, rows, count: rows.length };
+}
+
+/**
+ * The whole pane, derived from the model and from nothing else, every call.
+ *
+ * One walk of `map.nodes`, in array order, appending each node to the bucket
+ * its state names. That single pass is the entirety of intra-section ordering:
+ * no comparator, no second pass, nothing that could reorder rows the operator
+ * arranged.
+ *
+ * The top section is one section with two headings. It holds every claimed node
+ * and reads *Now*; with nothing claimed it holds the single node `map.frontier`
+ * names and reads *Next*; with neither it is absent, because *nothing on this
+ * map can be started* is a state with its own reading and an empty group under
+ * a heading would draw it as a shrug. The designated row is looked for among
+ * the takeable ones and not everywhere: `map.frontier` is by construction the
+ * first node in map order that is takeable, and looking for it where it can be
+ * is what stops a number naming something else from putting one node in two
+ * sections at once.
+ *
+ * A section with no rows is left out of the answer entirely rather than handed
+ * back empty — the rule `MapList` already established for the same reason. The
+ * group is a claim that there is something in it.
+ */
+export function routeOf(map: Map): Route {
+  const blockers = blockersOf(map.nodes);
+
+  const claimed: RouteRow[] = [];
+  const takeable: RouteRow[] = [];
+  const blocked: RouteRow[] = [];
+  const resolved: RouteRow[] = [];
+
+  for (const node of map.nodes) {
+    const designated = node.number === map.frontier;
+    const row: RouteRow = {
+      node,
+      designated,
+      mark: markOf(node.state, designated),
+      blockers: blockers.get(node.number) ?? NOTHING_IN_THE_WAY,
+      attendance: attendanceOf(node),
+    };
+
+    switch (node.state) {
+      case "claimed":
+        claimed.push(row);
+        break;
+      case "takeable":
+        takeable.push(row);
+        break;
+      case "blocked":
+        blocked.push(row);
+        break;
+      case "resolved":
+        resolved.push(row);
+        break;
+    }
+  }
+
+  const working = claimed.length > 0;
+  const next = working ? undefined : takeable.find((row) => row.designated);
+
+  const now = working ? claimed : next === undefined ? [] : [next];
+  const frontier =
+    next === undefined ? takeable : takeable.filter((row) => row !== next);
+
+  return {
+    sections: [
+      sectionOf("now", working ? NOW_HEADING : SECTION_HEADINGS.now, now),
+      sectionOf("frontier", SECTION_HEADINGS.frontier, frontier),
+      sectionOf("blocked", SECTION_HEADINGS.blocked, blocked),
+      sectionOf("resolved", SECTION_HEADINGS.resolved, resolved),
+    ].filter((section) => section.count > 0),
+  };
+}
+
+/* ---------------------------------------------------------------- copy --- */
+
+/** What holds a row up, as a number and never as a spray of edges. */
+export function blockedByLabel(count: number): string {
+  return `blocked by ${count}`;
+}
+
+/**
+ * Said on the row that waits, when one of the numbers it waits on has no row
+ * here. The blocker is real and this map cannot judge it either way, so it is
+ * said in words rather than counted into `blocked by N` — which would be this
+ * map asserting something it has nothing on screen to back.
+ */
+export function beyondTheMapNote(count: number): string {
+  return count === 1
+    ? "1 blocker, not a child of this map, has no row here"
+    : `${count} blockers, each not a child of this map, have no row here`;
+}
+
+/** The word on the cold tag, and the only place the designation is named. */
+export const DESIGNATED_TAG = "designated";
+
+export const NOW_HEADING = "Now";
+export const NEXT_HEADING = "Next";
+
+/**
+ * The headings at rest, in sentence case. The stylesheet uppercases them, so a
+ * hard-coded capital here would be a divergence from the design nobody sees
+ * until they read the DOM.
+ *
+ * `now` reads *Next* because that is what the section says when nothing is
+ * being worked; `NOW_HEADING` replaces it when something is.
+ */
+export const SECTION_HEADINGS: Record<SectionName, string> = {
+  now: NEXT_HEADING,
+  frontier: "Frontier",
+  blocked: "Blocked",
+  resolved: "Resolved",
+};
+
+/**
+ * The on-screen word for each of the four states.
+ *
+ * The model's own words, deliberately unchanged, in the shape `PHASE_NAMES`
+ * already established: the screen and the type say the same thing, so an
+ * operator reading *blocked* and a developer reading `NodeState::Blocked` are
+ * reading one vocabulary. The palette is neutrals and one indigo, so the word
+ * is doing most of the work and cannot be a synonym.
+ */
+export const STATE_NAMES: Record<NodeState, string> = {
+  resolved: "resolved",
+  blocked: "blocked",
+  claimed: "claimed",
+  takeable: "takeable",
+};

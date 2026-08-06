@@ -14,6 +14,12 @@
 # and a paging loop for a page that cannot exist is code nobody has ever run.
 query MapRead($owner: String!, $repo: String!, $number: Int!, $open: Boolean!) {
   repository(owner: $owner, name: $repo) {
+    # Which repository this answer is about. A blocker carries its own, and an
+    # issue number means nothing outside the repository that issued it — so
+    # without this pair, `o/r#75` and `other/repo#75` are one edge between the
+    # same two boxes on the graph.
+    nameWithOwner
+
     maps: issues(
       first: 100
       labels: ["wayfinder:map"]
