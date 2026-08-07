@@ -8,8 +8,13 @@ import {
   type FixtureName,
 } from "../src/snapshot/fixtures";
 import { CONDITIONS, REMEDY, describeStamp, stampDetail, stampReason } from "../src/chrome/stamp";
-import { NO_FRONTIER, NO_MAP_OPEN, PHASE_NAMES, describeModel } from "../src/snapshot/readout";
-import { noMapOpen } from "../src/snapshot/snapshot";
+import {
+  NO_FRONTIER,
+  NO_MAP_OPEN,
+  PHASE_NAMES,
+  describeModel,
+} from "../src/snapshot/readout";
+import { noMapOpen, watchSnapshot, type ClauseKind } from "../src/snapshot/snapshot";
 import { collect } from "./support/sources";
 
 /** Two hours after the fixtures were stamped, so the age has something to say. */
@@ -226,6 +231,33 @@ describe("staleness is spelled once, for everything that was read", () => {
     expect(stampDetail(read)).toBeNull();
   });
 
+  it("never lets a failed poll claim the read it did not get", () => {
+    // *Not stored for next time* is the map list's sentence and only the map
+    // list's: a read that **landed** and whose cache row would not write. A
+    // poll that never landed leaves the copy the last read left behind, so
+    // `Snapshot::aged` stops calling the source `github` — which is what keeps
+    // a revoked token from rendering here as a cache-write problem.
+    //
+    // The fixtures are the crate's own output, and the aged ones are generated
+    // through that very path, so this is the far end of the same assertion
+    // rather than a second opinion about it.
+    const claiming = FIXTURE_NAMES.filter((name) => {
+      const { outcome, source } = FIXTURES[name].provenance;
+      return outcome.kind === "failed" && source === "github";
+    });
+    expect(claiming).toEqual([]);
+
+    const failed = FIXTURE_NAMES.filter(
+      (name) => FIXTURES[name].provenance.outcome.kind === "failed",
+    );
+    expect(failed.length).toBeGreaterThan(0);
+    for (const name of failed) {
+      const said = describeStamp(FIXTURES[name].provenance, AGED_AT);
+      expect(said).toContain("nothing newer has arrived");
+      expect(said).not.toContain("not stored for next time");
+    }
+  });
+
   it("never drops the age when the reason arrives", () => {
     // The moment staleness starts mattering is the moment a stamp that swapped
     // the age for an error would have stopped reporting it.
@@ -308,6 +340,120 @@ describe("a read that did not land says which condition it is, and never guesses
       // to look.
       expect([name, FIXTURES[name].model]).toEqual([name, held.model]);
     }
+  });
+});
+
+describe("the ledger rides beside the model rather than inside it", () => {
+  /**
+   * The precedence, as the Rust enum declares it. This list is a **mirror of a
+   * declaration order**, not a second copy of the rule: `ClauseKind`'s
+   * declaration order *is* the precedence, `Ord` is derived from it, and Rust
+   * sorts by it. What this checks is that the order survived the crossing — a
+   * fixture whose clauses arrived shuffled would be a record the divider's
+   * spine renders in whatever order serde happened to write.
+   */
+  const PRECEDENCE: ClauseKind[] = [
+    "created",
+    "removed",
+    "resolved",
+    "cutFromScope",
+    "reopened",
+    "unclassified",
+    "specAppeared",
+    "unblocked",
+    "blocked",
+    "claimed",
+    "released",
+    "frontierMoved",
+    "fogChanged",
+    "phaseChanged",
+    "mapClosed",
+    "unnamed",
+  ];
+
+  const away = FIXTURES["while-you-were-away"];
+
+  const theRow = () => {
+    const entry = away.ledger.entries[0];
+    if (entry === undefined) throw new Error("the resumed fixture has no entry");
+    return entry;
+  };
+
+  it("draws one row for the whole gap, however long it was", () => {
+    // One entry and not one per poll that would have happened: the ledger has
+    // no way to know how many there would have been, and inventing them would
+    // be inventing history.
+    expect(away.ledger.since).toBe("watching");
+    expect(away.ledger.entries).toHaveLength(1);
+    expect(theRow().occasion).toBe("whileYouWereAway");
+    expect(theRow().seq).toBe(1);
+  });
+
+  it("orders the clauses inside the entry by the precedence Rust declares", () => {
+    const clauses = theRow().clauses;
+    expect(clauses.length).toBeGreaterThan(1);
+
+    const positions = clauses.map((clause) => PRECEDENCE.indexOf(clause.kind));
+    expect(positions).not.toContain(-1);
+    expect([...positions].sort((a, b) => a - b)).toEqual(positions);
+
+    // And every clause carries its own count beside its numbers, so *two
+    // resolved* is a fact the record states rather than a length the renderer
+    // happens to take. A map-level clause names no node and counts as one.
+    for (const clause of clauses) {
+      expect(clause.count).toBe(clause.numbers.length === 0 ? 1 : clause.numbers.length);
+    }
+  });
+
+  it("stamps announce in Rust, leaving this side a read marker and nothing else", () => {
+    const clauses = theRow().clauses;
+
+    // The numeral is a sum over what Rust decided, and the whole of this side's
+    // share is the highest `seq` it has read. Nothing here re-derives which
+    // changes are interesting.
+    expect(clauses.some((clause) => clause.announce)).toBe(true);
+    // The catch-all is carried so nothing is lost, not so everything is
+    // shouted about.
+    expect(clauses.find((clause) => clause.kind === "unnamed")?.announce).toBe(false);
+  });
+
+  it("says first open rather than zero for every map nothing has been compared for", () => {
+    for (const name of FIXTURE_NAMES) {
+      if (name === "while-you-were-away") continue;
+      // A map nobody has read is not a map that has not moved, and the two are
+      // two different values rather than one number.
+      expect([name, FIXTURES[name].ledger.since]).toEqual([name, "firstOpen"]);
+      expect([name, FIXTURES[name].ledger.entries]).toEqual([name, []]);
+    }
+
+    expect(noMapOpen().ledger.since).toBe("firstOpen");
+  });
+
+  it("keeps the ledger out of the type every view is handed", () => {
+    // `Model` is the whole of what a view receives, and the ledger is not on
+    // it. This is the structural half of *no view renders the ledger*: it is
+    // not reachable from the prop type, so it cannot be rendered by accident.
+    expect(Object.keys(away.model)).toEqual(["map"]);
+    expect(JSON.stringify(away.model)).not.toContain("clauses");
+  });
+});
+
+describe("the frontend's whole share of the announcement is a read marker", () => {
+  /**
+   * The arithmetic over that marker, and the words it is spent on, live in
+   * `src/chrome/ledger.ts` and are held to in `tests/ledger.test.ts` — one file
+   * owns the ledger's vocabulary, and one test file reads it. What belongs here
+   * is the seam itself: whether the delivery channel behaves like the map
+   * list's, which is the half a browser can actually be wrong about.
+   */
+  it("subscribes to nothing in a browser and still hands back a way to stop", async () => {
+    // The same shape `watchMaps` has, for the same reason: a caller that had to
+    // know whether there was anything to unsubscribe from is a caller with a
+    // leak on one of the two paths.
+    const stop = await watchSnapshot(() => {});
+
+    expect(typeof stop).toBe("function");
+    expect(() => stop()).not.toThrow();
   });
 });
 

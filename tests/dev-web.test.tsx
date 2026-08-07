@@ -227,10 +227,12 @@ describe("dev:web", () => {
     const text = await boot("/?map=awkward-map");
 
     /*
-     * The snapshot is read once at mount and nothing re-reads it, so a shell
-     * that put the view where the launcher had been would take open, locate,
-     * forget and *open a new folder* off the screen for the rest of the
-     * process — and there is nothing on the Route that reaches them. Both
+     * The snapshot is subscribed to as well as read once at mount, so what is
+     * open can now change under a window that stays where it is — which is
+     * exactly when a shell that put the view where the launcher had been would
+     * bite. It would take open, locate, forget, *open a new folder* and every
+     * other map in the repository off the screen for the rest of the process,
+     * and there is nothing on the Route that reaches any of them. Both
      * surfaces, and neither of them a mode. What each is worth once the dial
      * exists is #52's; that neither can vanish is this.
      */
@@ -389,6 +391,295 @@ describe("dev:web", () => {
     if (outcome.kind !== "failed") throw new Error("the unreachable fixture landed");
 
     expect(stamp?.getAttribute("title")).toBe(outcome.detail);
+  });
+});
+
+describe("opening a map is a declaration this window makes, and the row is where it is made", () => {
+  /**
+   * The launcher's top row, opened — which is what puts a map list on screen at
+   * all. `dev:web` has no registry and no poller behind either step: the folder
+   * comes from the preview rows, the map list from the cached fixture, and
+   * `watching` is inert. What is being asserted is the wiring, which is the
+   * half that has to be right before a poller could ever be told anything.
+   */
+  async function openTheTopFolder(): Promise<Element> {
+    const folder = document.querySelector('[aria-label="Folders"] li button');
+    if (!(folder instanceof HTMLButtonElement)) {
+      throw new Error("the launcher has no folder to open");
+    }
+
+    await act(async () => {
+      folder.click();
+    });
+    // Remembering the folder, then the cached read, then the binding — three
+    // promises deep, and the list is not on screen until the first resolves.
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const section = document.querySelector('[aria-label="Maps"]');
+    if (section === null) throw new Error("opening a folder drew no map list");
+    return section;
+  }
+
+  function theRowFor(number: number): Element {
+    const row = [...(document.querySelector('[aria-label="Maps"]')?.querySelectorAll("li") ?? [])]
+      .find((candidate) => candidate.textContent?.includes(`#${number}`));
+    if (row === undefined) throw new Error(`no map row for #${number}`);
+    return row;
+  }
+
+  it("makes every row a button, because the read behind it now exists", async () => {
+    await boot("/?map=awkward-map");
+    const list = await openTheTopFolder();
+
+    const rows = [...list.querySelectorAll("li")];
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) {
+      const button = row.querySelector("button");
+      // `type="button"` and not a bare one: a row inside a form that submitted
+      // on click would be a navigation nobody asked for.
+      expect([row.textContent, button?.getAttribute("type")]).toEqual([
+        row.textContent,
+        "button",
+      ]);
+    }
+  });
+
+  it("marks the row you opened and leaves both surfaces exactly where they were", async () => {
+    await boot("/?map=awkward-map");
+    const list = await openTheTopFolder();
+    const opened = loadFixture(1, "?map=awkward-map").maps[0]?.number;
+    if (opened === undefined) throw new Error("the map fixture lists nothing");
+
+    // Nothing is open until a row is clicked: a folder is opened with no map
+    // open, and a map nobody picked is not a map this window is watching.
+    expect(list.querySelectorAll('li[data-open="true"]')).toHaveLength(0);
+
+    const row = theRowFor(opened).querySelector("button");
+    if (!(row instanceof HTMLButtonElement)) throw new Error("a row is not a button");
+    await act(async () => {
+      row.click();
+    });
+
+    const marked = [...document.querySelectorAll('[aria-label="Maps"] li[data-open="true"]')];
+    expect(marked).toHaveLength(1);
+    expect(marked[0]?.textContent).toContain(`#${opened}`);
+    expect(marked[0]?.querySelector("button")?.getAttribute("aria-current")).toBe("true");
+
+    // Both surfaces, and neither of them a mode: the list is the only way to
+    // reach a different map, and the launcher the only way to a different
+    // folder, so opening one may not take either away.
+    expect(document.querySelector('[aria-label="Folders"]')).not.toBeNull();
+    expect(document.querySelector('[aria-label="Maps"]')).not.toBeNull();
+    expect(document.body.textContent).toContain("Open a new folder");
+  });
+});
+
+describe("the ledger announces by changing a numeral, and this side only marks what it read", () => {
+  /** The record's fixed slot in the chrome. */
+  function theLedger(): Element {
+    const ledger = document.querySelector("header [data-ledger]");
+    if (ledger === null) throw new Error("the chrome has no ledger");
+    return ledger;
+  }
+
+  /** The numeral, or the word standing in place of one. */
+  function theNumeral(): string {
+    return theLedger().querySelector("[data-first]")?.textContent ?? "";
+  }
+
+  /** Open the record. Reading it is what marks it read. */
+  async function reveal(): Promise<Element> {
+    const face = theLedger().querySelector("button");
+    if (!(face instanceof HTMLButtonElement)) throw new Error("the ledger has no control");
+    await act(async () => {
+      face.click();
+    });
+    return theLedger();
+  }
+
+  const announceableIn = (name: FixtureName) =>
+    FIXTURES[name].ledger.entries
+      .flatMap((entry) => entry.clauses)
+      .filter((clause) => clause.announce).length;
+
+  it("counts the clauses Rust stamped announceable and re-decides none of them", async () => {
+    await boot("/?map=while-you-were-away");
+
+    const clauses = FIXTURES["while-you-were-away"].ledger.entries.flatMap(
+      (entry) => entry.clauses,
+    );
+    const announceable = announceableIn("while-you-were-away");
+
+    // Taken from the fixture rather than written down here: `announce` is
+    // decided once, in Rust, over the finished entry, and a number typed into
+    // this file would be a second account of that decision.
+    expect(announceable).toBeGreaterThan(0);
+    expect(announceable).toBeLessThan(clauses.length);
+    expect(theNumeral()).toBe(String(announceable));
+  });
+
+  it("reads first open rather than a zero for a map nothing has been compared for", async () => {
+    await boot("/?map=awkward-map");
+
+    // A map nobody has looked at twice has not failed to move. The two are
+    // different facts, so they are different words rather than one number.
+    expect(theNumeral()).toBe("first open");
+    expect(theNumeral()).not.toBe("0");
+    expect(theLedger().getAttribute("data-ledger")).toBe("firstOpen");
+  });
+
+  it("keeps the numeral on the chrome on every fixture there is", async () => {
+    // A numeral able to vanish is a numeral nobody can trust: an operator
+    // glancing at an empty slot cannot tell *nothing has moved* apart from
+    // *this window stopped saying*. Unconditional, over every fixture, since
+    // the next one added is where a condition would come back unnoticed.
+    for (const name of FIXTURE_NAMES) {
+      await boot(`/?map=${name}`);
+      expect([name, document.querySelectorAll("header [data-ledger]").length]).toEqual([
+        name,
+        1,
+      ]);
+      expect([name, theNumeral().length > 0]).toEqual([name, true]);
+    }
+  });
+
+  it("draws one row for the gap and names it, with its clauses in Rust's own order", async () => {
+    await boot("/?map=while-you-were-away");
+    const record = await reveal();
+
+    const rows = [...record.querySelectorAll("li[data-seq]")];
+    expect(rows).toHaveLength(FIXTURES["while-you-were-away"].ledger.entries.length);
+    expect(rows[0]?.getAttribute("data-occasion")).toBe("whileYouWereAway");
+    expect(rows[0]?.textContent).toContain("while you were away");
+
+    // The clauses arrive sorted by the fixed precedence and are rendered in
+    // arrival order, so what is on screen is the order Rust settled.
+    const kinds = [...record.querySelectorAll("[data-kind]")].map((el) =>
+      el.getAttribute("data-kind"),
+    );
+    expect(kinds).toEqual(
+      FIXTURES["while-you-were-away"].ledger.entries[0]?.clauses.map(
+        (clause) => clause.kind,
+      ),
+    );
+    // The catch-all is in the record and out of the numeral, which is what *the
+    // record is complete; the announcement is selective* looks like on screen.
+    expect(kinds).toContain("unnamed");
+  });
+
+  it("marks the record read when it is read, and the numeral is the only thing that moves", async () => {
+    await boot("/?map=while-you-were-away");
+    expect(theNumeral()).toBe(String(announceableIn("while-you-were-away")));
+
+    await reveal();
+
+    // Everything up to the newest `seq` has now been read. The count is
+    // arithmetic over what Rust stamped and a marker this side holds; nothing
+    // here re-decided what was worth announcing.
+    expect(theNumeral()).toBe("0");
+  });
+
+  it("selects the node a reference names and moves nothing else on the window", async () => {
+    await boot("/?map=while-you-were-away");
+    const record = await reveal();
+
+    const before = {
+      folders: document.querySelector('[aria-label="Folders"]')?.textContent,
+      route: [...theRoute().querySelectorAll("[data-node]")].map((el) =>
+        el.getAttribute("data-node"),
+      ),
+      readout: theReadout(),
+    };
+
+    const reference = record.querySelector("li[data-kind] button[data-node]");
+    if (!(reference instanceof HTMLButtonElement)) {
+      throw new Error("the record carries no reference");
+    }
+    const number = Number(reference.getAttribute("data-node"));
+
+    await act(async () => {
+      reference.click();
+    });
+
+    // The node is picked, and picking it is the whole of what happened.
+    expect(theRow(number).getAttribute("aria-current")).toBe("true");
+    expect(theRoute().querySelectorAll('[data-node][aria-current="true"]')).toHaveLength(1);
+    expect(document.querySelector('[aria-label="Folders"]')?.textContent).toBe(
+      before.folders,
+    );
+    expect(
+      [...theRoute().querySelectorAll("[data-node]")].map((el) =>
+        el.getAttribute("data-node"),
+      ),
+    ).toEqual(before.route);
+    expect(theReadout()).toBe(before.readout);
+
+    // And it sets rather than toggles: a record of things already true has no
+    // state to put back, so a second look leaves the node picked.
+    await act(async () => {
+      reference.click();
+    });
+    expect(theRow(number).getAttribute("aria-current")).toBe("true");
+  });
+
+  it("changes a numeral and never takes focus or puts a live region on the chrome", async () => {
+    // The whole of the announcement is a number changing on chrome that was
+    // already there. Nothing interrupts a screen reader and nothing steals the
+    // caret — on every fixture, since the record is unconditional.
+    for (const name of FIXTURE_NAMES) {
+      await boot(`/?map=${name}`);
+
+      for (const shouting of [
+        "[aria-live]",
+        '[role="alert"]',
+        '[role="status"]',
+        '[role="dialog"]',
+        '[role="alertdialog"]',
+        "dialog",
+      ]) {
+        expect([name, shouting, document.querySelectorAll(shouting).length]).toEqual([
+          name,
+          shouting,
+          0,
+        ]);
+      }
+      expect([name, document.activeElement]).toEqual([name, document.body]);
+    }
+  });
+
+  it("holds the numeral still while only the clock moves", async () => {
+    /*
+     * The stamp beside it ages on a ticker, and the ledger does not: a record
+     * grows when a poll lands with something to write down, and `dev:web` has
+     * no poller at all. So time passing must move the stamp and leave the
+     * numeral exactly where it is — a numeral drifting on a timer would be this
+     * side counting something of its own.
+     */
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-05T08:00:05Z"));
+
+    try {
+      await boot("/?map=while-you-were-away");
+      const announceable = String(announceableIn("while-you-were-away"));
+      expect(theNumeral()).toBe(announceable);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(4 * 60_000);
+      });
+
+      expect(theReadout()).toContain("4 minutes ago");
+      expect(theNumeral()).toBe(announceable);
+
+      // The one thing that does move it is somebody reading the record.
+      await reveal();
+      expect(theNumeral()).toBe("0");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -553,7 +844,10 @@ describe("the map list is disabled in place when the poller has stopped reading"
    * `?map=` name the window would carry, so what is rendered is the condition
    * Rust generated rather than one written down here.
    */
-  function renderMaps(fixture: FixtureName): Element {
+  function renderMaps(
+    fixture: FixtureName,
+    onOpen: (number: number) => void = () => {},
+  ): Element {
     teardown();
 
     const host = document.createElement("div");
@@ -562,7 +856,9 @@ describe("the map list is disabled in place when the poller has stopped reading"
     mounted = { root, host };
 
     act(() => {
-      root.render(<MapList view={loadFixture(1, `?map=${fixture}`)} />);
+      root.render(
+        <MapList view={loadFixture(1, `?map=${fixture}`)} selected={null} onOpen={onOpen} />,
+      );
     });
 
     const section = host.querySelector('[aria-label="Maps"]');
@@ -613,6 +909,33 @@ describe("the map list is disabled in place when the poller has stopped reading"
     // decision, and a remedy invented for it would be this app telling somebody
     // to do something nobody established would work.
     expect(gone.textContent).not.toContain("gh auth login");
+  });
+
+  it("leaves a row it cannot open as a button that does nothing, never as a row that went", () => {
+    /*
+     * The affordance goes, the row does not. A poller that has stopped reading
+     * cannot fetch a graph either, so a row that still opened would declare a
+     * map nothing is ever going to answer for — and a list that dropped the row
+     * instead would assert the map is gone on the strength of not having been
+     * able to look.
+     */
+    const opened: number[] = [];
+    const stopped = renderMaps("auth-failed", (number) => opened.push(number));
+    const button = stopped.querySelector("li button");
+    if (!(button instanceof HTMLButtonElement)) throw new Error("a row is not a button");
+
+    expect(button.disabled).toBe(true);
+    act(() => button.click());
+    expect(opened).toEqual([]);
+
+    // And the healthy list opens the map the row names, by its number.
+    const listed = renderMaps("awkward-map", (number) => opened.push(number));
+    const live = listed.querySelector("li button");
+    if (!(live instanceof HTMLButtonElement)) throw new Error("a row is not a button");
+
+    expect(live.disabled).toBe(false);
+    act(() => live.click());
+    expect(opened).toEqual([loadFixture(1, "?map=awkward-map").maps[0]?.number]);
   });
 
   it("leaves the rows alone for a condition that only delays the next read", () => {

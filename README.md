@@ -89,7 +89,7 @@ false and `npm run tauri build` is not a supported path yet.
 
 ## The checks
 
-Five rules that would otherwise be conventions. Each is enforced on both CI
+Seven rules that would otherwise be conventions. Each is enforced on both CI
 runners.
 
 ```bash
@@ -126,6 +126,25 @@ job rather than a value, `--c-*` component tokens local to a module. Only the
 semantic file may read a primitive, and no stylesheet may carry a raw colour
 literal. That is what makes *survives a retheme* checkable: a retheme is a
 reassignment in `semantic.css`, and nothing re-renders.
+
+**One file names a change, and it names only what was true** —
+`tests/ledger.test.ts`. Every word the change ledger renders lives in
+`src/chrome/ledger.ts` and in no other file under `src/`, and the scan is built
+out of the constants themselves rather than out of a list beside them. The
+second half is the one worth the CI time: no causal connective appears in the
+three files the record is written across, *or* in the vocabulary's values, or in
+any string the describe functions build from them. Two resolutions arriving in
+one diff make *which one unblocked this* a guess dressed as a record, and the
+model carries no edge from one change to another that anybody could settle it
+from. [ADR 0010](docs/adr/0010-the-change-ledger-is-a-notification-surface-not-an-archive.md).
+
+**No view can see the change ledger** — `tests/views.test.ts`. `ViewProps` is
+declared once, names `model`, `selected` and `onSelect`, and mentions neither
+the snapshot the record rides on nor the record itself; no file under
+`src/views/` but that declaration has a word for it. *No view renders the
+record* is then a property of a type rather than a rule every view added later
+has to keep — the same mechanism that keeps `blockedBy` and `assignees` out of
+the WebView.
 
 **macOS is the CSS floor, not Windows** — `npm run check:css-floor`. Windows
 ships an evergreen WebView; macOS ships one pinned to the OS version. macOS 13

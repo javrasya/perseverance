@@ -57,16 +57,64 @@
   border-bottom: none;
 }
 
+/*
+ * The box is the row; the grid is the button inside it. The rail down the left
+ * edge is reserved on every row and coloured only on the open one, so the map
+ * you are watching being marked moves no neighbour by a pixel — and there is no
+ * transition on any of it, because a list that animated as reads landed would
+ * be motion arriving with news, which is the one thing the ledger's numeral is
+ * shaped to avoid.
+ */
 .row {
   --c-row-ink: var(--s-ink-primary);
   --c-row-number: var(--s-ink-secondary);
+  --c-row-rail: transparent;
+  --c-row-fill: transparent;
 
+  border-bottom: var(--s-border-hairline) solid var(--s-line-quiet);
+  border-left: var(--s-border-rail) solid var(--c-row-rail);
+  background: var(--c-row-fill);
+}
+
+/*
+ * Opening a map is a declaration this window makes, so the whole row is the
+ * control. `font: inherit` and a transparent fill keep it reading as a row of a
+ * list rather than as a button somebody put in one.
+ */
+.choose {
   display: grid;
+  width: 100%;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: baseline;
   gap: var(--s-space-snug);
   padding: var(--s-space-snug) var(--s-space-base);
-  border-bottom: var(--s-border-hairline) solid var(--s-line-quiet);
+  border: none;
+  background: transparent;
+  color: var(--c-row-ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.choose:focus-visible {
+  outline: var(--s-border-emphasis) solid var(--s-focus-ring);
+  outline-offset: -3px;
+}
+
+/* A row that cannot be opened does not light up under the pointer either. */
+.row:not([data-disabled="true"]):hover {
+  --c-row-fill: var(--s-surface-hover);
+}
+
+/*
+ * The map this window is watching. Marked in the same rail-and-tint vocabulary
+ * `FolderRow` marks the folder you picked with, because they are the same fact
+ * one level apart — and never by hiding the others, since the list is how you
+ * get to a different one.
+ */
+.row[data-open="true"] {
+  --c-row-rail: var(--s-accent);
+  --c-row-fill: var(--s-surface-hover);
 }
 
 /*
@@ -89,7 +137,10 @@
 .row[data-disabled="true"] {
   --c-row-ink: var(--s-ink-faint);
   --c-row-number: var(--s-ink-faint);
+}
 
+.choose:disabled {
+  color: var(--c-row-ink);
   cursor: default;
 }
 

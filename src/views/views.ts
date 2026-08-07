@@ -1,5 +1,8 @@
 /**
- * Which view the app opens on, remembered globally.
+ * What a view is: the props it is handed, and which one the app opens on.
+ *
+ * The prop type comes first below, and it is the narrower of the two claims —
+ * see [`ViewProps`]. The rest of the file is the remembered default.
  *
  * Global means one setting for the whole app — not per folder, not per map.
  * The choice tracks the operator's activity rather than the map's identity: the
@@ -16,7 +19,34 @@
  * early with one detent to show for it. The omission is the decision.
  */
 
+import type { Model } from "../snapshot/snapshot";
+
 export type ViewName = "route";
+
+/**
+ * What every view is given, and the whole of it.
+ *
+ * It names `model` and not `snapshot`, so the change ledger — which rides on
+ * the `Snapshot` beside `model` rather than inside it — is not *forbidden* to a
+ * view: it is unwritable, for want of anything on this side to write it from.
+ * *No view renders the record* is therefore a property of this type rather than
+ * a rule somebody has to keep, and the file that holds the exclusion is the
+ * only file under `src/views/` allowed to name what it excludes.
+ *
+ * It is the same mechanism that keeps a second frontier resolver off this side:
+ * the four node states and the designated frontier are decided in Rust, and the
+ * two fields they are decided from do not cross the seam at all, so a resolver
+ * here has no input rather than a prohibition — `tests/snapshot.test.ts` names
+ * those two and refuses them the run of `src/`, which is why they are not named
+ * here. One type for every view is also what makes
+ * that checkable at all — a view free to declare its own props could widen them
+ * to the whole snapshot without anything failing.
+ */
+export interface ViewProps {
+  model: Model;
+  selected: number | null;
+  onSelect: (number: number | null) => void;
+}
 
 /** Every view there is, which is currently one. */
 export const VIEWS: readonly ViewName[] = ["route"];

@@ -1,6 +1,12 @@
 import { useMemo } from "react";
-import type { Model, Node } from "../../snapshot/model.generated";
+import type { Node } from "../../snapshot/model.generated";
 import { NO_MAP_OPEN } from "../../snapshot/readout";
+/*
+ * The props are the shared type and never a local one. A view that declared its
+ * own could widen them to the whole snapshot, and what a view is handed is the
+ * one place that is decided — see `ViewProps`.
+ */
+import type { ViewProps } from "../views";
 import {
   DESIGNATED_TAG,
   STATE_NAMES,
@@ -59,13 +65,7 @@ const GLYPHS = {
   resolved: styles.markResolved,
 } satisfies Record<Mark, string | undefined>;
 
-interface RouteProps {
-  model: Model;
-  selected: number | null;
-  onSelect: (number: number | null) => void;
-}
-
-export function Route({ model, selected, onSelect }: RouteProps) {
+export function Route({ model, selected, onSelect }: ViewProps) {
   /*
    * A memo and nothing more. `routeOf` is deterministic and cheap, so this
    * saves a pass over the nodes and buys no correctness — if it were ever load
@@ -245,10 +245,16 @@ function Row({
  * to back.
  *
  * C5's other notes are not built. *Claimed by this session · 04:12* needs a run
- * clock and a session identity, *closed 14:22 · pty still alive* needs both and
- * a process, and *unblocked by #11 closing* needs a change ledger. None of the
- * three is in the derived model, so building any of them would mean inventing
- * state rather than reading it.
+ * clock and a session identity, and *closed 14:22 · pty still alive* needs both
+ * and a process; neither is in the derived model, so building either would mean
+ * inventing state rather than reading it.
+ *
+ * *Unblocked by #11 closing* is a different refusal, and it survives the record
+ * of what moved between two looks now existing. That record is chrome at a
+ * fixed address, it is not on `ViewProps`, and it names no cause of its own —
+ * two resolutions arriving in one look make *the one that freed this row* a
+ * guess dressed as a fact. So the note stays unbuilt, and this view has nothing
+ * to build it from either.
  */
 function Note({ row }: { row: RouteRow }) {
   if (row.blockers.beyondTheMap === 0) return null;

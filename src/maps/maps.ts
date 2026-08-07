@@ -290,9 +290,9 @@ export const COMPLETED_GROUP = "Completed";
 
 /**
  * It says *stay* rather than *open one* on purpose. Reaching a map to read the
- * decisions it made is what the group exists for, and it is also what the map
- * view has yet to arrive with — so this describes what the group is for without
- * promising an affordance that is not on screen.
+ * decisions it made is what the group exists for, and the rows under it open
+ * exactly like the ones above — so the sentence describes what the group is
+ * for and leaves the affordance to be the affordance rather than narrating it.
  */
 export const COMPLETED_HINT =
   "Finished maps stay here rather than disappearing, so the decisions they made stay findable.";

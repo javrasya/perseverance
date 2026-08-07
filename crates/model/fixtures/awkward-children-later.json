@@ -1,0 +1,196 @@
+{
+  "_why": "The same map as `awkward-children.json`, read again later. Three changes and nothing else, so the diff between the two is legible as a list rather than as a new graph: #77 closed, #72's blockers went away and nobody holds it any more so it is takeable — which moves the frontier off #75, because #72 is earlier in the operator's own order — and #76 was renamed, which is a change this vocabulary has no word for and so draws the catch-all. Everything else, including the map's number, title and the order of its children, is byte-for-byte the earlier read: a *while you were away* fixture is only worth having if what it says happened is exactly what did.",
+  "data": {
+    "repository": {
+      "nameWithOwner": "o/r",
+      "maps": {
+        "pageInfo": { "hasNextPage": false },
+        "nodes": [
+          {
+            "number": 60,
+            "title": "Spec: the awkward map",
+            "state": "OPEN",
+            "url": "https://github.com/o/r/issues/60",
+            "updatedAt": "2026-08-05T09:12:44Z"
+          }
+        ]
+      },
+      "issue": {
+        "number": 60,
+        "title": "Spec: the awkward map",
+        "state": "OPEN",
+        "url": "https://github.com/o/r/issues/60",
+        "updatedAt": "2026-08-05T09:12:44Z",
+        "labels": { "nodes": [{ "name": "wayfinder:map" }] },
+        "subIssues": {
+          "pageInfo": { "hasNextPage": false },
+          "nodes": [
+            {
+              "number": 70,
+              "title": "Someone dragged a bug report onto the map",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/70",
+              "updatedAt": "2026-08-04T10:00:00Z",
+              "labels": { "nodes": [{ "name": "bug", "color": "d73a4a" }] },
+              "assignees": { "nodes": [] },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 0,
+                "blocking": 0,
+                "totalBlocking": 0
+              },
+              "blockedBy": { "pageInfo": { "hasNextPage": false }, "nodes": [] }
+            },
+            {
+              "number": 71,
+              "title": "Finished before the thing it waited on",
+              "state": "CLOSED",
+              "stateReason": "COMPLETED",
+              "url": "https://github.com/o/r/issues/71",
+              "updatedAt": "2026-08-04T11:00:00Z",
+              "labels": { "nodes": [{ "name": "wayfinder:task", "color": "1d76db" }] },
+              "assignees": { "nodes": [{ "login": "javrasya" }] },
+              "issueDependenciesSummary": {
+                "blockedBy": 1,
+                "totalBlockedBy": 1,
+                "blocking": 0,
+                "totalBlocking": 0
+              },
+              "blockedBy": {
+                "pageInfo": { "hasNextPage": false },
+                "nodes": [
+                  {
+                    "number": 72,
+                    "title": "Held up, and holding this up",
+                    "state": "OPEN",
+                    "repository": { "nameWithOwner": "o/r" }
+                  }
+                ]
+              }
+            },
+            {
+              "number": 73,
+              "title": "Spec: the awkward map, composed",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/73",
+              "updatedAt": "2026-08-04T12:00:00Z",
+              "labels": { "nodes": [{ "name": "wayfinder:spec", "color": "5319e7" }] },
+              "assignees": { "nodes": [] },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 0,
+                "blocking": 0,
+                "totalBlocking": 0
+              },
+              "blockedBy": { "pageInfo": { "hasNextPage": false }, "nodes": [] }
+            },
+            {
+              "number": 74,
+              "title": "Spec: the awkward map, composed again",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/74",
+              "updatedAt": "2026-08-04T13:00:00Z",
+              "labels": { "nodes": [{ "name": "wayfinder:spec", "color": "5319e7" }] },
+              "assignees": { "nodes": [] },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 0,
+                "blocking": 0,
+                "totalBlocking": 0
+              },
+              "blockedBy": { "pageInfo": { "hasNextPage": false }, "nodes": [] }
+            },
+            {
+              "number": 72,
+              "title": "Held up, and holding this up",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/72",
+              "updatedAt": "2026-08-06T09:00:00Z",
+              "labels": { "nodes": [{ "name": "wayfinder:research", "color": "0e8a16" }] },
+              "assignees": { "nodes": [] },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 1,
+                "blocking": 1,
+                "totalBlocking": 1
+              },
+              "blockedBy": { "pageInfo": { "hasNextPage": false }, "nodes": [] }
+            },
+            {
+              "number": 77,
+              "title": "Somebody is already on this one",
+              "state": "CLOSED",
+              "stateReason": "COMPLETED",
+              "url": "https://github.com/o/r/issues/77",
+              "updatedAt": "2026-08-06T09:05:00Z",
+              "labels": { "nodes": [{ "name": "wayfinder:grilling", "color": "b60205" }] },
+              "assignees": { "nodes": [{ "login": "javrasya" }] },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 0,
+                "blocking": 0,
+                "totalBlocking": 0
+              },
+              "blockedBy": { "pageInfo": { "hasNextPage": false }, "nodes": [] }
+            },
+            {
+              "number": 75,
+              "title": "The first thing that can be started",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/75",
+              "updatedAt": "2026-08-04T15:00:00Z",
+              "labels": { "nodes": [{ "name": "wayfinder:task", "color": "1d76db" }] },
+              "assignees": { "nodes": [] },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 1,
+                "blocking": 1,
+                "totalBlocking": 1
+              },
+              "blockedBy": {
+                "pageInfo": { "hasNextPage": false },
+                "nodes": [
+                  {
+                    "number": 71,
+                    "title": "Finished before the thing it waited on",
+                    "state": "CLOSED",
+                    "repository": { "nameWithOwner": "o/r" }
+                  }
+                ]
+              }
+            },
+            {
+              "number": 76,
+              "title": "The second thing that can be started, renamed",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/76",
+              "updatedAt": "2026-08-06T09:10:00Z",
+              "labels": { "nodes": [{ "name": "wayfinder:prototype", "color": "fbca04" }] },
+              "assignees": { "nodes": [] },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 0,
+                "blocking": 1,
+                "totalBlocking": 1
+              },
+              "blockedBy": { "pageInfo": { "hasNextPage": false }, "nodes": [] }
+            }
+          ]
+        }
+      }
+    },
+    "rateLimit": {
+      "cost": 2,
+      "nodeCount": 118,
+      "limit": 5000,
+      "remaining": 4379,
+      "resetAt": "2026-08-06T11:02:14Z"
+    }
+  }
+}

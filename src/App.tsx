@@ -39,13 +39,22 @@ import {
   type MapsView,
 } from "./maps/maps";
 import { describeModel } from "./snapshot/readout";
-import { loadSnapshot, noMapOpen, type Snapshot } from "./snapshot/snapshot";
+import {
+  loadSnapshot,
+  noMapOpen,
+  watchSnapshot,
+  type Snapshot,
+} from "./snapshot/snapshot";
 import { ThemeSwitch } from "./theme/ThemeSwitch";
 import { useTheme } from "./theme/useTheme";
 /* `Route.jsx` rather than `Route`: it sits beside `route.ts`, and on a
    case-insensitive filesystem the extensionless specifier resolves to the
    arithmetic module instead of the component. */
 import { Route } from "./views/route/Route.jsx";
+/* `Ledger.jsx` for the same reason: `chrome/ledger.ts` is the words and the
+   arithmetic, `chrome/Ledger.tsx` is the component, and an extensionless
+   specifier finds the first of the two. */
+import { Ledger } from "./chrome/Ledger.jsx";
 import { useDefaultView } from "./views/useDefaultView";
 import styles from "./App.module.css";
 
@@ -75,14 +84,59 @@ export function App() {
   const [environment, setEnvironment] = useState(stillHarvesting);
   const [environmentShown, setEnvironmentShown] = useState(false);
   const [maps, setMaps] = useState<MapsView>(() => nothingReadYet(0));
+  /*
+   * Which map this window has declared it is watching. The poller asks GitHub
+   * for the graph of exactly this map, so it is the difference between every
+   * derived model being *no map open* and there being a route on screen.
+   */
+  const [openMap, setOpenMap] = useState<number | null>(null);
+  /*
+   * The highest ledger `seq` the operator has read, and **the whole of this
+   * side's share of the announcement machinery**. Nothing here decides what is
+   * worth announcing: `announce` arrives stamped on every clause, decided once
+   * in Rust over the finished entry, and this side only subtracts what has been
+   * read from what has arrived.
+   *
+   * It restarts with the map because the Rust log does: a different map is a
+   * different `ChangeLog` with its sequence back at zero, and a marker carried
+   * across would silently mark the new map's first rows as already read.
+   */
+  const [readThrough, setReadThrough] = useState(0);
 
+  /*
+   * Subscribe, then ask — the same ordering `watchEnvironment` uses, and for a
+   * sharper reason here. The poller emits a snapshot on every tick it finishes,
+   * landed or failed, and a window that only read the command at mount would
+   * show the model as it stood at launch for the rest of the process while the
+   * stamp beside it went on ageing. The command and the event carry the same
+   * stored value, so neither can contradict the other about what was derived.
+   */
   useEffect(() => {
     let live = true;
-    loadSnapshot().then((next) => {
-      if (live) setSnapshot(next);
+    let stop: () => void = () => {};
+    let arrived = false;
+
+    watchSnapshot((next) => {
+      if (!live) return;
+      arrived = true;
+      setSnapshot(next);
+    }).then((off) => {
+      if (!live) {
+        off();
+        return;
+      }
+      stop = off;
+      return loadSnapshot().then((next) => {
+        // The command answers with the value stored when it was invoked, so a
+        // tick that landed while it was in flight is the newer of the two and
+        // the reply may not undo it.
+        if (live && !arrived) setSnapshot(next);
+      });
     });
+
     return () => {
       live = false;
+      stop();
     };
   }, []);
 
@@ -184,6 +238,10 @@ export function App() {
    */
   const readMapsFor = useCallback((folderId: number) => {
     setMaps(nothingReadYet(folderId));
+    // A folder is opened with no map open. Carrying the last folder's map
+    // number over would declare a map this repository may not even have.
+    setOpenMap(null);
+    setReadThrough(0);
     loadMaps(folderId)
       .then((next) => setMaps((current) => (current.folderId === folderId ? next : current)))
       // A cache read that could not even be asked for leaves what is on screen
@@ -191,6 +249,27 @@ export function App() {
       .catch(() => {});
     watching(folderId, null).catch(() => {});
   }, []);
+
+  /*
+   * Opening a map is a declaration and not a fetch.
+   *
+   * This says what the window is looking at and answers nothing; the graph
+   * arrives on the poller's own channel whenever the cadence produced it, which
+   * is the same rule the map list already lives by. A promise resolving with a
+   * model here would be a second delivery path entitled to disagree with the
+   * first about what is open.
+   *
+   * The read marker goes back to zero with it, because the Rust log restarts
+   * its sequence when the watched map changes.
+   */
+  const onOpenMap = useCallback(
+    (number: number) => {
+      setOpenMap(number);
+      setReadThrough(0);
+      watching(selectedId, number).catch(() => {});
+    },
+    [selectedId],
+  );
 
   /*
    * Opening a folder is what records that you opened it. Picking a row from the
@@ -260,6 +339,8 @@ export function App() {
           if (maps.folderId === entry.id) {
             watching(null, null).catch(() => {});
             setMaps(nothingReadYet(0));
+            setOpenMap(null);
+            setReadThrough(0);
           }
           setNote(null);
         })
@@ -300,17 +381,38 @@ export function App() {
         {/* The same `model` the footer readout spells and the Route is drawn
             from. One value, three renderings, and no way for them to disagree. */}
         <MapChip model={snapshot.model} />
+        {/*
+          The change ledger, in one fixed slot.
+
+          It is chrome at a fixed address, shared across every view and every
+          dial position — no view renders it, and its snapshot field sits
+          outside the type a view is handed, so that stays structural rather
+          than a rule to remember. #52 builds the divider's spine and this
+          record's address on it; relocating it from here is moving one element.
+
+          `setSelectedNode` is passed straight through, which is what gives a
+          reference its set-and-never-toggle behaviour for free: the Route's own
+          rows toggle, and a record of things already true has no state to put
+          back.
+        */}
+        <Ledger
+          ledger={snapshot.ledger}
+          readThrough={readThrough}
+          onRead={setReadThrough}
+          onSelectNode={setSelectedNode}
+        />
         <ThemeSwitch preference={preference} onChoose={chooseTheme} />
       </header>
 
       <div className={styles.body}>
         {/*
           Both at once, and neither is a mode. A map being open is not a reason
-          to take the launcher off the screen: the snapshot is read once at
-          mount and nothing re-reads it, so a shell that swapped the launcher
-          out for the view would put open, locate, forget and *open a new
-          folder* somewhere unreachable for the life of the process — and the
-          view has no way back to them.
+          to take the launcher off the screen: the map list is the only way to
+          open a different map, and the launcher is the only way to reach a
+          different folder — so a shell that swapped the launcher out for the
+          view would put open, locate, forget, *open a new folder* and every
+          other map in this repository somewhere unreachable for the life of
+          the process, and the view has no way back to any of them.
 
           How much window each of the two is worth is emphatically not settled
           here. The dial with its four detents, the view switcher and the chrome
@@ -334,7 +436,9 @@ export function App() {
             you are inside. So the list appears under the folder you picked
             rather than replacing the launcher — there is no mode to be in.
           */}
-          {selectedId === null ? null : <MapList view={maps} />}
+          {selectedId === null ? null : (
+            <MapList view={maps} selected={openMap} onOpen={onOpenMap} />
+          )}
         </DropRegion>
 
         {snapshot.model.map === null || view !== "route" ? null : (
@@ -359,6 +463,12 @@ export function App() {
           screen to disagree with.
         */}
         <span>{describeModel(snapshot.model)}</span>
+        {/*
+          The ledger is not spelled here. It has a slot of its own in the
+          chrome above, and a second rendering of its numeral in the footer
+          would be a second account of how much is unread — the one thing a
+          single read marker exists to prevent.
+        */}
         {/*
           And how old that model is, beside it rather than anywhere else. The
           derivation is the same whether the poll landed or failed — a failed

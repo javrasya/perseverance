@@ -11,6 +11,52 @@
 export type ChildKind = { "kind": "ticket", "type": TicketType } | { "kind": "spec" } | { "kind": "unclassified" };
 
 /**
+ * One named change inside an entry, already collapsed.
+ *
+ * `numbers` is in map order — the operator's own drag order — and `count` is
+ * its length, except where the change has no node to name: a map-level clause
+ * counts as one, and the catch-all adds one for a map-level unnamed change
+ * riding along with node-level ones. A clause is never split across an entry
+ * and never merged across two.
+ */
+export type Clause = { kind: ClauseKind, 
+/**
+ * The nodes this clause is about, in map order. Empty on a map-level
+ * clause, which is about the map itself.
+ */
+numbers: Array<number>, 
+/**
+ * How many changes this clause stands for. Usually `numbers.len()`, and
+ * `1` for a map-level clause that names no node; on the catch-all it may
+ * exceed the list, because a map-level unnamed change is one more change
+ * with no number to put in it. Carried rather than recomputed on the far
+ * side so that *two resolved* is a fact the record states rather than a
+ * length the renderer happens to take.
+ */
+count: number, 
+/**
+ * **Whether this clause counts towards the unread numeral**, decided here
+ * and nowhere else. See [`stamp`].
+ */
+announce: boolean, };
+
+/**
+ * The vocabulary a change can be named in, **and the fixed precedence**.
+ *
+ * Declaration order *is* the precedence — issue-level, then edges, then
+ * claims, then derived, then the catch-all — and [`Ord`] is derived from it.
+ * That is why no sort site in this workspace spells the order out: there is
+ * one place it could be wrong, and it is this list.
+ *
+ * [`ClauseKind::Unnamed`] is load-bearing rather than a fallback. A curated
+ * vocabulary is a chosen field set one layer up, and a chosen field set is a
+ * field added later, forgotten, and a change going quietly unreported. So a
+ * differing tick **always** draws a row, and a field this list cannot name is
+ * carried in free.
+ */
+export type ClauseKind = "created" | "removed" | "resolved" | "cutFromScope" | "reopened" | "unclassified" | "specAppeared" | "unblocked" | "blocked" | "claimed" | "released" | "frontierMoved" | "fogChanged" | "phaseChanged" | "mapClosed" | "unnamed";
+
+/**
  * Three counts, and the ladder is built from them.
  *
  * *Resolved* is not a fourth field: it is `tickets - open`, and a fourth
@@ -55,6 +101,39 @@ specs: number, };
  * reason with the sentence folded into it is a reason somebody parses.
  */
 export type Degraded = { "reason": "unreachable" } | { "reason": "authFailed" } | { "reason": "mapGone" } | { "reason": "rateLimited", resetsAt: string | null, };
+
+/**
+ * One differing tick, whole.
+ *
+ * **Entries never revise.** Blocked then unblocked is two entries, because
+ * each says what was true when we looked, and editing the first would make it
+ * say something nobody observed.
+ */
+export type Entry = { 
+/**
+ * Monotonic within one map's log, starting at one. The read marker on the
+ * far side is a `seq`, which is the whole of what the frontend holds.
+ */
+seq: number, occasion: Occasion, 
+/**
+ * In the precedence [`ClauseKind`] declares. Never empty.
+ */
+clauses: Array<Clause>, };
+
+/**
+ * One map's log, as it crosses to the WebView.
+ *
+ * No `PartialEq`, for the reason [`crate::Provenance`] has none: this rides on
+ * the snapshot beside the model, and change detection is the model's business
+ * and only the model's. A comparable ledger is a ledger that ends up inside
+ * somebody's equality check, and every entry in it would then make the next
+ * tick differ from the last.
+ */
+export type Ledger = { since: Since, 
+/**
+ * Oldest first, at most [`RING_CAPACITY`] of them.
+ */
+entries: Array<Entry>, };
 
 /**
  * One map, derived.
@@ -134,6 +213,11 @@ waitsOn: Array<number>, };
 export type NodeState = "resolved" | "blocked" | "claimed" | "takeable";
 
 /**
+ * Why this entry was drawn.
+ */
+export type Occasion = "tick" | "whileYouWereAway";
+
+/**
  * Where the map is in the loop, derived rather than stored.
  *
  * Stored, it could disagree with the tickets. Derived, it cannot — which is
@@ -162,6 +246,14 @@ fetchedAt: string | null, };
 export type ReadOutcome = { "kind": "ok" } | { "kind": "failed", reason: Degraded, detail: string, } | { "kind": "notAttempted" };
 
 /**
+ * What the log has to say about its own beginning.
+ *
+ * Two words, and neither of them is a clock reading: this answers *has a
+ * comparison happened yet*, and nothing else.
+ */
+export type Since = "firstOpen" | "watching";
+
+/**
  * Everything the WebView is given for one tick.
  *
  * One type, and the derivation is already done inside it. The same artifact is
@@ -182,7 +274,22 @@ export type ReadOutcome = { "kind": "ok" } | { "kind": "failed", reason: Degrade
  * always *did anything change*. [`Snapshot::changed_from`] is the only
  * comparison there is, and it is the model's.
  */
-export type Snapshot = { schemaVersion: number, model: Model, provenance: Provenance, };
+export type Snapshot = { schemaVersion: number, model: Model, provenance: Provenance, 
+/**
+ * What moved since you last looked — **a sibling of the model and never a
+ * field inside it**, for two independent reasons.
+ *
+ * The first is arithmetic: [`Snapshot::changed_from`] is whole-model
+ * equality, so a ledger inside [`Model`] would grow an entry every time
+ * anything moved and thereby make the *next* tick differ from the last,
+ * for ever.
+ *
+ * The second is the ticket's own requirement that no view can render it.
+ * [`Model`] is exactly what the views are handed; a field out here is
+ * outside the view prop type structurally, rather than by a rule somebody
+ * has to keep remembering.
+ */
+ledger: Ledger, };
 
 export type Source = "github" | "cache" | "fixture" | "none";
 

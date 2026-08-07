@@ -29,7 +29,7 @@ use std::path::{Path, PathBuf};
 
 use ts_rs::TS;
 
-use crate::{read_response, Degraded, Model, Snapshot, Source};
+use crate::{read_response, ChangeLog, Degraded, Model, Snapshot, Source};
 
 /// Where the generated TypeScript lands, relative to the repository root.
 const GENERATED_TYPES: &str = "src/snapshot/model.generated.ts";
@@ -172,6 +172,69 @@ fn aged_cases() -> Vec<AgedCase> {
     ]
 }
 
+/// One `dev:web` fixture for a snapshot whose ledger has something in it: two
+/// recorded answers about **the same map**, the second read later than the
+/// first.
+///
+/// A struct with two answers rather than one, because that is what a ledger
+/// entry *is* — the difference between two reads. A fixture that carried a
+/// hand-written entry beside an unrelated graph would be exactly the second,
+/// drifting account of the model that this module exists to prevent: the row on
+/// screen has to be the row the diff produces from the graph beside it, or the
+/// frontend is being shown something the app can never show.
+struct LedgerCase {
+    slug: &'static str,
+    /// The recorded answer the cache would have held — the baseline the first
+    /// comparison after resuming is taken against.
+    baseline: &'static str,
+    /// The recorded answer this session's first landed poll returned.
+    later: &'static str,
+    why: &'static str,
+}
+
+/// The fixtures whose ledger is not empty.
+///
+/// One, and it is the *while you were away* row rather than an ordinary tick:
+/// the cold-start comparison against `graph_cache` is the entry a browser has
+/// no way to conjure, because reaching it needs a cache row from a previous
+/// session and there is no previous session in a `dev:web` tab. An ordinary
+/// tick is reachable by leaving the app open, and so does not need a fixture.
+fn ledger_cases() -> Vec<LedgerCase> {
+    vec![LedgerCase {
+        slug: "while-you-were-away",
+        baseline: "awkward-children.json",
+        later: "awkward-children-later.json",
+        why: "The cold start: a cached graph as the baseline, one landed poll \
+              against it, and the single row that comes out of the comparison. \
+              It carries one clause from each tier of the precedence at once — \
+              a resolution, an edge that went away, the frontier \
+              moving off the ticket it had designated, and a catch-all holding \
+              both a renamed child and the dropped adjacency of the very node \
+              the `unblocked` clause names — the catch-all being a residual and \
+              not an alternative, a named change does not swallow the rest of \
+              the node it happened to land on — so \
+              the precedence between clause kinds is visible in one entry \
+              rather than inferred from four fixtures. It is also the only \
+              fixture whose ledger reads `watching`, which is what makes a real \
+              zero distinguishable on screen from a map nobody has opened.",
+    }]
+}
+
+/// The snapshot one [`LedgerCase`] produces: the later read, stamped, carrying
+/// the log that compared it against the baseline.
+fn snapshot_for_ledger(case: &LedgerCase) -> Snapshot {
+    let model_of =
+        |answer: &str| Model::of(&read_response(&recorded(answer)).expect("the answer reads"));
+
+    let mut log = ChangeLog::resuming(model_of(case.baseline));
+    let later = model_of(case.later);
+    // `&[]` is the honest slice: nothing in this app can start work yet, so
+    // every claim in a fixture is somebody else's and announces.
+    log.observed(&later, &[]);
+
+    Snapshot::read(later, Source::Fixture, crate::rfc3339(FIXTURE_STAMP)).with_ledger(log.ledger())
+}
+
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("..")
@@ -266,7 +329,15 @@ fn every_dev_web_fixture_is_this_crate_s_own_output() {
 
     for case in aged_cases() {
         let model = Model::of(&read_response(&recorded(case.answer)).expect("the answer reads"));
-        let aged = Snapshot::read(model, Source::Cache, crate::rfc3339(FIXTURE_STAMP))
+        // Aged from a **live read**, which is the only way one of these
+        // actually happens: a poll landed, a later one did not, and what is
+        // left on screen is the copy the first read left behind. Stamping the
+        // fixture `Cache` by hand would have been the fixture agreeing with
+        // itself — it is [`Snapshot::aged`] that decides a failed poll is no
+        // longer a live read, so the source written below is its answer rather
+        // than this table's, and a regression that stopped downgrading would
+        // land here as a fixture that no longer matches.
+        let aged = Snapshot::read(model, Source::Github, crate::rfc3339(FIXTURE_STAMP))
             .aged(case.concluded, case.told.to_string());
         let json = aged.to_json_string().expect("serialises");
         agrees(
@@ -275,6 +346,84 @@ fn every_dev_web_fixture_is_this_crate_s_own_output() {
             HOW_TO_FIX,
         );
     }
+
+    for case in ledger_cases() {
+        let json = snapshot_for_ledger(&case)
+            .to_json_string()
+            .expect("serialises");
+        agrees(
+            &root.join(FIXTURE_DIR).join(format!("{}.json", case.slug)),
+            &format!("{json}\n"),
+            HOW_TO_FIX,
+        );
+    }
+}
+
+/// The row the *while you were away* fixture ships is the one the diff draws,
+/// and it is drawn here rather than described here.
+///
+/// Without this the fixture would still regenerate — it just would not say
+/// anything. The clauses named below are the four the two recorded answers
+/// differ by, down to which numbers sit on each; if somebody edits either
+/// answer, this is what tells them the fixture has stopped showing what its
+/// `why` claims it shows.
+#[test]
+fn the_while_you_were_away_fixture_ships_the_row_its_two_answers_produce() {
+    use crate::{ClauseKind, Occasion, Since};
+
+    let case = ledger_cases()
+        .into_iter()
+        .find(|case| case.slug == "while-you-were-away")
+        .expect("the case is named above");
+    let snapshot = snapshot_for_ledger(&case);
+
+    assert!(matches!(snapshot.ledger.since, Since::Watching));
+    assert_eq!(snapshot.ledger.entries.len(), 1);
+
+    let entry = &snapshot.ledger.entries[0];
+    assert_eq!(entry.seq, 1);
+    assert!(matches!(entry.occasion, Occasion::WhileYouWereAway));
+
+    // In the precedence the enum declares: issue-level, then edges, then
+    // derived, then the catch-all.
+    let kinds: Vec<ClauseKind> = entry.clauses.iter().map(|clause| clause.kind).collect();
+    assert_eq!(
+        kinds,
+        vec![
+            ClauseKind::Resolved,
+            ClauseKind::Unblocked,
+            ClauseKind::FrontierMoved,
+            ClauseKind::Unnamed,
+        ]
+    );
+
+    let numbers = |kind: ClauseKind| {
+        entry
+            .clauses
+            .iter()
+            .find(|clause| clause.kind == kind)
+            .map(|clause| clause.numbers.clone())
+            .unwrap_or_else(|| panic!("no {kind:?} clause"))
+    };
+    assert_eq!(numbers(ClauseKind::Resolved), vec![77]);
+    assert_eq!(numbers(ClauseKind::Unblocked), vec![72]);
+    // #76 was renamed, and #72 — the node the `unblocked` clause above already
+    // names — also dropped the two edges it waited on, which is a change the
+    // vocabulary has no word for. Both are on the catch-all, in map order,
+    // because it reports the residual the named clauses left rather than only
+    // the nodes those clauses missed entirely.
+    assert_eq!(numbers(ClauseKind::Unnamed), vec![72, 76]);
+
+    // The catch-all is carried, never shouted about; everything the vocabulary
+    // names announces, because nothing here is this session's own doing.
+    let announces: Vec<bool> = entry.clauses.iter().map(|clause| clause.announce).collect();
+    assert_eq!(announces, vec![true, true, true, false]);
+
+    // And the frontier really did move, so the derived clause is the model's
+    // own statement rather than a word this test asked for.
+    let baseline = Model::of(&read_response(&recorded(case.baseline)).expect("reads"));
+    assert_eq!(baseline.map.expect("a map").frontier, Some(75));
+    assert_eq!(snapshot.model.map.expect("a map").frontier, Some(72));
 }
 
 /// Every fixture on disk is one this module produces, and every case this
@@ -312,6 +461,11 @@ fn the_fixture_directory_holds_exactly_the_cases_this_module_names() {
                 .iter()
                 .map(|case| format!("{}.json", case.slug)),
         )
+        .chain(
+            ledger_cases()
+                .iter()
+                .map(|case| format!("{}.json", case.slug)),
+        )
         .collect();
     named.sort();
 
@@ -323,6 +477,9 @@ fn the_fixture_directory_holds_exactly_the_cases_this_module_names() {
 #[test]
 fn every_case_says_what_it_is_here_to_show() {
     for case in CASES {
+        assert!(!case.why.trim().is_empty(), "{} has no reason", case.slug);
+    }
+    for case in ledger_cases() {
         assert!(!case.why.trim().is_empty(), "{} has no reason", case.slug);
     }
 }

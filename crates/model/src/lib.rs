@@ -15,12 +15,14 @@
 #[cfg(test)]
 mod bindings;
 pub mod derive;
+pub mod ledger;
 mod read;
 mod snapshot;
 
 pub use derive::{
     ChildKind, Counts, Map, Model, Node, NodeState, Phase, TicketType, WAYFINDER_PREFIX,
 };
+pub use ledger::{ChangeLog, Clause, ClauseKind, Entry, Ledger, Occasion, Since, RING_CAPACITY};
 pub use read::{
     epoch_from_rfc3339, read_response, rfc3339, ChildRead, MapGraph, MapListing, MapRead,
     RateLimit, ReadError, Truncation, MAP_LABEL,

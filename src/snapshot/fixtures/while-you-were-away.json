@@ -8,7 +8,7 @@
       "phase": "wayfinding",
       "counts": {
         "tickets": 5,
-        "open": 4,
+        "open": 3,
         "specs": 2
       },
       "nodes": [
@@ -63,11 +63,8 @@
             "kind": "ticket",
             "type": "research"
           },
-          "state": "blocked",
-          "waitsOn": [
-            75,
-            76
-          ]
+          "state": "takeable",
+          "waitsOn": []
         },
         {
           "number": 77,
@@ -77,7 +74,7 @@
             "kind": "ticket",
             "type": "grilling"
           },
-          "state": "claimed",
+          "state": "resolved",
           "waitsOn": []
         },
         {
@@ -95,7 +92,7 @@
         },
         {
           "number": 76,
-          "title": "The second thing that can be started",
+          "title": "The second thing that can be started, renamed",
           "url": "https://github.com/o/r/issues/76",
           "kind": {
             "kind": "ticket",
@@ -105,22 +102,56 @@
           "waitsOn": []
         }
       ],
-      "frontier": 75
+      "frontier": 72
     }
   },
   "provenance": {
-    "source": "cache",
+    "source": "fixture",
     "outcome": {
-      "kind": "failed",
-      "reason": {
-        "reason": "mapGone"
-      },
-      "detail": "the answer carried no repository, so it is not an answer about this one"
+      "kind": "ok"
     },
     "fetchedAt": "2026-08-05T08:00:00Z"
   },
   "ledger": {
-    "since": "firstOpen",
-    "entries": []
+    "since": "watching",
+    "entries": [
+      {
+        "seq": 1,
+        "occasion": "whileYouWereAway",
+        "clauses": [
+          {
+            "kind": "resolved",
+            "numbers": [
+              77
+            ],
+            "count": 1,
+            "announce": true
+          },
+          {
+            "kind": "unblocked",
+            "numbers": [
+              72
+            ],
+            "count": 1,
+            "announce": true
+          },
+          {
+            "kind": "frontierMoved",
+            "numbers": [],
+            "count": 1,
+            "announce": true
+          },
+          {
+            "kind": "unnamed",
+            "numbers": [
+              72,
+              76
+            ],
+            "count": 2,
+            "announce": false
+          }
+        ]
+      }
+    ]
   }
 }
