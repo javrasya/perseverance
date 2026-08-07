@@ -22,7 +22,7 @@ use perseverance_github::{
     Tick, Timings, TokenOutcome, Watched,
 };
 use perseverance_model::{
-    read_response, Degraded, MapRead, Provenance, ReadOutcome, Snapshot, Source,
+    read_response, ChangeLog, Degraded, MapRead, Model, Provenance, ReadOutcome, Snapshot, Source,
 };
 use perseverance_store::{Folder, RepoBindingError, Store, StoreError};
 use serde::Serialize;
@@ -34,11 +34,15 @@ use tauri_plugin_dialog::DialogExt;
 /// The WebView receives a [`Snapshot`] and nothing else — that is the primary
 /// seam, and it is a structural fact rather than a convention because there is
 /// no other command that hands the frontend map state.
+///
+/// A read, never a derivation. The poller derives, once per tick, and this
+/// hands back whatever it last emitted — so a snapshot asked for and a snapshot
+/// delivered are the same value rather than two derivations that can disagree.
+/// Asking as well as subscribing is what covers the gap between a poll landing
+/// and the WebView having a listener, exactly as it does for the environment.
 #[tauri::command]
-fn snapshot() -> Snapshot {
-    // No map is open yet, and no read has been attempted. Later tickets replace
-    // this constant with the poller's latest derivation.
-    Snapshot::no_map_open()
+fn snapshot(ledgers: State<'_, Ledgers>) -> Snapshot {
+    ledgers.held()
 }
 
 /* ---------------------------------------------------------------- maps --- */
@@ -263,10 +267,36 @@ fn from_cache(store: &Store, folder_id: i64) -> MapsView {
 ///
 /// The prune rides along for the same reason: the live list is the evidence
 /// that entitles a deletion, and it arrives in the same value.
-fn remember_read(store: &Store, folder_id: i64, fresh: &FreshRead) -> Result<(), StoreError> {
+///
+/// `map` is the map the answer was read *with*, and it is why this takes four
+/// arguments now. The same verbatim body goes under the folder's own key and
+/// under that map's, because the map's row is the **while you were away**
+/// baseline — the only thing a cold start has to compare against. One row per
+/// `(folder, map)`, replaced rather than appended: this is a cache, and #41
+/// refused a second history on the grounds that GitHub already keeps the real
+/// one. So there is no new table here, no migration and no schema bump.
+///
+/// The prune is last on purpose. A map the live list no longer names loses its
+/// row even if this call just wrote one, because the evidence entitling the
+/// deletion is the same read that produced the body.
+fn remember_read(
+    store: &Store,
+    folder_id: i64,
+    map: Option<u64>,
+    fresh: &FreshRead,
+) -> Result<(), StoreError> {
     store.cache_graph(folder_id, None, fresh.body(), fresh.fetched_at())?;
 
-    let still_listed: Vec<u64> = fresh.read().maps.iter().map(|map| map.number).collect();
+    if let Some(number) = map {
+        store.cache_graph(folder_id, Some(number), fresh.body(), fresh.fetched_at())?;
+    }
+
+    let still_listed: Vec<u64> = fresh
+        .read()
+        .maps
+        .iter()
+        .map(|listing| listing.number)
+        .collect();
     store.forget_cached_maps_except(folder_id, &still_listed)?;
 
     Ok(())
@@ -300,6 +330,195 @@ const MAPS_EVENT: &str = "maps";
 /// a flag set at each of them would be a flag missing from one of them.
 fn emit_view<R: Runtime>(app: &AppHandle<R>, view: MapsView, held: Held) {
     let _ = app.emit(MAPS_EVENT, view.yielding(held));
+}
+
+/// The event every tick's [`Snapshot`] arrives on, mirroring [`MAPS_EVENT`].
+///
+/// The `snapshot` command answers with the same value rather than deriving a
+/// second one, so the command and the event cannot come to disagree about what
+/// this tick said.
+const SNAPSHOT_EVENT: &str = "snapshot";
+
+/// Nobody listening is not a failure, exactly as it is not one for the maps.
+fn emit_snapshot<R: Runtime>(app: &AppHandle<R>, snapshot: Snapshot) {
+    let _ = app.emit(SNAPSHOT_EVENT, snapshot);
+}
+
+/* ---------------------------------------------------------- the ledger --- */
+
+/// The change ledger for the map this window is watching, for as long as it
+/// watches it.
+///
+/// Session-lifetime and nothing more: an append-only table would be a second,
+/// less accurate copy of a history GitHub already keeps, and `graph_cache`
+/// already holds the one row a cold start needs. So nothing behind this type is
+/// a new table, a migration or a schema bump — the ring lives in
+/// [`ChangeLog`], in memory, and dies with the process.
+///
+/// It holds the last snapshot beside the log because the two are one fact. The
+/// ledger that crosses is the one written from the model it crosses with; a
+/// snapshot assembled from a model held here and a log held there would be a
+/// later record stapled onto an earlier graph, which is the disagreement
+/// [`Snapshot`] fuses provenance in to prevent.
+pub struct Ledgers(Mutex<Watching>);
+
+/// One map's log, and the snapshot it last produced.
+struct Watching {
+    /// Which folder and map the log below is a log *of*. `None` until the first
+    /// [`Ledgers::attend`], which is the only thing that ever sets it, and
+    /// comparing it is the whole of *is this still the same map*.
+    of: Option<Watched>,
+    log: ChangeLog,
+    latest: Snapshot,
+}
+
+impl Ledgers {
+    pub fn new() -> Ledgers {
+        Ledgers(Mutex::new(Watching {
+            of: None,
+            log: ChangeLog::first_open(),
+            latest: Snapshot::no_map_open(),
+        }))
+    }
+
+    /// A poisoned lock means an earlier poll panicked mid-entry. The log is not
+    /// the thing that panicked, so the guard is taken back rather than the rest
+    /// of the session being written off — the posture [`Registry::store`] takes,
+    /// for the same reason.
+    fn hold(&self) -> MutexGuard<'_, Watching> {
+        self.0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// The last snapshot emitted, or the state the app opens in.
+    fn held(&self) -> Snapshot {
+        self.hold().latest.clone()
+    }
+
+    /// Called at the top of every poll, before anything reaches a socket.
+    ///
+    /// **The ordering is load-bearing.** The baseline is the cached graph as it
+    /// was *before* this poll overwrites it, so a log started after
+    /// [`remember_read`] would be comparing an answer against itself and every
+    /// cold start would report nothing having moved.
+    ///
+    /// A different `(folder, map)` starts a new log and clears the snapshot with
+    /// it: the previous map's graph is not an older read of this one, and a
+    /// ledger carried across would be one map's entries filed under another's.
+    fn attend(&self, store: &Store, watched: &Watched) {
+        let mut watching = self.hold();
+        if watching.of == Some(*watched) {
+            return;
+        }
+
+        *watching = Watching {
+            of: Some(*watched),
+            log: resuming_from(store, watched),
+            latest: Snapshot::no_map_open(),
+        };
+    }
+
+    /// One poll that landed.
+    ///
+    /// `ours` is the claims this session's harness originated, which is the one
+    /// change on screen an operator could have predicted and so the one that
+    /// does not announce. The decision itself is [`ChangeLog::observed`]'s, in
+    /// the model crate; this only carries the slice across.
+    fn observed(&self, model: Model, fetched_at: i64, ours: &[u64]) -> Snapshot {
+        let mut watching = self.hold();
+        watching.log.observed(&model, ours);
+
+        let snapshot = Snapshot::read(
+            model,
+            Source::Github,
+            perseverance_model::rfc3339(fetched_at),
+        )
+        .with_ledger(watching.log.ledger());
+        watching.latest = snapshot.clone();
+        snapshot
+    }
+
+    /// One poll that did not.
+    ///
+    /// The model and the stamp stay exactly as they were and only the outcome
+    /// changes — what you were reading is still true of the last time anybody
+    /// looked. **The log is not touched at all**, which is how *a failed poll
+    /// draws no row* holds here: there is no method on [`ChangeLog`] that a
+    /// failure could call even by accident, because its only mutator takes a
+    /// `&Model` and a failure has none.
+    fn aged(&self, reason: Degraded, why: String) -> Snapshot {
+        let mut watching = self.hold();
+        let aged = watching.latest.clone().aged(reason, why);
+        watching.latest = aged.clone();
+        aged
+    }
+}
+
+impl Default for Ledgers {
+    fn default() -> Ledgers {
+        Ledgers::new()
+    }
+}
+
+/// The baseline a new log starts from: the cached graph for this map, or none.
+///
+/// **Absence is *first open* and never a zero**, and every way of not having a
+/// baseline lands in the same place — no row at all, a body this build cannot
+/// read, or a registry that would not answer. A cached body that will not parse
+/// is schema drift on a copy; the next successful read replaces it, and until
+/// then the honest thing to say is that nothing has been compared yet. Nothing
+/// here deletes it either: only a successful GitHub read may delete anything.
+fn resuming_from(store: &Store, watched: &Watched) -> ChangeLog {
+    match store.cached_graph(watched.folder_id, watched.map) {
+        Ok(Some(cached)) => match read_response(&cached.graph_json) {
+            Ok(read) => ChangeLog::resuming(Model::of(&read)),
+            Err(_) => ChangeLog::first_open(),
+        },
+        Ok(None) | Err(_) => ChangeLog::first_open(),
+    }
+}
+
+/// The claims this session's harness originated.
+///
+/// Empty today, and honestly so: nothing in this workspace assigns anything
+/// yet — `crates/github` is read-only by charter and `crates/agent` and
+/// `crates/pty` are stubs — so every claim on screen is somebody else's and
+/// every one of them announces, which is what the ledger should say. #48 *Start
+/// Working* is what calls [`Claims::claimed`]; the rule it feeds is already
+/// implemented and tested against an explicit slice, so the day that ticket
+/// lands the only new thing is the caller.
+pub struct Claims(Mutex<Vec<u64>>);
+
+impl Claims {
+    pub fn new() -> Claims {
+        Claims(Mutex::new(Vec::new()))
+    }
+
+    /// This harness took node `number`. Idempotent, because a claim taken twice
+    /// is still one claim and a list with it twice would say nothing new.
+    pub fn claimed(&self, number: u64) {
+        let mut ours = self
+            .0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if !ours.contains(&number) {
+            ours.push(number);
+        }
+    }
+
+    fn originated(&self) -> Vec<u64> {
+        self.0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+    }
+}
+
+impl Default for Claims {
+    fn default() -> Claims {
+        Claims::new()
+    }
 }
 
 /// What a refusal that never reached a socket is, and the sentence it keeps.
@@ -363,6 +582,8 @@ fn local_refusal(said: String) -> (Degraded, String) {
 fn poll_once<R: Runtime>(app: &AppHandle<R>, watched: &Watched, ahead: &Ahead<'_>) -> Tick {
     let registry = app.state::<Registry>();
     let ambient = app.state::<Ambient>();
+    let ledgers = app.state::<Ledgers>();
+    let claims = app.state::<Claims>();
     let folder_id = watched.folder_id;
 
     // One place where a condition becomes a stamp, a floor and a tick, so the
@@ -370,9 +591,15 @@ fn poll_once<R: Runtime>(app: &AppHandle<R>, watched: &Watched, ahead: &Ahead<'_
     // asks is asked with the tick it is about to return — which is what makes
     // a failure change the floor the view is emitted into rather than the one
     // after that.
+    //
+    // The snapshot goes out from in here rather than from each failing return,
+    // for the reason the view already does: there are seven ways out of this
+    // function and an emit spelled at each of them is an emit missing from one
+    // of them. Both surfaces age together, from one condition and one sentence.
     let failed = |view: MapsView, reason: Degraded, why: String| -> Tick {
         let tick = Tick::Failed(Fault::of(&reason, epoch_seconds()));
-        emit_view(app, view.stale(reason, why), ahead(tick));
+        emit_view(app, view.stale(reason.clone(), why.clone()), ahead(tick));
+        emit_snapshot(app, ledgers.aged(reason, why));
         tick
     };
 
@@ -384,6 +611,10 @@ fn poll_once<R: Runtime>(app: &AppHandle<R>, watched: &Watched, ahead: &Ahead<'_
                 return failed(MapsView::nothing_read_yet(folder_id), reason, why);
             }
         };
+        // Under the guard this block already holds, and before anything is
+        // read: the baseline is the cache row as it stands now, and the read
+        // below is about to overwrite it.
+        ledgers.attend(&store, watched);
         let held = from_cache(&store, folder_id);
 
         let folder = match store.folders() {
@@ -425,6 +656,10 @@ fn poll_once<R: Runtime>(app: &AppHandle<R>, watched: &Watched, ahead: &Ahead<'_
         // harvest — telling an operator they have never signed in.
         None => {
             emit_view(app, held, ahead(Tick::NotAttempted));
+            // Re-emitted exactly as it stands. Nothing was attempted, so
+            // nothing is stamped and nothing is compared: the ledger keeps the
+            // rows it had and the snapshot keeps the age it had.
+            emit_snapshot(app, ledgers.held());
             return Tick::NotAttempted;
         }
         // Never signed in, or the harvest was discarded so `gh` was never
@@ -440,7 +675,11 @@ fn poll_once<R: Runtime>(app: &AppHandle<R>, watched: &Watched, ahead: &Ahead<'_
         }
     };
 
-    let fresh = match read_maps(token, &repo.owner, &repo.name, None) {
+    // The map the WebView is looking at, spent at last. `map-read.graphql`
+    // `@include`s the graph only when a number is supplied, so this is the one
+    // call that decides whether this tick has a model to derive at all — and
+    // the ledger's only input is that model's diff.
+    let fresh = match read_maps(token, &repo.owner, &repo.name, watched.map) {
         Ok(fresh) => fresh,
         // The one classification this function does not make itself. The crate
         // that held the socket is the one that saw the status, the header and
@@ -463,9 +702,8 @@ fn poll_once<R: Runtime>(app: &AppHandle<R>, watched: &Watched, ahead: &Ahead<'_
     // that refusal is `Unreachable` and the tick is still `Read`: the stamp
     // says the copy will not survive the session, and nothing backs off.
     let stored = match registry.store() {
-        Ok(store) => {
-            remember_read(&store, folder_id, &fresh).map_err(|refusal| refusal.to_string())
-        }
+        Ok(store) => remember_read(&store, folder_id, watched.map, &fresh)
+            .map_err(|refusal| refusal.to_string()),
         Err(refusal) => Err(refusal),
     };
     match stored {
@@ -475,6 +713,20 @@ fn poll_once<R: Runtime>(app: &AppHandle<R>, watched: &Watched, ahead: &Ahead<'_
             emit_view(app, view.stale(reason, why), paced_by)
         }
     }
+    // The one derivation this process takes, and the ledger's only input. It is
+    // taken from the answer rather than from the row that answer was written
+    // to, so a cache the registry declined to write changes what survives the
+    // session and nothing about what is on screen: the graph came from GitHub
+    // either way, and the stamp beside the map list is where that refusal is
+    // already reported.
+    emit_snapshot(
+        app,
+        ledgers.observed(
+            Model::of(fresh.read()),
+            fresh.fetched_at(),
+            &claims.originated(),
+        ),
+    );
     // What this answer said about the budget, anchored to when it landed. The
     // loop ages it against its own last tick; nothing here interprets it.
     Tick::Read(fresh.budget())
@@ -1053,6 +1305,12 @@ pub fn run() {
         .setup(|app| {
             app.manage(Registry::open(app.handle()));
             app.manage(Ambient::harvesting());
+            // Before the poller, for the reason the poller is managed before
+            // the harvest: `poll_once` reads both of these on every tick, and a
+            // tick that arrived before they existed would be a panic rather
+            // than a missed row.
+            app.manage(Ledgers::new());
+            app.manage(Claims::new());
             // Before the harvest, because the harvest's thread pokes the poller
             // the moment it settles and a poke into a state nobody manages yet
             // would be the first read of a launch, dropped.
@@ -1266,7 +1524,13 @@ mod tests {
     fn the_first_paint_after_a_read_comes_from_the_cache_and_says_so() {
         let (store, folder_id) = registry_with_a_folder();
 
-        remember_read(&store, folder_id, &a_fresh_read(TWO_MAPS, 1_785_888_000)).expect("caches");
+        remember_read(
+            &store,
+            folder_id,
+            None,
+            &a_fresh_read(TWO_MAPS, 1_785_888_000),
+        )
+        .expect("caches");
 
         // The same bytes, read back the way the next launch will read them.
         let json = serde_json::to_value(from_cache(&store, folder_id)).expect("serialises");
@@ -1280,7 +1544,7 @@ mod tests {
     #[test]
     fn a_read_that_did_not_succeed_leaves_the_cache_exactly_as_it_was() {
         let (store, folder_id) = registry_with_a_folder();
-        remember_read(&store, folder_id, &a_fresh_read(TWO_MAPS, 100)).expect("caches");
+        remember_read(&store, folder_id, None, &a_fresh_read(TWO_MAPS, 100)).expect("caches");
         let before = store.cached_graph(folder_id, None).expect("reads");
 
         let failed = perseverance_github::interpret_read(
@@ -1334,6 +1598,7 @@ mod tests {
     struct Window {
         app: tauri::App<MockRuntime>,
         emitted: Receiver<serde_json::Value>,
+        snapshots: Receiver<serde_json::Value>,
     }
 
     impl Window {
@@ -1341,13 +1606,23 @@ mod tests {
             let app = mock_app();
             app.manage(registry);
             app.manage(ambient);
+            app.manage(Ledgers::new());
+            app.manage(Claims::new());
 
             let (tx, emitted) = mpsc::channel();
             app.listen(MAPS_EVENT, move |event| {
                 let _ = tx.send(serde_json::from_str(event.payload()).expect("a view"));
             });
+            let (tx, snapshots) = mpsc::channel();
+            app.listen(SNAPSHOT_EVENT, move |event| {
+                let _ = tx.send(serde_json::from_str(event.payload()).expect("a snapshot"));
+            });
 
-            Window { app, emitted }
+            Window {
+                app,
+                emitted,
+                snapshots,
+            }
         }
 
         /// A window whose registry opened, over a folder at `path`.
@@ -1379,6 +1654,12 @@ mod tests {
                 .emitted
                 .try_recv()
                 .expect("every return of poll_once emits a view");
+            // Both surfaces, from every return. A failing branch that emitted
+            // one and forgot the other would leave a fresh graph beside a stale
+            // list, or a stale graph nobody was told about.
+            self.snapshots
+                .try_recv()
+                .expect("every return of poll_once emits a snapshot");
             (tick, view)
         }
     }
@@ -1566,7 +1847,7 @@ mod tests {
             .cache_graph(folder_id, Some(99), "a map that has since gone", 10)
             .expect("caches");
 
-        remember_read(&store, folder_id, &a_fresh_read(TWO_MAPS, 100)).expect("caches");
+        remember_read(&store, folder_id, None, &a_fresh_read(TWO_MAPS, 100)).expect("caches");
 
         assert_eq!(
             store.cached_graph(folder_id, Some(99)).expect("reads"),
@@ -1577,7 +1858,7 @@ mod tests {
     #[test]
     fn a_cached_body_that_cannot_be_read_is_reported_rather_than_deleted() {
         let (store, folder_id) = registry_with_a_folder();
-        remember_read(&store, folder_id, &a_fresh_read(TWO_MAPS, 100)).expect("caches");
+        remember_read(&store, folder_id, None, &a_fresh_read(TWO_MAPS, 100)).expect("caches");
         store
             .cache_graph(folder_id, None, "<html>a proxy got at it</html>", 100)
             .expect("overwrites with something unreadable");
@@ -1598,10 +1879,350 @@ mod tests {
     fn the_cached_body_is_the_one_github_sent_rather_than_a_shadow_of_it() {
         let (store, folder_id) = registry_with_a_folder();
 
-        remember_read(&store, folder_id, &a_fresh_read(TWO_MAPS, 100)).expect("caches");
+        remember_read(&store, folder_id, None, &a_fresh_read(TWO_MAPS, 100)).expect("caches");
 
         // #33 derives its model from this, so it has to be the bytes and not a
         // re-serialisation of what this slice happened to parse out of them.
+        assert_eq!(
+            store
+                .cached_graph(folder_id, None)
+                .expect("reads")
+                .expect("is there")
+                .graph_json,
+            TWO_MAPS
+        );
+    }
+
+    /* ------------------------------------------------------ the ledger --- */
+
+    use perseverance_model::{ClauseKind, Occasion, Since};
+
+    /// The map the two fixtures below are two reads of. Not 28 — that is
+    /// `two-maps-one-open.json`'s.
+    const AWKWARD_MAP: u64 = 60;
+    const AWKWARD: &str = include_str!("../../model/fixtures/awkward-children.json");
+    /// The same map read again: #77 closed, #72 became takeable and took the
+    /// frontier off #75, and #76 was renamed.
+    const AWKWARD_LATER: &str = include_str!("../../model/fixtures/awkward-children-later.json");
+
+    fn model_of(body: &str) -> Model {
+        Model::of(&read_response(body).expect("reads"))
+    }
+
+    fn watching_map(folder_id: i64, map: u64) -> Watched {
+        Watched {
+            folder_id,
+            map: Some(map),
+        }
+    }
+
+    /// The clauses on the one entry a snapshot's ledger carries.
+    fn only_entry(snapshot: &Snapshot) -> &perseverance_model::Entry {
+        assert_eq!(
+            snapshot.ledger.entries.len(),
+            1,
+            "{:?}",
+            snapshot.ledger.entries
+        );
+        &snapshot.ledger.entries[0]
+    }
+
+    /// Which clauses on that entry count towards the unread numeral. The far
+    /// side sums exactly this and holds nothing else.
+    fn announced(snapshot: &Snapshot) -> Vec<ClauseKind> {
+        only_entry(snapshot)
+            .clauses
+            .iter()
+            .filter(|clause| clause.announce)
+            .map(|clause| clause.kind)
+            .collect()
+    }
+
+    /// **A map nobody has read reads *first open*, not `0 changes`.**
+    ///
+    /// And it goes on reading *first open* through the first landed poll, which
+    /// is the case worth pinning: one read is not a comparison, so the zero is
+    /// still not available to be told. Only the second poll — the first one with
+    /// something to compare against — can produce a number.
+    #[test]
+    fn a_map_with_no_cache_row_starts_at_first_open_rather_than_at_zero_changes() {
+        let (store, folder_id) = registry_with_a_folder();
+        let ledgers = Ledgers::new();
+
+        ledgers.attend(&store, &watching_map(folder_id, AWKWARD_MAP));
+        assert_eq!(ledgers.held().ledger.since, Since::FirstOpen);
+
+        let first = ledgers.observed(model_of(AWKWARD), 100, &[]);
+        assert_eq!(first.ledger.since, Since::FirstOpen);
+        assert!(first.ledger.entries.is_empty());
+
+        let second = ledgers.observed(model_of(AWKWARD_LATER), 200, &[]);
+        assert_eq!(second.ledger.since, Since::Watching);
+        // A poll that landed while this session was watching, rather than a gap
+        // it was away for.
+        assert_eq!(only_entry(&second).occasion, Occasion::Tick);
+        assert_eq!(only_entry(&second).seq, 1);
+    }
+
+    /// **The cold start, whole**: the row `graph_cache` alone is what makes
+    /// drawable.
+    ///
+    /// One row for the gap however long it was, because the ledger has no way to
+    /// know how many polls it would have taken and inventing them would be
+    /// inventing history. The three changes collapse by kind, and the numbers
+    /// are on the clauses rather than in a sentence.
+    #[test]
+    fn a_cached_graph_is_the_baseline_the_while_you_were_away_row_is_drawn_from() {
+        let (store, folder_id) = registry_with_a_folder();
+        store
+            .cache_graph(folder_id, Some(AWKWARD_MAP), AWKWARD, 100)
+            .expect("caches");
+
+        let ledgers = Ledgers::new();
+        ledgers.attend(&store, &watching_map(folder_id, AWKWARD_MAP));
+        let snapshot = ledgers.observed(model_of(AWKWARD_LATER), 200, &[]);
+
+        assert_eq!(snapshot.ledger.since, Since::Watching);
+        let entry = only_entry(&snapshot);
+        assert_eq!(entry.occasion, Occasion::WhileYouWereAway);
+        assert_eq!(
+            entry
+                .clauses
+                .iter()
+                .map(|clause| (clause.kind, clause.numbers.clone()))
+                .collect::<Vec<_>>(),
+            vec![
+                (ClauseKind::Resolved, vec![77]),
+                (ClauseKind::Unblocked, vec![72]),
+                (ClauseKind::FrontierMoved, Vec::new()),
+                // #76 was renamed, and a rename has no word in the vocabulary.
+                // #72 is on here too, beside the `unblocked` clause that also
+                // names it: it dropped both the edges it waited on, and the
+                // catch-all reports what the named clauses did not consume
+                // rather than only the nodes they missed altogether.
+                (ClauseKind::Unnamed, vec![72, 76]),
+            ]
+        );
+        // Everything the vocabulary named announces; the catch-all never does.
+        assert_eq!(
+            announced(&snapshot),
+            vec![
+                ClauseKind::Resolved,
+                ClauseKind::Unblocked,
+                ClauseKind::FrontierMoved
+            ]
+        );
+    }
+
+    /// **A failed poll draws no row**, and the copy on screen keeps the age it
+    /// already had.
+    ///
+    /// The ledger is untouched rather than appended with a failure, because a
+    /// failure is not a thing that happened to the map — the stale stamp beside
+    /// it is where the health lives, and it is the only thing that moves.
+    #[test]
+    fn a_failed_poll_ages_the_held_snapshot_and_draws_no_row() {
+        let (store, folder_id) = registry_with_a_folder();
+        store
+            .cache_graph(folder_id, Some(AWKWARD_MAP), AWKWARD, 100)
+            .expect("caches");
+
+        let ledgers = Ledgers::new();
+        ledgers.attend(&store, &watching_map(folder_id, AWKWARD_MAP));
+        let landed = ledgers.observed(model_of(AWKWARD_LATER), 1_785_888_000, &[]);
+
+        let aged = ledgers.aged(Degraded::Unreachable, "nothing answered".to_string());
+
+        // The same entries, and the same one row: nothing was compared, so
+        // nothing was recorded.
+        assert_eq!(aged.ledger.entries, landed.ledger.entries);
+        assert_eq!(aged.ledger.since, Since::Watching);
+        // The model and the stamp stay exactly as they were; only the outcome
+        // changes, which is what makes staleness visible rather than emptiness.
+        assert_eq!(aged.model, landed.model);
+        assert_eq!(
+            aged.provenance.fetched_at.as_deref(),
+            Some("2026-08-05T00:00:00Z")
+        );
+        // And what is on screen stops calling itself a live read. The last poll
+        // landed from GitHub and this one did not, so the graph beside the
+        // stamp is the copy that read left behind — the stamp saying *read from
+        // GitHub* about an answer GitHub did not give would be the health
+        // reading as its own opposite, and on this surface `github` beside a
+        // failure is the WebView's sentence for a read that **landed** and
+        // could not be stored.
+        assert_eq!(landed.provenance.source, Source::Github);
+        assert_eq!(aged.provenance.source, Source::Cache);
+        assert!(matches!(
+            aged.provenance.outcome,
+            ReadOutcome::Failed {
+                reason: Degraded::Unreachable,
+                ..
+            }
+        ));
+        // And it is what the `snapshot` command answers from here on.
+        assert_eq!(ledgers.held().ledger.entries, landed.ledger.entries);
+    }
+
+    /// Schema drift on a copy is *first open*, not a map that has not moved —
+    /// and emphatically not a deletion.
+    ///
+    /// The next successful read replaces the row. Until then there is nothing to
+    /// compare against, and saying so is the only honest answer: a build that
+    /// cannot read yesterday's cache has not established that nothing changed.
+    #[test]
+    fn a_cached_body_this_build_cannot_read_is_a_first_open_rather_than_a_deletion() {
+        let (store, folder_id) = registry_with_a_folder();
+        store
+            .cache_graph(
+                folder_id,
+                Some(AWKWARD_MAP),
+                "<html>a proxy got at it</html>",
+                100,
+            )
+            .expect("caches");
+
+        let ledgers = Ledgers::new();
+        ledgers.attend(&store, &watching_map(folder_id, AWKWARD_MAP));
+        let snapshot = ledgers.observed(model_of(AWKWARD_LATER), 200, &[]);
+
+        assert_eq!(snapshot.ledger.since, Since::FirstOpen);
+        assert!(snapshot.ledger.entries.is_empty());
+        // Only a successful GitHub read may delete anything, and that rule has
+        // no exception for a row this build happens to be unable to parse.
+        assert!(store
+            .cached_graph(folder_id, Some(AWKWARD_MAP))
+            .expect("reads")
+            .is_some());
+    }
+
+    /// A different map is a different log, and the same one is the same log.
+    ///
+    /// The second half is what stops the first from being a bug: `attend` runs
+    /// at the top of every poll, so a comparison of `(folder, map)` that was
+    /// wrong in the other direction would throw the ring away ten seconds after
+    /// filling it.
+    #[test]
+    fn watching_a_different_map_starts_a_new_ledger() {
+        let (store, folder_id) = registry_with_a_folder();
+        store
+            .cache_graph(folder_id, Some(AWKWARD_MAP), AWKWARD, 100)
+            .expect("caches");
+
+        let ledgers = Ledgers::new();
+        ledgers.attend(&store, &watching_map(folder_id, AWKWARD_MAP));
+        ledgers.observed(model_of(AWKWARD_LATER), 200, &[]);
+        assert_eq!(ledgers.held().ledger.entries.len(), 1);
+
+        // Another map on the same folder, which nothing has ever been read for.
+        // The row belonging to the map we just left is not an older read of
+        // this one, so nothing crosses: no entries, and no graph either.
+        ledgers.attend(&store, &watching_map(folder_id, 28));
+        let opened = ledgers.held();
+        assert_eq!(opened.ledger.since, Since::FirstOpen);
+        assert!(opened.ledger.entries.is_empty());
+        assert!(opened.model.map.is_none());
+
+        // The same pair again, on the next tick of the same session.
+        ledgers.observed(model_of(AWKWARD), 300, &[]);
+        ledgers.observed(model_of(AWKWARD_LATER), 400, &[]);
+        ledgers.attend(&store, &watching_map(folder_id, 28));
+        assert_eq!(ledgers.held().ledger.entries.len(), 1);
+    }
+
+    /// **The claim this harness originated, and the frontier move with it, are
+    /// the two clauses that do not count.**
+    ///
+    /// The same two facts twice, differing only in whether [`Claims`] was told.
+    /// Somebody else claiming the frontier is the whole reason the numeral
+    /// exists; this harness claiming it is the one change on screen an operator
+    /// could have predicted, and the move that follows is that same fact told a
+    /// second time.
+    ///
+    /// The record is complete either way — both clauses are on the row in both
+    /// runs, with their numbers. Only the announcement is selective.
+    #[test]
+    fn a_claim_this_harness_originated_and_the_move_after_it_leave_the_numeral_alone() {
+        let (store, folder_id) = registry_with_a_folder();
+        store
+            .cache_graph(folder_id, Some(AWKWARD_MAP), AWKWARD_LATER, 100)
+            .expect("caches");
+
+        // Somebody else took #72, which was the frontier.
+        let theirs = Ledgers::new();
+        theirs.attend(&store, &watching_map(folder_id, AWKWARD_MAP));
+        let snapshot = theirs.observed(somebody_holds_72(), 200, &Claims::new().originated());
+        assert_eq!(
+            announced(&snapshot),
+            vec![ClauseKind::Claimed, ClauseKind::FrontierMoved]
+        );
+
+        // The same two facts, with this session's harness having claimed it.
+        let ours = Ledgers::new();
+        ours.attend(&store, &watching_map(folder_id, AWKWARD_MAP));
+        let claims = Claims::new();
+        claims.claimed(72);
+        // Twice, because a claim taken twice is still one claim.
+        claims.claimed(72);
+        let snapshot = ours.observed(somebody_holds_72(), 200, &claims.originated());
+
+        assert_eq!(announced(&snapshot), Vec::new());
+        assert_eq!(
+            only_entry(&snapshot)
+                .clauses
+                .iter()
+                .map(|clause| (clause.kind, clause.numbers.clone(), clause.count))
+                .collect::<Vec<_>>(),
+            vec![
+                (ClauseKind::Claimed, vec![72], 1),
+                (ClauseKind::FrontierMoved, Vec::new(), 1),
+            ]
+        );
+    }
+
+    /// The *later* read with one more thing true of it: somebody now holds #72,
+    /// which is the node that read as the frontier.
+    ///
+    /// Assembled by editing the **answer** rather than the model, so what comes
+    /// out is a graph the derivation could actually produce — counts, phase and
+    /// frontier included. A hand-built `Model` would let this test assert
+    /// against a state GitHub can never send.
+    fn somebody_holds_72() -> Model {
+        let mut answer: serde_json::Value = serde_json::from_str(AWKWARD_LATER).expect("json");
+        let children = answer["data"]["repository"]["issue"]["subIssues"]["nodes"]
+            .as_array_mut()
+            .expect("the children of the map");
+        let held = children
+            .iter_mut()
+            .find(|child| child["number"] == 72)
+            .expect("#72 is on this map");
+        held["assignees"]["nodes"] = serde_json::json!([{ "login": "javrasya" }]);
+
+        model_of(&answer.to_string())
+    }
+
+    /// The map's own row is written by the same read that writes the folder's,
+    /// and it is the verbatim body rather than a shadow of it — because the
+    /// next launch derives its baseline from exactly these bytes.
+    #[test]
+    fn a_read_taken_with_a_map_open_caches_that_map_s_own_row_as_well() {
+        let (store, folder_id) = registry_with_a_folder();
+
+        remember_read(
+            &store,
+            folder_id,
+            Some(28),
+            &a_fresh_read(TWO_MAPS, 1_785_888_000),
+        )
+        .expect("caches");
+
+        let cached = store
+            .cached_graph(folder_id, Some(28))
+            .expect("reads")
+            .expect("is there");
+        assert_eq!(cached.graph_json, TWO_MAPS);
+        assert_eq!(cached.fetched_at, 1_785_888_000);
+        // And the folder's own row is still the list, unchanged by any of it.
         assert_eq!(
             store
                 .cached_graph(folder_id, None)

@@ -6,6 +6,7 @@ import {
   readDefaultView,
   writeDefaultView,
 } from "../src/views/views";
+import { collect } from "./support/sources";
 
 /**
  * The view the app opens on, remembered globally.
@@ -137,5 +138,84 @@ describe("the default view is remembered globally", () => {
     // the click that would have been remembered.
     expect(readDefaultView()).toBe(DEFAULT_VIEW);
     expect(() => writeDefaultView("route")).not.toThrow();
+  });
+});
+
+/**
+ * What a view is handed, asserted as a type rather than as a convention.
+ *
+ * *No view renders the record of what changed* is the acceptance criterion, and
+ * the way it is met is that there is nothing in `ViewProps` for a view to
+ * render. A rule would need somebody to keep it at every view added after this
+ * one; a prop type that names `model` and stops needs nobody.
+ *
+ * `views.ts` is the one file under `src/views/` these two cases treat
+ * differently, and deliberately: it is not a view, it is the contract, and the
+ * file that declares an exclusion is the file allowed to say what it excludes.
+ * Every actual view is scanned.
+ */
+describe("the prop type is the whole of what a view can see", () => {
+  const PROP_TYPE = "src/views/views.ts";
+
+  function viewSources() {
+    return collect([".ts", ".tsx"]).filter((file) => file.path.startsWith("src/views/"));
+  }
+
+  it("hands every view one type, declared once", () => {
+    const declared = viewSources().filter((file) =>
+      /\binterface\s+\w*Props\b/.test(file.text),
+    );
+
+    // One declaration, in the contract. A view free to declare its own props
+    // could widen them to the whole snapshot with nothing here failing, which
+    // would make every case below a statement about today only.
+    expect(declared.map((file) => file.path)).toEqual([PROP_TYPE]);
+
+    const view = viewSources().find((file) => file.path === "src/views/route/Route.tsx");
+    expect(view?.text).toContain("import type { ViewProps }");
+    expect(view?.text).toContain("}: ViewProps)");
+  });
+
+  it("names the model and never the snapshot it arrived on", () => {
+    const contract = viewSources().find((file) => file.path === PROP_TYPE);
+    const body = /export interface ViewProps \{([^}]*)\}/.exec(contract?.text ?? "")?.[1];
+    if (body === undefined) throw new Error(`${PROP_TYPE} declares no ViewProps`);
+
+    /*
+     * The declaration only, not the file. The file has to import the type it
+     * names, and that import path spells `snapshot` — what matters is that no
+     * *field* does. The record rides on the `Snapshot` beside `model`, so a
+     * `snapshot: Snapshot` here is the whole of the distance between a
+     * structural exclusion and a rule.
+     */
+    expect(body).toContain("model: Model");
+    expect(body).not.toMatch(/snapshot/i);
+    expect(body).not.toMatch(/\bledger\b/i);
+
+    // And the three fields are the whole of it, so a fourth is a failure here
+    // before it is a field a view can read.
+    const fields = body
+      .split(";")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+    expect(fields).toEqual([
+      "model: Model",
+      "selected: number | null",
+      "onSelect: (number: number | null) => void",
+    ]);
+  });
+
+  it("leaves no view with a word for the record it cannot reach", () => {
+    const offenders = viewSources()
+      .filter((file) => file.path !== PROP_TYPE)
+      .filter((file) => /\bledger\b/i.test(file.text))
+      .map((file) => file.path);
+
+    /*
+     * Not a style rule about comments. A view that has a name for the record is
+     * a view somebody has already started reasoning about drawing it from, and
+     * the first thing that would arrive after the name is a prop to carry it.
+     */
+    expect(offenders).toEqual([]);
   });
 });

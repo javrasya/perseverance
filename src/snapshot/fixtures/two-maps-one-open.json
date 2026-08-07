@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "model": {
     "map": {
       "number": 28,
@@ -48,5 +48,9 @@
       "kind": "ok"
     },
     "fetchedAt": "2026-08-05T08:00:00Z"
+  },
+  "ledger": {
+    "since": "firstOpen",
+    "entries": []
   }
 }

@@ -94,6 +94,14 @@ That is a gain, and it also means a doc comment is no longer free to be sloppy.
 **Nobody edits the generated file**, and its first line says so. The reason it
 cannot drift is precisely that no human maintains it.
 
+**The first of the six later tickets landed as predicted.** #41 added the change
+ledger as a fourth field on `Snapshot`, and the failure was steps 1–4 above in
+order, ending with `SCHEMA_VERSION` at 2 — see
+[ADR 0010](0010-the-change-ledger-is-a-notification-surface-not-an-archive.md).
+One hand-maintained file did not move with it: `crates/model/fixtures/no-map-open.json`
+is `include_str!`d by the crate's own tests rather than generated, so a further
+version bump has to edit it by hand.
+
 **A serde attribute and its `ts` counterpart could in principle disagree.** The
 `serde-compat` feature reads the serde attributes directly, and the two hardest
 cases here — adjacent tagging over a mixed unit/newtype variant set with a

@@ -26,21 +26,33 @@ import type { Snapshot } from "./model.generated";
 
 export type {
   ChildKind,
+  Clause,
+  ClauseKind,
   Counts,
   Degraded,
+  Entry,
+  Ledger,
   Map,
   Model,
   Node,
   NodeState,
+  Occasion,
   Phase,
   Provenance,
   ReadOutcome,
+  Since,
   Snapshot,
   Source,
   TicketType,
 } from "./model.generated";
 
-export const SCHEMA_VERSION = 1;
+/**
+ * Two, since the ledger joined the wire. It rides on the snapshot **beside**
+ * the model rather than inside it, which is what puts it outside the type every
+ * view is handed — so *no view renders the ledger* is structural here rather
+ * than a rule anybody has to keep.
+ */
+export const SCHEMA_VERSION = 2;
 
 /**
  * True when the app is running inside the Tauri shell. Its negation is the
@@ -76,12 +88,48 @@ export async function loadSnapshot(search?: string): Promise<Snapshot> {
   return await invoke<Snapshot>("snapshot");
 }
 
+/** The Rust side's string, not one this file invented. See `SNAPSHOT_EVENT`. */
+const SNAPSHOT_EVENT = "snapshot";
+
+/**
+ * Every tick the poller finished, for as long as this window is open.
+ *
+ * The one-shot command above answers with the same value this carries — the
+ * poller's latest derivation, stored once and handed out twice — so the
+ * subscription and the command cannot disagree about what is on screen. What
+ * the subscription adds is the ticks after the first: without it, a window
+ * opened at launch would show the model as it was at mount for the rest of the
+ * process, and the ledger beside it would never gain a row.
+ *
+ * **A failed poll arrives too**, exactly as it does on the `maps` event: the
+ * last model it had, with an aged stamp, and a ledger that did not grow. Never
+ * silence, never an emptied graph, and never a row — a poll that did not land
+ * established nothing to write down, and the stale stamp is what carries the
+ * health. So an arrival on this channel is not by itself evidence that anything
+ * moved.
+ *
+ * Returns the way to stop listening, for the same reason `watchMaps` does: a
+ * subscription that outlives its component is a leak. A browser subscribes to
+ * nothing, because nothing behind it is polling — `dev:web` is a single
+ * checked-in answer and there is no second one coming.
+ */
+export async function watchSnapshot(
+  onSnapshot: (snapshot: Snapshot) => void,
+): Promise<() => void> {
+  if (!hasRustBehindIt()) return () => {};
+  const { listen } = await import("@tauri-apps/api/event");
+  return await listen<Snapshot>(SNAPSHOT_EVENT, ({ payload }) => onSnapshot(payload));
+}
+
 /** The state the app opens in, before anything has answered. */
 export function noMapOpen(): Snapshot {
   return {
     schemaVersion: SCHEMA_VERSION,
     model: { map: null },
     provenance: { source: "none", outcome: { kind: "notAttempted" }, fetchedAt: null },
+    // *First open*, never `0 changes`: nothing has been compared against
+    // anything, and a map nobody has read is not a map that has not moved.
+    ledger: { since: "firstOpen", entries: [] },
   };
 }
 

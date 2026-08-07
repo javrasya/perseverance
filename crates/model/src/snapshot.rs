@@ -1,9 +1,16 @@
 use serde::{Deserialize, Serialize};
 
 use crate::derive::Model;
+use crate::ledger::Ledger;
 
 /// Forward-only. An unrecognised version is refused rather than guessed at.
-pub const SCHEMA_VERSION: u32 = 1;
+///
+/// Two, since the ledger joined the wire. The field is required rather than
+/// defaulted: nothing persists a snapshot anywhere, the fixtures are this
+/// crate's own regenerated output, and a `serde(default)` would let a build
+/// that speaks version two quietly accept a version-one body — which is the
+/// guessing this constant exists to refuse.
+pub const SCHEMA_VERSION: u32 = 2;
 
 /// Everything the WebView is given for one tick.
 ///
@@ -31,6 +38,19 @@ pub struct Snapshot {
     pub schema_version: u32,
     pub model: Model,
     pub provenance: Provenance,
+    /// What moved since you last looked — **a sibling of the model and never a
+    /// field inside it**, for two independent reasons.
+    ///
+    /// The first is arithmetic: [`Snapshot::changed_from`] is whole-model
+    /// equality, so a ledger inside [`Model`] would grow an entry every time
+    /// anything moved and thereby make the *next* tick differ from the last,
+    /// for ever.
+    ///
+    /// The second is the ticket's own requirement that no view can render it.
+    /// [`Model`] is exactly what the views are handed; a field out here is
+    /// outside the view prop type structurally, rather than by a rule somebody
+    /// has to keep remembering.
+    pub ledger: Ledger,
 }
 
 /// How this snapshot came to exist, and when. Age is always renderable because
@@ -148,10 +168,16 @@ impl Snapshot {
                 outcome: ReadOutcome::NotAttempted,
                 fetched_at: None,
             },
+            ledger: Ledger::first_open(),
         }
     }
 
     /// One read that landed, derived and stamped.
+    ///
+    /// The ledger it comes out with is *first open*, which is the true
+    /// statement about a read taken on its own: one read is not a comparison.
+    /// [`Snapshot::with_ledger`] is how a log that has compared something
+    /// replaces it.
     pub fn read(model: Model, source: Source, fetched_at: String) -> Self {
         Self {
             schema_version: SCHEMA_VERSION,
@@ -161,7 +187,19 @@ impl Snapshot {
                 outcome: ReadOutcome::Ok,
                 fetched_at: Some(fetched_at),
             },
+            ledger: Ledger::first_open(),
         }
+    }
+
+    /// The only way a ledger reaches a snapshot.
+    ///
+    /// By value, in the style of [`Snapshot::aged`]: there is no way to hand a
+    /// ledger to a snapshot somebody else still holds, so the record on screen
+    /// is always the one that rode in with this model rather than a later log
+    /// stapled onto an earlier graph.
+    pub fn with_ledger(mut self, ledger: Ledger) -> Snapshot {
+        self.ledger = ledger;
+        self
     }
 
     /// **A failed poll still emits a snapshot, never silence.**
@@ -182,7 +220,25 @@ impl Snapshot {
     /// the sentence it was handed; a signature that took one of them would
     /// force whoever holds the other to invent it, and a condition invented at
     /// the render site is a condition nobody established.
+    ///
+    /// **And [`Source::Github`] stops being true here.** The graph stays, but
+    /// what is on screen is no longer a live read — it is the copy the last
+    /// read left behind, which nothing newer has replaced. Leaving the source
+    /// alone would say the opposite twice over: a stamp reading *read from
+    /// GitHub* about an answer GitHub did not give, and — because the WebView
+    /// reserves *not stored for next time* for a read that **landed** and could
+    /// not be cached — a revoked token rendering as a cache-write problem. The
+    /// downgrade is taken here rather than at each caller for the reason the
+    /// value-taking signature is: there is one way to age a snapshot, so there
+    /// is one place this can be got wrong.
+    ///
+    /// The other three sources are left exactly as they are. A fixture that
+    /// failed is still a fixture, and *nothing read yet* is not a copy of
+    /// anything.
     pub fn aged(mut self, reason: Degraded, why: String) -> Self {
+        if self.provenance.source == Source::Github {
+            self.provenance.source = Source::Cache;
+        }
         self.provenance.outcome = ReadOutcome::Failed {
             reason,
             detail: why,
@@ -198,6 +254,11 @@ impl Snapshot {
     /// error anywhere; a hash is the same failure with an extra step. And
     /// nothing here reaches a timestamp, because the model has none to reach —
     /// see [`crate::derive`].
+    ///
+    /// **The ledger is deliberately not in it.** The ledger is written *from*
+    /// this comparison, so comparing it too would make every tick after the
+    /// first differ from the last on the strength of its own output. That is
+    /// also why [`crate::Ledger`] has no `PartialEq` to reach for here.
     pub fn changed_from(&self, previous: &Snapshot) -> bool {
         self.model != previous.model
     }
@@ -224,7 +285,8 @@ impl Snapshot {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::derive::{Counts, Phase};
+    use crate::derive::{Counts, NodeState, Phase};
+    use crate::ledger::{ChangeLog, Since};
     use crate::read_response;
 
     const NO_MAP_OPEN_FIXTURE: &str = include_str!("../fixtures/no-map-open.json");
@@ -301,7 +363,8 @@ mod tests {
         let json = r#"{
             "schemaVersion": 99,
             "model": { "map": null },
-            "provenance": { "source": "none", "outcome": { "kind": "notAttempted" }, "fetchedAt": null }
+            "provenance": { "source": "none", "outcome": { "kind": "notAttempted" }, "fetchedAt": null },
+            "ledger": { "since": "firstOpen", "entries": [] }
         }"#;
 
         let error = Snapshot::from_json_str(json).expect_err("refuses");
@@ -315,7 +378,7 @@ mod tests {
     #[test]
     fn a_failed_read_carries_both_what_was_concluded_and_what_was_said() {
         let json = r#"{
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "model": { "map": null },
             "provenance": {
                 "source": "cache",
@@ -325,7 +388,8 @@ mod tests {
                     "detail": "rate limit exhausted"
                 },
                 "fetchedAt": "2026-08-05T08:00:00Z"
-            }
+            },
+            "ledger": { "since": "firstOpen", "entries": [] }
         }"#;
 
         let snapshot = Snapshot::from_json_str(json).expect("parses");
@@ -415,6 +479,40 @@ mod tests {
         );
     }
 
+    /// A poll that did not land leaves a **copy** on screen, and the stamp has
+    /// to say the copy rather than the read.
+    ///
+    /// This is the half of *the stale stamp carries the health* that is easy to
+    /// get wrong: the outcome is right and the source is a leftover. `github`
+    /// beside a failure is the WebView's sentence for a read that landed and
+    /// could not be stored — so a revoked token would have rendered as a
+    /// cache-write problem, with the age of a read GitHub never gave.
+    #[test]
+    fn a_failed_poll_stops_calling_what_is_on_screen_a_live_read() {
+        let held = Snapshot::read(a_read(), Source::Github, "2026-08-05T08:00:00Z".to_string());
+
+        let aged = held.aged(
+            Degraded::AuthFailed,
+            "GitHub would not accept it".to_string(),
+        );
+
+        assert_eq!(aged.provenance.source, Source::Cache);
+        // The stamp itself does not move: the copy has the age it always had,
+        // and goes on ageing.
+        assert_eq!(
+            aged.provenance.fetched_at.as_deref(),
+            Some("2026-08-05T08:00:00Z")
+        );
+
+        // The other sources are untouched. A fixture that failed is still a
+        // fixture, and *nothing read yet* is not a copy of anything.
+        for source in [Source::Fixture, Source::None] {
+            let aged = Snapshot::read(a_read(), source, "2026-08-05T08:00:00Z".to_string())
+                .aged(Degraded::Unreachable, "nothing answered".to_string());
+            assert_eq!(aged.provenance.source, source);
+        }
+    }
+
     #[test]
     fn a_failed_poll_is_not_a_change() {
         let held = Snapshot::read(a_read(), Source::Github, "2026-08-05T08:00:00Z".to_string());
@@ -435,6 +533,82 @@ mod tests {
         let second = Snapshot::read(a_read(), Source::Github, "2026-08-05T09:00:00Z".to_string());
 
         assert!(!second.changed_from(&first));
+    }
+
+    /// The structural half of *no view can render the ledger*: it is a field of
+    /// the snapshot, and [`Model`] — which is the whole of what a view is handed
+    /// — has no path to it. Serialising the model and looking for the word is
+    /// the cheapest way to say so from inside this crate.
+    #[test]
+    fn the_ledger_rides_beside_the_model_and_never_inside_it() {
+        let mut log = ChangeLog::first_open();
+        log.observed(&a_read(), &[]);
+        let mut moved = a_read();
+        moved.map.as_mut().expect("a map").nodes[0].state = NodeState::Claimed;
+        log.observed(&moved, &[]);
+
+        let snapshot = Snapshot::read(moved, Source::Github, "2026-08-05T09:00:00Z".to_string())
+            .with_ledger(log.ledger());
+
+        assert_eq!(snapshot.ledger.entries.len(), 1);
+        let model_alone = serde_json::to_string(&snapshot.model).expect("serialises");
+        assert!(!model_alone.contains("ledger"));
+        assert!(!model_alone.contains("clauses"));
+    }
+
+    #[test]
+    fn a_ledger_that_grew_is_not_by_itself_a_change() {
+        let held = Snapshot::read(a_read(), Source::Github, "2026-08-05T08:00:00Z".to_string());
+
+        let mut log = ChangeLog::first_open();
+        log.observed(&a_read(), &[]);
+        let mut moved = a_read();
+        moved.map.as_mut().expect("a map").nodes[0].state = NodeState::Claimed;
+        log.observed(&moved, &[]);
+
+        let with_a_row =
+            Snapshot::read(a_read(), Source::Github, "2026-08-05T09:00:00Z".to_string())
+                .with_ledger(log.ledger());
+
+        // The ledger is written *from* the comparison, so letting it into the
+        // comparison would make every tick after the first differ from the last
+        // on the strength of its own output.
+        assert!(!with_a_row.ledger.entries.is_empty());
+        assert!(!with_a_row.changed_from(&held));
+    }
+
+    #[test]
+    fn a_snapshot_carries_its_ledger_across_json() {
+        let mut log = ChangeLog::first_open();
+        log.observed(&a_read(), &[]);
+        let mut moved = a_read();
+        moved.map.as_mut().expect("a map").nodes[0].state = NodeState::Claimed;
+        log.observed(&moved, &[]);
+
+        let snapshot = Snapshot::read(moved, Source::Github, "2026-08-05T09:00:00Z".to_string())
+            .with_ledger(log.ledger());
+
+        let parsed = Snapshot::from_json_str(&snapshot.to_json_string().expect("serialises"))
+            .expect("parses");
+
+        // No equality on `Ledger` to reach for, and none wanted: the entries
+        // compare, which is what the far side reads.
+        assert_eq!(parsed.ledger.entries, snapshot.ledger.entries);
+        assert!(matches!(parsed.ledger.since, Since::Watching));
+    }
+
+    #[test]
+    fn a_snapshot_nothing_has_been_compared_for_reads_as_first_open() {
+        assert!(matches!(
+            Snapshot::no_map_open().ledger.since,
+            Since::FirstOpen
+        ));
+        assert!(matches!(
+            Snapshot::read(a_read(), Source::Github, "2026-08-05T09:00:00Z".to_string())
+                .ledger
+                .since,
+            Since::FirstOpen
+        ));
     }
 
     #[test]

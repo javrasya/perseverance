@@ -12,6 +12,10 @@
  * Every value in it was decided in Rust. Nothing on this side counts, filters,
  * ranks or resolves; the phase, the three counts and the frontier arrive
  * already settled, and this only spells them.
+ *
+ * The ledger is not spelled here. Its words and its numeral live in
+ * `chrome/ledger.ts`, which is the one file in `src/` allowed to name a change
+ * — the same rule `chrome/stamp.ts` holds the staleness vocabulary to.
  */
 
 import type { Model } from "./model.generated";

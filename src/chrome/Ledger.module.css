@@ -1,0 +1,184 @@
+/*
+ * Tier 3 — component tokens, defined from semantic tokens only.
+ *
+ * There is no `transition`, no `animation` and no `@keyframes` in this file,
+ * and there is a test holding it to that. The ledger announces by a numeral
+ * changing: a number arriving with a movement is a number an operator has to
+ * finish watching before reading, and motion in the corner of a screen is an
+ * interruption in the same way a toast is.
+ */
+
+.ledger {
+  position: relative;
+  display: inline-flex;
+}
+
+/*
+ * The whole face is the control, and the numeral is inside it. One target
+ * rather than a label beside a button: the record is one thing to open, and a
+ * numeral sitting outside the hit area is a numeral people click at.
+ */
+.face {
+  --c-face-line: var(--s-line-quiet);
+  --c-face-fill: transparent;
+
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--s-space-tight);
+  padding: var(--s-space-hair) var(--s-space-snug);
+  border: var(--s-border-hairline) solid var(--c-face-line);
+  border-radius: var(--s-radius-chip);
+  background: var(--c-face-fill);
+  color: var(--s-ink-secondary);
+  font: inherit;
+  font-size: var(--s-text-small);
+  cursor: pointer;
+}
+
+.face:hover {
+  --c-face-fill: var(--s-surface-hover);
+  --c-face-line: var(--s-line-strong);
+}
+
+.face:focus-visible {
+  outline: var(--s-border-emphasis) solid var(--s-focus-ring);
+  outline-offset: -2px;
+}
+
+.label {
+  letter-spacing: var(--s-tracking-label);
+}
+
+/*
+ * The numeral, in the mono face every other machine fact on this window wears.
+ * The word standing in place of one is set in the ink of a thing not yet
+ * established, so *first open* and a real count do not read as the same claim.
+ */
+.numeral {
+  color: var(--s-ink-primary);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-small);
+}
+
+.numeral[data-first="true"] {
+  color: var(--s-ink-faint);
+  font-family: var(--s-font-ui);
+}
+
+/*
+ * The record itself, over the window rather than in it. The header is one row
+ * and the ledger is a list, so an inline record would push the chrome open
+ * every time somebody looked — and a stamp pushed off the window is a stamp
+ * nobody can read.
+ */
+.record {
+  position: absolute;
+  z-index: 2;
+  top: calc(100% + var(--s-space-tight));
+  left: 0;
+  min-width: 32ch;
+  max-width: 52ch;
+  max-height: 60vh;
+  padding: var(--s-space-snug);
+  border: var(--s-border-hairline) solid var(--s-line-quiet);
+  border-radius: var(--s-radius-panel);
+  background: var(--s-surface-raised);
+  overflow: auto;
+}
+
+/* Nothing to list, said in words. A panel opening onto blank space leaves the
+   reader guessing at the difference between empty and broken. */
+.absence {
+  margin: 0;
+  color: var(--s-ink-faint);
+  font-size: var(--s-text-small);
+}
+
+.entries,
+.clauses {
+  display: flex;
+  margin: 0;
+  padding: 0;
+  flex-direction: column;
+  gap: var(--s-space-hair);
+  list-style: none;
+}
+
+.entries {
+  gap: var(--s-space-snug);
+}
+
+/*
+ * One look. The rail is the same device the map list marks a row with, and the
+ * gap between two sessions gets the accent: it is the one row standing for a
+ * stretch nobody was here for.
+ */
+.entry {
+  --c-entry-rail: var(--s-line-quiet);
+
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-space-hair);
+  padding-left: var(--s-space-snug);
+  border-left: var(--s-border-rail) solid var(--c-entry-rail);
+}
+
+.entry[data-occasion="whileYouWereAway"] {
+  --c-entry-rail: var(--s-accent);
+}
+
+.occasion {
+  color: var(--s-ink-faint);
+  font-size: var(--s-text-micro);
+  letter-spacing: var(--s-tracking-label);
+  text-transform: uppercase;
+}
+
+.clause {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--s-space-tight);
+  font-size: var(--s-text-small);
+}
+
+/*
+ * A clause carried in the record and left out of the numeral is still a clause.
+ * It recedes in ink weight and stays legible, countable and pickable — the same
+ * treatment a resolved row gets, for the same reason.
+ */
+.said {
+  color: var(--s-ink-primary);
+}
+
+.clause[data-announce="false"] .said {
+  color: var(--s-ink-secondary);
+}
+
+/*
+ * A reference. It picks a node and does no more, so it takes the shape of an
+ * identifier rather than of a command.
+ */
+.reference {
+  --c-reference-fill: transparent;
+
+  padding: 0 var(--s-space-hair);
+  border: none;
+  border-radius: var(--s-radius-control);
+  background: var(--c-reference-fill);
+  color: var(--s-ink-secondary);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-small);
+  cursor: pointer;
+}
+
+.reference:hover {
+  --c-reference-fill: var(--s-surface-hover);
+
+  color: var(--s-ink-primary);
+}
+
+.reference:focus-visible {
+  outline: var(--s-border-emphasis) solid var(--s-focus-ring);
+  outline-offset: -1px;
+}

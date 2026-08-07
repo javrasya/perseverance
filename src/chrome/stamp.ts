@@ -60,6 +60,13 @@ export function stampSource(provenance: Provenance): string {
  * replaced — and the reason itself is [`stampReason`], rendered beside them
  * with the detail in the words of whoever established it.
  *
+ * The first of the two is the **map list's alone**, and by construction rather
+ * than by a branch here: a live read whose cache row would not write is the one
+ * way `github` and a failure meet, and `Snapshot::aged` downgrades the source
+ * on the model's side precisely so a poll that never landed cannot borrow that
+ * sentence. Nothing is keyed on which surface is calling — this reads the
+ * provenance it is handed — which is what keeps one phrasing across both.
+ *
  * `yielding` is the poller slowing itself down to leave the rate limit alone.
  * It is Rust's answer to *is the budget the winning term of the interval's
  * max*, arriving already decided on the map-list payload: there is no reserve

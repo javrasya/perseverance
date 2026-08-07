@@ -15,6 +15,12 @@
  * in**. The last of those is why there are four failure fixtures and not one: a
  * browser has no way to revoke a token or delete a repository, and two of the
  * four stop the poller and print a remedy while the other two keep trying.
+ *
+ * `while-you-were-away` is there for the same reason: reaching the cold-start
+ * row needs a cached graph from a session that ended, and a `dev:web` tab has
+ * no previous session to have ended. Its ledger is the only one on disk that is
+ * not empty, so it is the only fixture where a real zero and *first open* are
+ * distinguishable on screen.
  */
 
 import type { Snapshot } from "./model.generated";
@@ -29,6 +35,7 @@ import rateLimited from "./fixtures/rate-limited.json";
 import specComposed from "./fixtures/spec-composed.json";
 import twoMapsOneOpen from "./fixtures/two-maps-one-open.json";
 import unreachable from "./fixtures/unreachable.json";
+import whileYouWereAway from "./fixtures/while-you-were-away.json";
 
 /*
  * `as unknown as Snapshot`, and for the same reason `maps.ts` does it:
@@ -51,6 +58,7 @@ export const FIXTURES = {
   "spec-composed": AS_GENERATED(specComposed),
   "two-maps-one-open": AS_GENERATED(twoMapsOneOpen),
   unreachable: AS_GENERATED(unreachable),
+  "while-you-were-away": AS_GENERATED(whileYouWereAway),
 } as const;
 
 export type FixtureName = keyof typeof FIXTURES;

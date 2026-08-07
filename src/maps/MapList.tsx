@@ -23,6 +23,9 @@ import styles from "./MapList.module.css";
 
 interface MapListProps {
   view: MapsView;
+  /** The map this window is watching, or `null` for a folder with none open. */
+  selected: number | null;
+  onOpen: (number: number) => void;
 }
 
 /**
@@ -48,7 +51,7 @@ interface MapListProps {
  * is unplugged — a change of ink and never a change of layout — reused rather
  * than invented a second time.
  */
-export function MapList({ view }: MapListProps) {
+export function MapList({ view, selected, onOpen }: MapListProps) {
   const [completedShown, setCompletedShown] = useState(false);
 
   const open = openMaps(view);
@@ -95,7 +98,13 @@ export function MapList({ view }: MapListProps) {
       {open.length > 0 ? (
         <ul className={styles.list}>
           {open.map((map) => (
-            <MapRow key={map.number} map={map} disabled={stopped !== null} />
+            <MapRow
+              key={map.number}
+              map={map}
+              disabled={stopped !== null}
+              selected={map.number === selected}
+              onOpen={onOpen}
+            />
           ))}
         </ul>
       ) : (
@@ -138,7 +147,13 @@ export function MapList({ view }: MapListProps) {
               <p className={styles.completedHint}>{COMPLETED_HINT}</p>
               <ul className={styles.list} id="completed-maps">
                 {completed.map((map) => (
-                  <MapRow key={map.number} map={map} disabled={stopped !== null} />
+                  <MapRow
+                    key={map.number}
+                    map={map}
+                    disabled={stopped !== null}
+                    selected={map.number === selected}
+                    onOpen={onOpen}
+                  />
                 ))}
               </ul>
             </>
@@ -153,20 +168,47 @@ export function MapList({ view }: MapListProps) {
  * One map. The number is its whole identity — a map is an issue, and the app
  * registers nothing — so the number is shown rather than hidden behind a name.
  *
- * `disabled` greys it and says so to a screen reader; it never removes it. The
- * row is what opening a map will hang off, and opening a map is exactly what
- * needs a read this app cannot currently make.
+ * **The row is what opening a map hangs off, and that read now exists.** The
+ * poller asks GitHub for the graph of whatever map this window declares it is
+ * watching, so clicking here is a declaration and not a fetch: it says what
+ * this window is looking at, and what comes back arrives on the poller's own
+ * channel at the cadence the ladder decided. There is nothing to await, which
+ * is why the handler takes only a number and answers nothing.
+ *
+ * `disabled` greys it and says so to a screen reader; it never removes it. A
+ * poller that has stopped reading cannot open a map either — the graph would
+ * never arrive — so the button goes inert in place rather than the row going
+ * away, which is the same idiom `FolderRow` uses for an unplugged drive.
  */
-function MapRow({ map, disabled }: { map: MapEntry; disabled: boolean }) {
+function MapRow({
+  map,
+  disabled,
+  selected,
+  onOpen,
+}: {
+  map: MapEntry;
+  disabled: boolean;
+  selected: boolean;
+  onOpen: (number: number) => void;
+}) {
   return (
     <li
       className={styles.row}
       data-closed={map.closed}
       data-disabled={disabled}
+      data-open={selected || undefined}
       aria-disabled={disabled || undefined}
     >
-      <span className={styles.number}>#{map.number}</span>
-      <span className={styles.title}>{map.title}</span>
+      <button
+        type="button"
+        className={styles.choose}
+        disabled={disabled}
+        aria-current={selected ? "true" : undefined}
+        onClick={() => onOpen(map.number)}
+      >
+        <span className={styles.number}>#{map.number}</span>
+        <span className={styles.title}>{map.title}</span>
+      </button>
     </li>
   );
 }
