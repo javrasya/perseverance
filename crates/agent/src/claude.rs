@@ -324,13 +324,11 @@ mod tests {
         let discovery = ClaudeCode.discovery();
 
         assert_eq!(discovery.candidates, ["claude"]);
-        // No `claude.exe`: appending `PATHEXT` is the resolver's job, and a
-        // candidate spelled with an extension would be this crate doing it
-        // again and worse.
-        assert!(!discovery
-            .candidates
-            .iter()
-            .any(|candidate| candidate.contains('.')));
+        // No `claude.exe`, and that is no longer asserted here: appending
+        // `PATHEXT` is the resolver's job for *every* adapter, so #46 hoisted
+        // the claim into `registry.rs`'s
+        // `no_adapter_spells_a_candidate_with_an_extension_the_resolver_appends_itself`.
+        //
         // No probes, and none on either platform rather than none on whichever
         // one this runner happens to be. There is no interpreter behind a
         // supported install, and the npm shim is refused at the boundary rather

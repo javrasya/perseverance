@@ -20,6 +20,38 @@
           "from": "candidate"
         },
         "probes": []
+      },
+      {
+        "id": "codex",
+        "resolution": {
+          "kind": "resolved",
+          "name": "codex",
+          "program": "/Users/you/.local/share/fnm/node-versions/v22.11.0/installation/bin/codex",
+          "from": "candidate"
+        },
+        "probes": [
+          {
+            "program": "node",
+            "args": ["--version"],
+            "outcome": { "kind": "answered", "status": 0, "line": "v22.11.0" }
+          }
+        ]
+      },
+      {
+        "id": "pi",
+        "resolution": {
+          "kind": "resolved",
+          "name": "pi",
+          "program": "/Users/you/.local/share/fnm/node-versions/v22.11.0/installation/bin/pi",
+          "from": "candidate"
+        },
+        "probes": [
+          {
+            "program": "node",
+            "args": ["--version"],
+            "outcome": { "kind": "answered", "status": 0, "line": "v22.11.0" }
+          }
+        ]
       }
     ],
     "override": { "kind": "none" }
@@ -41,6 +73,76 @@
         "id": "claude",
         "resolution": { "kind": "notFound", "names": ["claude"] },
         "probes": []
+      },
+      {
+        "id": "codex",
+        "resolution": { "kind": "notFound", "names": ["codex"] },
+        "probes": [
+          {
+            "program": "node",
+            "args": ["--version"],
+            "outcome": { "kind": "notOnThisPath" }
+          }
+        ]
+      },
+      {
+        "id": "pi",
+        "resolution": { "kind": "notFound", "names": ["pi"] },
+        "probes": [
+          {
+            "program": "node",
+            "args": ["--version"],
+            "outcome": { "kind": "notOnThisPath" }
+          }
+        ]
+      }
+    ],
+    "override": { "kind": "none" }
+  },
+
+  "partlyResolved": {
+    "folder": "/Users/you/work/api",
+    "spawnDirectory": "/Users/you/work/api",
+    "harvest": { "kind": "harvested" },
+    "shell": { "kind": "loginShell", "program": "/bin/zsh", "flags": ["-lic"] },
+    "path": "/Users/you/.local/share/fnm/node-versions/v22.11.0/installation/bin:/usr/bin:/bin",
+    "pathSource": "harvest",
+    "variableCount": 121,
+    "elapsedMs": 203,
+    "stderr": { "kind": "empty", "bytes": 0, "text": "" },
+    "degradation": { "kind": "notSeen" },
+    "adapters": [
+      {
+        "id": "claude",
+        "resolution": {
+          "kind": "resolved",
+          "name": "claude",
+          "program": "/Users/you/.local/share/fnm/node-versions/v22.11.0/installation/bin/claude",
+          "from": "candidate"
+        },
+        "probes": []
+      },
+      {
+        "id": "codex",
+        "resolution": { "kind": "notFound", "names": ["codex"] },
+        "probes": [
+          {
+            "program": "node",
+            "args": ["--version"],
+            "outcome": { "kind": "answered", "status": 0, "line": "v22.11.0" }
+          }
+        ]
+      },
+      {
+        "id": "pi",
+        "resolution": { "kind": "notFound", "names": ["pi"] },
+        "probes": [
+          {
+            "program": "node",
+            "args": ["--version"],
+            "outcome": { "kind": "answered", "status": 0, "line": "v22.11.0" }
+          }
+        ]
       }
     ],
     "override": { "kind": "none" }
@@ -65,6 +167,28 @@
         "id": "claude",
         "resolution": { "kind": "notFound", "names": ["claude"] },
         "probes": []
+      },
+      {
+        "id": "codex",
+        "resolution": { "kind": "notFound", "names": ["codex"] },
+        "probes": [
+          {
+            "program": "node",
+            "args": ["--version"],
+            "outcome": { "kind": "notOnThisPath" }
+          }
+        ]
+      },
+      {
+        "id": "pi",
+        "resolution": { "kind": "notFound", "names": ["pi"] },
+        "probes": [
+          {
+            "program": "node",
+            "args": ["--version"],
+            "outcome": { "kind": "notOnThisPath" }
+          }
+        ]
       }
     ],
     "override": { "kind": "none" }
@@ -94,6 +218,33 @@
         "id": "claude",
         "resolution": { "kind": "notFound", "names": ["claude"] },
         "probes": []
+      },
+      {
+        "id": "codex",
+        "resolution": { "kind": "notFound", "names": ["codex"] },
+        "probes": [
+          {
+            "program": "node",
+            "args": ["--version"],
+            "outcome": { "kind": "notOnThisPath" }
+          }
+        ]
+      },
+      {
+        "id": "pi",
+        "resolution": { "kind": "notFound", "names": ["pi"] },
+        "probes": [
+          {
+            "program": "node",
+            "args": ["--version"],
+            "outcome": { "kind": "notOnThisPath" }
+          },
+          {
+            "program": "bash",
+            "args": ["--version"],
+            "outcome": { "kind": "notOnThisPath" }
+          }
+        ]
       }
     ],
     "override": { "kind": "none" }
@@ -113,6 +264,38 @@
     "adapters": [
       {
         "id": "claude",
+        "resolution": {
+          "kind": "resolved",
+          "name": "node",
+          "program": "/Users/you/.local/share/fnm/node-versions/v22.11.0/installation/bin/node",
+          "from": "override"
+        },
+        "probes": [
+          {
+            "program": "node",
+            "args": ["--version"],
+            "outcome": { "kind": "answered", "status": 0, "line": "v22.11.0" }
+          }
+        ]
+      },
+      {
+        "id": "codex",
+        "resolution": {
+          "kind": "resolved",
+          "name": "node",
+          "program": "/Users/you/.local/share/fnm/node-versions/v22.11.0/installation/bin/node",
+          "from": "override"
+        },
+        "probes": [
+          {
+            "program": "node",
+            "args": ["--version"],
+            "outcome": { "kind": "answered", "status": 0, "line": "v22.11.0" }
+          }
+        ]
+      },
+      {
+        "id": "pi",
         "resolution": {
           "kind": "resolved",
           "name": "node",
@@ -156,6 +339,38 @@
           "from": "override"
         },
         "probes": []
+      },
+      {
+        "id": "codex",
+        "resolution": {
+          "kind": "resolved",
+          "name": "/Users/you/bin/claude",
+          "program": "/Users/you/bin/claude",
+          "from": "override"
+        },
+        "probes": [
+          {
+            "program": "node",
+            "args": ["--version"],
+            "outcome": { "kind": "notOnThisPath" }
+          }
+        ]
+      },
+      {
+        "id": "pi",
+        "resolution": {
+          "kind": "resolved",
+          "name": "/Users/you/bin/claude",
+          "program": "/Users/you/bin/claude",
+          "from": "override"
+        },
+        "probes": [
+          {
+            "program": "node",
+            "args": ["--version"],
+            "outcome": { "kind": "notOnThisPath" }
+          }
+        ]
       }
     ],
     "override": {

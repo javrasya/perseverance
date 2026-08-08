@@ -51,36 +51,59 @@
 //! configuration is therefore argv and environment, as a property of three
 //! types rather than as a rule anyone has to remember.
 //!
-//! One adapter ships: [`ClaudeCode`]. It takes the default `watch`, so the
-//! shipped adapter is itself the proof that nothing downstream branches on
-//! whether an adapter produces signals. Registration is a closed enum and a
-//! lookup — [`AgentId`], one variant, one match arm in [`agent()`] — because the
-//! set of adapters is a fact about the binary rather than about the order
-//! modules happened to initialise in. Config-defined adapters are deferred, not
-//! refused.
+//! Three adapters ship: [`ClaudeCode`], [`Codex`] and [`Pi`], and they are one
+//! shape. Each plans `[program, prompt]`, identical on both platforms modulo the
+//! program the harness resolved; each states the same `TERM`, because the
+//! terminal type is a fact about the PTY this harness presents and not about a
+//! vendor; and each takes the default `watch`, so no call site anywhere can have
+//! grown a branch on whether an adapter produces signals — that is criterion 5
+//! held by the shipped set rather than promised. What differs between them is
+//! declared and only declared: candidates, per-platform probes, and a scrub set.
+//! Four flags are deliberately declined across all three — Codex's `-C/--cd`,
+//! Pi's `@file` splice and its multi-positional form, and every
+//! trust/approval/offline flag — on `docs/adr/0010`'s precedent for
+//! `--dangerously-skip-permissions`; picking them per vendor is what would shape
+//! the product like three vendors' CLIs. `docs/adr/0012` records the whole of it.
+//!
+//! Registration is a closed enum and a lookup — [`AgentId`], one variant, one
+//! match arm in [`agent()`] — because the set of adapters is a fact about the
+//! binary rather than about the order modules happened to initialise in.
+//! Config-defined adapters are deferred, not refused.
+//!
+//! Two things #46 gave a first producer to. [`Probes`]'s two fields had none
+//! until [`Pi`] declared `bash` on Windows and not on unix, because pi's `bash`
+//! tool fails at *runtime* without one. And both new adapters install by npm as
+//! a `#!` script or a `.cmd` shim — the two shapes `perseverance_pty::accept`
+//! refuses — so they are the first real subjects for that refusal and for the
+//! argv [`Override`] that answers it. Nothing spawns yet, so that path is still
+//! untested end to end; what has changed is that there is now something to test
+//! it with.
 //!
 //! Filled in by:
 //! - #45 the adapter's declared probes (per platform), and the override's
 //!   meaning, composition rule and scope (the per-folder harvest itself, the
 //!   cache keyed on the spawn working directory, and the *running* of a probe
 //!   are all [`perseverance_env`]'s)
-//! - #46 Codex and Pi adapters
 //!
 //! [`perseverance_pty`]: https://github.com/javrasya/perseverance
 //! [`perseverance_env`]: https://github.com/javrasya/perseverance
 
 mod agent;
 mod claude;
+mod codex;
 mod launch;
+mod pi;
 mod platform;
 mod registry;
 mod watch;
 
 pub use agent::{Agent, Discovery, Probe, Probes};
 pub use claude::ClaudeCode;
+pub use codex::Codex;
 pub use launch::{
     Cwd, Launch, LaunchContext, Override, OverrideRefusal, PlanError, Program, Ready, Scope,
 };
+pub use pi::Pi;
 pub use platform::Platform;
 pub use registry::{agent, agent_named, AgentId};
 pub use watch::{NoWatch, Signal, Watch};

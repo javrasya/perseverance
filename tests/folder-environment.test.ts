@@ -13,6 +13,7 @@ import {
   FOLDER_CANNOT_TELL_YOU,
   FOLDER_PATH_NOTE,
   NO_PROBE_DECLARED,
+  OVERRIDE_APPLIES_TO_EVERY_ADAPTER,
   OVERRIDE_ARGV_NOTE,
   OVERRIDE_FIELD_LABEL,
   OVERRIDE_NOT_REMEMBERED_COUNSEL,
@@ -38,6 +39,7 @@ import {
   readoutFrom,
   resolutionLine,
   resolutionSource,
+  resolutionSummary,
   scopeLabel,
   useOverride,
   type FolderReadout,
@@ -91,12 +93,13 @@ describe("the folder readout is one seam, spelled twice", () => {
 /* ------------------------------------------------------------- fixture --- */
 
 describe("the folder fixture carries the states a browser cannot conjure", () => {
-  it("has all six, because you cannot fail a resolution from JavaScript", () => {
+  it("has all seven, because you cannot fail a resolution from JavaScript", () => {
     expect(folderFixtureKeys().sort()).toEqual([
       "harvestDiscarded",
       "notFound",
       "overridden",
       "overriddenGlobally",
+      "partlyResolved",
       "policyDegraded",
       "resolved",
     ]);
@@ -151,7 +154,10 @@ describe("the folder fixture carries the states a browser cannot conjure", () =>
     const discarded = fixtureFolder("harvestDiscarded");
 
     expect(missingCli(missing)).toBe(true);
-    expect(namesTried(missing)).toEqual(["claude"]);
+    // Every registered adapter's own name, in the registry's order — and here
+    // that is all of them, because the note only fires when every one of them
+    // came back with nothing.
+    expect(namesTried(missing)).toEqual(["claude", "codex", "pi"]);
     // Criterion 7's four facts are all on the one value: the names tried, the
     // shell that ran, what became of the harvest, and the verbatim PATH.
     expect(missing.shell.kind).toBe("loginShell");
@@ -161,6 +167,30 @@ describe("the folder fixture carries the states a browser cannot conjure", () =>
     expect(discarded.harvest.kind).toBe("inherited");
     expect(discarded.pathSource).toBe("inherited");
     expect(discarded.stderr.text).toContain("command not found: fnm");
+  });
+
+  it("carries the folder every real machine is on: one agent installed and two not", () => {
+    const partly = fixtureFolder("partlyResolved");
+
+    // **The state the note must stay quiet for.** `App.tsx`'s `settleFolder`
+    // raises `cliMissing` from this predicate on every folder resolution, so a
+    // predicate meaning *any of three* would put a permanent error beside every
+    // folder on every machine with fewer than all three CLIs installed — which
+    // is nearly every machine, and reads as the two new vendors nagging about
+    // themselves rather than as a fact about this folder.
+    expect(missingCli(partly)).toBe(false);
+    expect(partly.adapters.filter((one) => one.resolution.kind === "notFound")).toHaveLength(2);
+    expect(namesTried(partly)).toEqual(["codex", "pi"]);
+    // What the operator gets instead is the count, which says the same thing
+    // without calling it a failure.
+    expect(resolutionSummary(partly)).toBe("1 of 3 adapters resolved here");
+  });
+
+  it("says nothing is missing when nothing was looked for", () => {
+    // `readoutFrom` reaches an empty adapter list for anything it could not read
+    // at all, and an `every` over nothing is vacuously true. Nothing was looked
+    // for, so nothing was found to be absent.
+    expect(missingCli(readoutFrom(undefined, "/Users/you/work/api"))).toBe(false);
   });
 
   it("carries a folder whose interpreter declined its start-up file", () => {
@@ -196,7 +226,40 @@ describe("the folder fixture carries the states a browser cannot conjure", () =>
     first.adapters.length = 0;
 
     expect(fixtureFolder("resolved").path).toBe(PINNED_PATH);
-    expect(fixtureFolder("resolved").adapters).toHaveLength(1);
+    expect(fixtureFolder("resolved").adapters).toHaveLength(3);
+  });
+
+  it("carries every registered adapter in every state, because the readout does", () => {
+    // `adapters_in` loops `AgentId::ALL` and never learned which adapter it is
+    // looking at, so a folder produces one row per registered adapter whatever
+    // is installed. The fixture is the seam that side fills, and a state
+    // carrying one row would let the panel be built for a list of one.
+    for (const key of folderFixtureKeys()) {
+      expect([key, fixtureFolder(key).adapters.map((adapter) => adapter.id)]).toEqual([
+        key,
+        ["claude", "codex", "pi"],
+      ]);
+    }
+  });
+
+  it("carries the two adapters whose interpreter is asked about, and the one whose is not", () => {
+    const resolved = fixtureFolder("resolved");
+    const byId = (id: string) => resolved.adapters.find((adapter) => adapter.id === id);
+
+    // Claude Code is a native image on a supported install and declares no
+    // probe; the two npm-installed ones sit on a `node` and declare one. Nothing
+    // reads a version out of either — the probe is here to be looked at.
+    expect(byId("claude")?.probes).toEqual([]);
+    expect(byId("codex")?.probes.map((probe) => probe.program)).toEqual(["node"]);
+    expect(byId("pi")?.probes.map((probe) => probe.program)).toEqual(["node"]);
+
+    // And pi's Windows reading has the extra one, because pi's own bash tool
+    // fails at runtime without a bash — which is why it is a probe rather than
+    // a refusal to plan.
+    const windows = fixtureFolder("policyDegraded");
+    expect(
+      windows.adapters.find((adapter) => adapter.id === "pi")?.probes.map((p) => p.program),
+    ).toEqual(["node", "bash"]);
   });
 
   it("a state nobody has heard of falls back to the one worth looking at", () => {
@@ -426,6 +489,13 @@ describe("what an adapter resolved to is the absolute path and nothing else", ()
     ).toContain("it stopped after 8000 ms");
   });
 
+  it("the closed state counts the adapters rather than showing the first one", () => {
+    // Three ship, so a summary that was one adapter's own line would hide two
+    // thirds of the panel behind the chevron and read as the whole answer.
+    expect(resolutionSummary(fixtureFolder("resolved"))).toBe("3 of 3 adapters resolved here");
+    expect(resolutionSummary(fixtureFolder("notFound"))).toBe("0 of 3 adapters resolved here");
+  });
+
   it("says nothing at all where nothing is overridden", () => {
     expect(overrideLine(fixtureFolder("resolved"))).toBe("—");
     expect(overrideLine(fixtureFolder("overridden"))).toBe(
@@ -552,6 +622,18 @@ describe("the folder panel puts the evidence on screen rather than a summary of 
     expect(markupFor("overridden")).toContain("v22.11.0");
   });
 
+  it("renders a row for every registered adapter, not only the one that resolved", () => {
+    const markup = markupFor("notFound");
+
+    for (const id of ["claude", "codex", "pi"]) {
+      expect([id, markup.includes(`What ${id} resolved to`)]).toEqual([id, true]);
+    }
+  });
+
+  it("says the one override applies to all of them, so three identical rows read right", () => {
+    expect(markupFor("overridden")).toContain(OVERRIDE_APPLIES_TO_EVERY_ADAPTER.slice(0, 40));
+  });
+
   it("names the declined start-up file when the interpreter said so", () => {
     expect(markupFor("policyDegraded")).toContain("Start-up file declined");
     expect(markupFor("resolved")).toContain("Nothing said");
@@ -600,6 +682,7 @@ const everythingSaid: readonly string[] = [
   OVERRIDE_SPLIT_NOTE,
   OVERRIDE_SCOPE_NOTE,
   OVERRIDE_ARGV_NOTE,
+  OVERRIDE_APPLIES_TO_EVERY_ADAPTER,
   OVERRIDE_NOT_REMEMBERED_COUNSEL,
   OVERRIDE_NOT_REMEMBERED_FALLBACK,
   OVERRIDE_REFUSED_FALLBACK,

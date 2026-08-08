@@ -20,7 +20,10 @@
  * `folder.fixture.json` is what stands behind the panel in a plain browser. A
  * folder whose harvest was discarded, a policy that declined a profile, and a
  * CLI that is nowhere on a `PATH` are all states JavaScript cannot conjure, so
- * they are checked in and `?folder=<key>` picks one.
+ * they are checked in and `?folder=<key>` picks one. `partlyResolved` is the
+ * one every real machine is actually in — one agent installed and two not —
+ * and it is checked in because it is the state a predicate over three adapters
+ * is easiest to get wrong about.
  */
 
 import { hasRustBehindIt } from "../snapshot/snapshot";
@@ -448,9 +451,30 @@ export function argvFrom(text: string): string[] {
 
 const NOTHING_YET = "—";
 
-/** True when any adapter resolved to nothing on this folder's PATH. */
+/**
+ * True when **no** agent at all resolved on this folder's PATH.
+ *
+ * `every` and not `some`, and the difference is the whole of the note.
+ * `App.tsx` raises `cliMissing` from this on every folder resolution, so *any of
+ * three is missing* would put a permanent error beside every folder on every
+ * machine that has fewer than all three CLIs installed — which is nearly every
+ * machine, and is the ticket's own failure mode inverted: two new vendors
+ * bolted on so loudly they nag about themselves.
+ *
+ * What the note actually wants to say is *the adapter this crossing picked
+ * resolved to nothing*, and there is no picker yet: nothing on this readout says
+ * which adapter this folder selected, and inventing one here would be this file
+ * predicting a rule Rust owns. So it says the one thing that is true whichever
+ * adapter gets picked — there is nothing here to pick — and gets narrower, never
+ * wider, when the crossing lands.
+ *
+ * An empty adapter list is not a missing CLI. Nothing was looked for, so
+ * nothing was found to be absent, and `readoutFrom` reaches that state for
+ * anything it could not read at all.
+ */
 export function missingCli(readout: FolderReadout): boolean {
-  return readout.adapters.some((adapter) => adapter.resolution.kind === "notFound");
+  if (readout.adapters.length === 0) return false;
+  return readout.adapters.every((adapter) => adapter.resolution.kind === "notFound");
 }
 
 /** Every name tried, across every adapter, in the order they were tried. */
@@ -458,6 +482,25 @@ export function namesTried(readout: FolderReadout): string[] {
   return readout.adapters.flatMap((adapter) =>
     adapter.resolution.kind === "notFound" ? adapter.resolution.names : [],
   );
+}
+
+/**
+ * The closed state, for three adapters rather than for one.
+ *
+ * It used to be the first adapter's own line, which was accurate while one
+ * shipped and hid two thirds of the panel the moment three did. A count and how
+ * many of them answered is the honest summary: it says there is more behind the
+ * chevron without pretending the first row is the answer.
+ */
+export function resolutionSummary(readout: FolderReadout): string {
+  const total = readout.adapters.length;
+  if (total === 0) return readout.spawnDirectory || NOTHING_YET;
+
+  const resolved = readout.adapters.filter(
+    (adapter) => adapter.resolution.kind === "resolved",
+  ).length;
+
+  return `${resolved} of ${total} ${total === 1 ? "adapter" : "adapters"} resolved here`;
 }
 
 /**
@@ -561,7 +604,7 @@ export function folderFactsLine(readout: FolderReadout): string {
 export const CLI_MISSING_HEADLINE = "Not on this folder's PATH";
 
 export const CLI_MISSING_COUNSEL =
-  "The folder is open and its maps are being read; only the program is missing. Below is the PATH this folder's own login shell handed back, exactly as it arrived. If you can run the program in your own terminal and it is not in that list, the two shells are answering differently — and that difference, rather than the program, is the thing to look at.";
+  "The folder is open and its maps are being read; nothing this build knows how to start answers on this folder's PATH. Below is the PATH this folder's own login shell handed back, exactly as it arrived. If you can run one of these names in your own terminal and it is not in that list, the two shells are answering differently — and that difference, rather than the program, is the thing to look at.";
 
 export const FOLDER_PATH_NOTE =
   "This is the PATH of a shell started in this folder, which is not the same PATH the app itself started with. A version manager answers a folder's pin inside its own process while it reads your start-up files, so two folders on one machine can resolve the same name to two different files.";
@@ -581,6 +624,9 @@ export const OVERRIDE_SCOPE_NOTE =
 
 export const OVERRIDE_ARGV_NOTE =
   "The rest of the words are passed through ahead of whatever the adapter itself asks for, which is why this is a list of words and not a file to point at: node /opt/claude/cli.js is sayable and a single path is not.";
+
+export const OVERRIDE_APPLIES_TO_EVERY_ADAPTER =
+  "One override is kept, and every adapter above resolves through it. So while something is set here, all of them show the same program — that is the setting doing what it says, not a mistake in the list.";
 
 export const OVERRIDE_NOT_REMEMBERED_COUNSEL =
   "It is in force for this run. It was not written down, so it will be gone the next time this app starts.";
