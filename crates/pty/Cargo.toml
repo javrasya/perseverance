@@ -15,10 +15,21 @@ perseverance-agent = { workspace = true }
 # how one of the eight quietly stops being one.
 thiserror = { workspace = true }
 
+# The one PTY implementation. See the workspace manifest for why this line is
+# only allowed to appear here.
+portable-pty = { workspace = true }
+
+# The Windows half of the guard. It is a target dependency rather than a
+# `cfg!` inside the code because a job object has no unix counterpart to write
+# a branch against: `setsid` has already happened by the time the child exists.
+[target.'cfg(windows)'.dependencies]
+win32job = { workspace = true }
+
 # For the temporary directories the shim check's hand-written byte sequences
-# live in. Nothing in this crate's tests ever spawns a program — `accept` reads
-# a file and never runs one, which is the whole reason the gate is checkable on
-# a runner with no agent CLI installed.
+# live in. The shim check itself still spawns nothing — `accept` reads a file
+# and never runs one, which is the whole reason that gate is checkable on a
+# runner with no agent CLI installed. The session tests do spawn, but they spawn
+# the platform's own shell rather than an agent, for the same reason.
 [dev-dependencies]
 tempfile = { workspace = true }
 

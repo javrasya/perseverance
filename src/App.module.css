@@ -1,4 +1,12 @@
 .app {
+  /*
+   * Tier 3 — one component token, and it is a length rather than a colour, so
+   * it is defined from a number rather than from a semantic token. The fixed
+   * split #52's dial will replace lives here, at the top of the file that owns
+   * the layout, so that ticket has one declaration to find.
+   */
+  --c-app-terminal-width: 34rem;
+
   display: flex;
   height: 100%;
   flex-direction: column;
@@ -62,6 +70,25 @@
   min-height: 0;
   padding: var(--s-space-base);
   overflow: auto;
+}
+
+/*
+ * The terminal's share of the window: a fixed split, and the whole of what this
+ * slice decides about layout.
+ *
+ * A basis with no grow and no shrink rather than a fraction, because a pane that
+ * resized itself as its neighbours came and went would be resizing every live
+ * PTY as a side effect of a folder being opened — which is precisely the
+ * arrival-time reflow the never-resize-on-bind rule exists to prevent. #52's
+ * dial is what makes this movable, deliberately.
+ */
+.terminal {
+  display: flex;
+  flex: 0 0 var(--c-app-terminal-width);
+  min-width: 0;
+  min-height: 0;
+  padding: var(--s-space-base);
+  padding-left: 0;
 }
 
 /*

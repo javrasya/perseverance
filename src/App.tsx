@@ -47,12 +47,20 @@ import {
   type MapsView,
 } from "./maps/maps";
 import { describeModel } from "./snapshot/readout";
+import { loadSnapshot, watchSnapshot } from "./snapshot/snapshot";
+import { replaceSnapshot, useSnapshot } from "./stores/snapshots";
+import { readUi, select, useUi } from "./stores/ui";
+import { Pane } from "./terminal/Pane.jsx";
 import {
-  loadSnapshot,
-  noMapOpen,
-  watchSnapshot,
-  type Snapshot,
-} from "./snapshot/snapshot";
+  loadRunReadouts,
+  openTerminalChannel,
+  runTook,
+  typedAtRun,
+  watchRunReadouts,
+  type RunReadout,
+} from "./terminal/runs";
+import { Terminals } from "./terminal/terminals";
+import { xterm } from "./terminal/xterm";
 import { ThemeSwitch } from "./theme/ThemeSwitch";
 import { useTheme } from "./theme/useTheme";
 /* `Route.jsx` rather than `Route`: it sits beside `route.ts`, and on a
@@ -84,10 +92,19 @@ export function App() {
   const now = useNow();
   const [preference, chooseTheme] = useTheme();
   const [view] = useDefaultView();
-  const [snapshot, setSnapshot] = useState<Snapshot>(noMapOpen);
+  /*
+   * The two stores, read here and written in two different places.
+   *
+   * The snapshot arrives from the poller, unprompted, and is replaced wholesale;
+   * the UI state arrives from the operator and never round-trips through Rust.
+   * Keeping them apart is what stops a poll landing mid-drag from resetting what
+   * a hand was in the middle of — `tests/stores.test.ts` is the assertion.
+   */
+  const snapshot = useSnapshot();
+  const { selection: selectedNode, monitored } = useUi();
   const [outcome, setOutcome] = useState<LauncherOutcome>(nothingListedYet);
   const [selectedId, setSelectedId] = useState<number | null>(null);
-  const [selectedNode, setSelectedNode] = useState<number | null>(null);
+  const [runs, setRuns] = useState<readonly RunReadout[]>([]);
   const [note, setNote] = useState<LauncherNote | null>(null);
   const [environment, setEnvironment] = useState(stillHarvesting);
   const [environmentShown, setEnvironmentShown] = useState(false);
@@ -139,7 +156,7 @@ export function App() {
     watchSnapshot((next) => {
       if (!live) return;
       arrived = true;
-      setSnapshot(next);
+      replaceSnapshot(next);
     }).then((off) => {
       if (!live) {
         off();
@@ -150,7 +167,7 @@ export function App() {
         // The command answers with the value stored when it was invoked, so a
         // tick that landed while it was in flight is the newer of the two and
         // the reply may not undo it.
-        if (live && !arrived) setSnapshot(next);
+        if (live && !arrived) replaceSnapshot(next);
       });
     });
 
@@ -159,6 +176,77 @@ export function App() {
       stop();
     };
   }, []);
+
+  /*
+   * Every run's terminal, for the life of the window.
+   *
+   * Created once, outside React's reconciler, and never re-created: the
+   * registry is what owns the xterm instances, and a registry re-made on a
+   * re-render would be every open terminal thrown away. `useState` with an
+   * initialiser rather than `useRef` because the factory must run exactly once
+   * and a ref's initial value is evaluated on every render.
+   */
+  const [terminals] = useState(() => new Terminals(xterm));
+
+  /*
+   * The byte channel, registered once at mount and never per run.
+   *
+   * Every delivery is applied and then confirmed, in that order and in the same
+   * turn — the confirmation is what tells the harness this window is keeping up,
+   * and one that went out before the bytes were written would be a window
+   * claiming to be current while it was not.
+   */
+  useEffect(() => {
+    let live = true;
+
+    openTerminalChannel((delivery) => {
+      if (!live) return;
+      const run = readUi().monitored;
+      // A delivery for a run this window has already moved off is dropped
+      // rather than written into whatever is on the pane now. The harness will
+      // replay it when that run is bound again.
+      if (run === null) return;
+      terminals.apply(run, delivery);
+      void runTook(run, delivery.through);
+    });
+
+    return () => {
+      live = false;
+    };
+  }, [terminals]);
+
+  /* Keystrokes go to the run on the pane, and to no other. */
+  useEffect(() => {
+    if (monitored === null) return;
+    terminals.types(monitored, (text) => void typedAtRun(monitored, text));
+  }, [terminals, monitored]);
+
+  /* Every run's readout, several times a second. Counts and flags, never bytes. */
+  useEffect(() => {
+    let live = true;
+    let stop: () => void = () => {};
+
+    watchRunReadouts((next) => {
+      if (live) setRuns(next);
+    }).then((off) => {
+      if (!live) {
+        off();
+        return;
+      }
+      stop = off;
+      return loadRunReadouts().then((next) => {
+        if (live) setRuns((current) => (current.length === 0 ? next : current));
+      });
+    });
+
+    return () => {
+      live = false;
+      stop();
+    };
+  }, []);
+
+  /* Every terminal ends with the window. */
+  useEffect(() => () => terminals.forgetAll(), [terminals]);
 
   /*
    * Subscribe, then ask. A macOS harvest settles in about 187 ms and can be
@@ -514,7 +602,7 @@ export function App() {
           than a rule to remember. #52 builds the divider's spine and this
           record's address on it; relocating it from here is moving one element.
 
-          `setSelectedNode` is passed straight through, which is what gives a
+          `select` is passed straight through, which is what gives a
           reference its set-and-never-toggle behaviour for free: the Route's own
           rows toggle, and a record of things already true has no state to put
           back.
@@ -523,7 +611,7 @@ export function App() {
           ledger={snapshot.ledger}
           readThrough={readThrough}
           onRead={setReadThrough}
-          onSelectNode={setSelectedNode}
+          onSelectNode={select}
         />
         <ThemeSwitch preference={preference} onChoose={chooseTheme} />
       </header>
@@ -586,10 +674,27 @@ export function App() {
             <Route
               model={snapshot.model}
               selected={selectedNode}
-              onSelect={setSelectedNode}
+              onSelect={select}
             />
           </div>
         )}
+
+        {/*
+          The terminal, in a fixed split beside the view.
+
+          Fixed on purpose: the dial with its four detents is #52's, and deciding
+          here how much window a run is worth would be making that ticket's call
+          early. What this slice settles is only that the pane has an address, and
+          that a terminal put there is moved into it rather than mounted in it.
+
+          It is outside `DropRegion` and outside the view slot because it belongs
+          to neither: a run is not a folder and it is not a rendering of the map,
+          and putting it inside either would make it disappear whenever that one
+          did.
+        */}
+        <div className={styles.terminal}>
+          <Pane terminals={terminals} readouts={runs} />
+        </div>
       </div>
 
       <EnvironmentReadout readout={environment} shown={environmentShown} />

@@ -15,7 +15,7 @@ A Cargo workspace of seven crates plus a React 19 + TypeScript frontend.
 | `perseverance-model` | Deriving the model from a GitHub graph | Tauri, the network, a browser |
 | `perseverance-github` | Every network call, and the poller | Writing to GitHub |
 | `perseverance-agent` | The agent trait and its adapters; planning | Spawning anything |
-| `perseverance-pty` | PTY and child-process ownership, and refusing a launch whose program is not a native image | Deciding what to run |
+| `perseverance-pty` | PTY and child-process ownership, the per-run ring, the byte channel's contiguity, and refusing a launch whose program is not a native image | Deciding what to run, or handing over a non-contiguous byte range |
 | `perseverance-store` | The launcher registry: one SQLite file, its schema, and binding a folder to its repo | The network, Tauri, a child process |
 | `perseverance-env` | The environment harvest: the operator's login shell asked once, in memory, and running one program inside the answer | Owning a terminal |
 | `perseverance-app` | The Tauri window and command surface | Any decision at all |
@@ -106,6 +106,28 @@ evidence can suppress a Codex session record — and the variables each agent ke
 its own history under are named in the code as deliberately left alone.
 [ADR 0012](docs/adr/0012-three-adapters-are-one-shape.md) records the shape, the
 declined flags, the asymmetry and the unknowns it inherits.
+
+`perseverance-pty` owns every terminal. It spawns through `portable-pty` into a
+job object, drains each PTY into a per-run ring on its own thread, and answers
+the cursor-position query ConPTY will not start without — in the plumbing, so a
+run nobody is watching gets it too. **Lag-drop cannot mean dropping bytes**: a VT
+stream is not sampleable, so the ring reduces only by dropping whole scrollback
+from the front, the channel stops and replays whole rather than sending a gap,
+and truncation is printed in the chrome and never into the stream.
+[ADR 0013](docs/adr/0013-lag-drop-cannot-mean-dropping-bytes.md) records the
+decision, what it costs, and the property test that falsifies it.
+
+There is one xterm.js instance per run and it is moved between the pane and a
+hidden stow by relocating its DOM node — the same imperative-reparent primitive
+the boarding pass needs, so the app has one such mechanism rather than two. There
+is also one pane geometry for every live run, changed **only** on a settled
+gesture: `src/panes/geometry.ts` names all five occasions a size can arrive on
+and lets exactly one of them through, and `crates/pty`'s `Panes` has a single
+method that yields a resize, so bind, peek, drag and arrival have nothing to
+call. That is what makes *never resize on bind* an invariant rather than an
+assertion — a resize that landed mid-grilling would rewrap what the operator was
+typing. The cost is accepted and named: a background research PTY is reflowed by
+a dial it has nothing to do with.
 
 App-level artifacts are named **perseverance**. `wayfinder` stays reserved for
 the skill's vocabulary and never appears in a shipped name.
@@ -237,6 +259,27 @@ check that cannot fail.
   blocker that is both closed and elsewhere. `crates/model` still documents the
   field as carrying every blocker the answer named, so the next reader will
   believe it. It is one query against a real map to settle.
+- **Nothing creates a run yet.** #47 built the machinery — the registry, the
+  channel, the ring, the pane — and *Start Working* is #48's, so the command
+  surface has no producer behind it in the shipped app. Every invariant it holds
+  is exercised against real children in `crates/pty`'s own tests, which spawn the
+  platform's shell rather than an agent CLI, and the pane says *nothing is running
+  here yet* until #48 lands.
+- **`nothing_inside_the_terminal_can_raise_a_condition_on_the_graph` names every
+  file in `crates/pty/src` by hand.** A file added there escapes the scan until
+  someone adds it to the list. The array's length is part of its type, so the
+  mistake is at least noticed from one direction.
+- **`Session::spawn` refuses a launch whose process tree it cannot own, and on
+  Windows that means a completely empty environment cannot start a child at
+  all** — `CreateProcessW` rejects a zero-length environment block with *the
+  parameter is incorrect*. Nothing in the product path passes one (a harvest
+  always carries at least a `PATH`), so this surfaces as a puzzling sentence
+  rather than as a designed refusal.
+- **A run's ending is a waited-for exit code and never an end of file.** Measured
+  on Windows: ConPTY's output pipe stays open for as long as the harness holds
+  the pseudoconsole, so a `cmd.exe` that exited zero at 250 ms produced no EOF at
+  five seconds and would have produced none ever. The cost is a second thread per
+  run.
 - **The launcher registry has no capabilities file, and needs none.** The folder
   picker is answered in Rust and hands back a path, so the WebView calls only
   app-defined commands, which Tauri v2 does not gate. The day the frontend calls
