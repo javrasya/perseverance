@@ -4,6 +4,7 @@ import {
   FOLDER_CANNOT_TELL_YOU,
   FOLDER_PATH_NOTE,
   NO_PROBE_DECLARED,
+  OVERRIDE_APPLIES_TO_EVERY_ADAPTER,
   OVERRIDE_ARGV_NOTE,
   OVERRIDE_SCOPE_NOTE,
   PATH_SPLIT_NOTE,
@@ -20,6 +21,7 @@ import {
   probeLine,
   resolutionLine,
   resolutionSource,
+  resolutionSummary,
   scopeLabel,
   type FolderReadout as Readout,
 } from "./folder";
@@ -67,7 +69,7 @@ export function FolderReadout({ readout, shown, onToggle, onAskAgain }: FolderRe
           onClick={onToggle}
         >
           <span className={styles.label}>this folder:</span>
-          <span className={styles.summary}>{summaryOf(readout)}</span>
+          <span className={styles.summary}>{resolutionSummary(readout)}</span>
           <span className={styles.chevron} aria-hidden="true">
             {shown ? "▾" : "▸"}
           </span>
@@ -166,6 +168,11 @@ export function FolderReadout({ readout, shown, onToggle, onAskAgain }: FolderRe
           <p className={styles.facts}>{scopeSentence(readout)}</p>
           <p className={styles.note}>{OVERRIDE_SCOPE_NOTE}</p>
           <p className={styles.note}>{OVERRIDE_ARGV_NOTE}</p>
+          {/*
+           * One stored vector, every adapter. At one adapter that was invisible;
+           * at three the list reads like a bug unless the panel says so.
+           */}
+          <p className={styles.note}>{OVERRIDE_APPLIES_TO_EVERY_ADAPTER}</p>
         </div>
 
         <div className={styles.section}>
@@ -207,13 +214,6 @@ export function FolderReadout({ readout, shown, onToggle, onAskAgain }: FolderRe
       </div>
     </section>
   );
-}
-
-/** One line for the closed state: what resolved, and where the shell ran. */
-function summaryOf(readout: Readout): string {
-  const first = readout.adapters[0];
-  if (first === undefined) return readout.spawnDirectory || "—";
-  return `${first.id} · ${resolutionLine(first)}`;
 }
 
 /** Which scope the override got, or what became of the one that was typed. */

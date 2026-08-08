@@ -93,6 +93,20 @@ anything that is not a native image, because npm's `claude.cmd` interposes
 records the contract, the invariants that are enforced rather than documented,
 and the alternatives it turned down.
 
+Three adapters ship — Claude Code, Codex and Pi — and they are **one shape**:
+each plans `[program, prompt]`, each states the same `TERM` because the terminal
+type is a fact about the PTY this harness presents and not about a vendor, and
+each takes the default `watch`. Codex's `-C/--cd`, Pi's `@file` splice and every
+trust, approval and offline flag are declined for all three, because picking
+those per vendor is what would shape the product like three vendors' CLIs. What
+does differ is declared and only declared: the names to look for, the interpreter
+probes, and the scrub set. The scrub sets are asymmetric — Pi takes away three
+pointers at a *parent* session, Codex takes away nothing, because nothing in the
+evidence can suppress a Codex session record — and the variables each agent keeps
+its own history under are named in the code as deliberately left alone.
+[ADR 0012](docs/adr/0012-three-adapters-are-one-shape.md) records the shape, the
+declined flags, the asymmetry and the unknowns it inherits.
+
 App-level artifacts are named **perseverance**. `wayfinder` stays reserved for
 the skill's vocabulary and never appears in a shipped name.
 
@@ -282,12 +296,16 @@ check that cannot fail.
   cache is keyed on the canonicalised absolute spawn directory, so two spellings
   of one folder are one answer — which deletes the worktree question rather than
   answering it, and means a relocated folder simply gets a new one.
-- **`Discovery.probes` ships empty, so the per-folder readout's probe list is
-  empty on a shipped build.** `ClaudeCode` declares `Probes::NONE` on the
-  argument that its supported installs are native images and a shim is refused by
-  `perseverance_pty::accept` rather than sniffed. `probe_in` is exercised by
-  tests and by no adapter in the binary; the panel says which adapter declares no
-  probe and why, rather than showing a blank.
+- **A declared probe can read *not on this PATH* on a perfectly good install.**
+  `ClaudeCode` declares `Probes::NONE`, on the argument that its supported
+  installs are native images and a shim is refused by
+  `perseverance_pty::accept` rather than sniffed; #46's two adapters declare
+  `node --version`, and Pi's differ by platform — Windows is also asked for
+  `bash --version`, because pi's own `bash` tool fails at *runtime* without one.
+  A Homebrew or standalone-release Codex is a native image with no `node` behind
+  it at all, so its probe answers *nothing of that name* on a machine where
+  nothing is wrong. Nothing parses or compares a probe, and the panel has no
+  sentence yet saying that an answer of nothing may be fine.
 - **There is still no spawn.** `perseverance_pty::accept` has no caller, and
   `Launch::under` — the one composition rule an override has — is asserted by
   golden tests and run by nothing. So *Retry re-harvests, then respawns* is
@@ -377,11 +395,13 @@ check that cannot fail.
   only thing that meets a real schema.
 - **Two of the three pokes have no producer, and now for two different
   reasons.** A run's process exit waits on #47, which is the crate that will own
-  a child process. An adapter's `Idle` is not waiting on anything: #44 landed the
-  contract and the one adapter, and Claude Code takes the default `watch`, which
-  classifies nothing — the whole out-of-band tier is cut from v1, a live signal
-  would mean only *poll sooner*, and polling never stopped. So the type is here
-  and deliberately unproduced. Either way both arrive as things the poller is
+  a child process. An adapter's `Idle` is not waiting on anything: **all three**
+  shipped adapters take the default `watch`, which classifies nothing — the whole
+  out-of-band tier is cut from v1, a live signal would mean only *poll sooner*,
+  and polling never stopped. Three adapters producing no signal is a stronger
+  claim than one did: no call site can have grown a branch on whether an adapter
+  watches, because none of them does and every call site works anyway. So the
+  type is here and deliberately unproduced. Either way both arrive as things the poller is
   *told about* on a channel, the only thing holding a `RunHandle` today is a
   test, and the run-live rung is unreachable in a running build.
 - **A fourth poke the ticket did not ask for.** `EnvironmentSettled` fires when
@@ -429,13 +449,22 @@ check that cannot fail.
   #47 lands, nothing calls it outside its own tests, and the routing-around it
   exists to prevent has never been attempted.
 - **The golden argv is checked against a recording, and nothing in CI ever
-  spawns `claude`.** The Claude Code adapter's two argv elements, its scrubbed
-  `CLAUDE_CODE_CHILD_SESSION`, its `TERM`, and the ~223 ms alternate-screen
-  measurement behind its ten-second readiness timeout all come from
-  `docs/research/pty-spawn-agent-clis.md` — one machine, one day. A release that
-  moved the prompt behind a flag would leave every test here passing. That is
-  the deliberate trade for tests that need no async runtime, no PTY and no
-  installed CLI.
+  spawns `claude`, `codex` or `pi`.** The Claude Code adapter's two argv
+  elements, its scrubbed `CLAUDE_CODE_CHILD_SESSION`, its `TERM`, and the
+  ~223 ms alternate-screen measurement behind its ten-second readiness timeout
+  all come from `docs/research/pty-spawn-agent-clis.md` — one machine, one day.
+  The codex and pi goldens are weaker again: they rest on `--help` output from
+  one Windows machine and one Mac on two days in 2026-08, neither adapter's
+  time-to-alt-screen has ever been measured, and both reuse Claude's ten seconds
+  because there is nothing else to use. A release that moved a prompt behind a
+  flag would leave every test here passing. That is the deliberate trade for
+  tests that need no async runtime, no PTY and no installed CLI.
+- **Both npm-installed adapters are refused by the shim gate, and nothing spawns
+  to prove it.** `codex` and `pi` install as `#!/usr/bin/env node` script text on
+  macOS and as `.cmd` shims on Windows — the two shapes `perseverance_pty::accept`
+  refuses. That is the intended loud failure and #45's argv override is the
+  answer, but `accept` still has no caller, so the whole path is untested end to
+  end until #47.
 - **Linux has never built the TLS stack.** `ureq` verifies certificates against
   the operator's own trust store via `rustls-platform-verifier`, which supports
   Linux — but both CI runners are Windows and macOS by design, so nothing here

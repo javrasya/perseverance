@@ -3075,59 +3075,91 @@ mod tests {
     /// could have got there while naming nothing at all.
     #[test]
     fn an_adapter_plans_from_what_it_was_handed_and_from_nothing_it_could_go_and_read() {
-        const AGENT_SOURCES: [(&str, &str); 7] = [
-            ("lib.rs", include_str!("../../agent/src/lib.rs")),
-            ("agent.rs", include_str!("../../agent/src/agent.rs")),
-            ("claude.rs", include_str!("../../agent/src/claude.rs")),
-            ("launch.rs", include_str!("../../agent/src/launch.rs")),
-            ("platform.rs", include_str!("../../agent/src/platform.rs")),
-            ("registry.rs", include_str!("../../agent/src/registry.rs")),
-            ("watch.rs", include_str!("../../agent/src/watch.rs")),
-        ];
+        // **The directory, and not a list of it.** This was nine `include_str!`
+        // lines until #46, and the tenth was the fourth file an adapter cost to
+        // add — a hand-written list of the haystack, where forgetting a line
+        // meant a file nothing scanned. Reading the directory removes both: the
+        // list cannot be short of the disk, because it *is* the disk, and
+        // `crates/app` stops being somewhere an adapter has to be registered.
+        //
+        // Reading at test time rather than baking at compile time is the whole
+        // of the change. `include_str!` bakes the bytes and so needs the path
+        // spelled out; a test runs beside the checkout that built it, and
+        // `crates/model/src/bindings.rs` already walks its fixture directory
+        // from `CARGO_MANIFEST_DIR` for exactly this reason. The scan is over
+        // `crates/agent`, never over this crate, so nothing here is subject to
+        // the rule it applies — the needle still does not go in the haystack.
+        let directory = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("agent")
+            .join("src");
+        let mut agent_sources: Vec<(String, String)> = std::fs::read_dir(&directory)
+            .unwrap_or_else(|why| panic!("reading {directory:?}: {why}"))
+            .map(|entry| {
+                entry
+                    .expect("an entry of crates/agent/src")
+                    .file_name()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .filter(|file| file.ends_with(".rs"))
+            .map(|file| {
+                let path = directory.join(&file);
+                let source = std::fs::read_to_string(&path)
+                    .unwrap_or_else(|why| panic!("reading {path:?}: {why}"));
+                (file, source)
+            })
+            .collect();
+        agent_sources.sort();
 
-        // The list above is the weak part of the rule, so it is checked rather
-        // than trusted: the crate's own `mod` declarations are the authority on
-        // which files exist, and a module added without a line above fails here
-        // rather than quietly escaping the scan. It found `watch.rs` missing
-        // the first time it ran, which is the argument for it.
+        assert!(
+            !agent_sources.is_empty(),
+            "nothing was read from {directory:?}, so this scan would pass by having looked at \
+             no adapter at all"
+        );
+
+        // The two halves are now *the files on disk* and *the crate's own `mod`
+        // declarations*, and they are still compared — for the opposite failure
+        // to the one the old list had. A file cannot escape the scan any more,
+        // so what is left to catch is a file on disk that no `mod` declares
+        // (dead source nobody compiles, which would go on being scanned and
+        // read as evidence) and a `mod` with no file of its name.
         //
         // A set of names and not a count of them. A count was satisfiable by
-        // the wrong file: `#[cfg(windows)] mod platform_windows;` was a
-        // declaration `modules_declared_in` could not see, so adding it left
-        // the total where it was, `declared + 1 == AGENT_SOURCES.len()` went on
-        // holding, and `platform_windows.rs` was never read for `std::fs`. Two
-        // errors that cancel are the failure mode of every count, and a set has
-        // no arithmetic for them to cancel in — it names the file that is on
-        // one side and not the other.
+        // the wrong file: `#[cfg(windows)] mod platform_windows;` is a
+        // declaration `modules_declared_in` cannot see, so a count could cancel
+        // two errors against each other. A set has no arithmetic for them to
+        // cancel in — it names the file that is on one side and not the other.
         //
-        // Every scanned file is asked, not just `lib.rs`, because a submodule
-        // declared in one of the others is a file on disk the same way — and
-        // `lib.rs` is put in by hand, because nothing declares it.
+        // Every scanned file is asked for its declarations, not just `lib.rs`,
+        // because a submodule declared in one of the others is a file on disk
+        // the same way — and `lib` is put in by hand, because nothing declares
+        // it.
         //
         // What this deliberately does not model is `#[path = "elsewhere.rs"]
         // mod name;`, where the module's name and the file's are different on
         // purpose. That fails here rather than passing, which is the safe
         // direction to be wrong in: a test to go and edit, not a file that
         // slipped through.
-        let mut declared: std::collections::BTreeSet<String> = AGENT_SOURCES
+        let mut declared: std::collections::BTreeSet<String> = agent_sources
             .iter()
             .flat_map(|(_, source)| modules_declared_in(source))
             .collect();
         declared.insert("lib".to_string());
 
-        let scanned: std::collections::BTreeSet<String> = AGENT_SOURCES
+        let scanned: std::collections::BTreeSet<String> = agent_sources
             .iter()
             .map(|(file, _)| file.strip_suffix(".rs").unwrap_or(file).to_string())
             .collect();
 
         assert_eq!(
             declared, scanned,
-            "crates/agent's own `mod` declarations and the list this scan reads name different \
-             files, so either one plans from something nothing here has read or this list names \
-             a file the crate no longer has"
+            "crates/agent's own `mod` declarations and the files in its src directory name \
+             different modules, so either a file on disk is compiled by nothing and read here as \
+             evidence, or a declared module has no file of its name"
         );
 
-        for (file, source) in AGENT_SOURCES {
+        for (file, source) in &agent_sources {
             for named in std_paths_named(source) {
                 assert!(
                     PERMITTED_STD.contains(&named.as_str()),
@@ -3869,6 +3901,46 @@ mod tests {
     /// `src/environment/folder.ts` is a hand-written mirror of this, and twelve
     /// keys is the count both files assert — the same defence, and the same
     /// cost, as the app-global readout's ten.
+    /// One reading, found by id rather than by position.
+    ///
+    /// Index 0 was fine while one adapter shipped and is a latent identity
+    /// assumption now that three do: the guarantee `adapters_in` gives is one
+    /// entry per registered adapter in `AgentId::ALL` order, and a test that
+    /// reads `[0]` is asserting against whichever happens to be first.
+    fn reading_for(json: &serde_json::Value, id: AgentId) -> &serde_json::Value {
+        json["adapters"]
+            .as_array()
+            .expect("an array")
+            .iter()
+            .find(|reading| reading["id"] == id.as_str())
+            .unwrap_or_else(|| panic!("{id} is registered and produced no reading"))
+    }
+
+    /// **Every registered adapter is read, and `adapters_in` never learned
+    /// which.**
+    ///
+    /// The evidence for criterion 5 of #46, and it is an absence: `adapters_in`
+    /// was written at #45 against one adapter, loops `AgentId::ALL`, resolves
+    /// through `locate_in` and selects probes with `probes.on(Platform::host())`
+    /// — and picked up two more adapters at #46 without a line changing. This
+    /// asserts the shape that makes that true: one reading per registered
+    /// adapter, in the registry's own order, and nothing in the readout keyed to
+    /// a particular one.
+    fn every_adapter_was_read(json: &serde_json::Value) {
+        let read: Vec<&str> = json["adapters"]
+            .as_array()
+            .expect("an array")
+            .iter()
+            .map(|reading| reading["id"].as_str().expect("an id"))
+            .collect();
+        let registered: Vec<&str> = AgentId::ALL.iter().map(|id| id.as_str()).collect();
+
+        assert_eq!(
+            read, registered,
+            "the readout is one row per registered adapter, in the registry's order"
+        );
+    }
+
     #[test]
     fn a_folder_readout_crosses_in_the_shape_the_frontend_declares() {
         let on_the_path = TempDir::new().expect("the one directory the PATH names");
@@ -3890,27 +3962,50 @@ mod tests {
         assert_eq!(json["degradation"]["kind"], "notSeen");
         assert_eq!(json["override"]["kind"], "none");
 
-        // One adapter ships, and the absolute path is the headline fact: it is
-        // the only visible form a version pin has.
-        let adapters = json["adapters"].as_array().expect("an array");
-        assert_eq!(adapters.len(), 1);
-        assert_eq!(adapters[0]["id"], "claude");
-        assert_eq!(adapters[0]["resolution"]["kind"], "resolved");
-        assert_eq!(adapters[0]["resolution"]["name"], "claude");
-        assert_eq!(adapters[0]["resolution"]["from"], "candidate");
-        assert!(Path::new(
-            adapters[0]["resolution"]["program"]
-                .as_str()
-                .expect("a path")
-        )
-        .is_absolute());
-        // Empty on a shipped build, and on purpose: the one adapter declares
-        // `Probes::NONE`, because a supported Claude install is a native image
-        // and a shim is refused at spawn by `perseverance_pty::accept` rather
-        // than sniffed here. The panel says so rather than showing a blank.
-        assert_eq!(adapters[0]["probes"].as_array().expect("an array").len(), 0);
+        // Three adapters ship, all of them read here, and the absolute path is
+        // the headline fact for each: it is the only visible form a version pin
+        // has. Only `claude` is on this `PATH`, so it is the one that resolved —
+        // and the other two producing a *not found* row rather than no row is
+        // the point.
+        every_adapter_was_read(&json);
+        let claude = reading_for(&json, AgentId::ClaudeCode);
+        assert_eq!(claude["resolution"]["kind"], "resolved");
+        assert_eq!(claude["resolution"]["name"], "claude");
+        assert_eq!(claude["resolution"]["from"], "candidate");
+        assert!(Path::new(claude["resolution"]["program"].as_str().expect("a path")).is_absolute());
+        // Empty, and on purpose: Claude Code declares `Probes::NONE`, because a
+        // supported install is a native image and a shim is refused at spawn by
+        // `perseverance_pty::accept` rather than sniffed here. The panel says so
+        // rather than showing a blank.
+        assert_eq!(claude["probes"].as_array().expect("an array").len(), 0);
+
+        // And the two #46 added declare one, so the probe rows in the panel now
+        // have a producer. Nothing is asserted about what the probe *said* —
+        // whether this machine has a `node` is not this test's business, and
+        // reading a probe for a verdict is what `docs/adr/0011` refuses.
+        for (id, declared) in [(AgentId::Codex, 1), (AgentId::Pi, expected_pi_probes())] {
+            let reading = reading_for(&json, id);
+            assert_eq!(reading["resolution"]["kind"], "notFound");
+            assert_eq!(reading["resolution"]["names"][0], id.as_str());
+            assert_eq!(
+                reading["probes"].as_array().expect("an array").len(),
+                declared,
+                "{id} declared a different number of probes than the panel was handed"
+            );
+        }
 
         assert_eq!(json.as_object().expect("an object").len(), 12);
+    }
+
+    /// Pi is the first adapter whose probes differ by platform: `node` on unix,
+    /// `node` and the `bash` one of its own tools needs on Windows. The readout
+    /// runs the host's, so the count this test expects is the host's too.
+    fn expected_pi_probes() -> usize {
+        perseverance_agent::agent(AgentId::Pi)
+            .discovery()
+            .probes
+            .on(Platform::host())
+            .len()
     }
 
     /// The one place `perseverance_agent::Scope` and
@@ -3992,8 +4087,14 @@ mod tests {
             read_folder(&harvests, None, &folder.path().to_string_lossy(), false);
 
         let json = serde_json::to_value(&readout).expect("serialises");
-        assert_eq!(json["adapters"][0]["resolution"]["kind"], "notFound");
-        assert_eq!(json["adapters"][0]["resolution"]["names"][0], "claude");
+        // Every registered adapter, every one of them nowhere, and a readout
+        // rather than a refusal for all three.
+        every_adapter_was_read(&json);
+        for id in AgentId::ALL.iter().copied() {
+            let reading = reading_for(&json, id);
+            assert_eq!(reading["resolution"]["kind"], "notFound");
+            assert_eq!(reading["resolution"]["names"][0], id.as_str());
+        }
         // Criterion 7's four facts, all on the one value the error surface is
         // handed: the names tried, the shell that ran, what became of the
         // harvest, and the verbatim `PATH`. None of them is copied into the
@@ -4057,16 +4158,28 @@ mod tests {
         assert_eq!(json["override"]["argv"][0], "wf45node");
         assert_eq!(json["override"]["argv"][1], "/opt/claude/cli.js");
         assert_eq!(json["override"]["scope"], "followsTheFolder");
-        assert_eq!(json["adapters"][0]["resolution"]["kind"], "resolved");
-        assert_eq!(json["adapters"][0]["resolution"]["from"], "override");
-        assert_eq!(
-            json["adapters"][0]["resolution"]["program"],
-            on_the_path
-                .path()
-                .join("wf45node")
-                .to_string_lossy()
-                .into_owned()
-        );
+
+        // **The override is app-global, so at three adapters every row resolves
+        // to the same program.** #45 decided one row and one key with one
+        // adapter in the tree, where that was invisible; it is visible now and
+        // it is the decision working rather than a fault, so the panel says so
+        // in as many words. A per-adapter key would be a different decision and
+        // is not this ticket's.
+        every_adapter_was_read(&json);
+        for id in AgentId::ALL.iter().copied() {
+            let reading = reading_for(&json, id);
+            assert_eq!(reading["resolution"]["kind"], "resolved");
+            assert_eq!(reading["resolution"]["from"], "override");
+            assert_eq!(
+                reading["resolution"]["program"],
+                on_the_path
+                    .path()
+                    .join("wf45node")
+                    .to_string_lossy()
+                    .into_owned(),
+                "{id} resolved somewhere other than the one override that is stored"
+            );
+        }
     }
 
     /// One row of the `app` table the default adapter already lives in — no

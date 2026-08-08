@@ -410,9 +410,14 @@ export type LauncherNote =
   | { kind: "refused"; detail: string }
   /**
    * The folder is open. Its maps are being read and its repository binding
-   * landed; only the program the adapter looks for is nowhere on this folder's
-   * own `PATH`. So it is a note beside an opened folder rather than a refusal
-   * that replaced one — a missing CLI can only ever add a sentence here.
+   * landed; not one of the programs the adapters look for is anywhere on this
+   * folder's own `PATH`. So it is a note beside an opened folder rather than a
+   * refusal that replaced one — a missing CLI can only ever add a sentence here.
+   *
+   * *Not one of them*, rather than *one of them*: `missingCli` is an `every`
+   * and says so at its definition. A note that fired because two of three
+   * vendors are not installed would sit beside every folder on nearly every
+   * machine, which is a nag rather than a fact about this folder.
    */
   | { kind: "cliMissing"; readout: FolderReadout };
 
@@ -440,9 +445,12 @@ export function describeNote(note: LauncherNote): string {
       return `${ended(note.detail)} The list is exactly as it was.`;
     case "cliMissing": {
       // The names come from the readout, so the sentence names what was
-      // actually looked for rather than what this file assumed would be.
+      // actually looked for rather than what this file assumed would be — and
+      // the note only fires when every adapter came back with nothing, so this
+      // is all of them rather than a sample.
       const tried = namesTried(note.readout);
-      return `${listOut(tried)} — nothing of that name is on this folder's PATH. ${CLI_MISSING_COUNSEL}`;
+      const anyOf = tried.length === 1 ? "nothing of that name is" : "none of those names is";
+      return `${listOut(tried)} — ${anyOf} on this folder's PATH. ${CLI_MISSING_COUNSEL}`;
     }
   }
 }
