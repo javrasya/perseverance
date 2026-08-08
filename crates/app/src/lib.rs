@@ -13,10 +13,16 @@
 //!
 //! [`perseverance_store`]: https://github.com/javrasya/perseverance
 
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
-use perseverance_env::{Environment, HarvestAttempt, Shell, Stderr, StderrKind, Tally};
+use perseverance_agent::{agent, AgentId, Override, Platform, Scope};
+use perseverance_env::{
+    degradation_in, locate_in, probe_in, spawnable_form, Bounds, Degradation, Environment,
+    FolderEnvironment, HarvestAttempt, Harvests, Located, ProbeOutcome, Shell, Stderr, StderrKind,
+    Tally,
+};
 use perseverance_github::{
     acquire_token, read_maps, Ahead, Attention, Fault, FreshRead, Held, Poke, Poker, ReadFailure,
     Tick, Timings, TokenOutcome, Watched,
@@ -1018,6 +1024,10 @@ fn settle_into(
 ) -> EnvironmentReadout {
     let attempt = take();
     let taken = &attempt.outcome;
+    // Read out of the stream before anything decides what became of the
+    // harvest, because the two are independent: an interpreter that declined
+    // the operator's profile still frames, still closes and still exits 0.
+    let degradation = DegradationState::from(degradation_in(&attempt.stderr));
 
     let environment = ambient.environment.get_or_init(|| match taken {
         Ok(harvest) => harvest.environment.clone(),
@@ -1074,6 +1084,7 @@ fn settle_into(
         // an empty stream for a discarded one would read as a shell that said
         // nothing at all.
         stderr: WireStderr::from(&attempt.stderr),
+        degradation,
         token: TokenState::from(token),
     };
 
@@ -1245,9 +1256,35 @@ impl From<&TokenOutcome> for TokenState {
     }
 }
 
+/// What the interpreter said about itself on its way to a clean-looking answer.
+///
+/// A degradation is not a [`HarvestState`] and cannot become one: the harvest
+/// succeeded — exit 0, both marks, a plausible environment — and the only
+/// artifact is a sentence in a stream whose Windows baseline is never empty. So
+/// this is a separate field rather than a fourth harvest tag, and it is read by
+/// content in `perseverance_env::degradation_in` rather than decided here.
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+enum DegradationState {
+    /// Nothing nameable was said. Which is *not* the same as nothing having
+    /// happened: an interpreter that declines silently, or in a language this
+    /// does not read, lands here too.
+    NotSeen,
+    ProfileRefused,
+}
+
+impl From<Option<Degradation>> for DegradationState {
+    fn from(named: Option<Degradation>) -> DegradationState {
+        match named {
+            None => DegradationState::NotSeen,
+            Some(Degradation::ProfileRefused) => DegradationState::ProfileRefused,
+        }
+    }
+}
+
 /// Everything the diagnostics surface shows, in one value.
 ///
-/// The environment itself has exactly one exit from Rust and this is it: nine
+/// The environment itself has exactly one exit from Rust and this is it: ten
 /// keys, none of which is a variable. `src/environment/environment.ts` is a
 /// hand-written mirror of this, so a rename here is a silent breakage there.
 #[derive(Debug, Clone, Serialize)]
@@ -1264,6 +1301,7 @@ struct EnvironmentReadout {
     elapsed_ms: u64,
     tally: WireTally,
     stderr: WireStderr,
+    degradation: DegradationState,
     token: TokenState,
 }
 
@@ -1285,6 +1323,10 @@ impl EnvironmentReadout {
                 bytes: 0,
                 text: String::new(),
             },
+            // Nothing has been said, because nothing has been asked. The tag
+            // means the same thing here as it does after a harvest that said
+            // nothing, and that ambiguity is the honest half of it.
+            degradation: DegradationState::NotSeen,
             token: TokenState::NotAttempted,
         }
     }
@@ -1299,12 +1341,445 @@ fn environment(ambient: State<'_, Ambient>) -> EnvironmentReadout {
     ambient.settled()
 }
 
+/* ------------------------------------------------- per-folder resolution --- */
+
+/*
+ * Resolution has two tiers and no third one: the folder's own harvested
+ * environment, and an explicit override the operator typed. There is no
+ * install-location probing anywhere below, and `scripts/check-no-install-probing.mjs`
+ * scans this file for the vocabulary of one. `docs/adr/0011` records why: the
+ * failure mode of guessing at directories is not incompleteness but *divergence*
+ * from what the operator's own shell resolves, and a silently wrong binary beats
+ * a loud not-found in exactly the wrong direction.
+ */
+
+/// Where the app-global override is kept: one row of the same `app` key/value
+/// table `default_adapter` already lives in.
+///
+/// App-global and deliberately not `folders.adapter`, which is per folder. The
+/// composition rule is what makes one row enough: `argv[0]` is resolved against
+/// each folder's environment, so a bare name follows that folder's pin and a
+/// path pins the machine — the operator picks the scope by what they type, and
+/// one stored vector expresses both.
+const OVERRIDE_KEY: &str = "agent_override";
+
+/// The override as it was written down, or nothing at all.
+///
+/// A cell that is not a JSON array of strings — or is one with nothing usable in
+/// it — reads as *no override* rather than as a failure. This is asked on every
+/// folder open, and a launcher held shut by a malformed preference row would be
+/// the opposite of criterion 9.
+fn stored_override(store: &Store) -> Option<Override> {
+    let written = store.get_app(OVERRIDE_KEY).ok().flatten()?;
+    let argv: Vec<String> = serde_json::from_str(&written).ok()?;
+    Override::from_argv(argv.into_iter().map(OsString::from).collect()).ok()
+}
+
+/// Written as JSON here rather than in the store.
+///
+/// `perseverance-store` has no `serde_json` and gains none for a preference: the
+/// `app` table is text, and what an argv vector means is the harness's business.
+/// No schema change and no migration — `STORE_SCHEMA_VERSION` is untouched.
+fn remember_override(store: &Store, argv: &[String]) -> Result<(), String> {
+    let written = serde_json::to_string(argv).map_err(|error| error.to_string())?;
+    store
+        .set_app(OVERRIDE_KEY, &written)
+        .map_err(|error| error.to_string())
+}
+
+/// The stored override, or none — including when the registry itself would not
+/// open, because a folder still has to resolve on a build that cannot read its
+/// own preferences.
+fn remembered_override(registry: &Registry) -> Option<Override> {
+    let store = registry.store().ok()?;
+    stored_override(&store)
+}
+
+/// Which adapter resolved to what, and what its declared probes answered.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AdapterReading {
+    id: String,
+    resolution: WireResolution,
+    probes: Vec<WireProbeReading>,
+}
+
+/// The **absolute path** is the headline fact, because it is the only visible
+/// form a version pin has: a bare name that follows a pin resolves to a
+/// different absolute path in two folders, and that difference is what says
+/// which interpreter this folder is about to run under.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+enum WireResolution {
+    Resolved {
+        name: String,
+        program: String,
+        from: WireOrigin,
+    },
+    /// Only the names tried. The shell used, the harvest's outcome and the
+    /// verbatim `PATH` are top-level on the same [`FolderReadout`] — one home
+    /// per fact, so the error surface assembles all four from one value and
+    /// there is no second copy to drift.
+    NotFound { names: Vec<String> },
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+enum WireOrigin {
+    Candidate,
+    Override,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WireProbeReading {
+    program: String,
+    args: Vec<String>,
+    outcome: WireProbeOutcome,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+enum WireProbeOutcome {
+    Answered { status: Option<i32>, line: String },
+    NotOnThisPath,
+    DidNotRun { detail: String },
+}
+
+/// What the override is doing to this reading, in four states.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+enum WireOverride {
+    None,
+    InUse {
+        argv: Vec<String>,
+        scope: WireScope,
+    },
+    /// The store declined to write it down. It is **still in force for this
+    /// run**: an operator who has just typed something that works should not be
+    /// told it did not, on the strength of a preferences file.
+    NotRemembered {
+        argv: Vec<String>,
+        detail: String,
+    },
+    /// Decidable from the vector alone, in the crate's own words. Nothing
+    /// changed, so whatever was stored before is still what resolved.
+    Refused {
+        detail: String,
+    },
+}
+
+/// Which of the two scopes the operator chose by what they typed.
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+enum WireScope {
+    FollowsTheFolder,
+    PinnedGlobally,
+}
+
+/// Everything one folder's resolution came to, in one value. Twelve keys.
+///
+/// `src/environment/folder.ts` is a hand-written mirror of this, on the same
+/// terms as the app-global readout: both sides count the keys, because a rename
+/// on either is silent on the other.
+///
+/// No `tally` here. The frame's counts are a property of a *harvest*, and the
+/// app-global panel already shows them for the harvest that settled this
+/// process; a second set per folder would be four more numbers for a question
+/// nobody asks per folder.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FolderReadout {
+    /// The path as it was asked for, unchanged — so the operator can see that
+    /// what they picked and what the child was given are the same directory,
+    /// or that they are not.
+    folder: String,
+    /// The absolute, canonicalised directory the child was given, which is also
+    /// the key this folder's harvest is kept on.
+    spawn_directory: String,
+    harvest: HarvestState,
+    shell: WireShell,
+    /// Verbatim and never split. This is the folder's own `PATH`, which is the
+    /// whole point: it is what makes `claude: not found` falsifiable against
+    /// your own terminal.
+    path: Option<String>,
+    path_source: PathSource,
+    variable_count: usize,
+    elapsed_ms: u64,
+    stderr: WireStderr,
+    degradation: DegradationState,
+    adapters: Vec<AdapterReading>,
+    r#override: WireOverride,
+}
+
+/// One folder, resolved.
+///
+/// Not a command, so it can be driven by a test with a harvest that never ran a
+/// shell — the seam `settle_into` is for the app-global path. The steps are:
+/// the folder's environment (harvested once and kept, or harvested again when
+/// the operator says so), then every registered adapter resolved *in* that
+/// environment, then its declared probes run in it.
+///
+/// This is the first consumer of `perseverance_agent::agent` and of
+/// `Agent::discovery` anywhere in the tree.
+fn read_folder(
+    harvests: &Harvests,
+    stored: Option<Override>,
+    folder: &str,
+    again: bool,
+) -> FolderReadout {
+    let asked = Path::new(folder);
+    // Re-harvest *before* re-resolving, which is the whole of the operator's
+    // retry: an answer re-read from the map would be the same stale answer,
+    // faster.
+    let settled = if again {
+        harvests.again_in_folder(asked)
+    } else {
+        harvests.in_folder(asked)
+    };
+
+    let path = settled.environment.path().map(|path| path.into_owned());
+    FolderReadout {
+        folder: folder.to_string(),
+        spawn_directory: settled.spawn_directory.to_string_lossy().into_owned(),
+        harvest: match &settled.condition {
+            None => HarvestState::Harvested,
+            // The crate's own sentence, unedited.
+            Some(condition) => HarvestState::Inherited {
+                detail: condition.to_string(),
+            },
+        },
+        shell: match &settled.shell {
+            Some(shell) => WireShell::from(shell),
+            None => WireShell::None,
+        },
+        path_source: match (settled.from_harvest, &path) {
+            (_, None) => PathSource::None,
+            (true, Some(_)) => PathSource::Harvest,
+            (false, Some(_)) => PathSource::Inherited,
+        },
+        path,
+        variable_count: settled.environment.len(),
+        elapsed_ms: settled.elapsed.as_millis().min(u128::from(u64::MAX)) as u64,
+        stderr: WireStderr::from(&settled.stderr),
+        degradation: DegradationState::from(settled.degradation),
+        adapters: adapters_in(&settled, stored.as_ref()),
+        r#override: wire_override(stored.as_ref()),
+    }
+}
+
+/// Every registered adapter, resolved in this folder's environment.
+fn adapters_in(settled: &FolderEnvironment, chosen: Option<&Override>) -> Vec<AdapterReading> {
+    // The directory the child was given, in the spelling a child can be given:
+    // the key keeps Windows' verbatim prefix and `Command::current_dir` is not
+    // known to take it.
+    let directory = spawnable_form(&settled.spawn_directory);
+    let bounds = Bounds::for_this_machine();
+
+    AgentId::ALL
+        .iter()
+        .map(|id| {
+            let declared = agent(*id).discovery();
+            AdapterReading {
+                id: id.as_str().to_string(),
+                resolution: match chosen {
+                    // One composition rule: `argv[0]` is resolved against the
+                    // folder's environment, exactly as a candidate is. Nothing
+                    // here re-implements the bare-name-versus-path decision —
+                    // `Environment::resolve` has always made it.
+                    Some(chosen) => resolved_under(
+                        &settled.environment,
+                        &chosen.program().to_string_lossy(),
+                        WireOrigin::Override,
+                    ),
+                    None => match locate_in(&settled.environment, declared.candidates) {
+                        Located::Found(found) => WireResolution::Resolved {
+                            name: found.name,
+                            program: found.program.to_string_lossy().into_owned(),
+                            from: WireOrigin::Candidate,
+                        },
+                        Located::NotFound(missing) => WireResolution::NotFound {
+                            names: missing.names,
+                        },
+                    },
+                },
+                // Per platform by type rather than by a tag every caller has to
+                // remember to filter on: a probe run on the wrong platform is a
+                // reading of nothing presented as a reading of something.
+                probes: declared
+                    .probes
+                    .on(Platform::host())
+                    .iter()
+                    .map(|probe| {
+                        let reading = probe_in(
+                            &settled.environment,
+                            &directory,
+                            probe.program,
+                            probe.args,
+                            &bounds,
+                        );
+                        WireProbeReading {
+                            program: reading.program,
+                            args: reading.args,
+                            outcome: match reading.outcome {
+                                ProbeOutcome::Answered { status, line } => {
+                                    WireProbeOutcome::Answered { status, line }
+                                }
+                                ProbeOutcome::NotOnThisPath => WireProbeOutcome::NotOnThisPath,
+                                ProbeOutcome::DidNotRun { detail } => {
+                                    WireProbeOutcome::DidNotRun { detail }
+                                }
+                            },
+                        }
+                    })
+                    .collect(),
+            }
+        })
+        .collect()
+}
+
+/// One name, resolved against one environment. The only resolver in the tree.
+fn resolved_under(environment: &Environment, named: &str, from: WireOrigin) -> WireResolution {
+    match environment.resolve(named) {
+        Some(program) => WireResolution::Resolved {
+            name: named.to_string(),
+            program: program.to_string_lossy().into_owned(),
+            from,
+        },
+        None => WireResolution::NotFound {
+            names: vec![named.to_string()],
+        },
+    }
+}
+
+/// The override, as the surface shows it back. The scope is named rather than
+/// decided: `Environment::resolve` already behaves both ways, and
+/// [`Scope`] only says which of the two the typed vector picked.
+fn wire_override(chosen: Option<&Override>) -> WireOverride {
+    match chosen {
+        None => WireOverride::None,
+        Some(chosen) => WireOverride::InUse {
+            argv: argv_of(chosen),
+            scope: match chosen.scope(Platform::host()) {
+                Scope::FollowsTheFolder => WireScope::FollowsTheFolder,
+                Scope::PinnedGlobally => WireScope::PinnedGlobally,
+            },
+        },
+    }
+}
+
+fn argv_of(chosen: &Override) -> Vec<String> {
+    chosen
+        .argv()
+        .iter()
+        .map(|argument| argument.to_string_lossy().into_owned())
+        .collect()
+}
+
+/*
+ * None of the four below returns a `Result`, which is how "a missing CLI never
+ * blocks the folder from opening" stays a compile-time fact rather than a test —
+ * the same trick the `environment` command already uses. A folder whose adapter
+ * is nowhere on its `PATH` produces a readout saying so; it cannot produce a
+ * rejected call for the frontend to treat as a failure to open.
+ *
+ * `(async)` is load-bearing on every one of them, for the reason `choose_folder`
+ * has it: a command without it runs on the main thread, and a Windows harvest is
+ * bounded at 20 s.
+ */
+
+#[tauri::command(async)]
+fn folder_environment(
+    harvests: State<'_, Harvests>,
+    registry: State<'_, Registry>,
+    path: String,
+) -> FolderReadout {
+    read_folder(&harvests, remembered_override(&registry), &path, false)
+}
+
+/// The operator's explicit retry, and the only thing that forgets.
+///
+/// Re-harvests *then* re-resolves. There is no clock and no watcher behind this:
+/// the dangerous case is a pin that has not changed while the installed set has,
+/// which no watcher over the folder can see.
+#[tauri::command(async)]
+fn retry_folder_environment(
+    harvests: State<'_, Harvests>,
+    registry: State<'_, Registry>,
+    path: String,
+) -> FolderReadout {
+    read_folder(&harvests, remembered_override(&registry), &path, true)
+}
+
+/// Sets the override and re-resolves against the environment already in hand.
+///
+/// Deliberately **not** a re-harvest: an override is a different answer to
+/// *which program*, not a claim that the folder's environment has changed, and
+/// running the operator's start-up files again to answer it would be a second
+/// login shell for a question the first one already answered.
+#[tauri::command(async)]
+fn use_override(
+    harvests: State<'_, Harvests>,
+    registry: State<'_, Registry>,
+    path: String,
+    argv: Vec<String>,
+) -> FolderReadout {
+    let chosen = Override::from_argv(argv.iter().map(OsString::from).collect());
+
+    match chosen {
+        Err(refusal) => {
+            let mut readout = read_folder(&harvests, remembered_override(&registry), &path, false);
+            // The crate's own sentence, unedited; nothing is composed here.
+            readout.r#override = WireOverride::Refused {
+                detail: refusal.to_string(),
+            };
+            readout
+        }
+        Ok(chosen) => {
+            let wrote = match registry.store() {
+                Ok(store) => remember_override(&store, &argv),
+                Err(refusal) => Err(refusal),
+            };
+            let mut readout = read_folder(&harvests, Some(chosen), &path, false);
+            if let Err(detail) = wrote {
+                readout.r#override = WireOverride::NotRemembered { argv, detail };
+            }
+            readout
+        }
+    }
+}
+
+/// Puts the override back to nothing.
+///
+/// Written as an empty vector rather than deleted, because the store has no
+/// delete and does not need one: [`stored_override`] reads an empty vector as
+/// *no override*, which is the same reading it gives a row that was never
+/// written.
+#[tauri::command(async)]
+fn clear_override(
+    harvests: State<'_, Harvests>,
+    registry: State<'_, Registry>,
+    path: String,
+) -> FolderReadout {
+    if let Ok(store) = registry.store() {
+        // A store that would not take it leaves the override where it was, and
+        // the readout below says what actually resolved either way.
+        let _ = remember_override(&store, &[]);
+    }
+    read_folder(&harvests, remembered_override(&registry), &path, false)
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             app.manage(Registry::open(app.handle()));
             app.manage(Ambient::harvesting());
+            // Adjacent to `Ambient` and never a widening of it. `Ambient`'s two
+            // `OnceLock`s are what make *one environment per launch* structural
+            // for the app-global harvest, and a per-folder cache the operator
+            // can explicitly forget cannot be that shape.
+            app.manage(Harvests::new());
             // Before the poller, for the reason the poller is managed before
             // the harvest: `poll_once` reads both of these on every tick, and a
             // tick that arrived before they existed would be a panic rather
@@ -1351,7 +1826,11 @@ pub fn run() {
             relocate_folder,
             bind_repo,
             choose_folder,
-            environment
+            environment,
+            folder_environment,
+            retry_folder_environment,
+            use_override,
+            clear_override
         ])
         .run(tauri::generate_context!())
         .expect("perseverance failed to start");
@@ -2974,7 +3453,7 @@ mod tests {
 
     /// `src/environment/environment.ts` is a hand-written mirror of this, pinned
     /// from both sides for the same reason [`FolderEntry`] is: a rename here is a
-    /// silent breakage there, and nine keys is the count both files assert.
+    /// silent breakage there, and ten keys is the count both files assert.
     #[test]
     fn an_environment_readout_crosses_in_the_shape_the_frontend_declares() {
         let ambient = Ambient::harvesting();
@@ -3006,7 +3485,48 @@ mod tests {
         assert_eq!(json["stderr"]["bytes"], 0);
         assert_eq!(json["stderr"]["text"], "");
         assert_eq!(json["token"]["kind"], "acquired");
-        assert_eq!(json.as_object().expect("an object").len(), 9);
+        // Read out of the stream on every path, and *not seen* is not the same
+        // claim as *did not happen* — an interpreter that declines silently
+        // lands here too, which is what the panel's limits say out loud.
+        assert_eq!(json["degradation"]["kind"], "notSeen");
+        assert_eq!(json.as_object().expect("an object").len(), 10);
+    }
+
+    /// The `AllSigned` case, which every earlier slice recorded as undetectable.
+    /// It still is in general; what changed is that when the interpreter names
+    /// it in its own words, the readout names it back.
+    #[test]
+    fn a_profile_the_interpreter_declined_is_named_beside_a_harvest_that_worked() {
+        let refused = "#< CLIXML\r\n<Objs Version=\"1.1.0.1\"><S S=\"Error\">File \
+                       C:\\Users\\you\\profile.ps1 cannot _x000D__x000A_be loaded. The file is \
+                       not digitally signed._x000D__x000A_</S></Objs>";
+        let mut attempt = harvest_of(&[("PATH", b"C:\\Windows\\system32")]);
+        attempt.stderr = Stderr {
+            text: refused.to_string(),
+            bytes: refused.len(),
+            kind: perseverance_env::classify_stderr(refused.as_bytes()),
+        };
+
+        let named = settle_into(&Ambient::harvesting(), || attempt, |_| a_token());
+        let quiet = settle_into(
+            &Ambient::harvesting(),
+            || harvest_of(&[("PATH", b"C:\\Windows\\system32")]),
+            |_| a_token(),
+        );
+
+        let json = serde_json::to_value(&named).expect("serialises");
+        // Exit 0, both marks, a plausible environment — and still degraded. So
+        // it is a field beside the harvest state rather than a fourth tag on
+        // it: `harvested` is what happened, and both of these harvested.
+        assert_eq!(json["harvest"]["kind"], "harvested");
+        assert_eq!(json["degradation"]["kind"], "profileRefused");
+        // And the classification is not the signal: the Windows baseline is a
+        // non-empty CLIXML stream with no profile at all.
+        assert_eq!(json["stderr"]["kind"], "clixml");
+        assert_eq!(
+            serde_json::to_value(&quiet).expect("serialises")["degradation"]["kind"],
+            "notSeen"
+        );
     }
 
     #[test]
@@ -3296,5 +3816,295 @@ mod tests {
             .map(|entry| entry.expect("an entry").file_name())
             .collect();
         assert_eq!(left, vec![std::ffi::OsString::from("transcript")]);
+    }
+
+    /* --------------------------------------------- per-folder resolution --- */
+
+    use perseverance_agent::OverrideRefusal;
+    use tempfile::TempDir;
+
+    /// A file this platform would agree to execute. On unix that is the
+    /// executable bit; on Windows it is being a file at all, because
+    /// `Environment::spellings` tries the bare name before any `PATHEXT`
+    /// spelling and this is that bare name.
+    fn runnable_file(directory: &Path, name: &str) -> PathBuf {
+        let path = directory.join(name);
+        std::fs::write(&path, b"#!/bin/sh\nexit 0\n").expect("writes the program");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
+                .expect("makes it a program");
+        }
+        path
+    }
+
+    /// The host's `PATH` spelling for a list of directories. The separator is
+    /// the one `Environment::resolve` splits on, so a test that built the other
+    /// one would be asserting against a `PATH` this machine cannot have.
+    fn path_over(directories: &[&Path]) -> String {
+        let separator = if cfg!(windows) { ";" } else { ":" };
+        directories
+            .iter()
+            .map(|directory| directory.to_string_lossy().into_owned())
+            .collect::<Vec<String>>()
+            .join(separator)
+    }
+
+    /// A folder whose harvest is already settled, so nothing below runs a login
+    /// shell. Priming the cell is the whole trick: `read_folder` asks the same
+    /// map on the same key and the taker is never called.
+    fn folder_resolving_over(path: &str) -> (Harvests, TempDir) {
+        let folder = TempDir::new().expect("the folder being opened");
+        let harvests = Harvests::new();
+        harvests.in_folder_with(folder.path(), &|_| {
+            harvest_of(&[
+                ("PATH", path.as_bytes()),
+                ("PATHEXT", b".COM;.EXE;.BAT;.CMD"),
+            ])
+        });
+        (harvests, folder)
+    }
+
+    /// `src/environment/folder.ts` is a hand-written mirror of this, and twelve
+    /// keys is the count both files assert — the same defence, and the same
+    /// cost, as the app-global readout's ten.
+    #[test]
+    fn a_folder_readout_crosses_in_the_shape_the_frontend_declares() {
+        let on_the_path = TempDir::new().expect("the one directory the PATH names");
+        runnable_file(on_the_path.path(), "claude");
+        let (harvests, folder) = folder_resolving_over(&path_over(&[on_the_path.path()]));
+
+        let readout = read_folder(&harvests, None, &folder.path().to_string_lossy(), false);
+
+        let json = serde_json::to_value(&readout).expect("serialises");
+        assert_eq!(json["folder"], folder.path().to_string_lossy().into_owned());
+        assert!(json["spawnDirectory"].is_string());
+        assert_eq!(json["harvest"]["kind"], "harvested");
+        assert_eq!(json["shell"]["kind"], "loginShell");
+        assert_eq!(json["path"], path_over(&[on_the_path.path()]));
+        assert_eq!(json["pathSource"], "harvest");
+        assert_eq!(json["variableCount"], 2);
+        assert_eq!(json["elapsedMs"], 187);
+        assert_eq!(json["stderr"]["kind"], "empty");
+        assert_eq!(json["degradation"]["kind"], "notSeen");
+        assert_eq!(json["override"]["kind"], "none");
+
+        // One adapter ships, and the absolute path is the headline fact: it is
+        // the only visible form a version pin has.
+        let adapters = json["adapters"].as_array().expect("an array");
+        assert_eq!(adapters.len(), 1);
+        assert_eq!(adapters[0]["id"], "claude");
+        assert_eq!(adapters[0]["resolution"]["kind"], "resolved");
+        assert_eq!(adapters[0]["resolution"]["name"], "claude");
+        assert_eq!(adapters[0]["resolution"]["from"], "candidate");
+        assert!(Path::new(
+            adapters[0]["resolution"]["program"]
+                .as_str()
+                .expect("a path")
+        )
+        .is_absolute());
+        // Empty on a shipped build, and on purpose: the one adapter declares
+        // `Probes::NONE`, because a supported Claude install is a native image
+        // and a shim is refused at spawn by `perseverance_pty::accept` rather
+        // than sniffed here. The panel says so rather than showing a blank.
+        assert_eq!(adapters[0]["probes"].as_array().expect("an array").len(), 0);
+
+        assert_eq!(json.as_object().expect("an object").len(), 12);
+    }
+
+    /// The one place `perseverance_agent::Scope` and
+    /// `perseverance_env::Environment::resolve` can be put beside each other:
+    /// the agent crate depends on nothing and the env crate has never heard of
+    /// it, so only the wiring layer can check that the name the operator is
+    /// shown matches the behaviour they get.
+    #[test]
+    fn the_two_readings_of_a_bare_name_agree() {
+        /// `resolve`'s own rule, spelled from `std::path` — a name with a
+        /// non-empty parent is taken at its word, anything else walks `PATH`.
+        fn taken_at_its_word(named: &str) -> bool {
+            Path::new(named)
+                .parent()
+                .is_some_and(|parent| !parent.as_os_str().is_empty())
+        }
+
+        for named in [
+            "claude",
+            "node",
+            "/usr/local/bin/claude",
+            r"C:\tools\claude.exe",
+        ] {
+            let chosen = Override::from_argv(vec![OsString::from(named)]).expect("a program");
+            let pinned = matches!(chosen.scope(Platform::host()), Scope::PinnedGlobally);
+
+            assert_eq!(
+                pinned,
+                taken_at_its_word(named),
+                "{named} is read one way by Scope and another by resolve"
+            );
+        }
+
+        // And that rule, mechanically, against a real `PATH` and real files.
+        // The pinned spelling wins over a `PATH` that names a different program
+        // of the same name, which is the whole of "an absolute path pins
+        // globally"; the bare one comes back from the `PATH` walk, which is the
+        // whole of "a bare name follows the folder's pin".
+        let on_the_path = TempDir::new().expect("the one directory the PATH names");
+        let elsewhere = TempDir::new().expect("somewhere the PATH does not name");
+        let walked = runnable_file(on_the_path.path(), "wf45claude");
+        let pinned = runnable_file(elsewhere.path(), "wf45claude");
+        let environment = harvest_of(&[
+            ("PATH", path_over(&[on_the_path.path()]).as_bytes()),
+            ("PATHEXT", b".COM;.EXE;.BAT;.CMD"),
+        ])
+        .outcome
+        .expect("harvested")
+        .environment;
+
+        assert_eq!(environment.resolve("wf45claude"), Some(walked));
+        assert_eq!(
+            environment.resolve(&pinned.to_string_lossy()),
+            Some(pinned.clone())
+        );
+        assert!(matches!(
+            Override::from_argv(vec![OsString::from("wf45claude")])
+                .expect("a program")
+                .scope(Platform::host()),
+            Scope::FollowsTheFolder
+        ));
+        assert!(matches!(
+            Override::from_argv(vec![pinned.into_os_string()])
+                .expect("a program")
+                .scope(Platform::host()),
+            Scope::PinnedGlobally
+        ));
+    }
+
+    /// Criterion 9 at this layer. `read_folder`'s return type carries no
+    /// `Result`, and neither does any of the four commands over it, so a folder
+    /// whose adapter is nowhere cannot become a rejected call.
+    #[test]
+    fn a_folder_whose_cli_is_missing_still_produces_a_readout() {
+        let nothing_here = TempDir::new().expect("a directory with no programs in it");
+        let (harvests, folder) = folder_resolving_over(&path_over(&[nothing_here.path()]));
+
+        let readout: FolderReadout =
+            read_folder(&harvests, None, &folder.path().to_string_lossy(), false);
+
+        let json = serde_json::to_value(&readout).expect("serialises");
+        assert_eq!(json["adapters"][0]["resolution"]["kind"], "notFound");
+        assert_eq!(json["adapters"][0]["resolution"]["names"][0], "claude");
+        // Criterion 7's four facts, all on the one value the error surface is
+        // handed: the names tried, the shell that ran, what became of the
+        // harvest, and the verbatim `PATH`. None of them is copied into the
+        // refusal, because there is one home per fact.
+        assert_eq!(json["shell"]["kind"], "loginShell");
+        assert_eq!(json["shell"]["program"], "/bin/zsh");
+        assert_eq!(json["harvest"]["kind"], "harvested");
+        assert_eq!(json["path"], path_over(&[nothing_here.path()]));
+        assert_eq!(json["pathSource"], "harvest");
+    }
+
+    /// The key, echoed. Two spellings of one folder are one harvest because the
+    /// key is canonicalised, and this is where an operator can see which
+    /// directory the child was actually given.
+    #[test]
+    fn a_folder_readout_names_the_directory_the_child_was_given() {
+        let nothing_here = TempDir::new().expect("a directory with no programs in it");
+        let (harvests, folder) = folder_resolving_over(&path_over(&[nothing_here.path()]));
+        let spelled = folder.path().join(".");
+
+        let asked = read_folder(&harvests, None, &folder.path().to_string_lossy(), false);
+        let same = read_folder(&harvests, None, &spelled.to_string_lossy(), false);
+
+        assert_eq!(
+            asked.spawn_directory,
+            perseverance_env::spawn_directory(folder.path())
+                .to_string_lossy()
+                .into_owned()
+        );
+        // The folder crosses as it was asked for and the directory as it was
+        // resolved, which is how two rows that are one directory can be seen to
+        // be one.
+        assert_ne!(asked.folder, same.folder);
+        assert_eq!(asked.spawn_directory, same.spawn_directory);
+    }
+
+    /// The override resolves through the same one resolver a candidate does,
+    /// and the scope it is shown under is the one it actually got.
+    #[test]
+    fn an_override_is_resolved_against_the_folders_own_environment() {
+        let on_the_path = TempDir::new().expect("the one directory the PATH names");
+        runnable_file(on_the_path.path(), "wf45node");
+        let (harvests, folder) = folder_resolving_over(&path_over(&[on_the_path.path()]));
+        let chosen = Override::from_argv(vec![
+            OsString::from("wf45node"),
+            OsString::from("/opt/claude/cli.js"),
+        ])
+        .expect("a program");
+
+        let readout = read_folder(
+            &harvests,
+            Some(chosen),
+            &folder.path().to_string_lossy(),
+            false,
+        );
+
+        let json = serde_json::to_value(&readout).expect("serialises");
+        // A path string could not have said this: `argv[0]` is the interpreter
+        // and the rest is interposed ahead of whatever the adapter plans.
+        assert_eq!(json["override"]["kind"], "inUse");
+        assert_eq!(json["override"]["argv"][0], "wf45node");
+        assert_eq!(json["override"]["argv"][1], "/opt/claude/cli.js");
+        assert_eq!(json["override"]["scope"], "followsTheFolder");
+        assert_eq!(json["adapters"][0]["resolution"]["kind"], "resolved");
+        assert_eq!(json["adapters"][0]["resolution"]["from"], "override");
+        assert_eq!(
+            json["adapters"][0]["resolution"]["program"],
+            on_the_path
+                .path()
+                .join("wf45node")
+                .to_string_lossy()
+                .into_owned()
+        );
+    }
+
+    /// One row of the `app` table the default adapter already lives in — no
+    /// schema change, no migration, and deliberately not `folders.adapter`,
+    /// which is per folder.
+    #[test]
+    fn the_override_is_one_app_wide_row_and_a_row_that_is_nonsense_reads_as_none() {
+        let store = Store::open_in_memory().expect("opens");
+
+        assert_eq!(stored_override(&store), None);
+
+        remember_override(&store, &["node".to_string(), "/opt/cli.js".to_string()])
+            .expect("writes");
+        let read = stored_override(&store).expect("an override");
+        assert_eq!(
+            read.argv(),
+            [OsString::from("node"), OsString::from("/opt/cli.js")]
+        );
+
+        // A malformed cell is not a reason to hold a folder shut, so it reads
+        // as *no override* rather than as a failure.
+        store.set_app(OVERRIDE_KEY, "not json").expect("writes");
+        assert_eq!(stored_override(&store), None);
+
+        // The two the crate refuses from the vector alone, both of which reach
+        // this row only if something else wrote it: clearing writes `[]`, and
+        // that is the same reading as never having written at all.
+        for written in ["[]", "[\"\"]", "[\"   \"]"] {
+            store.set_app(OVERRIDE_KEY, written).expect("writes");
+            assert_eq!(stored_override(&store), None, "{written}");
+        }
+        assert_eq!(
+            Override::from_argv(Vec::new()),
+            Err(OverrideRefusal::Nothing)
+        );
+        assert_eq!(
+            Override::from_argv(vec![OsString::from(" ")]),
+            Err(OverrideRefusal::BlankProgram)
+        );
     }
 }

@@ -1,7 +1,7 @@
 use std::ffi::OsString;
 use std::time::Duration;
 
-use crate::agent::{Agent, Discovery};
+use crate::agent::{Agent, Discovery, Probes};
 use crate::launch::{Launch, LaunchContext, PlanError, Ready};
 use crate::registry::AgentId;
 
@@ -15,14 +15,21 @@ use crate::registry::AgentId;
 /// resolver appends `PATHEXT` itself, and a candidate spelled with an extension
 /// would be this crate re-implementing that badly.
 ///
-/// No probes. Claude Code's supported installs ship a native image; the npm
-/// install ships a shim, and a shim is refused at the harness boundary by
-/// `perseverance_pty::accept` rather than sniffed for here. A probe declared to
-/// cover it would be an interpreter check whose only honest outcome is the
-/// refusal that already happens.
+/// No probes, on either platform. Claude Code's supported installs ship a
+/// native image; the npm install ships a shim, and a shim is refused at the
+/// harness boundary by `perseverance_pty::accept` rather than sniffed for here.
+/// A probe declared to cover it would be an interpreter check whose only honest
+/// outcome is the refusal that already happens.
+///
+/// The consequence for #45's per-folder readout is that this adapter contributes
+/// no probe line, and the inspectable interpreter fact it contributes instead is
+/// the **absolute path the candidate resolved to** in that folder's own
+/// environment. That is the stronger of the two facts anyway: a bare `claude`
+/// following a folder's version pin resolves to a different absolute path in two
+/// folders, and that difference is the only visible form the pin has.
 static DISCOVERY: Discovery = Discovery {
     candidates: &["claude"],
-    probes: &[],
+    probes: Probes::NONE,
 };
 
 /// The marker a session started from inside another session inherits.
@@ -324,9 +331,15 @@ mod tests {
             .candidates
             .iter()
             .any(|candidate| candidate.contains('.')));
-        // No probes. There is no interpreter behind a supported install, and
-        // the npm shim is refused at the boundary rather than detected here.
-        assert!(discovery.probes.is_empty());
+        // No probes, and none on either platform rather than none on whichever
+        // one this runner happens to be. There is no interpreter behind a
+        // supported install, and the npm shim is refused at the boundary rather
+        // than detected here — so what the per-folder readout shows for this
+        // adapter is the absolute path the candidate resolved to, which is where
+        // the folder's pin is actually visible.
+        assert_eq!(discovery.probes, Probes::NONE);
+        assert!(discovery.probes.on(Platform::Windows).is_empty());
+        assert!(discovery.probes.on(Platform::Unix).is_empty());
         assert_eq!(ClaudeCode.id(), AgentId::ClaudeCode);
     }
 

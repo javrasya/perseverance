@@ -1,0 +1,167 @@
+{
+  "resolved": {
+    "folder": "/Users/you/work/perseverance",
+    "spawnDirectory": "/Users/you/work/perseverance",
+    "harvest": { "kind": "harvested" },
+    "shell": { "kind": "loginShell", "program": "/bin/zsh", "flags": ["-lic"] },
+    "path": "/Users/you/work/perseverance/node_modules/.bin:/Users/you/.local/share/fnm/node-versions/v22.11.0/installation/bin:/opt/homebrew/bin:/usr/bin:/bin",
+    "pathSource": "harvest",
+    "variableCount": 148,
+    "elapsedMs": 214,
+    "stderr": { "kind": "empty", "bytes": 0, "text": "" },
+    "degradation": { "kind": "notSeen" },
+    "adapters": [
+      {
+        "id": "claude",
+        "resolution": {
+          "kind": "resolved",
+          "name": "claude",
+          "program": "/Users/you/.local/share/fnm/node-versions/v22.11.0/installation/bin/claude",
+          "from": "candidate"
+        },
+        "probes": []
+      }
+    ],
+    "override": { "kind": "none" }
+  },
+
+  "notFound": {
+    "folder": "/Users/you/work/notes",
+    "spawnDirectory": "/Users/you/work/notes",
+    "harvest": { "kind": "harvested" },
+    "shell": { "kind": "loginShell", "program": "/bin/zsh", "flags": ["-lic"] },
+    "path": "/usr/bin:/bin:/usr/sbin:/sbin",
+    "pathSource": "harvest",
+    "variableCount": 31,
+    "elapsedMs": 196,
+    "stderr": { "kind": "empty", "bytes": 0, "text": "" },
+    "degradation": { "kind": "notSeen" },
+    "adapters": [
+      {
+        "id": "claude",
+        "resolution": { "kind": "notFound", "names": ["claude"] },
+        "probes": []
+      }
+    ],
+    "override": { "kind": "none" }
+  },
+
+  "harvestDiscarded": {
+    "folder": "/Users/you/work/monorepo",
+    "spawnDirectory": "/Users/you/work/monorepo",
+    "harvest": {
+      "kind": "inherited",
+      "detail": "the harvest opened but was still not closed after 8000 ms: either the shell is still working through its start-up files, or nothing here read what it wrote"
+    },
+    "shell": { "kind": "loginShell", "program": "/bin/zsh", "flags": ["-lic"] },
+    "path": "/usr/bin:/bin:/usr/sbin:/sbin",
+    "pathSource": "inherited",
+    "variableCount": 12,
+    "elapsedMs": 8004,
+    "stderr": { "kind": "text", "bytes": 23, "text": "command not found: fnm\n" },
+    "degradation": { "kind": "notSeen" },
+    "adapters": [
+      {
+        "id": "claude",
+        "resolution": { "kind": "notFound", "names": ["claude"] },
+        "probes": []
+      }
+    ],
+    "override": { "kind": "none" }
+  },
+
+  "policyDegraded": {
+    "folder": "C:\\work\\perseverance",
+    "spawnDirectory": "C:\\work\\perseverance",
+    "harvest": { "kind": "harvested" },
+    "shell": {
+      "kind": "powerShell",
+      "program": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "flags": ["-NoLogo", "-EncodedCommand"]
+    },
+    "path": "C:\\Windows\\system32;C:\\Windows;C:\\Windows\\System32\\Wbem;C:\\Users\\you\\AppData\\Local\\Microsoft\\WindowsApps",
+    "pathSource": "harvest",
+    "variableCount": 89,
+    "elapsedMs": 1633,
+    "stderr": {
+      "kind": "clixml",
+      "bytes": 273,
+      "text": "#< CLIXML\r\n<Objs Version=\"1.1.0.1\" xmlns=\"http://schemas.microsoft.com/powershell/2004/04\"><S S=\"Error\">File C:\\Users\\you\\Documents\\WindowsPowerShell\\Microsoft.PowerShell_profile.ps1 cannot _x000D__x000A_be loaded. The file is not digitally signed._x000D__x000A_</S></Objs>"
+    },
+    "degradation": { "kind": "profileRefused" },
+    "adapters": [
+      {
+        "id": "claude",
+        "resolution": { "kind": "notFound", "names": ["claude"] },
+        "probes": []
+      }
+    ],
+    "override": { "kind": "none" }
+  },
+
+  "overridden": {
+    "folder": "/Users/you/work/perseverance",
+    "spawnDirectory": "/Users/you/work/perseverance",
+    "harvest": { "kind": "harvested" },
+    "shell": { "kind": "loginShell", "program": "/bin/zsh", "flags": ["-lic"] },
+    "path": "/Users/you/work/perseverance/node_modules/.bin:/Users/you/.local/share/fnm/node-versions/v22.11.0/installation/bin:/opt/homebrew/bin:/usr/bin:/bin",
+    "pathSource": "harvest",
+    "variableCount": 148,
+    "elapsedMs": 214,
+    "stderr": { "kind": "empty", "bytes": 0, "text": "" },
+    "degradation": { "kind": "notSeen" },
+    "adapters": [
+      {
+        "id": "claude",
+        "resolution": {
+          "kind": "resolved",
+          "name": "node",
+          "program": "/Users/you/.local/share/fnm/node-versions/v22.11.0/installation/bin/node",
+          "from": "override"
+        },
+        "probes": [
+          {
+            "program": "node",
+            "args": ["--version"],
+            "outcome": { "kind": "answered", "status": 0, "line": "v22.11.0" }
+          }
+        ]
+      }
+    ],
+    "override": {
+      "kind": "inUse",
+      "argv": ["node", "/Users/you/.claude/local/cli.js"],
+      "scope": "followsTheFolder"
+    }
+  },
+
+  "overriddenGlobally": {
+    "folder": "/Users/you/work/notes",
+    "spawnDirectory": "/Users/you/work/notes",
+    "harvest": { "kind": "harvested" },
+    "shell": { "kind": "loginShell", "program": "/bin/zsh", "flags": ["-lic"] },
+    "path": "/usr/bin:/bin:/usr/sbin:/sbin",
+    "pathSource": "harvest",
+    "variableCount": 31,
+    "elapsedMs": 196,
+    "stderr": { "kind": "empty", "bytes": 0, "text": "" },
+    "degradation": { "kind": "notSeen" },
+    "adapters": [
+      {
+        "id": "claude",
+        "resolution": {
+          "kind": "resolved",
+          "name": "/Users/you/bin/claude",
+          "program": "/Users/you/bin/claude",
+          "from": "override"
+        },
+        "probes": []
+      }
+    ],
+    "override": {
+      "kind": "inUse",
+      "argv": ["/Users/you/bin/claude"],
+      "scope": "pinnedGlobally"
+    }
+  }
+}

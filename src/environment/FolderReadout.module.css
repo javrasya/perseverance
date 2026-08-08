@@ -1,0 +1,311 @@
+/*
+ * Tier 3 — component tokens, defined from semantic tokens only.
+ *
+ * The two verbatim blocks are the ones `EnvironmentReadout.module.css` already
+ * established, and deliberately identical: a `PATH` scrolls sideways inside its
+ * own box and never wraps, because the separator is a guess and a wrapped line
+ * is one more thing to read wrong; a stream wraps and scrolls down, because the
+ * whole of it is the evidence.
+ */
+
+.holder {
+  display: flex;
+  width: 100%;
+  max-width: 76ch;
+  flex-direction: column;
+  gap: var(--s-space-tight);
+  text-align: left;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: var(--s-space-snug);
+}
+
+.disclose {
+  --c-folder-ink: var(--s-ink-faint);
+
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: var(--s-space-tight);
+  padding: 0 var(--s-space-tight);
+  border: var(--s-border-hairline) solid transparent;
+  border-radius: var(--s-radius-chip);
+  background: transparent;
+  color: var(--c-folder-ink);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-micro);
+  cursor: pointer;
+  transition:
+    color var(--s-motion-fast) var(--s-motion-ease),
+    border-color var(--s-motion-fast) var(--s-motion-ease);
+}
+
+.disclose:hover {
+  --c-folder-ink: var(--s-ink-secondary);
+
+  border-color: var(--s-line-strong);
+}
+
+.disclose:focus-visible {
+  outline: var(--s-border-emphasis) solid var(--s-focus-ring);
+  outline-offset: 2px;
+}
+
+.label {
+  flex: 0 0 auto;
+  letter-spacing: var(--s-tracking-label);
+}
+
+.summary {
+  overflow: hidden;
+  min-width: 0;
+  flex: 1 1 auto;
+  color: var(--s-ink-secondary);
+  white-space: pre;
+  text-overflow: ellipsis;
+}
+
+.chevron {
+  flex: 0 0 auto;
+  color: var(--c-folder-ink);
+}
+
+/*
+ * The one action that forgets. It sits on the bar rather than inside the panel
+ * because it is worth reaching without opening anything — an operator who has
+ * just installed something knows what they want before they read a word.
+ */
+.again {
+  flex: 0 0 auto;
+  padding: var(--s-space-hair) var(--s-space-snug);
+  border: var(--s-border-hairline) solid var(--s-line-quiet);
+  border-radius: var(--s-radius-control);
+  background: transparent;
+  color: var(--s-ink-secondary);
+  font-size: var(--s-text-micro);
+  cursor: pointer;
+  transition: border-color var(--s-motion-fast) var(--s-motion-ease);
+}
+
+.again:hover {
+  border-color: var(--s-line-strong);
+  color: var(--s-ink-primary);
+}
+
+.again:focus-visible {
+  outline: var(--s-border-emphasis) solid var(--s-focus-ring);
+  outline-offset: 2px;
+}
+
+/* -------------------------------------------------------------- panel --- */
+
+.panel {
+  --c-folder-rail: var(--s-line-quiet);
+
+  display: none;
+  max-height: 45vh;
+  overflow-y: auto;
+  padding: var(--s-space-base);
+  border: var(--s-border-hairline) solid var(--s-line-quiet);
+  border-left: var(--s-border-emphasis) solid var(--c-folder-rail);
+  border-radius: var(--s-radius-panel);
+  background: var(--s-surface-raised);
+}
+
+.panel[data-shown="true"] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-space-loose);
+}
+
+/* A harvest that was discarded is a fact worth a rail, never an alarm. */
+.panel[data-harvest="inherited"] {
+  --c-folder-rail: var(--s-accent);
+}
+
+.section {
+  display: flex;
+  max-width: 76ch;
+  flex-direction: column;
+  gap: var(--s-space-tight);
+}
+
+.heading {
+  margin: 0;
+  color: var(--s-ink-primary);
+  font-size: var(--s-text-micro);
+  font-weight: var(--s-weight-emphasis);
+  letter-spacing: var(--s-tracking-label);
+  text-transform: uppercase;
+}
+
+.command {
+  color: var(--s-ink-primary);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-small);
+  overflow-wrap: break-word;
+}
+
+.state {
+  --c-folder-state-ink: var(--s-ink-primary);
+
+  margin: 0;
+  color: var(--c-folder-state-ink);
+  font-size: var(--s-text-body);
+  font-weight: var(--s-weight-emphasis);
+}
+
+.state[data-harvest="harvesting"] {
+  --c-folder-state-ink: var(--s-ink-secondary);
+}
+
+.facts {
+  margin: 0;
+  color: var(--s-ink-faint);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-micro);
+}
+
+.detail {
+  max-width: 60ch;
+  margin: 0;
+  color: var(--s-ink-primary);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-small);
+  line-height: 1.5;
+}
+
+.note {
+  max-width: 60ch;
+  margin: 0;
+  color: var(--s-ink-secondary);
+  font-size: var(--s-text-small);
+  line-height: 1.5;
+}
+
+/* ----------------------------------------------------------- verbatim --- */
+
+.verbatim {
+  --c-folder-box: var(--s-line-quiet);
+
+  overflow-x: auto;
+  padding: var(--s-space-tight) var(--s-space-snug);
+  border: var(--s-border-hairline) solid var(--c-folder-box);
+  border-radius: var(--s-radius-control);
+  background: var(--s-surface-sunken);
+}
+
+/* Not found is a fact about this folder, so it is a rail and not an alarm. */
+.verbatim[data-resolution="notFound"] {
+  --c-folder-box: var(--s-line-strong);
+}
+
+.path {
+  color: var(--s-ink-primary);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-micro);
+  white-space: pre;
+}
+
+.entries {
+  display: flex;
+  max-height: 16em;
+  flex-direction: column;
+  gap: var(--s-space-hair);
+  margin: 0;
+  padding-left: var(--s-space-room);
+  overflow-y: auto;
+  color: var(--s-ink-secondary);
+  list-style: decimal;
+}
+
+.entry {
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-micro);
+  overflow-wrap: break-word;
+}
+
+/* ----------------------------------------------------------- adapters --- */
+
+.adapter {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-space-tight);
+}
+
+.adapterName {
+  color: var(--s-ink-primary);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-small);
+  font-weight: var(--s-weight-emphasis);
+}
+
+.probes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-space-hair);
+  margin: 0;
+  padding-left: var(--s-space-loose);
+  list-style: disc;
+}
+
+.probe {
+  color: var(--s-ink-secondary);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-micro);
+  overflow-wrap: break-word;
+}
+
+/* ------------------------------------------------------------- stream --- */
+
+.stream {
+  --c-folder-stream-rail: var(--s-line-quiet);
+
+  max-height: 12em;
+  overflow: auto;
+  padding: var(--s-space-tight) var(--s-space-snug);
+  border: var(--s-border-hairline) solid var(--s-line-quiet);
+  border-left: var(--s-border-emphasis) solid var(--c-folder-stream-rail);
+  border-radius: var(--s-radius-control);
+  background: var(--s-surface-sunken);
+}
+
+/* Serialised output is not an error, so it is not styled as one. */
+.stream[data-tone="clixml"] {
+  --c-folder-stream-rail: var(--s-line-strong);
+}
+
+.stream[data-tone="text"] {
+  --c-folder-stream-rail: var(--s-line-absent);
+}
+
+.streamText {
+  display: block;
+  color: var(--s-ink-secondary);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-micro);
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+/* ------------------------------------------------------------- limits --- */
+
+.limits {
+  display: flex;
+  max-width: 60ch;
+  flex-direction: column;
+  gap: var(--s-space-tight);
+  margin: 0;
+  padding-left: var(--s-space-loose);
+  list-style: disc;
+}
+
+.limit {
+  color: var(--s-ink-secondary);
+  font-size: var(--s-text-small);
+  line-height: 1.5;
+}

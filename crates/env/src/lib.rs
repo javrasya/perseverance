@@ -31,24 +31,35 @@
 //!   with nothing on either stream (#24).
 //! - **Complete-looking is not complete.** A profile that calls `exit` half-way
 //!   yields exit 0, both marks, ninety variables and a stderr at the exact
-//!   no-profile baseline (#26). No check here catches it, and under `AllSigned`
-//!   a profile that never ran looks the same as an operator who has none.
+//!   no-profile baseline (#26). No check here catches it. The `AllSigned` case
+//!   is now *named when the interpreter says so in its own words* —
+//!   [`degradation_in`] reads the refusal out of the stream that is captured on
+//!   every path — and it is still invisible when the interpreter says nothing,
+//!   which is the honest half of the same sentence. What is named is a
+//!   [`Degradation`] and never a [`HarvestCondition`]: the harvest succeeded.
 //!
 //! `docs/adr/0002` records why this is the seventh crate rather than a corner
-//! of [`perseverance_github`] or of [`perseverance_pty`], and what it costs.
+//! of [`perseverance_github`] or of [`perseverance_pty`], and what it costs;
+//! `docs/adr/0011` records the two tiers resolution has and why there is no
+//! third one that goes looking in install locations.
 //!
 //! Filled in by:
 //! - #31 the app-global harvest at launch, and running one program inside it
-//! - #45 the per-folder harvest and the cwd-keyed cache
-//!   (#45's declared probes, its readout and the override's resolution rule
-//!   stay with `perseverance-agent`, which needs no dependency here: every
-//!   accessor below hands back a `std` type.)
+//! - #45 the per-folder harvest and the cache keyed on the absolute spawn
+//!   working directory ([`Harvests`], [`harvest_in`]), resolution against a
+//!   folder's own environment ([`locate_in`]) and the running of an adapter's
+//!   declared probes ([`probe_in`]).
+//!   (#45's *declared* probes, its readout's interpretation and the override's
+//!   resolution rule stay with `perseverance-agent`, which needs no dependency
+//!   here: every accessor below hands back a `std` type.)
 //!
 //! [`perseverance_pty`]: https://github.com/javrasya/perseverance
 //! [`perseverance_github`]: https://github.com/javrasya/perseverance
 
 mod environment;
+mod folder;
 mod harvest;
+mod locate;
 mod nonce;
 mod parse;
 mod payload;
@@ -57,12 +68,17 @@ mod run;
 mod shell;
 
 pub use environment::Environment;
+pub use folder::{harvest_in, FolderEnvironment, Harvests};
 pub use harvest::{
-    classify_stderr, harvest, harvest_with, Bounds, Harvest, HarvestAttempt, HarvestCondition,
-    Stderr, StderrKind,
+    classify_stderr, degradation_in, harvest, harvest_with, Bounds, Degradation, Harvest,
+    HarvestAttempt, HarvestCondition, Stderr, StderrKind,
 };
+pub use locate::{locate_in, probe_in, Found, Located, NotFound, ProbeOutcome, ProbeReading};
 pub use nonce::Nonce;
 pub use parse::{is_well_shaped, read_frame, Reading, RecordTag, Tally};
 pub use payload::{closing_mark, encode_command, opening_mark, powershell_payload, unix_payload};
 pub use run::{run_in, Capture, RunFailure};
-pub use shell::{harvest_command, harvest_cwd, HarvestCommand, Shell};
+pub use shell::{
+    harvest_command, harvest_command_in, harvest_cwd, spawn_directory, spawnable_form,
+    HarvestCommand, Shell,
+};

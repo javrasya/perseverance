@@ -115,6 +115,17 @@
   --c-note-rail: var(--s-accent);
 }
 
+/*
+ * The two sentences that are announced, and only those. It reproduces the
+ * column the note itself lays out, so lifting the live region off the box
+ * changed no pixel — the evidence below is still inside the same rail.
+ */
+.said {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-space-hair);
+}
+
 .noteHeadline {
   color: var(--s-ink-primary);
   font-size: var(--s-text-micro);
@@ -133,6 +144,177 @@
   margin: 0;
   color: var(--s-ink-faint);
   font-size: var(--s-text-micro);
+}
+
+/* ------------------------------------------------------ a missing CLI --- */
+
+/*
+ * The evidence, inside the note. Not a modal and not a screen to navigate to:
+ * a fix that needs going somewhere is a fix taken with the evidence off screen,
+ * and the evidence is the whole point — a PATH you can read is what makes
+ * "not found" something you can disagree with.
+ */
+.missing {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-space-snug);
+  margin-top: var(--s-space-tight);
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+  gap: var(--s-space-hair) var(--s-space-snug);
+  margin: 0;
+}
+
+.factName {
+  color: var(--s-ink-faint);
+  font-size: var(--s-text-micro);
+  font-weight: var(--s-weight-emphasis);
+  letter-spacing: var(--s-tracking-label);
+  text-transform: uppercase;
+}
+
+.factValue {
+  margin: 0;
+  color: var(--s-ink-primary);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-micro);
+  overflow-wrap: break-word;
+}
+
+.missingNote {
+  max-width: 60ch;
+  margin: 0;
+  color: var(--s-ink-secondary);
+  font-size: var(--s-text-small);
+  line-height: 1.5;
+}
+
+/*
+ * Unsplit and unwrapped: the separator is a guess, and a wrapped PATH is one
+ * more thing to read wrong. It scrolls in its own box instead, so the page body
+ * never scrolls sideways.
+ */
+.verbatim {
+  overflow-x: auto;
+  padding: var(--s-space-tight) var(--s-space-snug);
+  border: var(--s-border-hairline) solid var(--s-line-quiet);
+  border-radius: var(--s-radius-control);
+  background: var(--s-surface-sunken);
+}
+
+.path {
+  color: var(--s-ink-primary);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-micro);
+  white-space: pre;
+}
+
+.entries {
+  display: flex;
+  max-height: 16em;
+  flex-direction: column;
+  gap: var(--s-space-hair);
+  margin: 0;
+  padding-left: var(--s-space-room);
+  overflow-y: auto;
+  color: var(--s-ink-secondary);
+  list-style: decimal;
+}
+
+.entry {
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-micro);
+  overflow-wrap: break-word;
+}
+
+.override {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-space-tight);
+}
+
+.field {
+  padding: var(--s-space-tight) var(--s-space-snug);
+  border: var(--s-border-hairline) solid var(--s-line-strong);
+  border-radius: var(--s-radius-control);
+  background: var(--s-surface-sunken);
+  color: var(--s-ink-primary);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-small);
+}
+
+.field:focus-visible {
+  outline: var(--s-border-emphasis) solid var(--s-focus-ring);
+  outline-offset: 2px;
+}
+
+/*
+ * What the split produced, shown back before anything uses it. An operator who
+ * typed a path with a space in it can see, without running anything, whether it
+ * became one word or two.
+ */
+.parsed {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-space-hair) var(--s-space-tight);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.word {
+  padding: 0 var(--s-space-tight);
+  border: var(--s-border-hairline) solid var(--s-line-quiet);
+  border-radius: var(--s-radius-chip);
+  background: var(--s-surface-sunken);
+  color: var(--s-ink-primary);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-micro);
+}
+
+/*
+ * What became of the last vector submitted from the field above it. Ink rather
+ * than alarm, on the same rail as everything else in this box: a vector that
+ * named no program is a fact about what was typed, not a fault.
+ */
+.aftermath {
+  max-width: 60ch;
+  margin: 0;
+  color: var(--s-ink-primary);
+  font-size: var(--s-text-small);
+  line-height: 1.5;
+}
+
+.actions {
+  display: flex;
+  gap: var(--s-space-snug);
+}
+
+.action {
+  padding: var(--s-space-hair) var(--s-space-snug);
+  border: var(--s-border-hairline) solid var(--s-line-quiet);
+  border-radius: var(--s-radius-control);
+  background: transparent;
+  color: var(--s-ink-secondary);
+  font-size: var(--s-text-micro);
+  cursor: pointer;
+  transition:
+    border-color var(--s-motion-fast) var(--s-motion-ease),
+    color var(--s-motion-fast) var(--s-motion-ease);
+}
+
+.action:hover {
+  border-color: var(--s-line-strong);
+  color: var(--s-ink-primary);
+}
+
+.action:focus-visible {
+  outline: var(--s-border-emphasis) solid var(--s-focus-ring);
+  outline-offset: 2px;
 }
 
 /*

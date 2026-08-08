@@ -80,7 +80,7 @@ pub struct Stderr {
 }
 
 impl Stderr {
-    fn of(bytes: &[u8]) -> Stderr {
+    pub(crate) fn of(bytes: &[u8]) -> Stderr {
         Stderr {
             text: String::from_utf8_lossy(bytes).into_owned(),
             bytes: bytes.len(),
@@ -109,6 +109,106 @@ pub fn classify_stderr(bytes: &[u8]) -> StderrKind {
     } else {
         StderrKind::Text
     }
+}
+
+/// A harvest that came back well-framed and empty of the operator's own doing.
+///
+/// Not an error and not a [`HarvestCondition`]: exit 0, both marks, clean
+/// stdout, a plausible environment. The only artifact is a sentence the
+/// interpreter wrote to a stream whose Windows baseline is **never empty** — so
+/// this is matched on *content*, never on [`StderrKind::Clixml`] and never on
+/// "stderr is non-empty".
+///
+/// It is a reading of what the interpreter said about itself, not a check this
+/// crate performs. Where the interpreter says nothing the degradation is still
+/// there and still invisible, and that limit is recorded rather than papered
+/// over: nothing here makes `AllSigned` detectable in general, only nameable
+/// when the machine names it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Degradation {
+    /// The interpreter declined to run the operator's profile and ran the
+    /// payload anyway.
+    ProfileRefused,
+}
+
+impl Degradation {
+    /// Ours, and never the interpreter's own words interpolated into ours. The
+    /// interpreter's text crosses verbatim in [`Stderr::text`] already, and it
+    /// contains a schema URL — quoting it here would put `http` inside a
+    /// sentence this workspace forbids from reading like a failed request.
+    pub fn sentence(&self) -> &'static str {
+        match self {
+            Degradation::ProfileRefused => {
+                "this machine's own policy declined to run the operator's start-up file, and the \
+                 harvest ran without it — so what came back is missing whatever that file adds"
+            }
+        }
+    }
+}
+
+impl std::fmt::Display for Degradation {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.sentence())
+    }
+}
+
+/// Every degradation nameable from a stream, as groups of tokens that must
+/// **all** appear in the flattened text.
+///
+/// Groups rather than one phrase, because the refusal is worded two ways
+/// depending on which policy declined, and neither wording survives being
+/// matched whole through a hard wrap. Two tokens per group rather than one,
+/// because `cannot be loaded` on its own is also what a corrupt module says.
+///
+/// Two groups and not three. A third was carried here reading
+/// `["cannot be loaded", "execution policies"]`, and it could never fire: the
+/// interpreter writes the phrase only as the help-topic name
+/// `about_Execution_Policies`, which [`flattened`] lowercases and leaves joined
+/// by underscores, so the two-word form occurs in nothing PowerShell emits. A
+/// group that cannot match is not coverage; it is a third entry in a table that
+/// makes the table look wider than it is. What it was reaching for — a refusal
+/// whose middle clause is worded some third way — is the limit ADR 0002 already
+/// records and this slice narrows rather than closes.
+///
+/// No regular expression. A pattern that could match a `PATH` entry an operator
+/// wrote is a pattern that will, and the flattening below already removes the
+/// only variation there is.
+const REFUSALS: &[&[&str]] = &[
+    &["cannot be loaded", "not digitally signed"],
+    &["cannot be loaded", "running scripts is disabled"],
+];
+
+/// What the interpreter said about itself, if it said one of the things this
+/// crate knows how to name.
+///
+/// Read from the stream that is captured on every path, including a discarded
+/// harvest — which is where it matters most, since the refusal is the only
+/// artifact the degradation ever leaves.
+pub fn degradation_in(stderr: &Stderr) -> Option<Degradation> {
+    let text = flattened(&stderr.text);
+    REFUSALS
+        .iter()
+        .any(|group| group.iter().all(|token| text.contains(token)))
+        .then_some(Degradation::ProfileRefused)
+}
+
+/// The text with its wrapping taken out, so a phrase can be looked for in it.
+///
+/// PowerShell hard-wraps mid-word and escapes the break before serialising —
+/// `cannot _x000D__x000A_be loaded` is the measured spelling of *cannot be
+/// loaded* — so the escapes become spaces, runs of whitespace collapse to one,
+/// and the whole thing is lowercased. Nothing else is repaired: this is a
+/// reading copy, and [`Stderr::text`] keeps the bytes as they arrived.
+pub(crate) fn flattened(text: &str) -> String {
+    let unwrapped = text
+        .replace("_x000D_", " ")
+        .replace("_x000A_", " ")
+        .replace("_x0009_", " ");
+    unwrapped
+        .split_whitespace()
+        .collect::<Vec<&str>>()
+        .join(" ")
+        .to_lowercase()
 }
 
 /// What a harvest came back with: the environment and the parser's count of
@@ -160,7 +260,7 @@ impl HarvestAttempt {
     /// The conditions [`Shell::for_this_machine`] decides before anything is
     /// run. No shell was chosen, so none is named; nothing was spawned, so
     /// there is no stream and no duration to report.
-    fn before_a_shell_was_chosen(condition: HarvestCondition) -> HarvestAttempt {
+    pub(crate) fn before_a_shell_was_chosen(condition: HarvestCondition) -> HarvestAttempt {
         HarvestAttempt {
             outcome: Err(condition),
             shell: None,
@@ -234,13 +334,14 @@ pub fn harvest() -> HarvestAttempt {
     harvest_with(&command, &nonce, &Bounds::for_this_machine())
 }
 
-/// The seam the tests drive, and the seam #45 extends.
+/// The seam the tests drive, and the seam #45 extended.
 ///
 /// Everything about a harvest except *which program* is a parameter, so a fake
 /// shell exercises the framing, the two bounds, both drains, the kill and the
 /// parser on a runner that has no login shell and no profile — and so #45's
 /// per-folder harvest is this function plus a map keyed on the absolute spawn
-/// cwd, rather than a second implementation.
+/// cwd, rather than a second implementation. It is: [`crate::harvest_in`] calls
+/// this one with a working directory named, and [`crate::Harvests`] is the map.
 ///
 /// It hands back a [`HarvestAttempt`] rather than a bare `Result` so that what
 /// the shell said survives being discarded — see that type for why the stream
@@ -383,6 +484,113 @@ mod tests {
         // The prefix is the whole test, and it has to be at the front: a
         // profile that printed the words later did not serialise anything.
         assert_eq!(classify_stderr(b"oops\n#< CLIXML"), StderrKind::Text);
+    }
+
+    /* ------------------------------------------------------- the degradation --- */
+
+    /// A genuine `AllSigned` refusal, kept verbatim, and the same bytes
+    /// `src/environment/environment.fixture.json` carries under `windowsClean`.
+    /// The two copies are pinned from both sides on purpose: this test and the
+    /// frontend's twin are what stop the transcript drifting into something that
+    /// no longer resembles what a machine writes.
+    const REFUSED_THE_PROFILE: &str = "#< CLIXML\r\n<Objs Version=\"1.1.0.1\" \
+         xmlns=\"http://schemas.microsoft.com/powershell/2004/04\"><S S=\"Error\">File \
+         C:\\Users\\you\\Documents\\WindowsPowerShell\\Microsoft.PowerShell_profile.ps1 cannot \
+         _x000D__x000A_be loaded. The file is not digitally signed._x000D__x000A_</S></Objs>";
+
+    /// The 201-byte progress record `windowsClean`'s sibling fixture carries.
+    /// Serialised, non-empty, and nothing at all is wrong.
+    const MERELY_PRESENT: &str = "#< CLIXML\r\n<Objs Version=\"1.1.0.1\" \
+         xmlns=\"http://schemas.microsoft.com/powershell/2004/04\"><Obj S=\"progress\" \
+         RefId=\"0\"><TN RefId=\"0\"><T>System.Management.Automation.PSCustomObject</T></TN>\
+         </Obj></Objs>";
+
+    #[test]
+    fn a_policy_that_declined_to_run_a_profile_is_named_from_what_it_wrote() {
+        let stream = Stderr::of(REFUSED_THE_PROFILE.as_bytes());
+
+        assert_eq!(degradation_in(&stream), Some(Degradation::ProfileRefused));
+
+        // The hard wrap is the reason this is a content match over a flattened
+        // copy rather than a substring search: `cannot be loaded` does not occur
+        // in the bytes at all.
+        assert!(!stream.text.contains("cannot be loaded"));
+        assert!(flattened(&stream.text).contains("cannot be loaded"));
+
+        // And the other wording, which no runner here can produce and which is
+        // therefore only checkable as text. Both of its tokens are ones the
+        // interpreter writes in that order; the hard wrap is put where a
+        // measured one falls, mid-word, so the flattening is exercised too.
+        let disabled = "File x.ps1 cannot _x000D__x000A_be loaded because running scripts is \
+                        disabled on this system";
+        assert_eq!(
+            degradation_in(&Stderr::of(disabled.as_bytes())),
+            Some(Degradation::ProfileRefused),
+            "{disabled}"
+        );
+    }
+
+    #[test]
+    fn the_help_topic_the_interpreter_points_at_is_not_a_phrase_this_table_can_match() {
+        // The reason there are two groups rather than three. The interpreter
+        // names the topic, never the words: `about_Execution_Policies` flattens
+        // to `about_execution_policies`, so a group looking for `execution
+        // policies` would have been a row that could not fire — and a table
+        // with a dead row in it reports wider coverage than it has.
+        let pointed = flattened("see about_Execution_Policies at the usual place");
+
+        assert!(pointed.contains("about_execution_policies"));
+        assert!(!pointed.contains("execution policies"));
+        assert_eq!(REFUSALS.len(), 2);
+    }
+
+    #[test]
+    fn a_stream_that_is_merely_present_is_not_a_verdict() {
+        let progress = Stderr::of(MERELY_PRESENT.as_bytes());
+
+        // Serialised output is the Windows baseline: 616 bytes of it arrive with
+        // no profile at all, so `Clixml` on its own says nothing whatever.
+        assert_eq!(progress.kind, StderrKind::Clixml);
+        assert_eq!(degradation_in(&progress), None);
+
+        assert_eq!(degradation_in(&Stderr::of(b"")), None);
+        assert_eq!(
+            degradation_in(&Stderr::of(b"command not found: fnm\n")),
+            None
+        );
+        // Half a group is not a group: this is what a corrupt module says, and
+        // no policy declined anything.
+        assert_eq!(
+            degradation_in(&Stderr::of(b"the module cannot be loaded")),
+            None
+        );
+    }
+
+    #[test]
+    fn no_degradation_sentence_reads_like_a_network_failure() {
+        let said = Degradation::ProfileRefused.sentence().to_lowercase();
+
+        for word in NETWORK_VOCABULARY {
+            assert!(!said.contains(word), "{said:?} because of {word:?}");
+        }
+        // Ours, and not the interpreter's interpolated into ours — that text
+        // carries a schema URL and crosses verbatim in its own field.
+        assert!(!said.contains("clixml"));
+        assert!(!said.contains(".ps1"));
+        assert_eq!(
+            Degradation::ProfileRefused.to_string(),
+            Degradation::ProfileRefused.sentence()
+        );
+    }
+
+    #[test]
+    fn a_wrapped_phrase_and_an_unwrapped_one_flatten_to_the_same_reading() {
+        assert_eq!(
+            flattened("cannot _x000D__x000A_be   loaded"),
+            "cannot be loaded"
+        );
+        assert_eq!(flattened("Cannot Be Loaded\r\n"), "cannot be loaded");
+        assert_eq!(flattened(""), "");
     }
 
     #[test]

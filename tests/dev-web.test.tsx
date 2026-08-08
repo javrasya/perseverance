@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "../src/App";
 import { CacheStamp } from "../src/chrome/CacheStamp";
+import { OVERRIDE_REFUSED_COUNSEL } from "../src/environment/folder";
 import { CONDITIONS } from "../src/chrome/stamp";
 import { MapList } from "../src/maps/MapList";
 import { STOPPED_COPY, loadFixture } from "../src/maps/maps";
@@ -475,6 +476,205 @@ describe("opening a map is a declaration this window makes, and the row is where
     expect(document.querySelector('[aria-label="Folders"]')).not.toBeNull();
     expect(document.querySelector('[aria-label="Maps"]')).not.toBeNull();
     expect(document.body.textContent).toContain("Open a new folder");
+  });
+});
+
+describe("a folder opens whatever its resolution came to", () => {
+  /**
+   * The launcher's top row, opened, plus enough turns of the loop for the three
+   * promises that follow: the registry row, the folder's resolution and the
+   * repository binding. `dev:web` has none of the three behind it — the folder
+   * comes from the preview rows and the resolution from a checked-in fixture —
+   * which is the point: what is asserted is the wiring.
+   */
+  async function openTheTopFolder(): Promise<void> {
+    const folder = document.querySelector('[aria-label="Folders"] li button');
+    if (!(folder instanceof HTMLButtonElement)) {
+      throw new Error("the launcher has no folder to open");
+    }
+    await act(async () => {
+      folder.click();
+    });
+    await act(async () => {
+      for (let turn = 0; turn < 6; turn += 1) await Promise.resolve();
+    });
+  }
+
+  it("selects the folder and reads its maps even when nothing answers to the CLI", async () => {
+    await boot("/?map=awkward-map&folder=notFound");
+    await openTheTopFolder();
+
+    /*
+     * Criterion 9, at the surface. The folder is selected, the map list is on
+     * screen, and the missing program is a note beside all of that — never a
+     * refusal that replaced the list, and never a dialog to dismiss first.
+     */
+    expect(document.querySelector('[aria-label="Maps"]')).not.toBeNull();
+    expect(document.querySelector('[aria-label="Folders"]')).not.toBeNull();
+    expect(document.body.textContent).toContain("Not on this folder's PATH");
+    expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(0);
+    expect(document.querySelectorAll("dialog")).toHaveLength(0);
+  });
+
+  it("puts the folder's own verbatim PATH in the error, scrollable and reachable", async () => {
+    await boot("/?map=awkward-map&folder=notFound");
+    await openTheTopFolder();
+
+    const box = document.querySelector('[aria-label="PATH, exactly as it arrived"]');
+    if (box === null) throw new Error("the error carries no PATH");
+
+    // Focusable, because a region a keyboard cannot reach is a region a
+    // keyboard user cannot read — and this box is the evidence that makes
+    // "not found" something an operator can disagree with.
+    expect(box.getAttribute("tabindex")).toBe("0");
+    expect(box.textContent).toContain("/usr/bin:/bin:/usr/sbin:/sbin");
+  });
+
+  /** Types into the inline override field the way a keystroke would. */
+  async function typeTheOverride(text: string): Promise<void> {
+    const field = document.querySelector("#folder-override");
+    if (!(field instanceof HTMLInputElement)) throw new Error("the error carries no field");
+
+    // React owns the value, so the event goes through the native setter the
+    // way a real keystroke would.
+    const setValue = Object.getOwnPropertyDescriptor(
+      window.HTMLInputElement.prototype,
+      "value",
+    )?.set;
+    await act(async () => {
+      setValue?.call(field, text);
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  }
+
+  /** *Use this*, wherever in the error it sits. */
+  async function submitTheOverride(): Promise<void> {
+    const submit = [...document.querySelectorAll("form button")].find(
+      (button) => button.textContent === "Use this",
+    );
+    if (!(submit instanceof HTMLButtonElement)) throw new Error("the error has no submit");
+
+    await act(async () => {
+      submit.click();
+    });
+    await act(async () => {
+      for (let turn = 0; turn < 4; turn += 1) await Promise.resolve();
+    });
+  }
+
+  it("announces the sentence and never the PATH or the field it wraps", async () => {
+    await boot("/?map=awkward-map&folder=notFound");
+    await openTheTopFolder();
+
+    const announced = [...document.querySelectorAll('[role="status"]')];
+    expect(announced.length).toBeGreaterThan(0);
+    expect(
+      announced.some((region) => region.textContent?.includes("Not on this folder's PATH")),
+    ).toBe(true);
+
+    /*
+     * A polite region containing a text field re-announces everything inside it
+     * on every keystroke — and what is inside this one is a hundred PATH
+     * entries and the split of whatever has been typed so far. An operator
+     * typing the fix would hear the evidence read back to them, character by
+     * character, until they stopped. The evidence stays in the same box; it
+     * stays out of the announcement.
+     */
+    for (const region of announced) {
+      expect(region.querySelector("input")).toBeNull();
+      expect(region.querySelector("[data-parsed]")).toBeNull();
+      expect(region.querySelector('[aria-label="PATH, exactly as it arrived"]')).toBeNull();
+      expect(region.textContent).not.toContain("/usr/bin:/bin:/usr/sbin:/sbin");
+    }
+
+    // And it stays out of it while somebody is typing, which is the case that
+    // brought it up: the region may not grow a field partway through a word.
+    await typeTheOverride("nod");
+    for (const region of document.querySelectorAll('[role="status"]')) {
+      expect(region.querySelector("input")).toBeNull();
+      expect(region.querySelector("[data-parsed]")).toBeNull();
+    }
+  });
+
+  it("shows what was typed as a vector before anything uses it", async () => {
+    await boot("/?map=awkward-map&folder=notFound");
+    await openTheTopFolder();
+
+    await typeTheOverride('node "C:\\Program Files\\claude\\cli.js"');
+
+    // Two words, and the quoted path stayed one of them. Shown back before the
+    // operator commits to it, which is the whole defence against a split that
+    // surprised somebody.
+    const parsed = document.querySelector("[data-parsed]");
+    expect(parsed?.getAttribute("data-parsed")).toBe("2");
+    expect(parsed?.textContent).toContain("C:\\Program Files\\claude\\cli.js");
+  });
+
+  it("replaces the error in place when an override answers, with no navigation", async () => {
+    await boot("/?map=awkward-map&folder=notFound");
+    await openTheTopFolder();
+    const before = document.querySelector('[aria-label="Folders"] li')?.textContent;
+
+    // Typed first, because an empty field is the refusal and proves nothing
+    // about an override answering.
+    await typeTheOverride("node /opt/claude/cli.js");
+    await submitTheOverride();
+
+    // The note is gone because something resolved, the row is exactly where it
+    // was, and nothing navigated anywhere to get here.
+    expect(document.body.textContent).not.toContain("Not on this folder's PATH");
+    expect(document.querySelector('[aria-label="Folders"] li')?.textContent).toBe(before);
+    expect(document.querySelector('[aria-label="Maps"]')).not.toBeNull();
+  });
+
+  it("leaves the error exactly where it was when the vector names no program", async () => {
+    await boot("/?map=awkward-map&folder=notFound");
+    await openTheTopFolder();
+
+    // A pair of quotes around nothing is one empty word, which is a vector
+    // whose first word is no program at all.
+    await typeTheOverride('""');
+    await submitTheOverride();
+
+    // Nothing was changed, so the error is still the answer to the folder —
+    // and it says so at the field it was typed into rather than only in a
+    // panel that opens closed.
+    expect(document.body.textContent).toContain("Not on this folder's PATH");
+    expect(document.querySelector("[data-override]")?.getAttribute("data-override")).toBe(
+      "refused",
+    );
+    expect(document.body.textContent).toContain(OVERRIDE_REFUSED_COUNSEL);
+    expect(document.querySelector("#folder-override")).not.toBeNull();
+  });
+
+  it("carries the per-folder panel beside the folder, on every fixture there is", async () => {
+    for (const state of ["resolved", "notFound", "harvestDiscarded", "policyDegraded", "overridden", "overriddenGlobally"]) {
+      await boot(`/?map=awkward-map&folder=${state}`);
+      await openTheTopFolder();
+
+      const panel = document.querySelector("#folder-environment-panel");
+      expect([state, panel !== null]).toEqual([state, true]);
+      // A second panel rather than fields on the app-global one, because they
+      // answer different questions: that one says what this process is running
+      // in, this one says what a folder resolves under, and #45 exists because
+      // the two can differ.
+      expect([state, document.querySelectorAll("#environment-panel").length]).toEqual([
+        state,
+        1,
+      ]);
+    }
+  });
+
+  it("names the declined start-up file from what the interpreter wrote", async () => {
+    await boot("/?map=awkward-map&folder=policyDegraded");
+    await openTheTopFolder();
+
+    const panel = document.querySelector("#folder-environment-panel");
+    expect(panel?.textContent).toContain("Start-up file declined");
+    // And the transcript it was read out of is shown exactly as it arrived,
+    // hard wrap and all, rather than tidied into something that is no longer
+    // evidence.
+    expect(panel?.textContent).toContain("cannot _x000D__x000A_be loaded");
   });
 });
 

@@ -69,6 +69,12 @@ jobs:
       - name: Agent crate solitude
         run: npm run check:agent-solitude
 
+      # Resolution has two tiers and no third one. A candidate list naming
+      # /opt/homebrew or shelling out to where.exe would not be incomplete — it
+      # would diverge, silently, from what the operator's own shell resolves.
+      - name: No install-location probing
+        run: npm run check:no-install-probing
+
       - name: Frontend build
         run: npm run build
 

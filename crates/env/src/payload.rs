@@ -131,38 +131,53 @@ fn base64(bytes: &[u8]) -> String {
     encoded
 }
 
+/// Undoes [`base64`] and the UTF-16LE, so a test asserts what PowerShell would
+/// receive rather than what we believe we sent.
+///
+/// It lives beside the encoder rather than inside its test module because
+/// `shell.rs` needs it too: the PowerShell argv carries the payload only as
+/// base64, so any claim about what that payload *says* — that it never
+/// navigates, above all — has to be made against the decoded text or it is a
+/// substring search over an alphabet that cannot contain the word.
+#[cfg(test)]
+pub(crate) fn decode_command(encoded: &str) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+    let mut bytes: Vec<u8> = Vec::new();
+    let mut accumulator: u32 = 0;
+    let mut bits = 0;
+    for character in encoded.bytes().filter(|byte| *byte != b'=') {
+        let value = ALPHABET
+            .iter()
+            .position(|candidate| *candidate == character)
+            .expect("the encoder only emits the RFC 4648 alphabet");
+        accumulator = (accumulator << 6) | value as u32;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            bytes.push((accumulator >> bits) as u8);
+        }
+    }
+
+    let units: Vec<u16> = bytes
+        .chunks_exact(2)
+        .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+        .collect();
+    String::from_utf16(&units).expect("the encoder only emits well-formed UTF-16")
+}
+
+/// Every spelling of *change directory* either platform's payload could carry.
+///
+/// One list, used by both payload tests and by `shell.rs`, so the two platforms
+/// are held to the same claim rather than to whichever words each test happened
+/// to think of. `cd ` keeps its trailing space: `cd` with none is a substring of
+/// too much ordinary text to assert on.
+#[cfg(test)]
+pub(crate) const NAVIGATION: &[&str] = &["cd ", "set-location", "pushd", "popd", "chdir"];
+
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// Undoes [`base64`] and the UTF-16LE, so the payload test asserts what
-    /// PowerShell would receive rather than what we believe we sent.
-    pub(crate) fn decode_command(encoded: &str) -> String {
-        const ALPHABET: &[u8; 64] =
-            b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
-        let mut bytes: Vec<u8> = Vec::new();
-        let mut accumulator: u32 = 0;
-        let mut bits = 0;
-        for character in encoded.bytes().filter(|byte| *byte != b'=') {
-            let value = ALPHABET
-                .iter()
-                .position(|candidate| *candidate == character)
-                .expect("the encoder only emits the RFC 4648 alphabet");
-            accumulator = (accumulator << 6) | value as u32;
-            bits += 6;
-            if bits >= 8 {
-                bits -= 8;
-                bytes.push((accumulator >> bits) as u8);
-            }
-        }
-
-        let units: Vec<u16> = bytes
-            .chunks_exact(2)
-            .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
-            .collect();
-        String::from_utf16(&units).expect("the encoder only emits well-formed UTF-16")
-    }
 
     #[test]
     fn the_unix_payload_dumps_the_environment_nul_delimited_and_never_changes_directory() {
@@ -172,7 +187,10 @@ mod tests {
         // The child's working directory is set at spawn. A `cd` in here would
         // run before the framing and put its own output where the opening mark
         // belongs — #24 calls this the load-bearing correction.
-        assert!(!payload.contains("cd "), "{payload}");
+        let lowered = payload.to_lowercase();
+        for spelling in NAVIGATION {
+            assert!(!lowered.contains(spelling), "{spelling} in {payload}");
+        }
         assert!(payload.contains("__PERSEVERANCE_BEGIN_deadbeefdeadbeef__"));
         assert!(payload.contains("__PERSEVERANCE_END_deadbeefdeadbeef__"));
     }
@@ -229,6 +247,32 @@ mod tests {
         assert!(!decoded.contains("Get-ChildItem"), "{decoded}");
         assert!(!decoded.contains("Write-Output"), "{decoded}");
         assert!(!decoded.contains("Write-Host"), "{decoded}");
+    }
+
+    #[test]
+    fn the_windows_payload_never_changes_directory_either() {
+        // The unix twin of this asserts over the payload text directly. Here
+        // the payload reaches the child as base64 of UTF-16LE, so the same
+        // claim has to be made against the decoded text: a substring search
+        // over the encoded argument is a search over an alphabet that cannot
+        // contain the word, and would pass whatever the payload said.
+        let decoded = decode_command(&encode_command(&powershell_payload(&Nonce::from_literal(
+            "00112233445566aa",
+        ))));
+
+        let lowered = decoded.to_lowercase();
+        for spelling in NAVIGATION {
+            assert!(!lowered.contains(spelling), "{spelling} in {decoded}");
+        }
+    }
+
+    /// The guard above only means something if it can fail.
+    #[test]
+    fn the_navigation_check_catches_a_payload_that_does_navigate() {
+        let navigating = decode_command(&encode_command("Set-Location C:\\work\n"));
+
+        let lowered = navigating.to_lowercase();
+        assert!(NAVIGATION.iter().any(|spelling| lowered.contains(spelling)));
     }
 
     #[test]
