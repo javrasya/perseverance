@@ -2197,6 +2197,8 @@ name = "perseverance-pty"
 version = "0.1.0"
 dependencies = [
  "perseverance-agent",
+ "tempfile",
+ "thiserror 2.0.19",
 ]
 
 [[package]]

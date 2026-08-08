@@ -15,7 +15,7 @@ A Cargo workspace of seven crates plus a React 19 + TypeScript frontend.
 | `perseverance-model` | Deriving the model from a GitHub graph | Tauri, the network, a browser |
 | `perseverance-github` | Every network call, and the poller | Writing to GitHub |
 | `perseverance-agent` | The agent trait and its adapters; planning | Spawning anything |
-| `perseverance-pty` | PTY and child-process ownership | Deciding what to run |
+| `perseverance-pty` | PTY and child-process ownership, and refusing a launch whose program is not a native image | Deciding what to run |
 | `perseverance-store` | The launcher registry: one SQLite file, its schema, and binding a folder to its repo | The network, Tauri, a child process |
 | `perseverance-env` | The environment harvest: the operator's login shell asked once, in memory, and running one program inside the answer | Owning a terminal |
 | `perseverance-app` | The Tauri window and command surface | Any decision at all |
@@ -72,6 +72,26 @@ belongs to the views that draw the fan, or *which* one blocks a row, which
 belongs to the detail panel.
 [ADR 0006](docs/adr/0006-the-route-is-a-grouped-list-not-a-graph.md) records the
 decision, the readings on both sides of it, and the test that falsifies it.
+
+`perseverance-agent` is a trait with four members and one value. An adapter
+names itself, says what to look for, plans a launch, and optionally classifies
+bytes — it does not spawn, wait, inject a prompt or decide it is done, because
+there is no member on which it could. Planning is pure by signature rather than
+by promise: `LaunchContext` derives `Copy`, so no writable handle can ever be a
+field of it, and it hands the program and the working directory over as names
+rather than as paths, because a path carries `exists`, `metadata` and `read_dir`
+as inherent methods that need no import and that no scan of the source would
+see. The whole of what an adapter produces is an argument vector, an environment
+delta and a readiness rule. That is why per-run configuration *is* argv and
+environment: there is nowhere else for it to be said. Which platform a
+plan is for is a parameter and never a `cfg!`, so both goldens are asserted from
+whichever runner is running. And a launch is checked before anything is spawned
+— `perseverance_pty::accept` reads the program's first bytes and refuses
+anything that is not a native image, because npm's `claude.cmd` interposes
+`cmd.exe` and killing that orphans the agent.
+[ADR 0010](docs/adr/0010-the-adapter-contract-is-four-members-and-a-value.md)
+records the contract, the invariants that are enforced rather than documented,
+and the alternatives it turned down.
 
 App-level artifacts are named **perseverance**. `wayfinder` stays reserved for
 the skill's vocabulary and never appears in a shipped name.
@@ -300,12 +320,15 @@ check that cannot fail.
   against a number that had stopped being true. The fixture pins it only for as
   long as somebody refreshes the fixture, and the `#[ignore]`d live test is the
   only thing that meets a real schema.
-- **Two of the three pokes have no producer in the tree.** An adapter's `Idle`
-  is #44's signal and a run's process exit is #47's, and `crates/agent` and
-  `crates/pty` are still doc-comment-only stubs — so both arrive as things the
-  poller is *told about* on a channel, and the only thing holding a `RunHandle`
-  today is a test. The run-live rung is therefore unreachable in a running
-  build: correct, asserted, and not yet exercised by anything real.
+- **Two of the three pokes have no producer, and now for two different
+  reasons.** A run's process exit waits on #47, which is the crate that will own
+  a child process. An adapter's `Idle` is not waiting on anything: #44 landed the
+  contract and the one adapter, and Claude Code takes the default `watch`, which
+  classifies nothing — the whole out-of-band tier is cut from v1, a live signal
+  would mean only *poll sooner*, and polling never stopped. So the type is here
+  and deliberately unproduced. Either way both arrive as things the poller is
+  *told about* on a channel, the only thing holding a `RunHandle` today is a
+  test, and the run-live rung is unreachable in a running build.
 - **A fourth poke the ticket did not ask for.** `EnvironmentSettled` fires when
   the harvest lands, because without it a Windows launch spends 1.5–1.9 s
   harvesting, ticks with no token, and waits a whole rung before the first list
@@ -322,14 +345,42 @@ check that cannot fail.
   after one failure, with the last read still on screen and still recent, is
   indistinguishable from one on the rung. What is visible is the condition, not
   the wait it earned.
-- **The PTY rule is asserted against a stub.** *Nothing printed inside a
-  terminal raises a condition on the graph* is held by a test in `crates/app`
-  that reads `crates/pty/src/lib.rs` as bytes and asserts it names none of
-  `Degraded`, `ReadOutcome`, `MapsView`, `Provenance` or `emit`. That crate is
-  thirty-odd lines of doc comment, so what the test currently proves is that a
-  file with no code in it surfaces nothing. #47 is where it has to be
-  re-asserted against a crate that actually owns a terminal, and where a
-  stronger form than a byte scan becomes possible.
+- **The PTY rule is asserted by a byte scan over a hand-written list of
+  files.** *Nothing printed inside a terminal raises a condition on the graph*
+  is held by a test in `crates/app` that reads `crates/pty/src/lib.rs` and
+  `crates/pty/src/shim.rs` as bytes and asserts neither names `Degraded`,
+  `ReadOutcome`, `MapsView`, `Provenance` or `emit`. Two files, both named in
+  the test — so a *third* file added to `crates/pty/src` escapes the scan
+  entirely until somebody adds it there. The agent-side scan next to it now
+  checks its own list against that crate's `mod` declarations and caught a
+  missing file the first time it ran; the PTY scan has no such guard. And the
+  crate still owns no terminal: what it holds today is a shim check that reads a
+  file and never runs one. #47 is where the rule has to be re-asserted against a
+  crate that actually spawns, and where a stronger form than a byte scan becomes
+  possible.
+- **The agent-side scan reads text, not a parse tree.** *An adapter plans from
+  what it was handed* is held by an allowlist — every `std` path
+  `crates/agent` names must be `ffi`, `fmt`, `time` or `error` — which is
+  syntax-proof in the way a list of forbidden names was not, since a brace group
+  or an alias cannot reach a module without naming it after `std::` somewhere.
+  What it is not is a compiler: it strips comments with a hand-rolled reader
+  that does not know raw string literals, and it lets `println!` through, which
+  is I/O in a function documented as doing none. Both are visible side effects
+  rather than routes to the operator's config, and both would be caught by a
+  lint rather than by a scan.
+- **The shim gate has no consumer.** `perseverance_pty::accept` mints an
+  `Accepted`, `Accepted` has private fields, and #47's spawn will take one — so
+  the check is a constructor rather than a call site anyone could forget. Until
+  #47 lands, nothing calls it outside its own tests, and the routing-around it
+  exists to prevent has never been attempted.
+- **The golden argv is checked against a recording, and nothing in CI ever
+  spawns `claude`.** The Claude Code adapter's two argv elements, its scrubbed
+  `CLAUDE_CODE_CHILD_SESSION`, its `TERM`, and the ~223 ms alternate-screen
+  measurement behind its ten-second readiness timeout all come from
+  `docs/research/pty-spawn-agent-clis.md` — one machine, one day. A release that
+  moved the prompt behind a flag would leave every test here passing. That is
+  the deliberate trade for tests that need no async runtime, no PTY and no
+  installed CLI.
 - **Linux has never built the TLS stack.** `ureq` verifies certificates against
   the operator's own trust store via `rustls-platform-verifier`, which supports
   Linux — but both CI runners are Windows and macOS by design, so nothing here
