@@ -3,7 +3,7 @@ use std::io::{Read, Write};
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
+use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 
 use crate::geometry::Geometry;
 use crate::guard::{Guard, GuardRefusal};
@@ -17,6 +17,16 @@ use crate::shim::Accepted;
 /// smaller than the ring, which is what keeps the *one oversized read* branch in
 /// [`Ring::push`] unreachable from the one caller that matters.
 const READ: usize = 32 * 1024;
+
+/// How often the waiting thread looks at the child.
+///
+/// A poll rather than a block, and the cost of keeping the child itself rather
+/// than a cloned signaller — see the `child` field. It is a sampling rate and
+/// not a promise: nothing is owed to a run in the twenty-five milliseconds
+/// between it exiting and this noticing, and the one thing that must not be
+/// inferred from a clock — *that* it ended — is still the operating system's
+/// answer and never this loop's patience.
+const TICK: std::time::Duration = std::time::Duration::from_millis(25);
 
 /// Every way the harness fails to open a session, once the launch itself has
 /// been accepted.
@@ -91,13 +101,37 @@ pub struct Session {
     /// single-use, so sharing the one writer is not a convenience — it is the
     /// only shape available. And it is held for the whole session because
     /// dropping it writes `VEOF` on unix, which would quit the agent.
-    writer: Arc<Mutex<Box<dyn Write + Send>>>,
-    killer: Box<dyn ChildKiller + Send + Sync>,
+    ///
+    /// The `Option` is there so that exactly one caller can let it go on
+    /// purpose: [`Session::hang_up`], which is the first phase of a quit and
+    /// wants precisely that `VEOF`. It has to be an `Option` inside the shared
+    /// cell rather than an `Option` around the `Arc`, because the drain thread
+    /// holds a clone of the `Arc` for as long as it lives — dropping this side's
+    /// clone would only decrement a count and would write nothing at all.
+    writer: Arc<Mutex<Option<Box<dyn Write + Send>>>>,
+    /// The child itself, shared with the thread that waits on it — **not** a
+    /// `clone_killer`, and that is the whole of the difference between the
+    /// documented kill and a kill that happens.
+    ///
+    /// `portable-pty`'s cloned killer is a `ProcessSignaller`, and on unix its
+    /// `kill` is one `libc::kill(pid, SIGHUP)` with nothing behind it: a child
+    /// that traps or ignores `SIGHUP` would survive it, and because the drain
+    /// thread holds a `dup` of the master the kernel's own hangup does not fire
+    /// either. The escalation — `SIGHUP`, five 50 ms looks at `try_wait`, then
+    /// `SIGKILL` — lives on `impl ChildKiller for std::process::Child`, which is
+    /// reachable only from the owned child. So the child is kept here instead of
+    /// being moved into the wait thread, and the price is that the wait is a
+    /// poll rather than a block. On Windows both spellings are the same
+    /// `TerminateProcess`, so nothing is traded there.
+    child: Arc<Mutex<Box<dyn Child + Send + Sync>>>,
     ring: Arc<Mutex<Ring>>,
     /// The child's exit code, once it has one.
     ///
-    /// **Waited for on a thread, and never inferred from the PTY going quiet or
-    /// from end of file.** Measured here: on Windows the output pipe stays open
+    /// **Asked of the operating system on a thread, and never inferred from the
+    /// PTY going quiet or from end of file.** Polled rather than blocked on —
+    /// see the `child` field for why — which changes when this is noticed by up
+    /// to [`TICK`] and changes nothing about what it means. Measured here: on
+    /// Windows the output pipe stays open
     /// for as long as the pseudoconsole does, so a `cmd.exe` that exited zero at
     /// 250 ms produced no end of file at five seconds and would have produced
     /// none ever — the harness holds the master. A run that used EOF as its
@@ -185,27 +219,29 @@ impl Session {
                 .map_err(|error| SessionFailure::Unreadable {
                     detail: error.to_string(),
                 })?;
-        let writer = Arc::new(Mutex::new(pair.master.take_writer().map_err(|error| {
-            SessionFailure::Unwritable {
+        let writer = Arc::new(Mutex::new(Some(pair.master.take_writer().map_err(
+            |error| SessionFailure::Unwritable {
                 detail: error.to_string(),
-            }
-        })?));
+            },
+        )?)));
 
         let ring = Arc::new(Mutex::new(Ring::new(scrollback)));
         let ended = Arc::new(Mutex::new(None));
+        let child = Arc::new(Mutex::new(child));
 
         let session = Session {
             master: pair.master,
             writer: Arc::clone(&writer),
-            killer: child.clone_killer(),
+            child: Arc::clone(&child),
             ring: Arc::clone(&ring),
             ended: Arc::clone(&ended),
             guard,
         };
 
-        // Two threads per run, because there are two things to be blocked on and
-        // neither may hold the other up: reading a pipe that must never fill,
-        // and waiting for a process that may take an hour.
+        // Two threads per run, because there are two things to watch and neither
+        // may hold the other up: a pipe that must never fill, and a process that
+        // may take an hour. The first blocks in `read`; the second polls, which
+        // is what leaves the child reachable for the kill that escalates.
         std::thread::Builder::new()
             .name("perseverance-pty-drain".to_string())
             .spawn(move || drain(reader, &ring, &writer))
@@ -213,12 +249,28 @@ impl Session {
                 detail: error.to_string(),
             })?;
 
-        let mut child = child;
         std::thread::Builder::new()
             .name("perseverance-pty-wait".to_string())
             .spawn(move || {
-                let code = child.wait().map(|status| status.exit_code()).ok();
-                *ended.lock().unwrap_or_else(PoisonError::into_inner) = Some(Ending { code });
+                let ending = loop {
+                    let looked = child
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .try_wait();
+                    match looked {
+                        Ok(Some(status)) => {
+                            break Ending {
+                                code: Some(status.exit_code()),
+                            }
+                        }
+                        // The platform declined to say. That it ended is still
+                        // the fact worth recording — with what code is the part
+                        // nobody could answer.
+                        Err(_) => break Ending { code: None },
+                        Ok(None) => std::thread::sleep(TICK),
+                    }
+                };
+                *ended.lock().unwrap_or_else(PoisonError::into_inner) = Some(ending);
             })
             .map_err(|error| SessionFailure::Unreadable {
                 detail: error.to_string(),
@@ -234,10 +286,64 @@ impl Session {
 
     /// Keystrokes, or a prompt, or a cursor reply. Whatever the caller has, as
     /// bytes: this crate does not know what any of them mean.
+    ///
+    /// Refused rather than silently dropped once the session has been hung up.
+    /// There is no writer left to take the bytes, and a caller that got `Ok` for
+    /// a keystroke that reached nobody would be told the wrong thing about a
+    /// child on its way out.
     pub fn typed(&self, bytes: &[u8]) -> std::io::Result<()> {
         let mut writer = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
+        let Some(writer) = writer.as_mut() else {
+            return Err(std::io::Error::other(
+                "this run has been hung up on its way out, so nothing typed at it could reach the \
+                 agent",
+            ));
+        };
         writer.write_all(bytes)?;
         writer.flush()
+    }
+
+    /// Let go of the child's input, which is the whole of the asking.
+    ///
+    /// The master has two ends and they mean different things. This releases the
+    /// write end: on unix that is a dup of the master fd whose `Drop` writes `\n`
+    /// and the terminal's `VEOF`, which is an end-of-file to a child in canonical
+    /// mode and a `Ctrl-D` to one in raw; on Windows it is the pseudoconsole's
+    /// input pipe, which closes. The read end — `master` — is deliberately not
+    /// released here, because on Windows dropping it is `ClosePseudoConsole` and
+    /// that terminates the tree. Releasing it here would make the grace that
+    /// follows a wait for processes that were already gone.
+    ///
+    /// **The `\n` is `portable-pty`'s and it is not free.** `UnixMasterWriter`'s
+    /// `Drop` writes `\n` before the `VEOF`, and to a full-screen agent in raw
+    /// mode the tty interprets neither — the agent is handed a literal `0x0A`,
+    /// which most prompt widgets read as *submit*. So a work run with a
+    /// half-typed prompt in it can have that prompt sent as the last thing that
+    /// happens before the deadline ends it: a turn on the operator's claim they
+    /// did not ask for and will not see. It is accepted because the alternative
+    /// is not sending the end-of-file at all — the `\n` is welded to the `VEOF`
+    /// inside `portable-pty` and there is no way to write one without the other
+    /// from here — and because the quit it belongs to has already been confirmed
+    /// against a sentence saying the run is about to end.
+    ///
+    /// **`try_lock`, and a session that cannot be hung up on is skipped.** The
+    /// writer lock is also taken by the drain thread across a blocking
+    /// `write_all` into the child's *input*; a child that has stopped reading
+    /// and a full line discipline make that write not return, and a quit that
+    /// waited on it would never reach its own deadline, let alone the kill. The
+    /// asking is the phase that is allowed to fail — what happens to a run that
+    /// was never asked is exactly what happens to one that refused.
+    ///
+    /// Idempotent, and says nothing about whether the child took the hint. What
+    /// happens when it does not is the deadline's, in [`Runs::shut_down`].
+    ///
+    /// [`Runs::shut_down`]: crate::Runs::shut_down
+    pub fn hang_up(&mut self) {
+        match self.writer.try_lock() {
+            Ok(mut writer) => drop(writer.take()),
+            Err(std::sync::TryLockError::Poisoned(poisoned)) => drop(poisoned.into_inner().take()),
+            Err(std::sync::TryLockError::WouldBlock) => (),
+        }
     }
 
     /// One `ResizePseudoConsole` on Windows, one `TIOCSWINSZ` on unix.
@@ -279,13 +385,29 @@ impl Drop for Session {
     /// until the child noticed by itself. Killing first makes the end of file
     /// arrive.
     ///
+    /// The kill is the **owned child's** and not a cloned signaller's, which on
+    /// unix is the difference between a `SIGHUP` a child may ignore and a
+    /// `SIGHUP` followed by five 50 ms looks and then a `SIGKILL` it may not.
+    /// That escalation is the reason the `child` field is kept here rather than
+    /// moved into the wait thread, and it means this can block for up to a
+    /// quarter of a second per session on a child that traps the hangup. That
+    /// cost is after the grace and only on a run that has already refused to go.
+    ///
     /// The thread is not joined. A join here is a quit that can hang, and the
-    /// orderly shutdown — one confirmation, every session ended, nothing
-    /// orphaned — is #51's to build with a deadline in it. What this guarantees
-    /// is the part that must not depend on anything running: the guard drops
-    /// with the session, and on Windows that is the job object closing.
+    /// orderly shutdown — every session asked to stop, one deadline for all of
+    /// them — is [`Runs::shut_down`] and exists; this is what happens after it,
+    /// and what happens instead of it on the paths where nothing gets to run.
+    /// What this guarantees is the part that must not depend on anything
+    /// running: the guard drops with the session, and on Windows that is the job
+    /// object closing.
+    ///
+    /// [`Runs::shut_down`]: crate::Runs::shut_down
     fn drop(&mut self) {
-        let _ = self.killer.kill();
+        let _ = self
+            .child
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .kill();
     }
 }
 
@@ -311,7 +433,16 @@ fn sized(geometry: Geometry) -> PtySize {
 /// **Nothing in here can block on a consumer.** The ring lock is taken for the
 /// length of one `push` and let go, and there is no other lock in the loop that
 /// anything outside this crate can hold.
-pub(crate) fn drain<R: Read, W: Write>(mut reader: R, ring: &Mutex<Ring>, replies: &Mutex<W>) {
+///
+/// `replies` is an `Option` because [`Session::hang_up`] takes the writer out of
+/// it on the way to a quit. An emptied cell stops the answering and nothing
+/// else: reading continues to the end of the stream, because what the child said
+/// on its way out is the part worth keeping.
+pub(crate) fn drain<R: Read, W: Write>(
+    mut reader: R,
+    ring: &Mutex<Ring>,
+    replies: &Mutex<Option<W>>,
+) {
     let mut buffer = vec![0u8; READ];
     let mut queries = Queries::default();
 
@@ -338,8 +469,12 @@ pub(crate) fn drain<R: Read, W: Write>(mut reader: R, ring: &Mutex<Ring>, replie
             let mut replies = replies.lock().unwrap_or_else(PoisonError::into_inner);
             // Best effort, and deliberately so: a reply that cannot be written
             // means the child has gone, which the next read will say properly.
-            let _ = replies.write_all(ANSWER);
-            let _ = replies.flush();
+            // An emptied cell is the same fact arriving earlier — the writer was
+            // let go on purpose, so there is nobody left to answer.
+            if let Some(replies) = replies.as_mut() {
+                let _ = replies.write_all(ANSWER);
+                let _ = replies.flush();
+            }
         }
     }
 }
@@ -374,6 +509,24 @@ mod tests {
         std::path::PathBuf::from("/bin/sh")
     }
 
+    /// The smallest environment that makes a shell a shell.
+    ///
+    /// `Session::spawn` clears the child's environment first, so a run given only
+    /// `TERM` has no `PATH` — and on Windows that turns every `timeout` in this
+    /// module into *not recognized as an internal or external command*, i.e. a
+    /// child that is already over before the test has done anything to it. Every
+    /// harness here that needs a live child needs this.
+    fn an_environment() -> Vec<(String, String)> {
+        let mut environment = vec![("TERM".to_string(), "xterm-256color".to_string())];
+        #[cfg(windows)]
+        {
+            let root = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_string());
+            environment.push(("PATH".to_string(), format!("{root}\\system32")));
+            environment.push(("SystemRoot".to_string(), root));
+        }
+        environment
+    }
+
     /// A shell told to run one line, as a launch the gate has accepted.
     fn a_run_of(line: &str) -> Accepted {
         let shell = a_shell();
@@ -393,7 +546,7 @@ mod tests {
         accept(Launch::new(
             argv,
             SCRUB,
-            vec![("TERM".to_string(), "xterm-256color".to_string())],
+            an_environment(),
             Ready::Quiet {
                 quiet: Duration::from_millis(400),
                 max: Duration::from_secs(10),
@@ -624,12 +777,18 @@ mod tests {
         // Answering is what a terminal does, and this is where it is done — so a
         // run nobody is monitoring gets it too.
         let ring = Mutex::new(Ring::new(SCROLLBACK));
-        let replies = Mutex::new(Vec::new());
+        let replies = Mutex::new(Some(Vec::new()));
         let wire = b"\x1b[6n\x1b[?9001h2.1.220 (Claude Code)\r\n".to_vec();
 
         drain(Cursor::new(wire.clone()), &ring, &replies);
 
-        assert_eq!(replies.into_inner().expect("not poisoned"), ANSWER);
+        assert_eq!(
+            replies
+                .into_inner()
+                .expect("not poisoned")
+                .expect("never hung up"),
+            ANSWER
+        );
         // And the query is in the ring exactly as it arrived. Stripping it would
         // be a splice, which is the one thing the ring may not hold.
         assert_eq!(
@@ -642,7 +801,7 @@ mod tests {
     #[test]
     fn a_drain_over_a_reader_that_ends_records_everything_that_came_out_of_it() {
         let ring = Mutex::new(Ring::new(SCROLLBACK));
-        let replies = Mutex::new(Vec::new());
+        let replies = Mutex::new(Some(Vec::new()));
         let wire: Vec<u8> = (0..200_000u32).map(|byte| byte as u8).collect();
 
         drain(Cursor::new(wire.clone()), &ring, &replies);
@@ -652,4 +811,70 @@ mod tests {
         assert_eq!(ring.whole(), wire);
         assert!(!ring.truncated());
     }
+
+    /// A hung-up session is one on its way out, and what it prints on the way
+    /// out is the part worth keeping. So losing the writer must not stop the
+    /// reading — the query simply goes unanswered, which is the same best-effort
+    /// branch a dead child already took.
+    #[test]
+    fn a_drain_whose_replies_have_been_hung_up_keeps_reading_rather_than_stopping() {
+        let ring = Mutex::new(Ring::new(SCROLLBACK));
+        let replies: Mutex<Option<Vec<u8>>> = Mutex::new(None);
+        let wire = b"before\x1b[6nafter\r\n".to_vec();
+
+        drain(Cursor::new(wire.clone()), &ring, &replies);
+
+        assert!(replies.into_inner().expect("not poisoned").is_none());
+        assert_eq!(
+            ring.into_inner().expect("not poisoned").whole(),
+            wire,
+            "the drain stopped at the query it could not answer"
+        );
+    }
+
+    #[test]
+    fn typing_at_a_session_that_has_been_hung_up_is_refused_rather_than_going_nowhere() {
+        let directory = TempDir::new().expect("temp dir");
+        let mut session = Session::spawn(
+            a_run_of(A_WAIT),
+            directory.path(),
+            &[],
+            Geometry::new(40, 120),
+            SCROLLBACK,
+        )
+        .expect("a shell starts");
+
+        session.hang_up();
+        // Twice, because the first phase of a quit runs over every session and a
+        // second ask must not be a panic.
+        session.hang_up();
+
+        let refusal = session
+            .typed(b"\r")
+            .expect_err("there is no writer left to take it");
+
+        let sentence = refusal.to_string();
+        assert!(
+            sentence.len() > 40,
+            "{sentence:?} is a label rather than a sentence"
+        );
+        assert!(
+            !sentence.ends_with('.'),
+            "{sentence:?} ends in a full stop; house style does not"
+        );
+        assert!(
+            sentence
+                .chars()
+                .next()
+                .is_some_and(|opening| !opening.is_uppercase()),
+            "{sentence:?} opens upper case; house style does not"
+        );
+    }
+
+    /// A line that outlives the test that starts it, so there is a live child to
+    /// hang up on.
+    #[cfg(windows)]
+    const A_WAIT: &str = "timeout /t 30 /nobreak >nul";
+    #[cfg(not(windows))]
+    const A_WAIT: &str = "sleep 30";
 }

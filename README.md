@@ -15,7 +15,7 @@ A Cargo workspace of seven crates plus a React 19 + TypeScript frontend.
 | `perseverance-model` | Deriving the model from a GitHub graph | Tauri, the network, a browser |
 | `perseverance-github` | Every network call, and the poller | Writing to GitHub |
 | `perseverance-agent` | The agent trait and its adapters; planning | Spawning anything |
-| `perseverance-pty` | PTY and child-process ownership, the per-run ring, the byte channel's contiguity, and refusing a launch whose program is not a native image | Deciding what to run, or handing over a non-contiguous byte range |
+| `perseverance-pty` | PTY and child-process ownership, the per-run ring, the byte channel's contiguity, the deadline a quit gives every run, and refusing a launch whose program is not a native image | Deciding what to run, knowing what a run is working on, or handing over a non-contiguous byte range |
 | `perseverance-store` | The launcher registry: one SQLite file, its schema, and binding a folder to its repo | The network, Tauri, a child process |
 | `perseverance-env` | The environment harvest: the operator's login shell asked once, in memory, and running one program inside the answer | Owning a terminal |
 | `perseverance-app` | The Tauri window and command surface | Any decision at all |
@@ -128,6 +128,23 @@ call. That is what makes *never resize on bind* an invariant rather than an
 assertion — a resize that landed mid-grilling would rewrap what the operator was
 typing. The cost is accepted and named: a background research PTY is reflowed by
 a dial it has nothing to do with.
+
+**A quit is one confirmation and one deadline.** One dialog however many runs
+are live, naming per run what that run loses — a work run's claim is a GitHub
+assignment nothing here holds, so it survives; a research run keeps nothing. The
+question is asked on the **close request**, while there is still a window to
+keep: `ExitRequested` arrives only after the last window has been destroyed, so
+a confirmation hung off it would make *Keep working* mean a headless process
+holding every terminal. macOS gets a menu of this app's own for the same reason
+— its default Quit is AppKit's `terminate:`, which reaches no handler here.
+Then every run is hung up on at once, given one two-second grace between them
+rather than one each, and killed. *Hanging up* releases only the write end of
+the PTY; the read end is `ClosePseudoConsole` on Windows, an unconditional
+terminate rather than something a child gets to answer. Nothing about a run is
+written down, so there is no reattach machinery and nothing to keep in sync.
+[ADR 0014](docs/adr/0014-a-quit-is-one-confirmation-and-one-deadline.md) records
+the platform mapping, why the confirmation is native rather than in the WebView,
+and what it does not decide.
 
 App-level artifacts are named **perseverance**. `wayfinder` stays reserved for
 the skill's vocabulary and never appears in a shipped name.
@@ -269,6 +286,11 @@ check that cannot fail.
   file in `crates/pty/src` by hand.** A file added there escapes the scan until
   someone adds it to the list. The array's length is part of its type, so the
   mistake is at least noticed from one direction.
+- **`nothing_about_a_run_is_written_down_when_the_app_quits` names every file in
+  `crates/store/src` by hand, with the same escape hatch.** It is the scan that
+  discharges *no reattach machinery* by absence, so a file added to that crate
+  and not to the list is a place a run could be persisted without the assertion
+  noticing. Same mitigation and same limit as the scan above.
 - **`Session::spawn` refuses a launch whose process tree it cannot own, and on
   Windows that means a completely empty environment cannot start a child at
   all** — `CreateProcessW` rejects a zero-length environment block with *the
@@ -279,7 +301,77 @@ check that cannot fail.
   on Windows: ConPTY's output pipe stays open for as long as the harness holds
   the pseudoconsole, so a `cmd.exe` that exited zero at 250 ms produced no EOF at
   five seconds and would have produced none ever. The cost is a second thread per
-  run.
+  run. The end of file a quit sends travels the other way — into the child's
+  *input*, where it is a request rather than a report — so it is not an ending
+  either: what ends a run is still an exit code, or the deadline running out.
+- **The two-second quit grace is a guess, and nothing in this repository has
+  measured it.** `GRACE` in `crates/pty/src/runs.rs` is how long every live run
+  gets between being hung up on and being killed, and its basis is a bracket
+  rather than a measurement. The lower end is eight times the 5 × 50 ms
+  `portable-pty` spends between its own `SIGHUP` and its `SIGKILL` — the grace
+  inside the kill this quit ends with — so an agent that merely needs to flush is
+  not cut off. The upper end is a fifth of the ten seconds all three adapters
+  *declare* for readiness; `Ready` is declared and not implemented on any of
+  them, so nothing spends those ten seconds today and that end of the bracket is
+  a shape borrowed from a number nobody has run. `docs/research/pty-spawn-agent-clis.md`
+  §8 measured what reaps a tree and never how long a tree asks for — no
+  time-from-end-of-input-to-exit exists for `claude`, `codex` or `pi` on either
+  platform, and that measurement is the whole of what would settle it. The
+  revisit trigger is the first report of an agent killed mid-write: that is the
+  failure this number would be wrong about, and it is a visible one.
+- **On Windows the hang-up is an interrupt, not an end of file, so the grace is
+  a unix mechanism in practice.** Measured on this repository's own harness: a
+  run of `ping -n 31`, which never reads its input, is over inside a tenth of a
+  second of the pseudoconsole's input pipe closing, with exit code
+  `STATUS_CONTROL_C_EXIT` — the console host breaks the session rather than
+  delivering an EOF anything could ignore. So on Windows the two seconds are
+  almost never spent, and `one_quit_is_one_deadline_and_not_one_per_run` asserts
+  its lower bound on unix only, with `hanging_up_ends_a_windows_run_by_itself`
+  pinning the Windows half instead. The read end is still held until the deadline
+  passes, because dropping the master is `ClosePseudoConsole` — an unconditional
+  terminate of every attached process, eighteen of them measured in
+  `docs/research/pty-spawn-agent-clis.md` §8.1 — and an interrupt a child may
+  answer is not the same offer as one it may not.
+- **On macOS the end of file is `\n` and the terminal's `VEOF`, which is a
+  request and not a guarantee.** That is a real end of file to a child in
+  canonical mode and a `Ctrl-D` to a full-screen agent in raw mode, and most TUIs
+  quit on it — but nothing obliges one to, which is the reason there is a
+  deadline behind it at all. The `\n` is `portable-pty`'s and it is not free: to
+  an agent in raw mode it arrives as a literal `0x0A`, which most prompt widgets
+  read as *submit*, so a half-typed prompt can be sent as the last thing that
+  happens before the run is ended. There is no way to write the `VEOF` without
+  it from here, and the quit it belongs to has already been confirmed against a
+  sentence saying the run is about to end.
+- **A macOS grandchild that both ignores `SIGHUP` and has left the controlling
+  terminal's foreground process group would survive a quit.** The kill on unix is
+  the *owned* child's — `SIGHUP`, five 50 ms looks, then `SIGKILL` — plus the
+  kernel's hangup of the terminal's foreground group once the leader is gone. A
+  direct child that ignores `SIGHUP` is therefore killed anyway, and
+  `a_run_that_ignores_the_hangup_does_not_survive_the_quit` pins that; a
+  *grandchild* that has put itself outside both the process group and the signal
+  is outside the reach of anything this app may do without `libc` and `unsafe`.
+  Nothing measured says the agent CLIs produce one, and the Windows job object
+  has no such gap — this is the shape of the platform asymmetry, not a bug on one
+  side of it.
+- **The quit confirmation has nothing to name in the shipped app yet.**
+  `Terminals::staked` is what records a run's ticket, folder and kind, and it has
+  no caller until #48 *Start Working* — so the side table is empty every launch,
+  and a live run today would be described as one this app was not told anything
+  about. That sentence is deliberate rather than a fallback: a confirmation that
+  omitted a run it could not describe would under-report exactly when the app is
+  most confused. The rule itself is exercised end to end —
+  `a_staked_run_is_named_by_what_it_loses_and_an_unstaked_one_is_still_named`
+  opens three real runs through the registry, stakes two of them and reads the
+  sentences back — so what is missing is the caller and not the behaviour.
+- **A stranded claim being reachable through Resume on the next launch is not
+  demonstrable on this branch.** A claim is a GitHub assignment and nothing this
+  process holds; claiming is #48's and Resume is #49's, and both are open. What
+  #51 owns is the half that makes the criterion possible: nothing about a run is
+  written down — `nothing_about_a_run_is_written_down_when_the_app_quits` pins
+  the shipped schema at `folders`, `app` and `graph_cache` and pins every file in
+  `crates/store` as naming no session and no run — so there is nothing to
+  reattach to, and the assignment is all that survives. That it is then *reached*
+  is somebody else's ticket, and it is not ticked here.
 - **The launcher registry has no capabilities file, and needs none.** The folder
   picker is answered in Rust and hands back a path, so the WebView calls only
   app-defined commands, which Tauri v2 does not gate. The day the frontend calls

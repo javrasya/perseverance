@@ -38,16 +38,23 @@ pub enum GuardRefusal {
 ///   and Task Manager's End Task, none of which fire Tauri's
 ///   `RunEvent::ExitRequested`. A child inherits its parent's job by default, so
 ///   assigning the agent covers the whole MCP fleet it goes on to start.
-/// - **Unix** already has it. `portable-pty`'s `pre_exec` calls `setsid` and
-///   `TIOCSCTTY`, so the child is a session leader with the PTY as its
-///   controlling terminal, and the kernel hangs up the session when the master
-///   closes. There is nothing left for this type to arrange.
+/// - **Unix** already has it, or as much of it as the platform offers.
+///   `portable-pty`'s `pre_exec` calls `setsid` and `TIOCSCTTY`, so the child is
+///   a session leader with the PTY as its controlling terminal, and when the
+///   *controlling process* dies the kernel hangs up that terminal's foreground
+///   process group. That is the mechanism, and it is worth stating in those
+///   terms rather than as *the master closing*: this session's master is only
+///   one of three descriptors — the drain thread holds a `dup` for as long as it
+///   lives — so dropping this side's copy closes nothing. What reaches the tree
+///   is the leader's death, which is why [`crate::Session`]'s `Drop` kills the
+///   child first and does it with the escalating owned-child kill.
 ///
 /// The narrow known gap is documented rather than papered over: assignment
 /// happens after `CreateProcess` has returned, so a child that forked inside
 /// that window would escape. Research §8.4 measured that the CLIs in question do
-/// not. Actually reaping on a *clean* quit is #51's, and it is a different
-/// mechanism — this is the one that still works when nothing gets to run.
+/// not. Reaping on a *clean* quit is [`crate::Runs::shut_down`], which asks
+/// first and puts a deadline on the answer; this is the one that still works
+/// when nothing gets to run.
 pub struct Guard {
     /// Never read, and that is the whole of what it does: the promise is
     /// `Drop`, and the only thing this field has to do is exist for exactly as
