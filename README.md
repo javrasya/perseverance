@@ -109,7 +109,7 @@ false and `npm run tauri build` is not a supported path yet.
 
 ## The checks
 
-Seven rules that would otherwise be conventions. Each is enforced on both CI
+Eight rules that would otherwise be conventions. Each is enforced on both CI
 runners.
 
 ```bash
@@ -133,6 +133,18 @@ forced to name it, and until this check existed that was held by review. It puts
 known-bad `cargo tree` output through its own verdict function, which catches a
 check that has stopped detecting anything but not a check invoked with the wrong
 flags.
+
+**Nothing looks anywhere a `PATH` did not name** —
+`npm run check:no-install-probing` reads the six files that resolve a program
+name, strips their comments and their `#[cfg(test)] mod tests` blocks, and fails
+on a hardcoded install directory (`/opt/homebrew`, `.local/bin`, `Program Files`,
+the npm global roots) or on shelling out to something that answers with one
+(`where.exe`, `Get-Command`, `command -v`, `whereis`). Resolution has two tiers —
+the folder's harvested environment, then an explicit override — and a third that
+guessed would not be *incomplete*, it would **diverge**, silently, from what the
+operator's own shell resolves. It puts known-bad and known-good input through its
+own verdict function, so it catches both a check that has stopped detecting
+anything and one that would reject the prose arguing its own case.
 
 **SMIL is prohibited** — `tests/no-smil.test.ts`. `prefers-reduced-motion` does
 not touch SMIL, so a liveness pulse authored that way survives the media query
@@ -235,26 +247,62 @@ check that cannot fail.
   opens.
 - **A harvest that looks complete may not be.** A PowerShell profile that calls
   `exit` half-way yields exit 0, both marks, ninety variables and a stderr at
-  the exact no-profile baseline; under `AllSigned` the profile does not run at
-  all and the harvest degrades silently to plain inheritance. Every structural
-  check passes in both cases. The verbatim `PATH` in the diagnostics panel
-  exists partly so an operator *could* notice; nothing makes them.
+  the exact no-profile baseline. Every structural check passes. The verbatim
+  `PATH` in the diagnostics panel exists partly so an operator *could* notice;
+  nothing makes them.
+- **The `AllSigned` degradation is named from what the interpreter wrote, and
+  only in a language this reads.** `degradation_in` matches two token groups —
+  the two wordings the interpreter is known to write, and no third one reaching
+  for the help topic it points at, because `about_Execution_Policies` flattens
+  with its underscores intact and a group that cannot fire is not coverage —
+  against a flattened copy of the stderr that is captured on every path —
+  PowerShell escapes its hard wrap as `_x000D__x000A_` mid-word — and never on
+  `StderrKind::Clixml` or on the stream being non-empty, since the Windows
+  baseline is a non-empty CLIXML stream with no profile at all. So an interpreter
+  that declines *silently*, or in a locale whose refusal is worded differently,
+  still degrades to plain inheritance with nothing on screen to say so. The
+  transcript both sides match is pinned twice — a Rust `const` in
+  `crates/env/src/harvest.rs` and the `windowsClean` fixture — so the two copies
+  cannot drift apart, and `-ExecutionPolicy` is still absent from the argv,
+  because overriding the operator's own policy is refused rather than
+  unimplemented.
 - **Resolvable is not spawnable, and spawnable is not correct.** A `PATH` that
   resolves `codex` says nothing about whether its `#!/usr/bin/env node` shebang
   resolves at exec time — #21 measured that exact 127 — and a version pin to
   something uninstalled starts the wrong interpreter successfully with nothing
-  on either stream. This slice's harvest runs at the root and cannot see the
-  second at all; the per-folder remedy is #45.
+  on either stream. The per-folder harvest makes the second *inspectable* rather
+  than detected: the readout shows the absolute file each name resolved to in
+  that folder's own environment, which is the only visible form a pin has. It
+  does not check it, and nothing here ever will.
+- **A folder's answer stands until the operator asks again.** Invalidation is
+  *Ask again* and nothing else: no TTL and no filesystem watcher, because the
+  dangerous case is *pin unchanged, installed set changed*, which no watcher over
+  the folder can see and a clock would only re-take at random. The cost is that a
+  tool installed while a folder is open is invisible until somebody says so. The
+  cache is keyed on the canonicalised absolute spawn directory, so two spellings
+  of one folder are one answer — which deletes the worktree question rather than
+  answering it, and means a relocated folder simply gets a new one.
+- **`Discovery.probes` ships empty, so the per-folder readout's probe list is
+  empty on a shipped build.** `ClaudeCode` declares `Probes::NONE` on the
+  argument that its supported installs are native images and a shim is refused by
+  `perseverance_pty::accept` rather than sniffed. `probe_in` is exercised by
+  tests and by no adapter in the binary; the panel says which adapter declares no
+  probe and why, rather than showing a blank.
+- **There is still no spawn.** `perseverance_pty::accept` has no caller, and
+  `Launch::under` — the one composition rule an override has — is asserted by
+  golden tests and run by nothing. So *Retry re-harvests, then respawns* is
+  half-wired: `retry_folder_environment` re-harvests and re-resolves, and #47 is
+  what will call it before starting anything.
+- **The guard against install-location probing is an allowlist of six files.**
+  A resolution path added in a file not on `SURFACE` in
+  `scripts/check-no-install-probing.mjs` escapes the scan entirely — the same
+  honest limit `PTY_SOURCES` already carries, and unlike the agent-source scan
+  there is no self-check that would notice a seventh resolving file appearing.
 - **The bound values are inferences.** 8 s / 2 s on unix and 20 s / 5 s on
   Windows sit above every legitimate run anyone has timed, but nobody has run a
   p10k-plus-conda rc or a corporate profile with a dozen module imports against
   them. Too tight and an operator loses their environment and gets a sentence
   saying so: recoverable, visible, and still wrong.
-- **The harvest kills the shell it spawned and reaches no further.** A daemon an
-  operator's rc started on purpose is theirs, so an rc that backgrounds one
-  leaks a process per launch — exactly as it would if they had opened a
-  terminal. #45 makes that one per folder open, and that is the ticket where the
-  decision has to be re-argued.
 - **`gh auth token` is spawned for real in exactly one line no runner can
   exercise honestly.** A GitHub runner has `gh` installed and has never signed
   in, so every branch of the interpretation is tested against a fabricated
@@ -263,10 +311,17 @@ check that cannot fail.
   `cargo test --workspace -- --ignored` — ask this machine for its own
   operator's login shell and its own `gh`, which is why no runner takes them.
 - **The environment readout is two mirrors kept true by hand.** `crates/app`
-  and `src/environment/environment.ts` each assert nine keys, and a rename that
+  and `src/environment/environment.ts` each assert ten keys, and a rename that
   updated both tests would be exactly as silent as no test at all. Same cost ADR
-  0001 accepted for the repo bindings, same defence. The map list is a third
-  such mirror, between `crates/app`'s `MapsView` and `src/maps/maps.ts`.
+  0001 accepted for the repo bindings, same defence. The per-folder readout is a
+  second such pair — twelve keys, `crates/app` and `src/environment/folder.ts` —
+  and the map list a third, between `crates/app`'s `MapsView` and
+  `src/maps/maps.ts`.
+- **The harvest kills the shell it spawned and reaches no further, once per
+  folder now rather than once per launch.** An rc that backgrounds a daemon on
+  purpose leaks one per folder opened, exactly as it would if the operator had
+  opened that many terminals. The cwd-keyed cache is what bounds it: a folder is
+  harvested once and asked again only when somebody presses *Ask again*.
 - **The GraphQL document meets a real schema in exactly one `#[ignore]`d test.**
   Every other test in `perseverance-github` reads a recorded response, so a
   renamed field, a bad argument name or a query that costs more than it should

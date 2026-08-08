@@ -14,6 +14,12 @@
  */
 
 import { nowSeconds } from "../chrome/age";
+import {
+  CLI_MISSING_COUNSEL,
+  CLI_MISSING_HEADLINE,
+  namesTried,
+  type FolderReadout,
+} from "../environment/folder";
 import { hasRustBehindIt } from "../snapshot/snapshot";
 import fixture from "./folders.fixture.json";
 
@@ -401,7 +407,14 @@ export function describeBinding(binding: RepoBinding): string {
 export type LauncherNote =
   | { kind: "binding"; binding: RepoBinding }
   | { kind: "pathGone"; path: string }
-  | { kind: "refused"; detail: string };
+  | { kind: "refused"; detail: string }
+  /**
+   * The folder is open. Its maps are being read and its repository binding
+   * landed; only the program the adapter looks for is nowhere on this folder's
+   * own `PATH`. So it is a note beside an opened folder rather than a refusal
+   * that replaced one — a missing CLI can only ever add a sentence here.
+   */
+  | { kind: "cliMissing"; readout: FolderReadout };
 
 export function noteHeadline(note: LauncherNote): string {
   switch (note.kind) {
@@ -411,6 +424,8 @@ export function noteHeadline(note: LauncherNote): string {
       return "Path missing";
     case "refused":
       return "Nothing changed";
+    case "cliMissing":
+      return CLI_MISSING_HEADLINE;
   }
 }
 
@@ -423,6 +438,12 @@ export function describeNote(note: LauncherNote): string {
     case "refused":
       // The registry wrote the reason; this only adds what became of the list.
       return `${ended(note.detail)} The list is exactly as it was.`;
+    case "cliMissing": {
+      // The names come from the readout, so the sentence names what was
+      // actually looked for rather than what this file assumed would be.
+      const tried = namesTried(note.readout);
+      return `${listOut(tried)} — nothing of that name is on this folder's PATH. ${CLI_MISSING_COUNSEL}`;
+    }
   }
 }
 

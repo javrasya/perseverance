@@ -3,7 +3,7 @@
  *
  * These types mirror `perseverance-app`'s `EnvironmentReadout` exactly, for the
  * same reason `launcher.ts` mirrors `Folder`: one seam rather than two. Both
- * sides count the nine keys, because a rename on either side is a silent
+ * sides count the ten keys, because a rename on either side is a silent
  * breakage on the other and nothing else would notice.
  *
  * What crosses is a readout, never the environment. The names, the values and
@@ -75,7 +75,17 @@ export interface Tally {
   extraOpeningMarks: number;
 }
 
-/** Nine keys, and the Rust side asserts the same nine. */
+/**
+ * What the interpreter said about itself on the way to a clean-looking answer.
+ *
+ * Not a `HarvestState` and never one: the harvest succeeded — exit 0, both
+ * marks, a plausible environment — and the only artifact is a sentence in a
+ * stream whose Windows baseline is never empty. `notSeen` means nothing
+ * nameable was said, which is a weaker claim than nothing having happened.
+ */
+export type DegradationState = { kind: "notSeen" } | { kind: "profileRefused" };
+
+/** Ten keys, and the Rust side asserts the same ten. */
 export interface EnvironmentReadout {
   harvest: HarvestState;
   shell: WireShell;
@@ -86,6 +96,7 @@ export interface EnvironmentReadout {
   elapsedMs: number;
   tally: Tally;
   stderr: WireStderr;
+  degradation: DegradationState;
   token: TokenState;
 }
 
@@ -119,6 +130,9 @@ export function stillHarvesting(): EnvironmentReadout {
       extraOpeningMarks: 0,
     },
     stderr: { kind: "empty", bytes: 0, text: "" },
+    // Nothing said, because nothing asked. The same tag a harvest that said
+    // nothing carries, and that ambiguity is the honest half of it.
+    degradation: { kind: "notSeen" },
     token: { kind: "notAttempted" },
   };
 }
@@ -240,8 +254,20 @@ export function readoutFrom(raw: unknown): EnvironmentReadout {
     elapsedMs: countOf(record.elapsedMs),
     tally: tallyFrom(record.tally),
     stderr: stderrFrom(record.stderr),
+    degradation: degradationFrom(record.degradation),
     token: tokenFrom(record.token),
   };
+}
+
+/**
+ * Anything unrecognised reads as `notSeen`, which is the reading that claims
+ * least: it says nothing nameable was said, not that nothing happened.
+ */
+export function degradationFrom(raw: unknown): DegradationState {
+  const record = objectOr(raw);
+  return textOr(record.kind, "") === "profileRefused"
+    ? { kind: "profileRefused" }
+    : { kind: "notSeen" };
 }
 
 function unreadable(): EnvironmentReadout {
@@ -340,7 +366,7 @@ function countOf(value: unknown): number {
 const NOTHING_YET = "—";
 
 /** The command line as it was run: program then flags, never the payload. */
-export function shellLine(readout: EnvironmentReadout): string {
+export function shellLine(readout: { shell: WireShell }): string {
   if (readout.shell.kind === "none") return NOTHING_YET;
   return [readout.shell.program, ...readout.shell.flags].join(" ");
 }
@@ -353,7 +379,7 @@ export function shellLine(readout: EnvironmentReadout): string {
  * it — and an entry that contains the separator is precisely where the guess
  * misleads. The unsplit string is shown above this and is the evidence.
  */
-export function pathEntries(readout: EnvironmentReadout): string[] {
+export function pathEntries(readout: { path: string | null }): string[] {
   const path = readout.path;
   if (path === null || path === "") return [];
   const separator = path.includes(";") ? ";" : ":";
@@ -397,7 +423,7 @@ export function factsLine(readout: EnvironmentReadout): string {
  * those two is our own bug.
  */
 
-export function harvestHeadline(readout: EnvironmentReadout): string {
+export function harvestHeadline(readout: { harvest: HarvestState }): string {
   switch (readout.harvest.kind) {
     case "harvesting":
       return "Still harvesting";
@@ -408,7 +434,7 @@ export function harvestHeadline(readout: EnvironmentReadout): string {
   }
 }
 
-export function describeHarvest(readout: EnvironmentReadout): string {
+export function describeHarvest(readout: { harvest: HarvestState }): string {
   switch (readout.harvest.kind) {
     case "harvesting":
       return HARVESTING_COPY;
@@ -517,6 +543,30 @@ export const TOKEN_NOTE =
 export const STDERR_NOTE =
   "Shown exactly as it arrived. On Windows this is never empty, even with no profile at all, and it is wrapped mid-word before it gets here — so it will look odd, and there is nothing in it to read a verdict from.";
 
+/*
+ * The one degradation this app can name, and only ever from what the machine
+ * said about itself. It is a reading, not a check: nothing here makes the
+ * policy case detectable in general, and the limit below says so.
+ */
+
+export const DEGRADATION_HEADLINE = "Start-up file declined";
+
+export const PROFILE_REFUSED_COPY =
+  "This machine's own policy declined to run your start-up file, and the shell answered anyway — so what came back is missing whatever that file adds. It is named here because the interpreter said it in its own words, in the stream below. Nothing was changed on your behalf: the flag that would override your policy is not in the command above, and will not be.";
+
+export const NOTHING_DECLINED_COPY =
+  "Nothing in what the shell wrote names a start-up file it declined to run. That is not the same as nothing having been declined — see below.";
+
+export function degradationHeadline(degradation: DegradationState): string {
+  return degradation.kind === "profileRefused" ? DEGRADATION_HEADLINE : "Nothing said";
+}
+
+export function degradationNote(degradation: DegradationState): string {
+  return degradation.kind === "profileRefused"
+    ? PROFILE_REFUSED_COPY
+    : NOTHING_DECLINED_COPY;
+}
+
 export const PATH_SPLIT_NOTE =
   "Split below for reading only. Where one entry ends and the next begins is a guess about the separator, and an entry containing that character is exactly where the guess misleads. The line above is what arrived.";
 
@@ -527,7 +577,7 @@ export const PATH_SPLIT_NOTE =
  */
 export const CANNOT_TELL_YOU: readonly string[] = [
   "A profile that stops half-way still writes a complete-looking block: both marks, a plausible number of variables, and a stderr no different from having no profile at all. Nothing here can see the difference.",
-  "A policy that declines to run your profile looks exactly like not having one. The harvest quietly becomes the environment this app was started with, and the PATH above is the only place you could notice.",
+  "A policy that declines to run your profile is named above whenever the interpreter says so in its own words. When it says nothing, or says it in a language this does not read, it still looks exactly like not having a profile at all — and the PATH above is the only place you could notice.",
   "A command this PATH resolves can still fail at the moment it is run: a shim whose own interpreter is not on this PATH dies at exec, and no PATH can tell you that in advance.",
   "A version pin to something that is not installed starts the wrong interpreter cleanly, with nothing on either stream. This readout is at its quietest exactly where that danger is.",
 ];

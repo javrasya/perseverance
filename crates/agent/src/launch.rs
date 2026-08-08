@@ -233,6 +233,166 @@ impl Launch {
     pub fn ready(&self) -> Ready {
         self.ready
     }
+
+    /// The override's arguments, after `argv[0]` and before the adapter's own.
+    ///
+    /// This is the whole of the composition rule, and it is one splice: the
+    /// program the harness resolved stays first, the operator's interposed
+    /// arguments follow it, and everything the adapter planned follows those. So
+    /// an override of `node /opt/claude/cli.js` becomes
+    /// `[<resolved node>, /opt/claude/cli.js, <prompt>]` — which is the thing a
+    /// path string could not have expressed and the reason an override is an
+    /// argv vector at all.
+    ///
+    /// Consumes and returns rather than mutating, so a golden comparison is
+    /// still a comparison of the whole value and there is still no setter on
+    /// this type.
+    pub fn under(self, interposed: &[OsString]) -> Launch {
+        let Launch {
+            argv,
+            env_remove,
+            env_add,
+            ready,
+        } = self;
+
+        let mut spliced: Vec<OsString> = Vec::with_capacity(argv.len() + interposed.len());
+        let mut planned = argv.into_iter();
+        if let Some(program) = planned.next() {
+            spliced.push(program);
+        }
+        spliced.extend(interposed.iter().cloned());
+        spliced.extend(planned);
+
+        Launch {
+            argv: spliced,
+            env_remove,
+            env_add,
+            ready,
+        }
+    }
+}
+
+/// The operator's own answer to *that is not the binary I meant*.
+///
+/// **An argv vector and not a path**, because a path string cannot say
+/// `node /opt/claude/cli.js` — and an operator whose install is an npm shim has
+/// no single file to point at that is also a native image. Where it is kept is
+/// the harness's business (app-global, one row, one key); what it *means* is
+/// here.
+///
+/// There is one composition rule and it is [`Override::scope`]'s: `argv[0]` is
+/// resolved against the folder's environment, so a bare name follows the
+/// folder's pin and a path pins the machine. The operator chooses the scope by
+/// what they type, and nothing else chooses it for them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Override {
+    argv: Vec<OsString>,
+}
+
+/// Why an override was not taken. Both are decidable from the vector alone,
+/// which is what makes them refusals rather than failures — nothing has run.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OverrideRefusal {
+    /// An empty vector. Refused rather than read as *no override*, because
+    /// clearing an override and setting an empty one are two different things
+    /// an operator could mean, and only one of them is expressible by removing
+    /// the row.
+    Nothing,
+    /// A first element that is blank or nothing but spaces. It would resolve to
+    /// nothing at all, and the message for that would arrive at spawn time with
+    /// the field that produced it long out of view.
+    BlankProgram,
+}
+
+impl fmt::Display for OverrideRefusal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            OverrideRefusal::Nothing => f.write_str(
+                "an override with nothing in it says neither which program to run nor that the \
+                 override should be dropped, so it is refused rather than guessed at",
+            ),
+            OverrideRefusal::BlankProgram => f.write_str(
+                "an override whose first word is blank names no program, and would come back as \
+                 not found from a field that had already been accepted",
+            ),
+        }
+    }
+}
+
+impl std::error::Error for OverrideRefusal {}
+
+/// Which of the two scopes the operator chose.
+///
+/// This is a *restatement* of what `perseverance_env::Environment::resolve`
+/// already does, and not a second implementation of it: a name with a parent is
+/// taken at its word and only checked, and a bare name walks the harvested
+/// `PATH` of the folder being asked. AC8's behaviour is `resolve`'s; this type
+/// only names which of the two happened, so the surface can show the operator
+/// which one they picked.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Scope {
+    /// A bare name. It is resolved per folder, so it follows whatever the folder
+    /// pins — which is what an operator who typed `claude` almost always meant.
+    FollowsTheFolder,
+    /// A name with a directory in it. It is taken at its word in every folder,
+    /// so it pins the machine — which is what an operator who typed an absolute
+    /// path almost always meant.
+    PinnedGlobally,
+}
+
+impl Override {
+    pub fn from_argv(argv: Vec<OsString>) -> Result<Override, OverrideRefusal> {
+        let Some(program) = argv.first() else {
+            return Err(OverrideRefusal::Nothing);
+        };
+        if program.to_string_lossy().trim().is_empty() {
+            return Err(OverrideRefusal::BlankProgram);
+        }
+        Ok(Override { argv })
+    }
+
+    pub fn argv(&self) -> &[OsString] {
+        &self.argv
+    }
+
+    /// `argv[0]` — the name the harness resolves against the folder's
+    /// environment, and the whole of the composition rule.
+    pub fn program(&self) -> &OsStr {
+        // `from_argv` is the only constructor and it refuses an empty vector,
+        // so the index is not a hope.
+        &self.argv[0]
+    }
+
+    /// `argv[1..]` — passed through ahead of whatever the adapter plans, by
+    /// [`Launch::under`].
+    pub fn interposed(&self) -> &[OsString] {
+        &self.argv[1..]
+    }
+
+    /// Which of the two scopes the operator chose, decided by what they typed
+    /// and by nothing else.
+    ///
+    /// A `/` is a directory separator on both platforms. On [`Platform::Windows`]
+    /// a `\` is one too, and so is a `X:` drive prefix — a bare `C:claude` names
+    /// a path relative to a drive's current directory rather than a program to
+    /// look for. The platform is a parameter, so both readings are checkable
+    /// from whichever runner is here.
+    pub fn scope(&self, platform: Platform) -> Scope {
+        let named = self.program().to_string_lossy();
+
+        if named.contains('/') {
+            return Scope::PinnedGlobally;
+        }
+        if matches!(platform, Platform::Windows) {
+            let bytes = named.as_bytes();
+            let drive_prefixed =
+                bytes.len() >= 2 && bytes[1] == b':' && bytes[0].is_ascii_alphabetic();
+            if named.contains('\\') || drive_prefixed {
+                return Scope::PinnedGlobally;
+            }
+        }
+        Scope::FollowsTheFolder
+    }
 }
 
 /// Every way planning declines to produce a launch.
@@ -461,5 +621,118 @@ mod tests {
         assert_eq!(plan().env_remove(), SCRUB);
         assert_eq!(plan().env_add()[0].0, "TERM");
         assert_eq!(plan().ready(), ready);
+    }
+
+    /* ------------------------------------------------------- the override --- */
+
+    fn over(argv: &[&str]) -> Override {
+        Override::from_argv(argv.iter().map(OsString::from).collect()).expect("an override")
+    }
+
+    #[test]
+    fn a_bare_name_follows_the_folders_pin_and_a_path_pins_the_machine() {
+        // Both readings from whichever runner is here, because the platform is
+        // a parameter. A `cfg!` would leave half of this rule checked on half
+        // the machines.
+        for platform in [Platform::Windows, Platform::Unix] {
+            assert_eq!(over(&["claude"]).scope(platform), Scope::FollowsTheFolder);
+            assert_eq!(over(&["node"]).scope(platform), Scope::FollowsTheFolder);
+            assert_eq!(
+                over(&["/usr/local/bin/claude"]).scope(platform),
+                Scope::PinnedGlobally
+            );
+        }
+
+        // A backslash and a drive prefix are directory separators on Windows
+        // and ordinary characters everywhere else — a unix file may legally be
+        // called `C:claude`.
+        assert_eq!(
+            over(&[r"C:\tools\claude.exe"]).scope(Platform::Windows),
+            Scope::PinnedGlobally
+        );
+        assert_eq!(
+            over(&["C:claude"]).scope(Platform::Windows),
+            Scope::PinnedGlobally
+        );
+        assert_eq!(
+            over(&["C:claude"]).scope(Platform::Unix),
+            Scope::FollowsTheFolder
+        );
+
+        // The scope is decided by `argv[0]` and by nothing after it: an
+        // interposed interpreter's own path says nothing about which of the two
+        // the operator chose.
+        assert_eq!(
+            over(&["node", "/opt/claude/cli.js"]).scope(Platform::Unix),
+            Scope::FollowsTheFolder
+        );
+    }
+
+    #[test]
+    fn an_override_that_says_nothing_is_refused_rather_than_read_as_no_override() {
+        assert_eq!(Override::from_argv(vec![]), Err(OverrideRefusal::Nothing));
+        assert_eq!(
+            Override::from_argv(vec![OsString::from("")]),
+            Err(OverrideRefusal::BlankProgram)
+        );
+        assert_eq!(
+            Override::from_argv(vec![OsString::from("   "), OsString::from("cli.js")]),
+            Err(OverrideRefusal::BlankProgram)
+        );
+
+        for refusal in [OverrideRefusal::Nothing, OverrideRefusal::BlankProgram] {
+            let sentence = refusal.to_string();
+            assert!(
+                sentence.len() > 40,
+                "{sentence:?} is a label rather than a sentence"
+            );
+            assert!(!sentence.ends_with('.'), "{sentence:?}");
+            let _: &dyn std::error::Error = &refusal;
+        }
+    }
+
+    #[test]
+    fn an_interposed_interpreter_lands_between_the_program_and_the_prompt() {
+        use crate::agent::Agent;
+        use crate::claude::ClaudeCode;
+
+        let chosen = over(&["node", "/x/cli.js"]);
+        // `argv[0]` is what the harness resolves against the folder; the plan is
+        // made for whatever came back, exactly as it is with no override at all.
+        let resolved = OsString::from("/opt/homebrew/bin/node");
+        let cx = LaunchContext::new(
+            Platform::Unix,
+            &resolved,
+            OsStr::new("/work/perseverance"),
+            "open the map",
+            ENVIRONMENT,
+        );
+
+        let launched = ClaudeCode.plan(&cx).unwrap().under(chosen.interposed());
+
+        assert_eq!(
+            launched.argv(),
+            [
+                OsString::from("/opt/homebrew/bin/node"),
+                OsString::from("/x/cli.js"),
+                OsString::from("open the map"),
+            ]
+        );
+        // Only argv moves. An override is not a second place to set the
+        // environment or to decide readiness.
+        let plain = ClaudeCode.plan(&cx).unwrap();
+        assert_eq!(launched.env_remove(), plain.env_remove());
+        assert_eq!(launched.env_add(), plain.env_add());
+        assert_eq!(launched.ready(), plain.ready());
+
+        // An override with no arguments after the program changes nothing at
+        // all, which is what makes `claude` a legal override.
+        assert_eq!(plain.clone().under(over(&["claude"]).interposed()), plain);
+        assert!(over(&["claude"]).interposed().is_empty());
+        assert_eq!(over(&["claude"]).program(), OsStr::new("claude"));
+        assert_eq!(
+            chosen.argv(),
+            [OsString::from("node"), OsString::from("/x/cli.js")]
+        );
     }
 }

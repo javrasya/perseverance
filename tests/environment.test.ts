@@ -16,11 +16,14 @@ import {
   NO_SHELL_NAMED,
   PATH_SPLIT_NOTE,
   POWERSHELL_PROFILE_NOTE,
+  NOTHING_DECLINED_COPY,
+  PROFILE_REFUSED_COPY,
   READOUT_UNREADABLE,
   SHELL_NOT_SETTLED_YET,
   STDERR_NOTE,
   TOKEN_NOTE,
   TOKEN_REFUSED_FALLBACK,
+  degradationNote,
   describeContamination,
   describeHarvest,
   factsLine,
@@ -56,14 +59,15 @@ describe("the readout is one seam, spelled twice", () => {
   /*
    * `src/environment/environment.ts` is a hand-written mirror of the app
    * crate's `EnvironmentReadout`, and `crates/app/src/lib.rs` counts the same
-   * nine keys. A rename on either side is silent on the other, which is the
+   * ten keys. A rename on either side is silent on the other, which is the
    * cost this repo already accepts for the repo bindings; two assertions is
    * the whole of the defence.
    */
-  it("nine keys cross, and these nine", () => {
+  it("ten keys cross, and these ten", () => {
     const keys = Object.keys(fixtureState("harvested")).sort();
 
     expect(keys).toEqual([
+      "degradation",
       "elapsedMs",
       "harvest",
       "path",
@@ -74,7 +78,7 @@ describe("the readout is one seam, spelled twice", () => {
       "token",
       "variableCount",
     ]);
-    expect(keys).toHaveLength(9);
+    expect(keys).toHaveLength(10);
   });
 
   it("the tally crosses as six counts", () => {
@@ -141,6 +145,34 @@ describe("the environment fixture carries the states a browser cannot conjure", 
     expect(windows.stderr.text).toContain("cannot _x000D__x000A_be loaded");
   });
 
+  it("the transcript the Rust detector is pinned to is still the transcript in this fixture", () => {
+    /*
+     * The twin of `REFUSED_THE_PROFILE` in `crates/env/src/harvest.rs`, which
+     * pins the same transcript as a Rust `const`. `degradation_in` matches two
+     * token groups against a flattened copy of this text — PowerShell escapes
+     * its hard wrap as `_x000D__x000A_` mid-word before serialising — so a
+     * fixture edited to a tidier transcript would leave the detector matching
+     * something no machine has ever written, and this fixture is the only
+     * recorded example of one that has.
+     */
+    const windows = fixtureState("windowsClean");
+    const flattened = windows.stderr.text
+      .replaceAll("_x000D_", " ")
+      .replaceAll("_x000A_", " ")
+      .split(/\s+/)
+      .join(" ")
+      .toLowerCase();
+
+    expect(flattened).toContain("cannot be loaded");
+    expect(flattened).toContain("not digitally signed");
+    // And the fixture says out loud what the Rust side read out of it.
+    expect(windows.degradation).toEqual({ kind: "profileRefused" });
+    // The classification is not the signal: the progress record is CLIXML too,
+    // and it is a Windows baseline rather than anything having been declined.
+    expect(fixtureState("noisy").stderr.kind).toBe("clixml");
+    expect(fixtureState("noisy").degradation).toEqual({ kind: "notSeen" });
+  });
+
   it("carries a harvest that was discarded, and one that named no shell", () => {
     const discarded = fixtureState("inherited");
     const nameless = fixtureState("noShell");
@@ -176,6 +208,7 @@ describe("the environment fixture carries the states a browser cannot conjure", 
       expect(["harvest", "inherited", "none"]).toContain(state.pathSource);
       expect(["empty", "text", "clixml"]).toContain(state.stderr.kind);
       expect(["acquired", "notAttempted", "refused"]).toContain(state.token.kind);
+      expect(["notSeen", "profileRefused"]).toContain(state.degradation.kind);
       expect(state.variableCount).toBeGreaterThanOrEqual(0);
     }
   });
@@ -233,12 +266,13 @@ describe("a readout read from untyped JSON is narrowed rather than trusted", () 
     }
   });
 
-  it("an unknown tag on any of the four unions reads as its quietest member", () => {
+  it("an unknown tag on any of the five unions reads as its quietest member", () => {
     const narrowed = readoutFrom({
       harvest: { kind: "somethingElse" },
       shell: { kind: "fish" },
       stderr: { kind: "xml" },
       token: { kind: "stolen" },
+      degradation: { kind: "somethingWorse" },
       pathSource: "elsewhere",
     });
 
@@ -246,6 +280,9 @@ describe("a readout read from untyped JSON is narrowed rather than trusted", () 
     expect(narrowed.shell).toEqual({ kind: "none" });
     expect(narrowed.stderr.kind).toBe("empty");
     expect(narrowed.token).toEqual({ kind: "notAttempted" });
+    // `notSeen` claims the least: nothing nameable was said, which is weaker
+    // than nothing having happened.
+    expect(narrowed.degradation).toEqual({ kind: "notSeen" });
     expect(narrowed.pathSource).toBe("none");
   });
 
@@ -442,6 +479,31 @@ describe("a successful harvest is never described as a correct one", () => {
     }
     expect(CANNOT_TELL_YOU.join(" ")).toContain("half-way");
     expect(CANNOT_TELL_YOU.join(" ")).toContain("not installed");
+  });
+
+  it("the policy limit is sharpened rather than dropped now that one case is nameable", () => {
+    /*
+     * This sentence used to promise the case could not be detected at all. It
+     * now can be — but only when the interpreter says so in its own words, and
+     * only in a language this reads. Deleting the limit would trade an honest
+     * *cannot* for a dishonest *does*.
+     */
+    const policy = CANNOT_TELL_YOU.find((limit) => limit.includes("policy"));
+
+    expect(policy).toBeDefined();
+    expect(policy).toContain("its own words");
+    expect(policy).toContain("says nothing");
+    expect(policy).toContain("exactly like not having a profile");
+  });
+
+  it("names the one degradation it can read, and says whose words it is reading", () => {
+    expect(degradationNote({ kind: "profileRefused" })).toBe(PROFILE_REFUSED_COPY);
+    expect(degradationNote({ kind: "notSeen" })).toBe(NOTHING_DECLINED_COPY);
+    // The flag that would override the operator's own policy is not in the
+    // command, and the copy says so rather than leaving it to be discovered.
+    expect(PROFILE_REFUSED_COPY).toContain("not in the command above");
+    // And *nothing said* is never dressed up as *nothing happened*.
+    expect(NOTHING_DECLINED_COPY).toContain("not the same as");
   });
 });
 
@@ -706,6 +768,8 @@ describe("nothing this panel says reads as a failure to talk to GitHub", () => {
     STDERR_NOTE,
     TOKEN_NOTE,
     TOKEN_REFUSED_FALLBACK,
+    PROFILE_REFUSED_COPY,
+    NOTHING_DECLINED_COPY,
     ...CANNOT_TELL_YOU,
     harvestHeadline(wordless({ kind: "harvesting" })),
     harvestHeadline(wordless({ kind: "harvested" })),

@@ -3,6 +3,8 @@ import {
   PATH_SPLIT_NOTE,
   STDERR_NOTE,
   TOKEN_NOTE,
+  degradationHeadline,
+  degradationNote,
   describeContamination,
   describeHarvest,
   factsLine,
@@ -148,6 +150,17 @@ export function EnvironmentReadout({ readout, shown }: EnvironmentReadoutProps) 
         <h2 className={styles.heading}>Token</h2>
         <p className={styles.state}>{tokenLabel(readout)}</p>
         <p className={styles.note}>{TOKEN_NOTE}</p>
+      </div>
+
+      <div className={styles.section}>
+        <h2 className={styles.heading}>Start-up file</h2>
+        {/*
+          Named from what the interpreter wrote about itself, never detected —
+          which is why it sits beside the harvest rather than inside it: the
+          harvest succeeded, and this says what it succeeded without.
+        */}
+        <p className={styles.state}>{degradationHeadline(readout.degradation)}</p>
+        <p className={styles.detail}>{degradationNote(readout.degradation)}</p>
       </div>
 
       <div className={styles.section}>

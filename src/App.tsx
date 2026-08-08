@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { CacheStamp } from "./chrome/CacheStamp";
 import { DropRegion } from "./chrome/DropRegion";
 import { MapChip } from "./chrome/MapChip";
@@ -13,6 +13,14 @@ import {
   stillHarvesting,
   watchEnvironment,
 } from "./environment/environment";
+import { FolderReadout as FolderPanel } from "./environment/FolderReadout";
+import {
+  loadFolderEnvironment,
+  missingCli,
+  retryFolderEnvironment,
+  useOverride,
+  type FolderReadout,
+} from "./environment/folder";
 import { FolderList } from "./launcher/FolderList";
 import {
   bindRepo,
@@ -83,6 +91,18 @@ export function App() {
   const [note, setNote] = useState<LauncherNote | null>(null);
   const [environment, setEnvironment] = useState(stillHarvesting);
   const [environmentShown, setEnvironmentShown] = useState(false);
+  /*
+   * What the folder you last opened resolves under, which is a different
+   * question from what this process is running in — a version manager answers a
+   * folder's pin inside its own process while your start-up files run, so two
+   * folders on one machine can resolve one name to two different files.
+   *
+   * `null` until a folder has been opened. Nothing waits on it: the folder is
+   * selected, its maps are read and its binding note lands before this is even
+   * asked for, which is how a missing CLI can only ever add a sentence.
+   */
+  const [folderEnvironment, setFolderEnvironment] = useState<FolderReadout | null>(null);
+  const [folderShown, setFolderShown] = useState(false);
   const [maps, setMaps] = useState<MapsView>(() => nothingReadYet(0));
   /*
    * Which map this window has declared it is watching. The poller asks GitHub
@@ -272,6 +292,55 @@ export function App() {
   );
 
   /*
+   * What one resolution comes to, wherever it was asked for: the readout is put
+   * on screen and the not-found error is raised or withdrawn with it.
+   */
+  const settleFolder = useCallback((readout: FolderReadout) => {
+    setFolderEnvironment(readout);
+    setNote((current) => {
+      if (missingCli(readout)) return { kind: "cliMissing", readout };
+      // Only the note this replaced is cleared. The repository binding is a
+      // fact about the folder that resolution had nothing to do with, and
+      // wiping it here would make fixing a PATH look like losing a remote.
+      return current?.kind === "cliMissing" ? null : current;
+    });
+  }, []);
+
+  /*
+   * Which resolution this window is still waiting for.
+   *
+   * A per-folder harvest is a real login shell with the operator's start-up
+   * files in it, bounded in seconds rather than milliseconds, so opening one
+   * folder and then another before the first has answered is the ordinary
+   * sequence and not a race anyone has to try to hit. Every start takes a
+   * ticket and only the current ticket may write: a readout names a folder, and
+   * one that named the folder you left would put another folder's verbatim
+   * `PATH` inside this folder's error and hand *Ask again* the wrong directory
+   * to re-harvest.
+   */
+  const resolution = useRef(0);
+
+  const resolveFolder = useCallback(
+    (read: () => Promise<FolderReadout>) => {
+      resolution.current += 1;
+      const ticket = resolution.current;
+      setFolderEnvironment(null);
+      read()
+        .then((readout) => {
+          if (resolution.current === ticket) settleFolder(readout);
+        })
+        .catch(() => {});
+    },
+    [settleFolder],
+  );
+
+  /* Nothing is being waited for, and nothing in flight may land. */
+  const dropResolution = useCallback(() => {
+    resolution.current += 1;
+    setFolderEnvironment(null);
+  }, []);
+
+  /*
    * Opening a folder is what records that you opened it. Picking a row from the
    * list is the ordinary way that happens — far more often than picking a path
    * from the OS dialog — so the row you come back to every day is the row that
@@ -285,13 +354,62 @@ export function App() {
           setSelectedId(entry.id);
           setNote(null);
           readMapsFor(entry.id);
+          /*
+           * Resolution is started here and never awaited before any of the
+           * above. The folder is already selected, its maps are already being
+           * read, and the binding note lands whatever this comes to — so a CLI
+           * that is nowhere can only *add* a note. Its command carries no
+           * `Result` on the Rust side either, which is the structural half of
+           * the same claim.
+           */
+          resolveFolder(() => loadFolderEnvironment(entry.path));
           return bindRepo(entry.path).then((binding) =>
-            setNote({ kind: "binding", binding }),
+            setNote((current) =>
+              // The binding is the ordinary answer to opening a folder, and a
+              // missing CLI is the sharper one. Whichever lands second, the
+              // sharper one stays: the binding is repeated in the panel, and
+              // the not-found error is not repeated anywhere.
+              current?.kind === "cliMissing" ? current : { kind: "binding", binding },
+            ),
           );
         })
         .catch(refuse);
     },
-    [updateList, refuse, readMapsFor],
+    [updateList, refuse, readMapsFor, resolveFolder],
+  );
+
+  /*
+   * The two ways out of the not-found error, both in place: no navigation, no
+   * modal, and the row you picked stays exactly where it is.
+   *
+   * *Ask again* re-harvests this folder and then looks again — the re-harvest is
+   * first, which is the whole of it, because an answer re-read from the cache
+   * would be the same stale answer faster. Setting an override does not
+   * re-harvest: an override is a different answer to *which program*, not a
+   * claim that the folder's environment has changed.
+   *
+   * Both act on the folder that is **selected**, read off the list rather than
+   * off the readout on screen: the readout is the thing that may not have
+   * arrived yet, and a slow answer for a folder you have left is exactly what
+   * could still be sitting in that slot. The row is what the operator pointed
+   * at, so the row is what gets re-harvested and overridden.
+   */
+  const selectedPath =
+    outcome.kind === "listed"
+      ? outcome.view.folders.find((folder) => folder.id === selectedId)?.path
+      : undefined;
+
+  const onAskAgain = useCallback(() => {
+    if (selectedPath === undefined) return;
+    resolveFolder(() => retryFolderEnvironment(selectedPath));
+  }, [selectedPath, resolveFolder]);
+
+  const onOverride = useCallback(
+    (argv: string[]) => {
+      if (selectedPath === undefined) return;
+      resolveFolder(() => useOverride(selectedPath, argv));
+    },
+    [selectedPath, resolveFolder],
   );
 
   const onOpen = useCallback(
@@ -299,13 +417,16 @@ export function App() {
       setSelectedId(entry.id);
       if (!entry.present) {
         // A folder whose path has gone is not a folder you opened, so the
-        // row's place in the list is left exactly as it was.
+        // row's place in the list is left exactly as it was. Nothing is being
+        // resolved for it either, and an answer still out for the folder before
+        // it may not land under this row's name.
+        dropResolution();
         setNote({ kind: "pathGone", path: entry.path });
         return;
       }
       openFolder(entry.path);
     },
-    [openFolder],
+    [openFolder, dropResolution],
   );
 
   /* Re-pointing keeps the id, which is what carries the layout and the cache. */
@@ -332,6 +453,9 @@ export function App() {
         .then(() => {
           updateList((view) => withoutFolder(view, entry.id));
           setSelectedId((chosen) => (chosen === entry.id ? null : chosen));
+          // A row that is off the list has no environment on screen either,
+          // and an answer still out for it may not arrive under nothing.
+          if (entry.id === selectedId) dropResolution();
           // The registry took its cache with it, so the screen may not go on
           // showing maps read for a folder that is no longer on the list — and
           // the poller may not go on reading one either, which is what the
@@ -346,7 +470,7 @@ export function App() {
         })
         .catch(refuse);
     },
-    [updateList, refuse, maps.folderId],
+    [updateList, refuse, maps.folderId, selectedId, dropResolution],
   );
 
   const onOpenNew = useCallback(() => {
@@ -430,7 +554,23 @@ export function App() {
             onLocate={onLocate}
             onForget={onForget}
             onOpenNew={onOpenNew}
+            onOverride={onOverride}
+            onAskAgain={onAskAgain}
           />
+          {/*
+            What the folder you picked resolves under, beside the folder rather
+            than in the footer: the app-global readout in the footer answers a
+            different question — what *this process* is running in — and the
+            whole of #45 is that the two can differ.
+          */}
+          {folderEnvironment === null ? null : (
+            <FolderPanel
+              readout={folderEnvironment}
+              shown={folderShown}
+              onToggle={() => setFolderShown((open) => !open)}
+              onAskAgain={onAskAgain}
+            />
+          )}
           {/*
             The folder is what you pick; the maps in it are what you find once
             you are inside. So the list appears under the folder you picked

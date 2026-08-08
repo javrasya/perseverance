@@ -10,14 +10,20 @@
 //! `npm run check:agent-solitude` fails the build on the first edge, so the
 //! claim is checked rather than reviewed.
 //!
-//! That survives #45, whose environment work is split. *Acquiring* a per-folder
-//! environment, and caching it by working directory, is
-//! [`perseverance_env`]'s — it is a child process, and this crate spawns
-//! nothing. What an adapter *declares* it needs, how a readout is interpreted
-//! against that, and the rule an override resolves by are planning and stay
-//! here. None of that needs an edge: every accessor on a harvested environment
-//! hands back a `std` type. `docs/adr/0002` records the split and why it was a
-//! re-attribution rather than a reading of the ticket.
+//! That survived #45, whose environment work was split, and here is what landed
+//! on each side. *Acquiring* a per-folder environment, and caching it on the
+//! absolute spawn working directory, is [`perseverance_env`]'s — it is a child
+//! process, and this crate spawns nothing; running an adapter's declared probes
+//! is that crate's too, for the same reason. What stayed here is what an adapter
+//! *declares*: [`Probes`], now per platform by type rather than by a tag every
+//! caller had to remember to filter. And the [`Override`] — an argv vector
+//! rather than a path, because a path string cannot say `node .../cli.js` — with
+//! its one composition rule, [`Launch::under`], and the naming of its two
+//! scopes, [`Override::scope`]. Neither side gained an edge: every accessor on a
+//! harvested environment hands back a `std` type, and the override's *behaviour*
+//! is `Environment::resolve`'s, which this crate only names. `docs/adr/0002`
+//! records the split and `docs/adr/0011` records what resolution turned out to
+//! be.
 //!
 //! The contract is four members and a value. An adapter answers with its
 //! [`AgentId`], with a [`Discovery`], and with a [`Launch`]; the fourth member
@@ -54,9 +60,10 @@
 //! refused.
 //!
 //! Filled in by:
-//! - #45 the adapter's declared probes, the readout's interpretation, and the
-//!   override's resolution rule (the per-folder harvest itself, and the
-//!   cwd-keyed cache, are [`perseverance_env`]'s)
+//! - #45 the adapter's declared probes (per platform), and the override's
+//!   meaning, composition rule and scope (the per-folder harvest itself, the
+//!   cache keyed on the spawn working directory, and the *running* of a probe
+//!   are all [`perseverance_env`]'s)
 //! - #46 Codex and Pi adapters
 //!
 //! [`perseverance_pty`]: https://github.com/javrasya/perseverance
@@ -69,9 +76,11 @@ mod platform;
 mod registry;
 mod watch;
 
-pub use agent::{Agent, Discovery, Probe};
+pub use agent::{Agent, Discovery, Probe, Probes};
 pub use claude::ClaudeCode;
-pub use launch::{Cwd, Launch, LaunchContext, PlanError, Program, Ready};
+pub use launch::{
+    Cwd, Launch, LaunchContext, Override, OverrideRefusal, PlanError, Program, Ready, Scope,
+};
 pub use platform::Platform;
 pub use registry::{agent, agent_named, AgentId};
 pub use watch::{NoWatch, Signal, Watch};

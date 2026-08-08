@@ -21,7 +21,8 @@
     "check:css-floor": "stylelint \"src/**/*.css\"",
     "check:model-purity": "node scripts/check-model-purity.mjs",
     "check:agent-solitude": "node scripts/check-agent-solitude.mjs",
-    "verify": "npm run typecheck && npm run check:css-floor && npm run check:model-purity && npm run check:agent-solitude && npm run test && npm run build"
+    "check:no-install-probing": "node scripts/check-no-install-probing.mjs",
+    "verify": "npm run typecheck && npm run check:css-floor && npm run check:model-purity && npm run check:agent-solitude && npm run check:no-install-probing && npm run test && npm run build"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
