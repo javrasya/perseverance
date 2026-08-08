@@ -30,11 +30,18 @@
 //! minute late. Both edges of a run therefore arrive on this channel — the
 //! rising one to be recomputed against, the falling one to be read after.
 //!
-//! **Two of them have no producer in the tree yet.** `crates/agent` and
-//! `crates/pty` are doc-comment-only stubs, so `Signal::Idle` and a child
-//! process ending are things this loop is *told about* rather than things it can
-//! observe. That is why the seam is a channel and a handle rather than a
-//! subscription: #44 and #47 plug into it without this crate learning what a
+//! **Two of them still have no producer, and now for two different reasons.**
+//! `crates/pty` cannot yet spawn anything, so a child process ending is
+//! something this loop is *told about* rather than something anything can
+//! observe — that waits on #47. `Signal::Idle` is a settled decision rather than
+//! a gap: #44 landed the adapter contract and the one adapter in the tree, and
+//! Claude Code takes the default `watch`, which classifies nothing. The whole
+//! out-of-band tier is cut from v1, a live signal would mean only *poll sooner*,
+//! and polling never stopped — so a run that raises no signal is not a degraded
+//! run. The type is here and unproduced on purpose.
+//!
+//! Either way the seam is a channel and a handle rather than a subscription, so
+//! #46 and #50 can hang a producer on it without this crate learning what a
 //! session or a PTY is.
 
 use std::sync::atomic::{AtomicUsize, Ordering};

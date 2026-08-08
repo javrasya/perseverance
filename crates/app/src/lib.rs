@@ -1619,23 +1619,663 @@ mod tests {
     /// the haystack it is searching. A test living in the crate it reads would
     /// be a test whose own source satisfies the thing it looks for.
     ///
-    /// It is a byte-level check because `crates/pty` is thirty-odd lines of doc
-    /// comment and there is no behaviour to exercise yet. That is a real limit
-    /// and README says so: this asserts a stub, and #47 is where it has to be
-    /// re-asserted against a crate that actually owns a terminal.
+    /// It is a byte-level check because `crates/pty` is still mostly doc
+    /// comment: #44 added the shim gate, which reads a file and never runs one,
+    /// so there is a boundary here but not yet a terminal. Every file in the
+    /// crate is named below, and that is the limit README records — a *third*
+    /// file added to `crates/pty/src` escapes this scan until someone adds it
+    /// here, and #47 is where the whole thing has to be re-asserted against a
+    /// crate that actually owns a terminal.
     #[test]
     fn nothing_inside_the_terminal_can_raise_a_condition_on_the_graph() {
-        const PTY_SOURCE: &str = include_str!("../../pty/src/lib.rs");
+        const PTY_SOURCES: [(&str, &str); 2] = [
+            ("lib.rs", include_str!("../../pty/src/lib.rs")),
+            ("shim.rs", include_str!("../../pty/src/shim.rs")),
+        ];
 
         // Every name a child process's failure would have to reach for to put
         // itself on the graph. A harness that narrated a compiler error would
         // be saying, less well, what is already three inches from your eyes.
-        for surfaced in ["Degraded", "ReadOutcome", "MapsView", "Provenance", "emit"] {
+        for (file, source) in PTY_SOURCES {
+            for surfaced in ["Degraded", "ReadOutcome", "MapsView", "Provenance", "emit"] {
+                assert!(
+                    !source.contains(surfaced),
+                    "crates/pty/src/{file} names {surfaced}, so a failure inside a terminal \
+                     can reach the graph"
+                );
+            }
+        }
+    }
+
+    /// The whole of `std` `crates/agent` may name.
+    ///
+    /// An allowlist and not a list of forbidden modules, which is the only form
+    /// of this rule that survives contact with Rust's import syntax: a
+    /// brace-grouped `use` pulls in the file and I/O modules while spelling
+    /// neither of them as a qualified path, and an aliased one renames whatever
+    /// it likes. Four names cover everything planning does — `OsStr` and
+    /// `OsString` for argv, `Duration` for a readiness rule, `fmt` and `error`
+    /// for a `PlanError` that a caller can box.
+    ///
+    /// `time` is the one entry admitted for less than the whole of itself:
+    /// planning needs a *length* and never a *moment*, and the names that turn
+    /// the module into a reading of the machine are refused by token in
+    /// [`READS_THE_CLOCK`] rather than by this list, because a list over
+    /// modules cannot say *only `Duration`*. That refusal is a list of named
+    /// tokens and not a proof, which makes `time` the one knowingly soft entry
+    /// here — see [`READS_THE_CLOCK`] for what that costs.
+    ///
+    /// The empty string is how [`std_paths_named`] reports `std` bound whole
+    /// (`use std as anything;`), which is not on the list either.
+    const PERMITTED_STD: [&str; 4] = ["ffi", "fmt", "time", "error"];
+
+    /// Nothing in `crates/agent` may reach the machine at *build* time either.
+    ///
+    /// These are macros in the prelude, so they need no import at all and no
+    /// allowlist over paths would ever see them. `env!("HOME")` inside a plan
+    /// is the exact failure the allowlist exists to prevent — planning against
+    /// the environment the binary was compiled in rather than against the one
+    /// `perseverance-env` harvested — and it would be baked into the binary
+    /// rather than merely done at runtime. `include!` reaches the same disk at
+    /// the same moment and splices what it finds there in as *code*, which is
+    /// the widest of the five and the one that was missing.
+    ///
+    /// Named tokens, among others: nothing here proves the prelude has no sixth
+    /// macro that reads the build machine, and a scan over text cannot be made
+    /// to prove it. It is a list that grows when someone finds one.
+    const REACHES_THE_BUILD_MACHINE: [&str; 5] = [
+        "env!",
+        "option_env!",
+        "include_str!",
+        "include_bytes!",
+        "include!",
+    ];
+
+    /// Nothing in `crates/agent` may read a clock either.
+    ///
+    /// Three names in `std::time` that ask the machine what time it is, and
+    /// `time` is on [`PERMITTED_STD`] whole because `Duration` lives there too.
+    /// A `plan` that read the clock would name nothing but `time`, pass the
+    /// allowlist, and falsify the one thing
+    /// `perseverance_agent::Agent::plan` promises — *same context in, same
+    /// launch out, every time*. Refused by token for the same reason
+    /// [`REACHES_THE_BUILD_MACHINE`] is: there is no qualified path for
+    /// [`std_paths_named`] to walk that would distinguish the moment from the
+    /// length.
+    ///
+    /// Named tokens, among others — and `UNIX_EPOCH` is why that weakening is
+    /// the honest wording rather than a hedge. It is a `SystemTime` constant
+    /// with `elapsed` on it, so `UNIX_EPOCH.elapsed()` reads the wall clock
+    /// while spelling neither of the other two names, and it sat outside this
+    /// list until someone went looking. The list is what is known to reach a
+    /// clock, not a proof that nothing else in `std::time` does; the form that
+    /// *would* be a proof is an allowlist over the names inside a module, which
+    /// a reader over text cannot express.
+    const READS_THE_CLOCK: [&str; 3] = ["SystemTime", "Instant", "UNIX_EPOCH"];
+
+    /// The source with its comments gone, so a rule about what the *code* names
+    /// is not a rule about what a doc comment may discuss.
+    ///
+    /// Whitespace is left where it is, and the reader below steps over it
+    /// instead — `std :: fs` and a path broken across two lines are both legal
+    /// spellings, and squashing whitespace out to catch them would weld `use`
+    /// onto `std` and lose the token boundary that says which `std` is the one.
+    fn code_of(source: &str) -> String {
+        let mut kept = String::with_capacity(source.len());
+        let mut chars = source.chars().peekable();
+
+        while let Some(ch) = chars.next() {
+            match ch {
+                '/' if chars.peek() == Some(&'/') => {
+                    for skipped in chars.by_ref() {
+                        if skipped == '\n' {
+                            break;
+                        }
+                    }
+                }
+                '/' if chars.peek() == Some(&'*') => {
+                    chars.next();
+                    let mut previous = '\0';
+                    for skipped in chars.by_ref() {
+                        if previous == '*' && skipped == '/' {
+                            break;
+                        }
+                        previous = skipped;
+                    }
+                }
+                // Kept whole. A string is code, and one that spelled out a
+                // forbidden path should fail rather than be read past.
+                '"' => {
+                    kept.push(ch);
+                    let mut escaped = false;
+                    for inside in chars.by_ref() {
+                        kept.push(inside);
+                        if escaped {
+                            escaped = false;
+                        } else if inside == '\\' {
+                            escaped = true;
+                        } else if inside == '"' {
+                            break;
+                        }
+                    }
+                }
+                _ => kept.push(ch),
+            }
+        }
+
+        kept
+    }
+
+    /// Which *other files* one source declares, by the name it declares them
+    /// under.
+    ///
+    /// A declaration and never a block: `mod x;` is another file on disk, and
+    /// `mod x { … }` is source already inside the file being read — which is
+    /// what every `#[cfg(test)] mod tests` in the crate is, and why the
+    /// semicolon is required rather than incidental.
+    ///
+    /// Names rather than a count, because the guard below compares a *set*. A
+    /// count is satisfied by the wrong file: a declaration this reader could
+    /// not see left the total where it was, the arithmetic went on agreeing,
+    /// and the new file was never read. A set cannot be satisfied by the wrong
+    /// file, and it says which one.
+    ///
+    /// Attributes are stripped first and visibility second, because
+    /// `#[cfg(windows)] mod platform_windows;` and `#[path = "extra.rs"] mod
+    /// extra;` are each a file on disk and each invisible to a reader that
+    /// looked for `mod ` behind nothing but an optional `pub`. Comments go
+    /// before both, by the same rule as everywhere else here: a `mod` inside
+    /// one is discussion.
+    fn modules_declared_in(source: &str) -> Vec<String> {
+        /// One line with any leading attributes taken off, so a declaration
+        /// that carries one is the same declaration to the reader below.
+        ///
+        /// Bracket depth rather than a search for `]`, because an attribute may
+        /// contain one (`#[doc = "a [link]"]`) and stopping at the first would
+        /// leave the rest of the attribute looking like code.
+        fn without_attributes(line: &str) -> &str {
+            let mut rest = line.trim_start();
+
+            while let Some(after_hash) = rest.strip_prefix('#') {
+                let Some(inside) = after_hash
+                    .strip_prefix('!')
+                    .unwrap_or(after_hash)
+                    .strip_prefix('[')
+                else {
+                    return rest;
+                };
+
+                let mut depth = 1usize;
+                let mut closed = None;
+                for (index, ch) in inside.char_indices() {
+                    match ch {
+                        '[' => depth += 1,
+                        ']' => {
+                            depth -= 1;
+                            if depth == 0 {
+                                closed = Some(index);
+                                break;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+
+                match closed {
+                    Some(index) => rest = inside[index + 1..].trim_start(),
+                    // An attribute running past the end of the line, which
+                    // means the declaration is not on this line either.
+                    None => return rest,
+                }
+            }
+
+            rest
+        }
+
+        code_of(source)
+            .lines()
+            .filter_map(|line| {
+                let line = without_attributes(line);
+                let after_visibility = line.strip_prefix("pub").map_or(line, |rest| {
+                    rest.strip_prefix('(')
+                        .and_then(|restriction| restriction.split_once(')'))
+                        .map_or(rest, |(_, after)| after)
+                });
+                after_visibility
+                    .trim_start()
+                    .strip_prefix("mod ")
+                    .and_then(|declared| declared.trim_end().strip_suffix(';'))
+                    .map(|declared| declared.trim().to_string())
+            })
+            .collect()
+    }
+
+    /// The same source with the whitespace squashed out as well, for the rules
+    /// that are about a *name* rather than about a path.
+    ///
+    /// `env !` and `SystemTime :: now` are both legal spellings, and neither a
+    /// macro nor a type has a path for [`std_paths_named`] to walk — so these
+    /// rules match a token, and the token has to be found however it was typed.
+    fn tokens_of(source: &str) -> String {
+        code_of(source)
+            .chars()
+            .filter(|ch| !ch.is_whitespace())
+            .collect()
+    }
+
+    /// Every module of `std` a source names, whatever syntax it names it with.
+    ///
+    /// A path names one (`std::ffi::OsStr` → `ffi`), a brace group names as
+    /// many as it has entries at its own depth (`std::{path::Path, env::var}` →
+    /// `path`, `env`), and `std` bound whole is reported as the empty string
+    /// because an alias can call it anything afterwards.
+    fn std_paths_named(source: &str) -> Vec<String> {
+        fn leading_ident(text: &str) -> String {
+            text.chars()
+                .take_while(|ch| ch.is_ascii_alphanumeric() || *ch == '_')
+                .collect()
+        }
+
+        fn named_after(rest: &str) -> Vec<String> {
+            let rest = rest.trim_start();
+            if !rest.starts_with('{') {
+                return vec![leading_ident(rest)];
+            }
+
+            let mut named = Vec::new();
+            let mut depth = 0usize;
+            let mut entry_begins = false;
+
+            for (index, ch) in rest.char_indices() {
+                match ch {
+                    '{' => {
+                        depth += 1;
+                        entry_begins = depth == 1;
+                    }
+                    '}' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            break;
+                        }
+                    }
+                    ',' if depth == 1 => entry_begins = true,
+                    _ if entry_begins && depth == 1 && !ch.is_whitespace() => {
+                        named.push(leading_ident(&rest[index..]));
+                        entry_begins = false;
+                    }
+                    _ => {}
+                }
+            }
+
+            named
+        }
+
+        let code = code_of(source);
+        let bytes = code.as_bytes();
+        let mut named = Vec::new();
+        let mut at = 0;
+
+        while let Some(found) = code[at..].find("std") {
+            let start = at + found;
+            at = start + "std".len();
+
+            let after_an_identifier =
+                start > 0 && (bytes[start - 1].is_ascii_alphanumeric() || bytes[start - 1] == b'_');
+            let inside_an_identifier =
+                at < bytes.len() && (bytes[at].is_ascii_alphanumeric() || bytes[at] == b'_');
+            if after_an_identifier || inside_an_identifier {
+                continue;
+            }
+
+            match code[at..].trim_start().strip_prefix("::") {
+                Some(rest) => named.extend(named_after(rest)),
+                // `use std as anything;` — no path to read, so nothing an
+                // allowlist over paths would ever see again.
+                None => named.push(String::new()),
+            }
+        }
+
+        named
+    }
+
+    /// **An adapter plans from what it was handed, and from nothing it could go
+    /// and read.**
+    ///
+    /// Criterion 7 of #44 — *nothing in the trait can express a write to the
+    /// operator's global config* — rests on three things, and this is the third
+    /// and only mechanical one. The first is that [`perseverance_agent::Launch`]
+    /// holds argv, an environment delta and a readiness rule and has nowhere
+    /// else to put an intention. The second is that `LaunchContext` derives
+    /// `Copy` and hands out `Program` and `Cwd` rather than paths, so no
+    /// writable handle can be a field of it and no *readable* one either — a
+    /// `&Path` field would have carried `exists`, `metadata`, `read_dir` and
+    /// `canonicalize` as inherent methods that need no import and that no scan
+    /// of the source could see. The third is that the crate has no dependencies
+    /// at all, which leaves `std` as the only tool in scope — and this scan
+    /// closes that.
+    ///
+    /// Here rather than in `crates/agent` for the same reason as the test
+    /// above: the needle does not go in the haystack. A file naming the
+    /// forbidden modules inside the crate it searches would fail against
+    /// itself.
+    ///
+    /// It is an allowlist, and the previous version of it was not. A list of
+    /// forbidden qualified paths is defeated by one brace group, which is the
+    /// most ordinary import idiom there is; [`PERMITTED_STD`] cannot be got
+    /// round by syntax, because every route to a module of `std` in a crate
+    /// with no dependencies has to name it after `std::` somewhere.
+    ///
+    /// The environment module is the sharp exclusion, and `path` is the quiet
+    /// one. Forbidding the first is what makes "plan from what you were handed"
+    /// mechanical: an adapter that read `HOME` from the process would be
+    /// planning against this app's launchd stub rather than against the
+    /// environment `perseverance-env` harvested for the folder. Forbidding the
+    /// second is what makes it complete: a path type is the one value in `std`
+    /// that does filesystem I/O through inherent methods, so it is the one that
+    /// could have got there while naming nothing at all.
+    #[test]
+    fn an_adapter_plans_from_what_it_was_handed_and_from_nothing_it_could_go_and_read() {
+        const AGENT_SOURCES: [(&str, &str); 7] = [
+            ("lib.rs", include_str!("../../agent/src/lib.rs")),
+            ("agent.rs", include_str!("../../agent/src/agent.rs")),
+            ("claude.rs", include_str!("../../agent/src/claude.rs")),
+            ("launch.rs", include_str!("../../agent/src/launch.rs")),
+            ("platform.rs", include_str!("../../agent/src/platform.rs")),
+            ("registry.rs", include_str!("../../agent/src/registry.rs")),
+            ("watch.rs", include_str!("../../agent/src/watch.rs")),
+        ];
+
+        // The list above is the weak part of the rule, so it is checked rather
+        // than trusted: the crate's own `mod` declarations are the authority on
+        // which files exist, and a module added without a line above fails here
+        // rather than quietly escaping the scan. It found `watch.rs` missing
+        // the first time it ran, which is the argument for it.
+        //
+        // A set of names and not a count of them. A count was satisfiable by
+        // the wrong file: `#[cfg(windows)] mod platform_windows;` was a
+        // declaration `modules_declared_in` could not see, so adding it left
+        // the total where it was, `declared + 1 == AGENT_SOURCES.len()` went on
+        // holding, and `platform_windows.rs` was never read for `std::fs`. Two
+        // errors that cancel are the failure mode of every count, and a set has
+        // no arithmetic for them to cancel in — it names the file that is on
+        // one side and not the other.
+        //
+        // Every scanned file is asked, not just `lib.rs`, because a submodule
+        // declared in one of the others is a file on disk the same way — and
+        // `lib.rs` is put in by hand, because nothing declares it.
+        //
+        // What this deliberately does not model is `#[path = "elsewhere.rs"]
+        // mod name;`, where the module's name and the file's are different on
+        // purpose. That fails here rather than passing, which is the safe
+        // direction to be wrong in: a test to go and edit, not a file that
+        // slipped through.
+        let mut declared: std::collections::BTreeSet<String> = AGENT_SOURCES
+            .iter()
+            .flat_map(|(_, source)| modules_declared_in(source))
+            .collect();
+        declared.insert("lib".to_string());
+
+        let scanned: std::collections::BTreeSet<String> = AGENT_SOURCES
+            .iter()
+            .map(|(file, _)| file.strip_suffix(".rs").unwrap_or(file).to_string())
+            .collect();
+
+        assert_eq!(
+            declared, scanned,
+            "crates/agent's own `mod` declarations and the list this scan reads name different \
+             files, so either one plans from something nothing here has read or this list names \
+             a file the crate no longer has"
+        );
+
+        for (file, source) in AGENT_SOURCES {
+            for named in std_paths_named(source) {
+                assert!(
+                    PERMITTED_STD.contains(&named.as_str()),
+                    "crates/agent/src/{file} names {}, and planning may name only {} of std, so \
+                     an adapter could now read something it was not handed — or write the \
+                     operator's global config",
+                    if named.is_empty() {
+                        "std itself, which an alias can then call anything".to_string()
+                    } else {
+                        format!("std::{named}")
+                    },
+                    PERMITTED_STD.join(", ")
+                );
+            }
+
+            // Squashed for these two, because `env !` is a legal spelling and
+            // neither a macro nor a type has a path for the reader above to
+            // walk.
+            let invoked = tokens_of(source);
+            for reached_for in REACHES_THE_BUILD_MACHINE {
+                assert!(
+                    !invoked.contains(reached_for),
+                    "crates/agent/src/{file} uses {reached_for}, which reaches the machine the \
+                     binary was built on without naming a module of std at all"
+                );
+            }
+            for read in READS_THE_CLOCK {
+                assert!(
+                    !invoked.contains(read),
+                    "crates/agent/src/{file} names {read}, which reads a clock while naming only \
+                     std::time — and time is on the allowlist for Duration, so a plan that asked \
+                     what time it is would pass this scan and stop being the same launch for the \
+                     same context"
+                );
+            }
+        }
+    }
+
+    /// **The scan above is checked against the imports it exists to catch.**
+    ///
+    /// Every line in the first table reaches the world, and most of them walk
+    /// straight past the forbidden-substring rule the allowlist replaced
+    /// (`docs/adr/0010`): a brace group pulls in a module without ever spelling
+    /// it after `std::`, an alias renames it, `std` can be bound whole, and a
+    /// path can be spaced out or broken across lines. Only the ones that spell
+    /// a forbidden path literally were ever caught. That is the argument for
+    /// putting known-bad input through a check rather than trusting that a
+    /// check which passes is a check that works — the same argument
+    /// `check:agent-solitude` makes by feeding its verdict function `cargo
+    /// tree` output it knows to be bad.
+    #[test]
+    fn the_purity_scan_is_not_defeated_by_the_way_an_import_happens_to_be_written() {
+        let escapes = |source: &str| {
+            std_paths_named(source)
+                .iter()
+                .any(|named| !PERMITTED_STD.contains(&named.as_str()))
+        };
+
+        for bypass in [
+            "use std::{env, fs};",
+            "use std::{path::Path, env::var};",
+            "use std::env::{self, var};",
+            "use std::env as ambient;",
+            "use std as everything;",
+            "use std :: io :: Write;",
+            "use std::\n    process::Command;",
+            "use std::{ffi::OsString, fs::OpenOptions};",
+            "use std::{ffi::{OsStr, OsString}, net::TcpStream};",
+            "let there = std::path::Path::new(handed).exists();",
+        ] {
             assert!(
-                !PTY_SOURCE.contains(surfaced),
-                "crates/pty names {surfaced}, so a failure inside a terminal can reach the graph"
+                escapes(bypass),
+                "{bypass:?} reaches the world and the scan lets it through"
             );
         }
+
+        for planning in [
+            "use std::ffi::{OsStr, OsString};",
+            "use std::{fmt, time::Duration};",
+            "impl std::error::Error for PlanError {}",
+            // Comments are discussion, not code. The crate's own doc comments
+            // talk about the modules it may not name, and must go on being able
+            // to.
+            "/// names the file and environment modules of std in prose\nuse std::fmt;",
+            "// use std::fs::write(global_config, bytes);",
+            "/* use std::env; */",
+            // Not the module: an identifier that merely starts with the same
+            // three letters.
+            "let stdout_like = 1;\nlet a = something.stdin;",
+        ] {
+            assert!(
+                !escapes(planning),
+                "{planning:?} is how an adapter is written and the scan refuses it"
+            );
+        }
+    }
+
+    /// **A plan that reaches the build machine is caught, though it names no
+    /// module of `std` at all.**
+    ///
+    /// The allowlist is over paths and these are macros in the prelude, so
+    /// every line below reports *nothing* to the path reader — the allowlist
+    /// passes all of them and [`REACHES_THE_BUILD_MACHINE`] is the whole of
+    /// what stands between a plan and the machine it was compiled on. Asserted
+    /// from both ends for the same reason the clock rule is: a rule that merely
+    /// duplicated the allowlist would be caught by neither.
+    ///
+    /// `include!` is the entry this table was written for. It reads the build
+    /// machine's disk exactly as `include_str!` does and then splices the bytes
+    /// in as code, and it sat outside the list because four macros ending in
+    /// `env!` or `include_…!` looked like the whole family.
+    #[test]
+    fn a_plan_that_reaches_the_build_machine_is_refused_though_it_names_no_module_of_std() {
+        let reaches = |source: &str| {
+            let invoked = tokens_of(source);
+            REACHES_THE_BUILD_MACHINE
+                .iter()
+                .any(|reached_for| invoked.contains(reached_for))
+        };
+
+        for reach in [
+            "let home = env!(\"HOME\");",
+            "let home = option_env!(\"HOME\");",
+            "const BAKED: &str = include_str!(\"../../../.env\");",
+            "const BAKED: &[u8] = include_bytes!(\"../../../.env\");",
+            "include!(\"planned_elsewhere.rs\");",
+            "include !(\"planned_elsewhere.rs\");",
+        ] {
+            assert!(
+                std_paths_named(reach).is_empty(),
+                "{reach:?} names a module of std, so it is not the hole this rule exists for"
+            );
+            assert!(
+                reaches(reach),
+                "{reach:?} reads the machine the binary was built on and the scan lets it \
+                 through, so a plan can be compiled against an environment nobody harvested"
+            );
+        }
+
+        for planning in [
+            "use std::ffi::{OsStr, OsString};",
+            // The tokens carry their punctuation, so the bare word `include`
+            // in a string is not a read of the build machine — an adapter that
+            // planned a `--include` flag is planning argv and nothing more.
+            "const ARGV: [&str; 1] = [\"--include\"];",
+            // Comments are discussion here as everywhere else.
+            "/// never include_str! the operator's environment\nuse std::fmt;",
+        ] {
+            assert!(
+                !reaches(planning),
+                "{planning:?} is how an adapter is written and the scan refuses it"
+            );
+        }
+    }
+
+    /// **A plan that read the clock is caught, though `std::time` is
+    /// permitted.**
+    ///
+    /// The allowlist is over modules and the hole is inside one: every line
+    /// below names `time` and nothing else, so the path reader passes all of
+    /// them and [`READS_THE_CLOCK`] is the whole of what stands between a plan
+    /// and the wall clock. Asserted from both ends here, because a rule that
+    /// duplicated the allowlist would be caught by neither.
+    #[test]
+    fn a_plan_that_asks_what_time_it_is_is_refused_though_it_names_only_time() {
+        let reads_a_clock = |source: &str| {
+            let invoked = tokens_of(source);
+            READS_THE_CLOCK.iter().any(|read| invoked.contains(read))
+        };
+
+        for clock in [
+            "use std::time::SystemTime;\nlet at = SystemTime::now();",
+            "let since = std::time::Instant::now();",
+            "use std::time::{Duration, SystemTime};",
+            "use std :: time :: Instant ;",
+            "use std::time::SystemTime as Clock;",
+            "use std::time::*;\nlet at = Instant::now();",
+            // The one that was through: a `SystemTime` constant carrying
+            // `elapsed`, which reads the wall clock while spelling neither
+            // `SystemTime` nor `Instant` anywhere in the line.
+            "use std::time::UNIX_EPOCH;\nlet at = UNIX_EPOCH.elapsed();",
+        ] {
+            assert!(
+                std_paths_named(clock)
+                    .iter()
+                    .all(|named| PERMITTED_STD.contains(&named.as_str())),
+                "{clock:?} names a module the allowlist forbids, so it is not the hole this rule \
+                 exists for"
+            );
+            assert!(
+                reads_a_clock(clock),
+                "{clock:?} reads a clock and the scan lets it through, so the same context stops \
+                 giving the same launch"
+            );
+        }
+
+        for planning in [
+            "use std::time::Duration;",
+            "Ready::AltScreen { timeout: Duration::from_secs(10) }",
+            // Comments are discussion here as everywhere else: the crate's doc
+            // comments talk about what planning may not do, and must go on
+            // being able to.
+            "/// measured against Instant::now on one machine, one day\nuse std::time::Duration;",
+        ] {
+            assert!(
+                !reads_a_clock(planning),
+                "{planning:?} is how a readiness rule is written and the scan refuses it"
+            );
+        }
+    }
+
+    /// **The guard on the list of scanned files names a module however it is
+    /// declared.**
+    ///
+    /// The guard is what README and `docs/adr/0010` advertise as the thing that
+    /// stops the list rotting, and every spelling it cannot see is a file that
+    /// escapes the scan while the guard goes on passing. It has been wrong
+    /// twice in that direction — first for `pub mod extra;`, then for
+    /// `#[cfg(windows)] mod platform_windows;` — which is the argument for
+    /// asserting the *name* here rather than a count, and for the set
+    /// comparison the guard now makes with it.
+    #[test]
+    fn a_module_declared_behind_an_attribute_or_a_visibility_is_named_as_a_file_to_scan() {
+        for (declaration, file) in [
+            ("mod watch;", "watch"),
+            ("pub mod watch;", "watch"),
+            ("pub(crate) mod watch;", "watch"),
+            ("    pub(super) mod watch;", "watch"),
+            ("pub(in crate::agent) mod watch;", "watch"),
+            ("#[cfg(windows)] mod win;", "win"),
+            ("#[cfg(windows)] pub(crate) mod win;", "win"),
+            ("#[path = \"x.rs\"] mod x;", "x"),
+            ("#[doc = \"a [link]\"] mod x;", "x"),
+            ("#[cfg(windows)] #[allow(dead_code)] mod win;", "win"),
+        ] {
+            assert_eq!(
+                modules_declared_in(declaration),
+                vec![file.to_string()],
+                "{declaration:?} is a file on disk and the guard does not name it, so that file \
+                 escapes the scan while the guard goes on passing"
+            );
+        }
+
+        // A block is source already inside the file being read, which is what
+        // every `#[cfg(test)] mod tests` in the crate is.
+        assert!(modules_declared_in("mod tests {\n    mod deeper {}\n}").is_empty());
+        assert!(modules_declared_in("// mod gone;\n/* mod also_gone; */").is_empty());
+        assert!(modules_declared_in("/// mod discussed;").is_empty());
     }
 
     /* ------------------------------------------------------- environment --- */

@@ -30,8 +30,20 @@
 //! operator *cannot* see: a poll that did not land, a token that has gone, a
 //! map that is no longer there. #40 built that vocabulary, and it is
 //! deliberately unreachable from here — `crates/app` has a test that reads
-//! these bytes and asserts this crate names none of it, which is the strongest
-//! form available while this file is a doc comment and nothing else.
+//! every file in `crates/pty/src` from a hand-written list and asserts this
+//! crate names none of it, which is the strongest form available while the
+//! crate owns no terminal.
+//!
+//! **A launch whose `argv[0]` is a shim is refused here and nowhere else.**
+//! #44 put the check at this boundary rather than inside each adapter, because
+//! spawning through a `.cmd` interposes `cmd.exe`: killing the child kills the
+//! interpreter, orphans the agent, and returns the shim's exit code instead of
+//! the agent's. [`accept`] is the whole of the rule — a spawnable program is a
+//! file whose first bytes are a native-executable magic for this target — and
+//! it is a *type*, not a boolean: [`Accepted`] has private fields and one
+//! constructor, so #47's spawn takes an `Accepted` and the check cannot be
+//! routed around. It reads a file and never runs one, so it is exercisable
+//! from hand-written bytes with no agent CLI installed.
 //!
 //! Filled in by:
 //! - #47 PTY ownership and the embedded terminal (the environment a session
@@ -42,3 +54,7 @@
 //! - #51 quitting: one confirmation, clean shutdown, no orphans
 //!
 //! [`perseverance_env`]: https://github.com/javrasya/perseverance
+
+mod shim;
+
+pub use shim::{accept, Accepted, SpawnRefusal};

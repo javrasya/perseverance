@@ -10,5 +10,17 @@ repository.workspace = true
 [dependencies]
 perseverance-agent = { workspace = true }
 
+# The workspace's error crate, and the same bargain every other crate here
+# struck: a refusal is a sentence, and hand-rolling `Display` eight times is
+# how one of the eight quietly stops being one.
+thiserror = { workspace = true }
+
+# For the temporary directories the shim check's hand-written byte sequences
+# live in. Nothing in this crate's tests ever spawns a program — `accept` reads
+# a file and never runs one, which is the whole reason the gate is checkable on
+# a runner with no agent CLI installed.
+[dev-dependencies]
+tempfile = { workspace = true }
+
 [lints.rust]
 unsafe_code = "forbid"
