@@ -163,12 +163,14 @@ describe("dev:web", () => {
     );
     /*
      * And in section order down the one column: what is being worked, then what
-     * can be started, then what is held up, then what is done — with `map.nodes`
-     * order kept inside each of them. 73 before 74 and 75 before 76 are the
-     * operator's own arrangement, which no sort would produce and nothing here
-     * is allowed to improve on.
+     * can be started, then what is held up, then what is done, then the child
+     * nobody classified — and last of all the destination, which is where the
+     * map is going. `map.nodes` order is kept inside each of them: 75 before 76
+     * inside Frontier and 73 before 74 inside the destination are the operator's
+     * own arrangement, which no sort would produce and nothing here is allowed
+     * to improve on.
      */
-    expect(numbers).toEqual([77, 70, 73, 74, 75, 76, 72, 71]);
+    expect(numbers).toEqual([77, 75, 76, 72, 71, 70, 73, 74]);
     expect(theHeadingOver(77)).toBe("Now");
     expect(theHeadingOver(75)).toBe("Frontier");
 
@@ -182,6 +184,35 @@ describe("dev:web", () => {
     expect(drawn.map((el) => el.getAttribute("data-state"))).toEqual(
       numbers.map((number) => stateOf.get(number)),
     );
+  });
+
+  it("boots the awkward map with the stray issue under its own heading and the spec at the far end", async () => {
+    /*
+     * #37 end to end from a booted app. #70 is a bug report somebody dragged
+     * onto the map — no `wayfinder:` type at all — and #73 and #74 are the
+     * spec. Before this, all three arrived `takeable` and were headed
+     * *Frontier*, counted as available work and drawn wearing the ring that
+     * means *this is yours to take*, which is how *Start Working* ends up
+     * launched at the destination.
+     */
+    await boot("/?map=awkward-map");
+    const route = theRoute();
+    const destination = route.querySelector("[data-destination]");
+
+    expect(theHeadingOver(70)).toBe("Unclassified");
+    expect(theRow(70).textContent).toContain("unclassified");
+    expect(theHeadingOver(73)).toBe("Destination");
+    expect(theHeadingOver(74)).toBe("Destination");
+    expect(destination).not.toBeNull();
+    // No numeral over the destination: a section's count is the rows it heads,
+    // so the only honest way to stop counting a spec is to head it with
+    // something that prints no count at all.
+    expect(destination?.querySelector("[data-count]")).toBeNull();
+    // And neither of the three is ever the one answer to *what next*.
+    expect(route.querySelectorAll("[data-frontier]")).toHaveLength(1);
+    expect(
+      route.querySelector("[data-frontier]")?.getAttribute("data-node"),
+    ).toBe("75");
   });
 
   it("heads the top section Next when the map has nobody working on it", async () => {
@@ -368,8 +399,12 @@ describe("dev:web", () => {
      * The pane is there and it is empty: no sections, no rows, and no frame
      * kept alive around the absence. A heading is a claim that there is
      * something under it and a count standing in for nothing is the zero that
-     * `—` exists to be told apart from, so neither is drawn. What an empty map
-     * should *say* — as opposed to what it may not claim — is #37's.
+     * `—` exists to be told apart from, so neither is drawn.
+     *
+     * #37 looked at what an empty map should *say* and left it saying this. The
+     * fog already names itself here and the readout already counts nothing, so
+     * a sentence added to the pane would be a third account of one absence —
+     * and the two that exist are the two the model actually distinguishes.
      */
     expect(route.querySelectorAll('h2[id^="route-section-"]')).toHaveLength(0);
     expect(route.querySelectorAll("[data-node]")).toHaveLength(0);

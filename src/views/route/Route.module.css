@@ -258,16 +258,22 @@
 /* --------------------------------------------------------------- marks --- */
 
 /*
- * Five marks: the model's four states plus the one designation. C5's `g-oos` is
- * a sixth shape and not a sixth mark — it is `.markCut`, composed onto the
- * resolved disc of a row the map cut, which is what keeps a cut a decoration on
- * *resolved* rather than a state beside it. `g-done` is the one still missing:
- * *resolved by this session* needs a run lifecycle the derived model does not
- * carry.
+ * Seven marks: the model's four states plus the one designation, which are the
+ * scale of work — and then the two rows that are not on it, a child nobody
+ * classified and the spec the whole map is going to. Those two are marks rather
+ * than decorations because *yours to take* is false of both, and a shape that
+ * says it anyway is a shape that lies.
+ *
+ * C5's `g-oos` is a further shape and still not a mark — it is `.markCut`,
+ * composed onto the resolved disc of a row the map cut, which is what keeps a
+ * cut a decoration on *resolved* rather than a state beside it. `g-done` is the
+ * one still missing: *resolved by this session* needs a run lifecycle the
+ * derived model does not carry.
  *
  * The row's colours come from `[data-mark]`; the shape comes from a class on
- * the glyph itself, because a ring, a dot and a hatch are different geometry
- * rather than one shape in five colours.
+ * the glyph itself, because a ring, a disc, a hatch, a dashed square and a
+ * rotated lozenge are different geometry rather than one shape in seven
+ * colours — and geometry is what is left when the colour is gone.
  */
 .glyph {
   display: flex;
@@ -357,11 +363,43 @@
 }
 
 /*
+ * Nobody classified it: a square, and its border is dashed. Two departures from
+ * every one of the five work glyphs rather than one — not round, and not drawn
+ * in a solid line — so it is still told apart on a monochrome screen, at a
+ * glance, and after a retheme has reassigned every ink on the pane. An outline
+ * nobody filled in, which is what the row is.
+ */
+.markUnclassified {
+  width: 11px;
+  height: 11px;
+  border: 1.5px dashed var(--c-node-glyph);
+}
+
+/*
+ * The destination: a filled waypoint, off the circle's axis. It is the only
+ * shape here that is neither a disc nor a ring, and it is filled rather than
+ * open — *open* is what the takeable ring says, and the one thing a spec is not
+ * is open to be taken.
+ */
+.markDestination {
+  width: 9px;
+  height: 9px;
+  background: var(--c-node-glyph);
+  transform: rotate(45deg);
+}
+
+/*
  * Cut: the resolved disc it is composed onto, struck through. A shape change
  * and nothing else — no colour of its own, and no opacity on the row, because a
  * decision the map cut is still a decision and still has to be read. The bar
  * overhangs the disc on both sides so it reads as a strike rather than as a
  * notch in the fill.
+ *
+ * **Always the resolved disc, whatever kind was cut.** `markOf` asks the cut
+ * above the kind, so a cut spec is marked `resolved` and never `destination` —
+ * which is what keeps this bar horizontal. Composed onto the rotated waypoint
+ * it would inherit that transform and draw at 45°, and a strike that is not
+ * level does not read as a strike at all.
  */
 .markCut {
   position: relative;
@@ -399,13 +437,39 @@
  * never display — so a finished ticket is still read, still found and still
  * counted. Its glyph is the one that recedes below the others, and it recedes
  * on the shape rather than here, so the fade cannot reach the title. #34 ships
- * C5's muted title and id; #37 owns the rule that a resolved row stays
- * focusable, locatable and countable through a retheme, and owns the test that
- * would catch this block losing it.
+ * C5's muted title and id; the rule is now held to two ink jobs and nothing
+ * else by *recedes in salience and never in visibility* in
+ * `tests/route-view.test.tsx`, which reads this block and fails on an `opacity`,
+ * a `display`, a `visibility` or a `content-visibility` arriving in it.
  */
 .node[data-mark="resolved"] {
   --c-node-ink: var(--s-ink-secondary);
   --c-node-quiet: var(--s-ink-faint);
+}
+
+/*
+ * Nobody classified it, and it takes the strongest ink on the pane — the ink a
+ * title is set in, where every other glyph sits at the faint one or at an
+ * accent. **Weight and geometry, never a hue.** A hue is the fragile answer to
+ * *survives a retheme*: it passes the tier check and can still be swapped to
+ * something that reads as decoration, while a filled-in *this is not right* in
+ * primary ink beside a dashed square survives the theme, the monochrome screen
+ * and the operator who cannot see the colour. No token is added for this,
+ * deliberately — a job named *unclassified* would be one more thing for a
+ * retheme to get wrong, and the job here is already named: read this one.
+ */
+.node[data-mark="unclassified"] {
+  --c-node-glyph: var(--s-ink-primary);
+}
+
+/*
+ * The destination, and it is calm on purpose. Nothing about the spec is urgent
+ * — it is the far end rather than the next step — so the waypoint is set in the
+ * secondary ink while the title keeps the row's default primary, which is the
+ * opposite arrangement to the row above and reads as one.
+ */
+.node[data-mark="destination"] {
+  --c-node-glyph: var(--s-ink-secondary);
 }
 
 /*
@@ -417,6 +481,20 @@
  */
 .node[data-selected] {
   --c-node-fill: var(--s-surface-hover);
+}
+
+/* ------------------------------------------------------- destination --- */
+
+/*
+ * A region and not a section, like the fog and for a different reason: it has
+ * rows, and a count over them would be counting the thing all the counting is
+ * for. It reuses the section heading's form because it is a peer of the groups
+ * above it, and it draws two children in that heading where a section draws
+ * three.
+ */
+.destination {
+  display: flex;
+  flex-direction: column;
 }
 
 /* --------------------------------------------------------------- fog --- */
