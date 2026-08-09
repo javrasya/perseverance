@@ -2588,10 +2588,8 @@ pub fn run() {
              * still has a window to keep, and the exit path below is left as
              * shutdown only.
              */
-            tauri::WindowEvent::CloseRequested { api, .. } => {
-                if !may_quit(window.app_handle()) {
-                    api.prevent_close();
-                }
+            tauri::WindowEvent::CloseRequested { api, .. } if !may_quit(window.app_handle()) => {
+                api.prevent_close();
             }
             _ => (),
         })

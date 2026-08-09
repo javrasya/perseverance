@@ -389,13 +389,19 @@ mod tests {
     /// measured. So the harvest is stood in for by the smallest thing that makes
     /// a shell a shell.
     fn an_environment() -> Vec<(String, String)> {
-        let mut environment = vec![("TERM".to_string(), "xterm-256color".to_string())];
         #[cfg(windows)]
-        {
+        let system = {
             let root = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_string());
-            environment.push(("PATH".to_string(), format!("{root}\\system32")));
-            environment.push(("SystemRoot".to_string(), root));
-        }
+            [
+                ("PATH".to_string(), format!("{root}\\system32")),
+                ("SystemRoot".to_string(), root),
+            ]
+        };
+        #[cfg(not(windows))]
+        let system: [(String, String); 0] = [];
+
+        let mut environment = vec![("TERM".to_string(), "xterm-256color".to_string())];
+        environment.extend(system);
         environment
     }
 
