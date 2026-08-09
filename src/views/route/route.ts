@@ -17,8 +17,11 @@
  *
  * The failure it exists to prevent is a section or a count the map cannot
  * justify. Three parts to that. **Every section comes from the model's own
- * words** — a node's state, or the one number `map.frontier` names — so a row's
- * group is always *the model said so* and never a heuristic. **Every count is
+ * words** — a node's state, or the number `map.frontier` names when it names
+ * one — so a row's group is always *the model said so* and never a heuristic.
+ * That includes the machine: a ticket labelled for one this is not arrives with
+ * the verdict already taken, is grouped and counted exactly like any other
+ * takeable ticket, and says so in a word. **Every count is
  * the rows it heads**, built with them rather than beside them, because a
  * heading that disagrees with what is under it is a lie an operator can see and
  * the only sure way to prevent it is to leave nothing to disagree. **Order
@@ -169,12 +172,24 @@ export type SectionName = "now" | "frontier" | "blocked" | "resolved";
 
 export type RouteRow = {
   readonly node: Node;
-  /** `map.frontier` said so. Never re-resolved on this side. */
+  /**
+   * `map.frontier` named this number. Never re-resolved on this side — and when
+   * it names no number, *which* of the two absences that is is also the model's
+   * word and not a question asked here.
+   */
   readonly designated: boolean;
   readonly mark: Mark;
   readonly blockers: BlockerTally;
   /** null for a spec or an unclassified child: the wayfinder's rule has nothing to say. #37. */
   readonly attendance: Attendance | null;
+  /**
+   * A copy of `node.boundElsewhere`, and emphatically not a derivation.
+   *
+   * The machine was matched in Rust, once, inside the one frontier resolver.
+   * What crosses is the verdict; this carries it onto the row so *not offered*
+   * is legible where an operator is already looking, rather than only true.
+   */
+  readonly boundElsewhere: boolean;
 };
 
 export type RouteSection = {
@@ -205,13 +220,17 @@ function sectionOf(
  *
  * The top section is one section with two headings. It holds every claimed node
  * and reads *Now*; with nothing claimed it holds the single node `map.frontier`
- * names and reads *Next*; with neither it is absent, because *nothing on this
- * map can be started* is a state with its own reading and an empty group under
- * a heading would draw it as a shrug. The designated row is looked for among
- * the takeable ones and not everywhere: `map.frontier` is by construction the
- * first node in map order that is takeable, and looking for it where it can be
- * is what stops a number naming something else from putting one node in two
- * sections at once.
+ * names and reads *Next*; with neither it is absent, because an absent frontier
+ * is a state with a reading of its own — two of them, in fact, *nothing to
+ * start* and *nothing for this machine* — and an empty group under a heading
+ * would draw either as a shrug. Which of the two it is, is `describeModel`'s
+ * sentence to say and not this file's; nothing here asks. The designated row is
+ * looked for among the takeable ones and not everywhere: the number
+ * `map.frontier` names is by construction the first node in map order that is
+ * takeable *and not bound to another machine*, and a node bound elsewhere keeps
+ * its `takeable` state, so the narrower rule still lands inside the bucket this
+ * looks in. Looking for it where it can be is what stops a number naming
+ * something else from putting one node in two sections at once.
  *
  * A section with no rows is left out of the answer entirely rather than handed
  * back empty — the rule `MapList` already established for the same reason. The
@@ -220,19 +239,29 @@ function sectionOf(
 export function routeOf(map: Map): Route {
   const blockers = blockersOf(map.nodes);
 
+  /*
+   * Read once, above the loop. `map.frontier` names a number in exactly one of
+   * its three readings, and the other two are absences with words of their own
+   * — spelled by `describeModel`, not decided here. Nothing in this file asks
+   * *why* there is no number.
+   */
+  const designatedNumber =
+    map.frontier.frontier === "designated" ? map.frontier.number : null;
+
   const claimed: RouteRow[] = [];
   const takeable: RouteRow[] = [];
   const blocked: RouteRow[] = [];
   const resolved: RouteRow[] = [];
 
   for (const node of map.nodes) {
-    const designated = node.number === map.frontier;
+    const designated = node.number === designatedNumber;
     const row: RouteRow = {
       node,
       designated,
       mark: markOf(node.state, designated),
       blockers: blockers.get(node.number) ?? NOTHING_IN_THE_WAY,
       attendance: attendanceOf(node),
+      boundElsewhere: node.boundElsewhere,
     };
 
     switch (node.state) {
@@ -289,6 +318,23 @@ export function beyondTheMapNote(count: number): string {
 
 /** The word on the cold tag, and the only place the designation is named. */
 export const DESIGNATED_TAG = "designated";
+
+/**
+ * Names the ticket's binding — a fact about the reader's machine — and says
+ * nothing about why the row is where it is.
+ *
+ * The verdict is decided per node from the labels alone, so the tag travels
+ * with it onto every row that carries it, including rows the frontier would
+ * not offer anyway because they are blocked, resolved or not tickets. On those
+ * the machine is not the reason; it is only the reason on a row that is
+ * otherwise startable.
+ *
+ * A tag beside the others rather than a section of its own: the row keeps the
+ * section its state puts it in and is counted there. Moving it would be this
+ * side re-grouping the map by a fact that is about the reader, and a group is a
+ * claim about the work.
+ */
+export const BOUND_ELSEWHERE_TAG = "not on this machine";
 
 export const NOW_HEADING = "Now";
 export const NEXT_HEADING = "Next";

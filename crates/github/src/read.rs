@@ -938,6 +938,7 @@ mod tests {
         assert!(MAP_READ_QUERY.contains("labels: [\"wayfinder:map\"]"));
         assert!(MAP_READ_QUERY.contains("states: [OPEN, CLOSED]"));
         assert!(MAP_READ_QUERY.contains("assignees(first: 5)"));
+        assert_eq!(MAP_READ_QUERY.matches("labels(first: 100)").count(), 2);
         assert!(MAP_READ_QUERY.contains("issueDependenciesSummary"));
         assert!(MAP_READ_QUERY.contains("rateLimit"));
         assert_eq!(MAP_READ_QUERY.matches("query MapRead").count(), 1);

@@ -1,0 +1,155 @@
+{
+  "_why": "One map read twice, once per machine. #80 is bound to a machine neither host is, so it is what macOS visibly skips past rather than stops at; #81 and #82 are both bound to macOS, so on that machine *first* is distinguishable from *only*; #83 is bound to Windows and blocked, which is what makes *nothing for this machine* provably about work that would otherwise be startable rather than about whether a label for this machine exists anywhere on the map; #84 carries no platform label at all. On macOS the frontier is #81 and on Windows there is nothing to offer — with the same five rows and the same counts on both, because a ticket this machine cannot start is still a ticket on the map.",
+  "data": {
+    "repository": {
+      "nameWithOwner": "o/r",
+      "maps": {
+        "pageInfo": { "hasNextPage": false },
+        "nodes": [
+          {
+            "number": 90,
+            "title": "Spec: work bound to a machine",
+            "state": "OPEN",
+            "url": "https://github.com/o/r/issues/90",
+            "updatedAt": "2026-08-05T09:12:44Z"
+          }
+        ]
+      },
+      "issue": {
+        "number": 90,
+        "title": "Spec: work bound to a machine",
+        "state": "OPEN",
+        "url": "https://github.com/o/r/issues/90",
+        "updatedAt": "2026-08-05T09:12:44Z",
+        "labels": { "nodes": [{ "name": "wayfinder:map" }] },
+        "subIssues": {
+          "pageInfo": { "hasNextPage": false },
+          "nodes": [
+            {
+              "number": 80,
+              "title": "Only gatherable on the machine neither of us is on",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/80",
+              "updatedAt": "2026-08-04T10:00:00Z",
+              "labels": {
+                "nodes": [
+                  { "name": "wayfinder:task", "color": "1d76db" },
+                  { "name": "platform:linux", "color": "c5def5" }
+                ]
+              },
+              "assignees": { "nodes": [] },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 0,
+                "blocking": 1,
+                "totalBlocking": 1
+              },
+              "blockedBy": { "pageInfo": { "hasNextPage": false }, "nodes": [] }
+            },
+            {
+              "number": 81,
+              "title": "These facts can only be gathered on a Mac",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/81",
+              "updatedAt": "2026-08-04T11:00:00Z",
+              "labels": {
+                "nodes": [
+                  { "name": "wayfinder:task", "color": "1d76db" },
+                  { "name": "platform:macos", "color": "c5def5" }
+                ]
+              },
+              "assignees": { "nodes": [] },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 0,
+                "blocking": 0,
+                "totalBlocking": 0
+              },
+              "blockedBy": { "pageInfo": { "hasNextPage": false }, "nodes": [] }
+            },
+            {
+              "number": 82,
+              "title": "And so can these, so first is not only",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/82",
+              "updatedAt": "2026-08-04T12:00:00Z",
+              "labels": {
+                "nodes": [
+                  { "name": "wayfinder:task", "color": "1d76db" },
+                  { "name": "platform:macos", "color": "c5def5" }
+                ]
+              },
+              "assignees": { "nodes": [] },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 0,
+                "blocking": 0,
+                "totalBlocking": 0
+              },
+              "blockedBy": { "pageInfo": { "hasNextPage": false }, "nodes": [] }
+            },
+            {
+              "number": 83,
+              "title": "For this machine, and held up anyway",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/83",
+              "updatedAt": "2026-08-04T13:00:00Z",
+              "labels": {
+                "nodes": [
+                  { "name": "wayfinder:task", "color": "1d76db" },
+                  { "name": "platform:windows", "color": "c5def5" }
+                ]
+              },
+              "assignees": { "nodes": [] },
+              "issueDependenciesSummary": {
+                "blockedBy": 1,
+                "totalBlockedBy": 1,
+                "blocking": 0,
+                "totalBlocking": 0
+              },
+              "blockedBy": {
+                "pageInfo": { "hasNextPage": false },
+                "nodes": [
+                  {
+                    "number": 80,
+                    "title": "Only gatherable on the machine neither of us is on",
+                    "state": "OPEN",
+                    "repository": { "nameWithOwner": "o/r" }
+                  }
+                ]
+              }
+            },
+            {
+              "number": 84,
+              "title": "Spec: work bound to a machine, composed",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/84",
+              "updatedAt": "2026-08-04T14:00:00Z",
+              "labels": { "nodes": [{ "name": "wayfinder:spec", "color": "5319e7" }] },
+              "assignees": { "nodes": [] },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 0,
+                "blocking": 0,
+                "totalBlocking": 0
+              },
+              "blockedBy": { "pageInfo": { "hasNextPage": false }, "nodes": [] }
+            }
+          ]
+        }
+      }
+    },
+    "rateLimit": {
+      "cost": 2,
+      "nodeCount": 74,
+      "limit": 5000,
+      "remaining": 4381,
+      "resetAt": "2026-08-05T11:02:14Z"
+    }
+  }
+}

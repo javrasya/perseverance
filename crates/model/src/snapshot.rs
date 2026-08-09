@@ -285,7 +285,7 @@ impl Snapshot {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::derive::{Counts, NodeState, Phase};
+    use crate::derive::{Counts, Frontier, Machine, NodeState, Phase};
     use crate::ledger::{ChangeLog, Since};
     use crate::read_response;
 
@@ -293,7 +293,10 @@ mod tests {
     const TWO_MAPS: &str = include_str!("../fixtures/two-maps-one-open.json");
 
     fn a_read() -> Model {
-        Model::of(&read_response(TWO_MAPS).expect("reads"))
+        // A named machine and not the host: this fixture carries no
+        // `platform:` label, so nothing here can differ by runner, and saying
+        // which machine keeps it that way.
+        Model::of(&read_response(TWO_MAPS).expect("reads"), Machine::Windows)
     }
 
     #[test]
@@ -355,7 +358,7 @@ mod tests {
                 specs: 0
             }
         );
-        assert_eq!(map.frontier, Some(32));
+        assert_eq!(map.frontier, Frontier::Designated(32));
     }
 
     #[test]

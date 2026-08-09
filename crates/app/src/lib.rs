@@ -30,8 +30,8 @@ use perseverance_github::{
     Tick, Timings, TokenOutcome, Watched,
 };
 use perseverance_model::{
-    read_response, ChangeLog, Degraded, MapRead, Model, Provenance, ReadOutcome, Snapshot, Source,
-    TicketType,
+    read_response, ChangeLog, Degraded, Machine, MapRead, Model, Provenance, ReadOutcome, Snapshot,
+    Source, TicketType,
 };
 use perseverance_pty::{Delivery, Geometry, RunId, Runs, GRACE};
 use perseverance_store::{Folder, RepoBindingError, Store, StoreError};
@@ -126,7 +126,22 @@ struct MapsView {
     /// A page that cannot exist, if one ever does. Rendered as a caveat rather
     /// than paged through, because a paging loop for a page GitHub's own limits
     /// forbid is code nobody has ever run.
+    ///
+    /// [`Truncation::capped`] and not `any()`: the fourth flag crosses beside
+    /// this one, because a page that *can* exist folded into this one would make
+    /// the sentence it prints false.
     truncated: bool,
+    /// A label list longer than one page, which is an ordinary thing for an
+    /// issue to have and the one truncation that fails unsafe.
+    ///
+    /// Beside `truncated` rather than inside it because it is a different fact
+    /// with a different consequence and its own sentence: a `platform:` label
+    /// past the end of the page reads, in the model, as a ticket that said
+    /// nothing about machines, so a ticket bound to a Mac can be offered here.
+    /// The two cannot disagree — they read two disjoint halves of one
+    /// [`Truncation`] — and either, both, or neither is a state the chrome
+    /// draws.
+    labels_truncated: bool,
     /// Whether the rate-limit budget is what is holding the poller's interval
     /// down, right now — already decided, on the Rust side, by the composition
     /// in `cadence.rs`. The WebView paints a clause from it and computes
@@ -160,6 +175,7 @@ impl MapsView {
             },
             rate_limit: None,
             truncated: false,
+            labels_truncated: false,
             yielding_to_rate_limit: false,
         }
     }
@@ -183,7 +199,8 @@ impl MapsView {
                 remaining: limit.remaining,
                 reset_at: limit.reset_at.clone(),
             }),
-            truncated: read.truncation.any(),
+            truncated: read.truncation.capped(),
+            labels_truncated: read.truncation.labels,
             yielding_to_rate_limit: false,
         }
     }
@@ -483,7 +500,18 @@ impl Default for Ledgers {
 fn resuming_from(store: &Store, watched: &Watched) -> ChangeLog {
     match store.cached_graph(watched.folder_id, watched.map) {
         Ok(Some(cached)) => match read_response(&cached.graph_json) {
-            Ok(read) => ChangeLog::resuming(Model::of(&read)),
+            // The same machine the landed poll below derives for. If the
+            // baseline and the poll could disagree about it, every cold start
+            // would report a frontier move that never happened — so both call
+            // the one argument-free `const fn` and there is nothing to keep in
+            // step. What cannot disagree is the machine, not the answer: this
+            // body was recorded under whichever document the build that cached
+            // it shipped, and a narrower one (a smaller `labels` page, no
+            // `pageInfo` on it) is drift on a copy in the sense above — the
+            // first cold start after a widening may compare against a child
+            // whose labels were cut short, and the next successful read
+            // replaces it.
+            Ok(read) => ChangeLog::resuming(Model::of(&read, Machine::host())),
             Err(_) => ChangeLog::first_open(),
         },
         Ok(None) | Err(_) => ChangeLog::first_open(),
@@ -733,7 +761,7 @@ fn poll_once<R: Runtime>(app: &AppHandle<R>, watched: &Watched, ahead: &Ahead<'_
     emit_snapshot(
         app,
         ledgers.observed(
-            Model::of(fresh.read()),
+            Model::of(fresh.read(), Machine::host()),
             fresh.fetched_at(),
             &claims.originated(),
         ),
@@ -2726,6 +2754,29 @@ mod tests {
 
     const TWO_MAPS: &str = include_str!("../../model/fixtures/two-maps-one-open.json");
 
+    /// An answer whose only truncation is a label list, written here rather than
+    /// recorded as a fixture: `crates/model/fixtures/` is a directory the model
+    /// crate's own tests walk and enumerate, and a tenth file in it that no
+    /// generated snapshot corresponds to is a failure there for a reason that
+    /// has nothing to do with this assertion.
+    const LABELS_RAN_LONG: &str = r#"{
+        "data": {
+            "repository": {
+                "maps": { "pageInfo": { "hasNextPage": false }, "nodes": [] },
+                "issue": {
+                    "number": 28,
+                    "title": "Spec: perseverance",
+                    "labels": {
+                        "pageInfo": { "hasNextPage": true },
+                        "nodes": [ { "name": "wayfinder:map" } ]
+                    },
+                    "subIssues": { "pageInfo": { "hasNextPage": false }, "nodes": [] }
+                }
+            },
+            "rateLimit": null
+        }
+    }"#;
+
     /// The only way to hold one, here as anywhere: an answer from GitHub that
     /// parsed. There is no constructor, which is the whole mechanism this slice
     /// rests on — so a test that wants one has to produce an answer too.
@@ -2765,6 +2816,8 @@ mod tests {
         assert_eq!(json["provenance"]["outcome"]["kind"], "ok");
         assert_eq!(json["provenance"]["fetchedAt"], "2026-08-05T00:00:00Z");
         assert_eq!(json["truncated"], false);
+        // Two flags and not one, because the sentence each draws is different.
+        assert_eq!(json["labelsTruncated"], false);
         assert_eq!(json["rateLimit"]["remaining"], 4_417);
         assert_eq!(json["rateLimit"]["resetAt"], "2026-08-05T11:02:14Z");
         // A view nobody has told which floor held the poller says *not
@@ -2781,7 +2834,23 @@ mod tests {
         assert_eq!(first.as_object().expect("an object").len(), 5);
         // The finished map is in the list rather than filtered out of it.
         assert_eq!(json["maps"][1]["closed"], true);
-        assert_eq!(json.as_object().expect("an object").len(), 6);
+        assert_eq!(json.as_object().expect("an object").len(), 7);
+    }
+
+    /// The two truncation readings are two fields because they are two
+    /// sentences, and this is what stops the can-happen one being folded into
+    /// the caveat that says an impossible thing happened.
+    #[test]
+    fn a_label_list_that_ran_long_crosses_apart_from_a_page_that_cannot_exist() {
+        let read = read_response(LABELS_RAN_LONG).expect("reads");
+        let view = MapsView::of(3, &read, Source::Github, 1_785_888_000);
+
+        let json = serde_json::to_value(&view).expect("serialises");
+
+        assert_eq!(json["labelsTruncated"], true);
+        // Nothing overran a cap here — GitHub kept every promise it makes about
+        // page sizes — so the caveat that says otherwise stays unsaid.
+        assert_eq!(json["truncated"], false);
     }
 
     /// `src/terminal/runs.ts` is a hand-written mirror of this, pinned from both
@@ -3295,7 +3364,7 @@ mod tests {
     const AWKWARD_LATER: &str = include_str!("../../model/fixtures/awkward-children-later.json");
 
     fn model_of(body: &str) -> Model {
-        Model::of(&read_response(body).expect("reads"))
+        Model::of(&read_response(body).expect("reads"), Machine::host())
     }
 
     fn watching_map(folder_id: i64, map: u64) -> Watched {

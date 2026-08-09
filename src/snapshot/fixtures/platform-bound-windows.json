@@ -1,0 +1,93 @@
+{
+  "schemaVersion": 2,
+  "model": {
+    "map": {
+      "number": 90,
+      "title": "Spec: work bound to a machine",
+      "closed": false,
+      "phase": "wayfinding",
+      "counts": {
+        "tickets": 4,
+        "open": 4,
+        "specs": 1
+      },
+      "nodes": [
+        {
+          "number": 80,
+          "title": "Only gatherable on the machine neither of us is on",
+          "url": "https://github.com/o/r/issues/80",
+          "kind": {
+            "kind": "ticket",
+            "type": "task"
+          },
+          "state": "takeable",
+          "waitsOn": [],
+          "boundElsewhere": true
+        },
+        {
+          "number": 81,
+          "title": "These facts can only be gathered on a Mac",
+          "url": "https://github.com/o/r/issues/81",
+          "kind": {
+            "kind": "ticket",
+            "type": "task"
+          },
+          "state": "takeable",
+          "waitsOn": [],
+          "boundElsewhere": true
+        },
+        {
+          "number": 82,
+          "title": "And so can these, so first is not only",
+          "url": "https://github.com/o/r/issues/82",
+          "kind": {
+            "kind": "ticket",
+            "type": "task"
+          },
+          "state": "takeable",
+          "waitsOn": [],
+          "boundElsewhere": true
+        },
+        {
+          "number": 83,
+          "title": "For this machine, and held up anyway",
+          "url": "https://github.com/o/r/issues/83",
+          "kind": {
+            "kind": "ticket",
+            "type": "task"
+          },
+          "state": "blocked",
+          "waitsOn": [
+            80
+          ],
+          "boundElsewhere": false
+        },
+        {
+          "number": 84,
+          "title": "Spec: work bound to a machine, composed",
+          "url": "https://github.com/o/r/issues/84",
+          "kind": {
+            "kind": "spec"
+          },
+          "state": "takeable",
+          "waitsOn": [],
+          "boundElsewhere": false
+        }
+      ],
+      "frontier": {
+        "frontier": "notOnThisMachine"
+      }
+    }
+  },
+  "provenance": {
+    "source": "fixture",
+    "outcome": {
+      "kind": "ok"
+    },
+    "fetchedAt": "2026-08-05T08:00:00Z"
+  },
+  "ledger": {
+    "since": "firstOpen",
+    "entries": []
+  }
+}

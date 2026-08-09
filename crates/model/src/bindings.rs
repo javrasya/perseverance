@@ -29,7 +29,22 @@ use std::path::{Path, PathBuf};
 
 use ts_rs::TS;
 
-use crate::{read_response, ChangeLog, Degraded, Model, Snapshot, Source};
+use crate::{read_response, ChangeLog, Degraded, Machine, Model, Snapshot, Source};
+
+/// The machine every fixture below is derived for, unless its own table names
+/// another.
+///
+/// **Load-bearing, and the reason it is a constant rather than
+/// [`Machine::host`].** No recorded answer outside `platform-bound.json` reads
+/// differently on one machine than another — which is asserted over the whole
+/// fixture directory by
+/// `every_recorded_answer_but_the_bound_one_derives_the_same_on_every_machine`
+/// next door, not assumed here — so the choice cannot show in any of their
+/// output. But `Machine::host()` here would regenerate different bytes on a
+/// macOS runner than on a Windows one the moment one of them grew a label, and
+/// `every_dev_web_fixture_is_this_crate_s_own_output` would fail for a reason
+/// that has nothing to do with the model.
+const FIXTURE_MACHINE: Machine = Machine::Windows;
 
 /// Where the generated TypeScript lands, relative to the repository root.
 const GENERATED_TYPES: &str = "src/snapshot/model.generated.ts";
@@ -220,11 +235,63 @@ fn ledger_cases() -> Vec<LedgerCase> {
     }]
 }
 
+/// One `dev:web` fixture for a map read **for a particular machine**: what it
+/// is called, which recorded answer it is derived from, which machine it is
+/// derived for, and what it is here to show.
+///
+/// A parallel table with its own extra column rather than a fourth column on
+/// [`Case`], following the [`AgedCase`] and [`LedgerCase`] precedent: the
+/// machine is a question only these fixtures ask, and a column every other case
+/// had to answer `Machine::Windows` to would read as a property of all of them.
+struct MachineCase {
+    slug: &'static str,
+    answer: &'static str,
+    /// The machine this one is derived **for**, which is the whole of what
+    /// separates it from its sibling.
+    machine: Machine,
+    why: &'static str,
+}
+
+/// The fixtures that are one map read twice.
+///
+/// Two entries against a single recorded answer, because *a frontier this
+/// machine can start* and *nothing this machine can start* have to be the same
+/// graph or the comparison proves nothing. A browser has no way to reach the
+/// second: it is a fact about the host the app is running on, and `dev:web` is
+/// not running on one.
+fn machine_cases() -> Vec<MachineCase> {
+    vec![
+        MachineCase {
+            slug: "platform-bound-macos",
+            answer: "platform-bound.json",
+            machine: Machine::MacOs,
+            why: "The same map as `platform-bound-windows`, read on the machine \
+                  its work belongs to: the first ticket bound elsewhere is \
+                  skipped past rather than moved, and the frontier is the first \
+                  of the two this machine can start.",
+        },
+        MachineCase {
+            slug: "platform-bound-windows",
+            answer: "platform-bound.json",
+            machine: Machine::Windows,
+            why: "The same map as `platform-bound-macos`, read on a machine \
+                  none of its startable work belongs to: every row is still \
+                  here and still counted, nothing is designated, and the \
+                  frontier says *not on this machine* rather than reading as a \
+                  map with nothing left on it.",
+        },
+    ]
+}
+
 /// The snapshot one [`LedgerCase`] produces: the later read, stamped, carrying
 /// the log that compared it against the baseline.
 fn snapshot_for_ledger(case: &LedgerCase) -> Snapshot {
-    let model_of =
-        |answer: &str| Model::of(&read_response(&recorded(answer)).expect("the answer reads"));
+    let model_of = |answer: &str| {
+        Model::of(
+            &read_response(&recorded(answer)).expect("the answer reads"),
+            FIXTURE_MACHINE,
+        )
+    };
 
     let mut log = ChangeLog::resuming(model_of(case.baseline));
     let later = model_of(case.later);
@@ -253,8 +320,22 @@ fn recorded(name: &str) -> String {
 fn snapshot_for(case: &Case) -> Snapshot {
     let model = match case.answer {
         None => return Snapshot::no_map_open(),
-        Some(answer) => Model::of(&read_response(&recorded(answer)).expect("the answer reads")),
+        Some(answer) => Model::of(
+            &read_response(&recorded(answer)).expect("the answer reads"),
+            FIXTURE_MACHINE,
+        ),
     };
+
+    Snapshot::read(model, Source::Fixture, crate::rfc3339(FIXTURE_STAMP))
+}
+
+/// The snapshot one [`MachineCase`] produces: the same read, derived for the
+/// machine the case names.
+fn snapshot_for_machine(case: &MachineCase) -> Snapshot {
+    let model = Model::of(
+        &read_response(&recorded(case.answer)).expect("the answer reads"),
+        case.machine,
+    );
 
     Snapshot::read(model, Source::Fixture, crate::rfc3339(FIXTURE_STAMP))
 }
@@ -327,8 +408,22 @@ fn every_dev_web_fixture_is_this_crate_s_own_output() {
         );
     }
 
+    for case in machine_cases() {
+        let json = snapshot_for_machine(&case)
+            .to_json_string()
+            .expect("serialises");
+        agrees(
+            &root.join(FIXTURE_DIR).join(format!("{}.json", case.slug)),
+            &format!("{json}\n"),
+            HOW_TO_FIX,
+        );
+    }
+
     for case in aged_cases() {
-        let model = Model::of(&read_response(&recorded(case.answer)).expect("the answer reads"));
+        let model = Model::of(
+            &read_response(&recorded(case.answer)).expect("the answer reads"),
+            FIXTURE_MACHINE,
+        );
         // Aged from a **live read**, which is the only way one of these
         // actually happens: a poll landed, a later one did not, and what is
         // left on screen is the copy the first read left behind. Stamping the
@@ -421,9 +516,18 @@ fn the_while_you_were_away_fixture_ships_the_row_its_two_answers_produce() {
 
     // And the frontier really did move, so the derived clause is the model's
     // own statement rather than a word this test asked for.
-    let baseline = Model::of(&read_response(&recorded(case.baseline)).expect("reads"));
-    assert_eq!(baseline.map.expect("a map").frontier, Some(75));
-    assert_eq!(snapshot.model.map.expect("a map").frontier, Some(72));
+    let baseline = Model::of(
+        &read_response(&recorded(case.baseline)).expect("reads"),
+        FIXTURE_MACHINE,
+    );
+    assert_eq!(
+        baseline.map.expect("a map").frontier,
+        crate::Frontier::Designated(75)
+    );
+    assert_eq!(
+        snapshot.model.map.expect("a map").frontier,
+        crate::Frontier::Designated(72)
+    );
 }
 
 /// Every fixture on disk is one this module produces, and every case this
@@ -466,6 +570,11 @@ fn the_fixture_directory_holds_exactly_the_cases_this_module_names() {
                 .iter()
                 .map(|case| format!("{}.json", case.slug)),
         )
+        .chain(
+            machine_cases()
+                .iter()
+                .map(|case| format!("{}.json", case.slug)),
+        )
         .collect();
     named.sort();
 
@@ -482,4 +591,66 @@ fn every_case_says_what_it_is_here_to_show() {
     for case in ledger_cases() {
         assert!(!case.why.trim().is_empty(), "{} has no reason", case.slug);
     }
+    for case in machine_cases() {
+        assert!(!case.why.trim().is_empty(), "{} has no reason", case.slug);
+    }
+}
+
+/// **Criterion 5 and criterion 2, asserted against the generated artifacts.**
+///
+/// One recorded answer, derived twice, and the only two things that may differ
+/// are the frontier and the per-node verdict it is drawn from. Everything an
+/// operator can count — the rows, the numbers over them, what each row *is* and
+/// what state GitHub put it in — is identical, because a machine is a fact
+/// about the reader and not about the map.
+#[test]
+fn the_same_map_reads_differently_on_two_machines() {
+    use crate::Frontier;
+
+    let cases = machine_cases();
+    let snapshot = |slug: &str| {
+        let case = cases
+            .iter()
+            .find(|case| case.slug == slug)
+            .unwrap_or_else(|| panic!("{slug} is named above"));
+        snapshot_for_machine(case)
+    };
+
+    let mac = snapshot("platform-bound-macos").model.map.expect("a map");
+    let windows = snapshot("platform-bound-windows").model.map.expect("a map");
+
+    // The one difference an operator is meant to see.
+    assert_eq!(mac.frontier, Frontier::Designated(81));
+    assert_eq!(windows.frontier, Frontier::NotOnThisMachine);
+
+    assert_eq!(mac.counts, windows.counts);
+    assert_eq!(mac.nodes.len(), windows.nodes.len());
+    assert_eq!(mac.phase, windows.phase);
+
+    for (here, there) in windows.nodes.iter().zip(mac.nodes.iter()) {
+        assert_eq!(here.number, there.number);
+        assert_eq!(here.kind, there.kind);
+        assert_eq!(here.state, there.state);
+        assert_eq!(here.waits_on, there.waits_on);
+        // And the *only* per-node difference is the verdict, which is what
+        // makes the equalities above a statement about the model rather than
+        // about the two nodes that happened to be checked.
+        let same = crate::Node {
+            bound_elsewhere: there.bound_elsewhere,
+            ..here.clone()
+        };
+        assert_eq!(&same, there, "#{}", here.number);
+    }
+
+    // #80 is bound away from both hosts, so it is held back on either.
+    let held_back = |map: &crate::Map, number: u64| {
+        map.nodes
+            .iter()
+            .find(|node| node.number == number)
+            .map(|node| node.bound_elsewhere)
+    };
+    assert_eq!(held_back(&windows, 80), Some(true));
+    assert_eq!(held_back(&mac, 80), Some(true));
+    assert_eq!(held_back(&windows, 81), Some(true));
+    assert_eq!(held_back(&mac, 81), Some(false));
 }

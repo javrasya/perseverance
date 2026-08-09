@@ -638,13 +638,18 @@ fn clauses_of(previous: &Model, next: &Model) -> Vec<Clause> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::derive::{Map, Phase, TicketType};
+    use crate::derive::{Frontier, Machine, Map, Phase, TicketType};
     use crate::read_response;
 
     const AWKWARD: &str = include_str!("../fixtures/awkward-children.json");
 
+    /// Named rather than [`Machine::host`], so these entries read the same on
+    /// every runner. Nothing in this fixture carries a `platform:` label, so
+    /// the choice cannot show — see the guard in [`crate::derive`].
+    const MACHINE: Machine = Machine::Windows;
+
     fn base() -> Model {
-        Model::of(&read_response(AWKWARD).expect("reads"))
+        Model::of(&read_response(AWKWARD).expect("reads"), MACHINE)
     }
 
     fn map_of(model: &mut Model) -> &mut Map {
@@ -685,13 +690,12 @@ mod tests {
         map.counts.tickets = tickets;
         map.counts.open = open;
         map.counts.specs = specs;
-        map.frontier = map
-            .nodes
-            .iter()
-            .find(|node| {
-                matches!(node.kind, ChildKind::Ticket(_)) && node.state == NodeState::Takeable
-            })
-            .map(|node| node.number);
+        // The resolver itself and not a second copy of it. This helper used to
+        // hold a hand-written `find(…)` that compiled fine and would have gone
+        // on silently disagreeing with the real one the moment the real one
+        // grew a clause — which is exactly what happened when it grew the
+        // machine.
+        map.frontier = Frontier::of(&map.nodes);
         map.phase = if map.closed {
             Phase::Done
         } else if tickets == 0 && specs == 0 {
@@ -819,6 +823,7 @@ mod tests {
             kind: ChildKind::Ticket(TicketType::Task),
             state: NodeState::Blocked,
             waits_on: vec![72],
+            bound_elsewhere: false,
         };
         map_of(&mut next).nodes.push(arrival);
         map_of(&mut next).nodes.retain(|node| node.number != 74);
@@ -1069,6 +1074,7 @@ mod tests {
             kind: ChildKind::Ticket(TicketType::Task),
             state: NodeState::Blocked,
             waits_on: vec![72],
+            bound_elsewhere: false,
         };
         map_of(&mut next).nodes.insert(2, arrival);
         settle(&mut next);

@@ -20,7 +20,8 @@
             "kind": "unclassified"
           },
           "state": "takeable",
-          "waitsOn": []
+          "waitsOn": [],
+          "boundElsewhere": false
         },
         {
           "number": 71,
@@ -33,7 +34,8 @@
           "state": "resolved",
           "waitsOn": [
             72
-          ]
+          ],
+          "boundElsewhere": false
         },
         {
           "number": 73,
@@ -43,7 +45,8 @@
             "kind": "spec"
           },
           "state": "takeable",
-          "waitsOn": []
+          "waitsOn": [],
+          "boundElsewhere": false
         },
         {
           "number": 74,
@@ -53,7 +56,8 @@
             "kind": "spec"
           },
           "state": "takeable",
-          "waitsOn": []
+          "waitsOn": [],
+          "boundElsewhere": false
         },
         {
           "number": 72,
@@ -64,7 +68,8 @@
             "type": "research"
           },
           "state": "takeable",
-          "waitsOn": []
+          "waitsOn": [],
+          "boundElsewhere": false
         },
         {
           "number": 77,
@@ -75,7 +80,8 @@
             "type": "grilling"
           },
           "state": "resolved",
-          "waitsOn": []
+          "waitsOn": [],
+          "boundElsewhere": false
         },
         {
           "number": 75,
@@ -88,7 +94,8 @@
           "state": "takeable",
           "waitsOn": [
             71
-          ]
+          ],
+          "boundElsewhere": false
         },
         {
           "number": 76,
@@ -99,10 +106,14 @@
             "type": "prototype"
           },
           "state": "takeable",
-          "waitsOn": []
+          "waitsOn": [],
+          "boundElsewhere": false
         }
       ],
-      "frontier": 72
+      "frontier": {
+        "frontier": "designated",
+        "number": 72
+      }
     }
   },
   "provenance": {

@@ -16,6 +16,14 @@
  * browser has no way to revoke a token or delete a repository, and two of the
  * four stop the poller and print a remedy while the other two keep trying.
  *
+ * `platform-bound-macos` and `platform-bound-windows` are the same recorded
+ * answer derived twice, and they are here because the machine an operator is
+ * sitting at is not something a browser can be talked into being. Between them
+ * they hold the two readings of an empty frontier: one is a map this machine
+ * can start work on, the other is the same map with every startable ticket on
+ * it bound to a machine this is not — every row still listed, still counted,
+ * and none of them offered.
+ *
  * `while-you-were-away` is there for the same reason: reaching the cold-start
  * row needs a cached graph from a session that ended, and a `dev:web` tab has
  * no previous session to have ended. Its ledger is the only one on disk that is
@@ -31,6 +39,8 @@ import emptyMap from "./fixtures/empty-map.json";
 import mapClosed from "./fixtures/map-closed.json";
 import mapGone from "./fixtures/map-gone.json";
 import noMapOpen from "./fixtures/no-map-open.json";
+import platformBoundMacos from "./fixtures/platform-bound-macos.json";
+import platformBoundWindows from "./fixtures/platform-bound-windows.json";
 import rateLimited from "./fixtures/rate-limited.json";
 import specComposed from "./fixtures/spec-composed.json";
 import twoMapsOneOpen from "./fixtures/two-maps-one-open.json";
@@ -54,6 +64,8 @@ export const FIXTURES = {
   "map-closed": AS_GENERATED(mapClosed),
   "map-gone": AS_GENERATED(mapGone),
   "no-map-open": AS_GENERATED(noMapOpen),
+  "platform-bound-macos": AS_GENERATED(platformBoundMacos),
+  "platform-bound-windows": AS_GENERATED(platformBoundWindows),
   "rate-limited": AS_GENERATED(rateLimited),
   "spec-composed": AS_GENERATED(specComposed),
   "two-maps-one-open": AS_GENERATED(twoMapsOneOpen),

@@ -17,12 +17,164 @@ use serde::{Deserialize, Serialize};
 
 use crate::read::{ChildRead, MapGraph, MapRead};
 
-/// Every label this app classifies by starts here.
+/// Every label this app **classifies** by starts here.
 ///
 /// The prefix is what makes a wayfinder label distinguishable from the
 /// repository's own labels, so a child carrying `bug` and `priority:high` is
 /// unclassified rather than accidentally something.
+///
+/// It is *classification* and no longer every judgement: [`PLATFORM_PREFIX`] is
+/// deliberately outside this family, and its own doc argues why.
 pub const WAYFINDER_PREFIX: &str = "wayfinder:";
+
+/// Where a ticket says which machine its facts can be gathered on.
+///
+/// **Unprefixed, and the one label family that is.** The spec spells it
+/// `platform:*` because that is what an operator types, and the two families
+/// are not the same kind of statement: a `wayfinder:` label says what a child
+/// *is* to this app, and this one states a fact about a machine that would be
+/// just as true if this app did not exist. Prefixing it `wayfinder:platform:`
+/// would have been the tidier rule and would also have been this app renaming
+/// something it does not own.
+///
+/// The cost is a collision with a repository that runs its own `platform:`
+/// taxonomy. It is bounded twice over: a collision only bites on a child that
+/// *also* carries a `wayfinder:` label — an unclassified child is refused by
+/// [`Node::is_takeable`] anyway — and the symptom is fail-closed and visible,
+/// a ticket that stays on screen, stays counted, and is never designated until
+/// somebody edits a label. Nothing is hidden and nothing is launched.
+///
+/// Spelled lower-case because that is the form [`bound_elsewhere`] folds a label
+/// to before matching, not because an operator has to type it that way.
+pub const PLATFORM_PREFIX: &str = "platform:";
+
+/// Which machine a model is being derived **for**.
+///
+/// A parameter rather than a `cfg!`, for the reason
+/// `perseverance_agent::Platform` is one: a derivation that asked
+/// `cfg!(target_os)` inside itself would have exactly half of this ticket's
+/// acceptance criteria checkable on any given runner, and the whole charter of
+/// this crate is that a JSON fixture drives it. So the machine is handed in,
+/// both readings of one recorded answer are asserted from one host, and
+/// [`Machine::host`] is offered to callers and called nowhere below.
+///
+/// **Three variants, where that crate has two.** Its doc refuses a third
+/// because macOS and Linux differ nowhere in argv construction — true there,
+/// false here: `platform:macos` and `platform:linux` are two labels an operator
+/// types, so this crate *can* point at the difference. No dependency edge is
+/// added in either direction.
+///
+/// **Named `Machine` and not `Platform`**, because `crates/app` already imports
+/// `perseverance_agent::Platform` and calls `Platform::host()` at six sites.
+/// Two differently-shaped types under one name in one file is how the wrong one
+/// gets passed. The label family stays spelled `platform:`, which is what an
+/// operator types; the type is named for what it is a fact about.
+///
+/// No serde and no `ts-rs`: this never crosses the seam. What crosses is the
+/// verdict — [`Node::bound_elsewhere`] — and the WebView has no business
+/// knowing which machine it was taken against.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Machine {
+    Windows,
+    MacOs,
+    Linux,
+}
+
+impl Machine {
+    /// The machine this build is really running on.
+    ///
+    /// The only place a `cfg!` is spoken in this crate, and it is spoken for
+    /// callers rather than inside the derivation. `cfg!` rather than `#[cfg]`
+    /// so the branches this build is not are still type-checked.
+    pub const fn host() -> Machine {
+        if cfg!(windows) {
+            Machine::Windows
+        } else if cfg!(target_os = "macos") {
+            Machine::MacOs
+        } else {
+            Machine::Linux
+        }
+    }
+
+    /// One spelling each, and no alias list.
+    ///
+    /// `win`, `osx`, `darwin` and `mac` are all things somebody might type, and
+    /// accepting them would be this file guessing at a vocabulary nobody
+    /// published. An unrecognised value is a machine that is not this one — see
+    /// [`bound_elsewhere`].
+    ///
+    /// Case is not part of the spelling: the value arrives already folded, and
+    /// [`bound_elsewhere`] is where and why.
+    fn named(value: &str) -> Option<Machine> {
+        match value {
+            "windows" => Some(Machine::Windows),
+            "macos" => Some(Machine::MacOs),
+            "linux" => Some(Machine::Linux),
+            _ => None,
+        }
+    }
+}
+
+/// Whether this child's labels say the work belongs on a machine that is not
+/// this one.
+///
+/// One loop over every `platform:` label, in the shape [`ChildKind::of`]
+/// already established, and three rules fall out of the one expression:
+///
+/// - **No `platform:` label at all is every machine.** A ticket with nothing to
+///   say about machines is offered everywhere; the spec's own wording is
+///   *whose `platform:*` label (if any) matches*.
+/// - **Two of them are a union and not a conflict.** This is where the rule
+///   parts company with [`ChildKind::of`], which refuses rather than chooses:
+///   there, two classifications are two mutually exclusive readings and picking
+///   one would be this app deciding what the operator meant. Here
+///   `platform:windows` beside `platform:macos` has one plain reading — either
+///   machine will do — so there is nothing to refuse. A repeated label is one
+///   statement, as before.
+/// - **An unrecognised value fails closed.** `platform:solaris`, or a typo'd
+///   `platform:win`, is a machine that is not this one, so the ticket is held
+///   back. [`ChildKind::of`] fails *open* on an unknown `wayfinder:` suffix
+///   because the consequence there is `Unclassified`, which is itself the safe
+///   answer; failing open here would launch an agent on a machine the operator
+///   said the work cannot be done on. Held back, the ticket still renders,
+///   still counts, and is fixed by editing a label.
+///
+/// **Case is folded before either half is matched**, which is the one thing here
+/// that is not simply the shape [`ChildKind::of`] set. It has to be, because the
+/// two halves fail in opposite directions. An unrecognised *value* fails closed,
+/// so `platform:MacOS` read literally would only be over-cautious — but an
+/// unrecognised *prefix* fails **open**: `Platform:macos` matched
+/// case-sensitively is not a platform label at all, `named` stays false, and the
+/// ticket is offered on every machine, which is exactly the outcome the rule
+/// above exists to prevent. Folding is also what GitHub itself does — label
+/// names are unique case-insensitively, so `Platform:macos` and `platform:macos`
+/// cannot both exist on one repository and treating them as two things would be
+/// this file inventing a distinction its source does not have. The same argument
+/// does not reach [`ChildKind::of`]: an unrecognised `wayfinder:` prefix leaves
+/// the child `Unclassified`, which `is_takeable` refuses, so that one fails
+/// closed in both halves and is left alone.
+///
+/// It reads only the labels the answer carried. A label list GitHub cut off
+/// short is not one of them — see [`crate::Truncation::labels`], which is the
+/// tripwire that says so, because a `platform:` label past the end of the page
+/// is indistinguishable here from a ticket that never had one.
+fn bound_elsewhere(labels: &[String], machine: Machine) -> bool {
+    let mut named = false;
+    let mut matched = false;
+
+    for label in labels {
+        let folded = label.to_ascii_lowercase();
+        let Some(rest) = folded.strip_prefix(PLATFORM_PREFIX) else {
+            continue;
+        };
+        named = true;
+        if Machine::named(rest) == Some(machine) {
+            matched = true;
+        }
+    }
+
+    named && !matched
+}
 
 /// The derived model for one tick, whole.
 ///
@@ -58,10 +210,66 @@ pub struct Map {
     /// not by number, and emphatically not by a ranking of its own. A frontier
     /// picked by a ranking is a frontier the graph on screen cannot justify.
     pub nodes: Vec<Node>,
-    /// The designated frontier: the number of the first node in map order that
-    /// [`Node::is_takeable`] admits. `None` when nothing on this map can be
-    /// started, which is a state with its own reading and not a zero.
-    pub frontier: Option<u64>,
+    /// What this map has to say about *what next* — see [`Frontier`].
+    pub frontier: Frontier,
+}
+
+/// The designated frontier, in the only three readings there are.
+///
+/// **An enum and not `Option<u64>` beside a flag.** The absence has always been
+/// "a state with its own reading and not a zero", and there are two of those
+/// readings rather than one: a map with work left on it that this machine
+/// cannot start is a different fact from a map with nothing left at all. Two
+/// fields would be two things that can disagree — the argument [`Counts`] makes
+/// against a fourth number — and the WebView would have to decide *which
+/// reading applies* from a conjunction, which is resolving, which is the one
+/// thing that side may not do.
+///
+/// Adjacently tagged, with a payload on one variant and none on the others,
+/// which is [`ChildKind`]'s existing shape on the wire.
+#[cfg_attr(test, derive(ts_rs::TS), ts(export_to = "model.generated.ts"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "frontier", content = "number", rename_all = "camelCase")]
+pub enum Frontier {
+    /// The number of the first node in map order that [`Node::is_takeable`]
+    /// admits.
+    Designated(u64),
+    /// Nothing is takeable here, and work this machine cannot do is why. The
+    /// tickets are still on the map, still counted, and still rendered — they
+    /// are only not offered.
+    ///
+    /// It carries no payload. Not the machine, which never crosses the seam,
+    /// and not the numbers held back, because every row already carries
+    /// [`Node::bound_elsewhere`] and a list here would be a second copy of that
+    /// which can disagree with it.
+    NotOnThisMachine,
+    /// Nothing on this map can be started by anybody, on any machine.
+    NothingToStart,
+}
+
+impl Frontier {
+    /// **The frontier resolver, and there is only this one.**
+    ///
+    /// First in map order, and *first* is the whole of it. Nothing scores,
+    /// ranks, or prefers the ticket that unblocks the most: the order is the
+    /// operator's and the harness never invents one.
+    ///
+    /// The second arm is what makes an empty frontier legible. It asks for work
+    /// that would be startable but for the machine — not merely for a node
+    /// carrying a `platform:` label — so a *blocked* ticket labelled for this
+    /// very machine cannot make a map read as *nothing for this machine*.
+    pub(crate) fn of(nodes: &[Node]) -> Frontier {
+        match nodes.iter().find(|node| node.is_takeable()) {
+            Some(node) => Frontier::Designated(node.number),
+            None if nodes
+                .iter()
+                .any(|node| node.bound_elsewhere && node.is_startable_work()) =>
+            {
+                Frontier::NotOnThisMachine
+            }
+            None => Frontier::NothingToStart,
+        }
+    }
 }
 
 /// One child of the map, derived.
@@ -94,10 +302,24 @@ pub struct Node {
     /// because a rank is *how far along* and there is no way to compute one
     /// from a number.
     pub waits_on: Vec<u64>,
+    /// Labelled for a machine that is not this one.
+    ///
+    /// **A verdict and not an input.** The labels themselves still do not cross
+    /// the seam, for the reason the blocker count and the assignee list do not:
+    /// what crosses is already decided, so there is nothing here for a second
+    /// resolver to be written from. This is the same kind of value `kind` and
+    /// `state` are — a conclusion drawn from labels and counts that stayed
+    /// behind.
+    ///
+    /// It is on the node rather than only on the map because *not offered* has
+    /// to be legible on the row an operator is looking at, and because
+    /// [`Frontier::of`] needs it per node to tell *nothing for this machine*
+    /// from *nothing left at all*.
+    pub bound_elsewhere: bool,
 }
 
 impl Node {
-    fn of(child: &ChildRead) -> Node {
+    fn of(child: &ChildRead, machine: Machine) -> Node {
         Node {
             number: child.number,
             title: child.title.clone(),
@@ -105,20 +327,37 @@ impl Node {
             kind: ChildKind::of(&child.labels),
             state: NodeState::of(child),
             waits_on: child.waits_on.clone(),
+            bound_elsewhere: bound_elsewhere(&child.labels, machine),
         }
     }
 
     /// Whether an agent may be launched at this node — the whole of frontier
     /// eligibility, spelled once.
     ///
-    /// Two conditions, and the second is the one the four states cannot express
-    /// on their own: a child has to be a **ticket**. Without that clause a spec
+    /// Three conditions. The first is the one the four states cannot express on
+    /// their own: a child has to be a **ticket**. Without that clause a spec
     /// child that is open, unblocked and unassigned satisfies every state
     /// predicate there is, and *Start Working* launches an agent at the
     /// destination. An unclassified child is refused for the same reason from
     /// the other direction: a stray issue dragged onto the map fails safe
     /// rather than being silently reinterpreted as a task.
+    ///
+    /// The third is the machine, and it is last because it is the only one that
+    /// is about the operator's hardware rather than about the work. A ticket it
+    /// refuses is still a ticket, still open and still counted — see
+    /// [`Node::bound_elsewhere`].
     pub fn is_takeable(&self) -> bool {
+        self.is_startable_work() && !self.bound_elsewhere
+    }
+
+    /// The two clauses that are about the *work* rather than about the machine.
+    ///
+    /// Private, and it exists so that [`Frontier::of`]'s second arm and
+    /// [`Node::is_takeable`] cannot drift: *would be startable but for the
+    /// machine* is `is_startable_work() && bound_elsewhere`, which is only a
+    /// true sentence while this is the exact complement of the last clause
+    /// above.
+    fn is_startable_work(&self) -> bool {
         self.kind.is_ticket() && self.state == NodeState::Takeable
     }
 }
@@ -311,9 +550,20 @@ impl Phase {
 }
 
 impl Map {
-    fn of(graph: &MapGraph) -> Map {
-        let nodes: Vec<Node> = graph.children.iter().map(Node::of).collect();
+    fn of(graph: &MapGraph, machine: Machine) -> Map {
+        // Every child, in the operator's own order. Nothing is filtered out of
+        // the model here and nothing ever may be: a ticket this machine cannot
+        // start is a ticket that is on the map.
+        let nodes: Vec<Node> = graph
+            .children
+            .iter()
+            .map(|child| Node::of(child, machine))
+            .collect();
 
+        // **The machine is deliberately absent from all three of these.** A
+        // ticket bound elsewhere is still ticket-classified and still open, so
+        // it is still counted — otherwise the map would look one ticket closer
+        // to done on whichever machine happens to be reading it.
         let counts = Counts {
             tickets: nodes.iter().filter(|node| node.kind.is_ticket()).count(),
             open: nodes
@@ -331,13 +581,7 @@ impl Map {
             title: graph.title.clone(),
             closed: graph.closed,
             phase: Phase::of(graph.closed, &counts),
-            // First in map order, and *first* is the whole resolver. Nothing
-            // scores, ranks, or prefers the ticket that unblocks the most: the
-            // order is the operator's and the harness never invents one.
-            frontier: nodes
-                .iter()
-                .find(|node| node.is_takeable())
-                .map(|node| node.number),
+            frontier: Frontier::of(&nodes),
             counts,
             nodes,
         }
@@ -350,17 +594,25 @@ impl Model {
         Model { map: None }
     }
 
-    /// One parsed answer, derived. The whole of the derivation is reachable
-    /// from here and from nowhere else.
-    pub fn of(read: &MapRead) -> Model {
+    /// One parsed answer, derived for one machine. The whole of the derivation
+    /// is reachable from here and from nowhere else.
+    ///
+    /// `machine` is a parameter and never [`Machine::host`] taken inside: two
+    /// readings of one recorded answer have to be assertable from one runner,
+    /// which is what keeps the platform clause fixture-driven like everything
+    /// else here. Callers that mean *this machine* say so at the call site.
+    pub fn of(read: &MapRead, machine: Machine) -> Model {
         Model {
-            map: read.map.as_ref().map(Map::of),
+            map: read.map.as_ref().map(|graph| Map::of(graph, machine)),
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+    use std::path::Path;
+
     use super::*;
     use crate::read_response;
 
@@ -370,13 +622,36 @@ mod tests {
     const SPEC_COMPOSED: &str = include_str!("../fixtures/spec-composed.json");
     const MAP_CLOSED: &str = include_str!("../fixtures/map-closed.json");
     const NO_MAP: &str = include_str!("../fixtures/no-map-in-this-repo.json");
+    const PLATFORM_BOUND: &str = include_str!("../fixtures/platform-bound.json");
+
+    /// The machine every test that is not *about* machines derives for.
+    ///
+    /// Named rather than [`Machine::host`], so that this whole module answers
+    /// the same on every runner — a suite whose expectations moved with the
+    /// developer's laptop would be a suite nobody could read a failure out of.
+    /// The choice cannot show in any answer but `platform-bound.json`, and
+    /// `every_recorded_answer_but_the_bound_one_derives_the_same_on_every_machine`
+    /// is what makes that an assertion over the whole fixture directory rather
+    /// than a sentence somebody wrote once.
+    const ANY_MACHINE: Machine = Machine::Windows;
+
+    /// All three, in the order the guards above compare them in.
+    const EVERY_MACHINE: [Machine; 3] = [Machine::Windows, Machine::MacOs, Machine::Linux];
 
     fn model_of(body: &str) -> Model {
-        Model::of(&read_response(body).expect("reads"))
+        model_for(body, ANY_MACHINE)
+    }
+
+    fn model_for(body: &str, machine: Machine) -> Model {
+        Model::of(&read_response(body).expect("reads"), machine)
     }
 
     fn map_of(body: &str) -> Map {
         model_of(body).map.expect("a map")
+    }
+
+    fn map_for(body: &str, machine: Machine) -> Map {
+        model_for(body, machine).map.expect("a map")
     }
 
     fn node(map: &Map, number: u64) -> &Node {
@@ -506,7 +781,7 @@ mod tests {
         // and each by a different clause: #70 is unclassified, #71 is resolved,
         // #73 and #74 are specs, #72 is blocked, #77 is claimed. The frontier
         // is the first thing left, and #76 proves *first* is not *only*.
-        assert_eq!(map.frontier, Some(75));
+        assert_eq!(map.frontier, Frontier::Designated(75));
     }
 
     #[test]
@@ -517,7 +792,7 @@ mod tests {
         assert_eq!(spec.kind, ChildKind::Spec);
         assert_eq!(spec.state, NodeState::Takeable);
         assert!(!spec.is_takeable());
-        assert_ne!(map.frontier, Some(73));
+        assert_ne!(map.frontier, Frontier::Designated(73));
     }
 
     #[test]
@@ -526,7 +801,7 @@ mod tests {
 
         // Every ticket is closed. *Nothing to start* is a state with its own
         // reading, and pointing at row one would be inventing a target.
-        assert_eq!(map.frontier, None);
+        assert_eq!(map.frontier, Frontier::NothingToStart);
     }
 
     #[test]
@@ -538,6 +813,282 @@ mod tests {
         // here, and the numbers are chosen so that a number sort and the
         // operator's order cannot be confused for one another.
         assert_eq!(numbers, vec![70, 71, 73, 74, 72, 77, 75, 76]);
+    }
+
+    /* --------------------------------------------- work bound to a machine --- */
+
+    #[test]
+    fn a_ticket_labelled_for_another_machine_is_not_offered_here() {
+        // One recorded answer, two machines, two readings. #81 and #82 can only
+        // be gathered on a Mac, so on Windows there is nothing to offer at all
+        // — and on the Mac the frontier is the first of them.
+        assert_eq!(
+            map_for(PLATFORM_BOUND, Machine::Windows).frontier,
+            Frontier::NotOnThisMachine
+        );
+        assert_eq!(
+            map_for(PLATFORM_BOUND, Machine::MacOs).frontier,
+            Frontier::Designated(81)
+        );
+    }
+
+    #[test]
+    fn a_ticket_labelled_for_another_machine_still_has_a_row_and_is_still_counted() {
+        let here = map_for(PLATFORM_BOUND, Machine::Windows);
+        let there = map_for(PLATFORM_BOUND, Machine::MacOs);
+
+        // Five rows and four tickets, on the machine that will not be offered
+        // any of them. Filtering the model by machine would make the map look
+        // closer to done on whichever host happened to be reading it.
+        assert_eq!(here.nodes.len(), 5);
+        assert_eq!(
+            here.counts,
+            Counts {
+                tickets: 4,
+                open: 4,
+                specs: 1
+            }
+        );
+
+        for number in [80, 81, 82] {
+            let held_back = node(&here, number);
+            assert_eq!(held_back.kind, ChildKind::Ticket(TicketType::Task));
+            // Still takeable: the state is what GitHub decided, and the machine
+            // is a different question asked afterwards.
+            assert_eq!(held_back.state, NodeState::Takeable);
+            assert!(held_back.bound_elsewhere, "#{number}");
+            assert!(!held_back.is_takeable(), "#{number}");
+        }
+
+        // And the counts are the same number on both machines, which is the
+        // whole of *still counted*.
+        assert_eq!(here.counts, there.counts);
+        assert_eq!(here.nodes.len(), there.nodes.len());
+    }
+
+    #[test]
+    fn the_machine_is_the_last_clause_and_never_a_re_ordering() {
+        let map = map_for(PLATFORM_BOUND, Machine::MacOs);
+
+        let numbers: Vec<u64> = map.nodes.iter().map(|node| node.number).collect();
+        assert_eq!(numbers, vec![80, 81, 82, 83, 84]);
+        // #80 is skipped past rather than moved: it keeps its slot at the top
+        // of the map and the frontier is simply the next thing this machine can
+        // start.
+        assert!(node(&map, 80).bound_elsewhere);
+        assert_eq!(map.frontier, Frontier::Designated(81));
+    }
+
+    #[test]
+    fn nothing_for_this_machine_is_not_the_same_answer_as_nothing_left_at_all() {
+        let bound = map_for(PLATFORM_BOUND, Machine::Windows).frontier;
+
+        // A map with work left on it that this machine cannot start, and two
+        // maps with nothing left for anybody. One `None` for all three is what
+        // would make the first read as the second.
+        assert_eq!(bound, Frontier::NotOnThisMachine);
+        assert_eq!(map_of(SPEC_COMPOSED).frontier, Frontier::NothingToStart);
+        assert_eq!(map_of(EMPTY_MAP).frontier, Frontier::NothingToStart);
+        assert_ne!(bound, Frontier::NothingToStart);
+    }
+
+    #[test]
+    fn a_blocked_ticket_for_this_machine_does_not_make_the_map_read_as_startable() {
+        let map = map_for(PLATFORM_BOUND, Machine::Windows);
+
+        // #83 is labelled for this very machine and is blocked. The reading is
+        // still *nothing for this machine*, because the alternative — asking
+        // whether any node carries a `platform:` label naming us — would answer
+        // *nothing to start* on a map whose only obstacle is the machine.
+        let ours = node(&map, 83);
+        assert!(!ours.bound_elsewhere);
+        assert_eq!(ours.state, NodeState::Blocked);
+        assert_eq!(map.frontier, Frontier::NotOnThisMachine);
+    }
+
+    #[test]
+    fn a_ticket_with_no_platform_label_is_offered_on_every_machine() {
+        for machine in EVERY_MACHINE {
+            let map = map_for(AWKWARD, machine);
+            assert_eq!(map.frontier, Frontier::Designated(75), "{machine:?}");
+            assert!(map.nodes.iter().all(|node| !node.bound_elsewhere));
+        }
+    }
+
+    #[test]
+    fn every_recorded_answer_but_the_bound_one_derives_the_same_on_every_machine() {
+        /*
+         * What lets the rest of this module name one machine and stop thinking
+         * about it — and it is a walk of the directory rather than a list,
+         * because a list is a thing a future fixture is added without. A
+         * recorded answer that grew a `platform:` label would make this suite's
+         * expectations move with whichever laptop ran it, and the failure would
+         * arrive as an unrelated assertion somewhere else.
+         *
+         * `platform-bound.json` is the one exception and is asserted to be one:
+         * a skip that is never checked is how a guard quietly comes to skip
+         * everything.
+         */
+        let directory = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures");
+        let mut checked = 0;
+
+        for entry in fs::read_dir(&directory).expect("the fixture directory") {
+            let path = entry.expect("a directory entry").path();
+            let name = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .expect("a file name")
+                .to_string();
+            let body = fs::read_to_string(&path).expect("a readable fixture");
+
+            // The directory also holds serialised snapshots, which are not
+            // answers and do not parse as one.
+            let Ok(read) = read_response(&body) else {
+                continue;
+            };
+
+            let derived: Vec<Model> = EVERY_MACHINE
+                .iter()
+                .map(|machine| Model::of(&read, *machine))
+                .collect();
+
+            if name == "platform-bound.json" {
+                assert_ne!(derived[0], derived[1], "{name} is the machine-bound one");
+                continue;
+            }
+
+            assert_eq!(derived[0], derived[1], "{name} on Windows versus macOS");
+            assert_eq!(derived[1], derived[2], "{name} on macOS versus Linux");
+            checked += 1;
+        }
+
+        // A walk that found nothing would pass every assertion above.
+        assert!(checked >= 6, "only {checked} recorded answers were walked");
+    }
+
+    #[test]
+    fn two_platform_labels_mean_either_machine_rather_than_a_conflict() {
+        let both = ["platform:windows".to_string(), "platform:macos".to_string()];
+
+        // Unlike two `wayfinder:` classifications, these are not two mutually
+        // exclusive readings — *either machine will do* is the one plain
+        // meaning — so there is nothing to refuse.
+        assert!(!bound_elsewhere(&both, Machine::Windows));
+        assert!(!bound_elsewhere(&both, Machine::MacOs));
+        // And it is still a statement about machines, so a third one is out.
+        assert!(bound_elsewhere(&both, Machine::Linux));
+
+        // The same thing said twice is still one thing.
+        let twice = [
+            "platform:windows".to_string(),
+            "platform:windows".to_string(),
+        ];
+        assert!(!bound_elsewhere(&twice, Machine::Windows));
+        assert!(bound_elsewhere(&twice, Machine::MacOs));
+    }
+
+    #[test]
+    fn an_unrecognised_platform_label_is_a_machine_that_is_not_this_one() {
+        // Every rule in one table, over every machine, because the rules are a
+        // single expression and five separate tests would be five chances to
+        // check four of them.
+        let cases: [(&[&str], [bool; 3]); 9] = [
+            // Nothing to say about machines is every machine.
+            (&[], [false, false, false]),
+            (&["platform:windows"], [false, true, true]),
+            (&["platform:macos"], [true, false, true]),
+            // A machine this build has never heard of, and a typo. Both fail
+            // *closed*: failing open would launch an agent on a machine the
+            // operator said the work cannot be done on, and closed leaves the
+            // ticket on screen, counted, and fixable by editing a label.
+            (&["platform:solaris"], [true, true, true]),
+            (&["platform:win"], [true, true, true]),
+            // Case is not a spelling. The prefix is the half that matters most:
+            // read case-sensitively, `Platform:macos` is not a platform label at
+            // all, so it would fail *open* and be offered on Windows — the one
+            // outcome every rule above is arranged against.
+            (&["Platform:macos"], [true, false, true]),
+            (&["PLATFORM:MACOS"], [true, false, true]),
+            (&["platform:Windows"], [false, true, true]),
+            // And an unrecognised value stays unrecognised however it is cased.
+            (&["Platform:Win"], [true, true, true]),
+        ];
+
+        for (labels, expected) in cases {
+            let owned: Vec<String> = labels.iter().map(|label| label.to_string()).collect();
+            let got = [
+                bound_elsewhere(&owned, Machine::Windows),
+                bound_elsewhere(&owned, Machine::MacOs),
+                bound_elsewhere(&owned, Machine::Linux),
+            ];
+            assert_eq!(got, expected, "{labels:?}");
+        }
+    }
+
+    #[test]
+    fn the_two_label_families_fold_case_differently_because_they_fail_differently() {
+        // The platform prefix is folded, and this is the reason. Matched
+        // literally, `Platform:macos` is not a platform label, `named` stays
+        // false, and a ticket the operator bound to a Mac is offered — and
+        // designated — on Windows.
+        assert!(bound_elsewhere(
+            &["Platform:macos".to_string()],
+            Machine::Windows
+        ));
+
+        // The `wayfinder:` prefix is deliberately not folded, because the same
+        // slip there lands on `Unclassified`, which `is_takeable` refuses. It
+        // fails closed already, so folding it would be a behaviour change made
+        // for symmetry rather than for safety.
+        assert_eq!(
+            ChildKind::of(&["Wayfinder:task".to_string()]),
+            ChildKind::Unclassified
+        );
+    }
+
+    #[test]
+    fn a_platform_label_never_changes_what_a_child_is() {
+        // Two label families, two questions. The machine is asked after the
+        // classification and cannot disturb it — a ticket bound elsewhere is
+        // still a task, and a `platform:` label on its own classifies nothing.
+        assert_eq!(
+            ChildKind::of(&["wayfinder:task".to_string(), "platform:macos".to_string()]),
+            ChildKind::Ticket(TicketType::Task)
+        );
+        assert_eq!(
+            ChildKind::of(&["platform:macos".to_string()]),
+            ChildKind::Unclassified
+        );
+    }
+
+    #[test]
+    fn the_machine_a_model_is_derived_for_is_a_parameter_and_not_the_one_this_build_runs_on() {
+        /*
+         * One recorded answer, three machines, three *different* readings — and
+         * that is the assertion, rather than the three variants being nameable.
+         * Naming them proves nothing: `EVERY_MACHINE` is a list this module
+         * wrote and `Machine::host()` returns one of its members by
+         * construction.
+         *
+         * Three distinct answers cannot be produced by a derivation that asked
+         * `cfg!(target_os)` inside itself. Such a derivation would ignore the
+         * parameter and answer with the host's reading all three times, and this
+         * test would fail on every runner — which is the direction its name
+         * claims and the direction it now actually points.
+         */
+        let readings: Vec<(Machine, Frontier)> = EVERY_MACHINE
+            .into_iter()
+            .map(|machine| (machine, map_for(PLATFORM_BOUND, machine).frontier))
+            .collect();
+
+        assert_eq!(
+            readings,
+            vec![
+                (Machine::Windows, Frontier::NotOnThisMachine),
+                (Machine::MacOs, Frontier::Designated(81)),
+                (Machine::Linux, Frontier::Designated(80)),
+            ]
+        );
     }
 
     /* ------------------------------------------------------------- edges --- */
@@ -628,7 +1179,7 @@ mod tests {
             }
         );
         assert_eq!(map.phase, Phase::Unstarted);
-        assert_eq!(map.frontier, None);
+        assert_eq!(map.frontier, Frontier::NothingToStart);
     }
 
     #[test]

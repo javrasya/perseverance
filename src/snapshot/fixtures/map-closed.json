@@ -21,10 +21,14 @@
             "type": "task"
           },
           "state": "takeable",
-          "waitsOn": []
+          "waitsOn": [],
+          "boundElsewhere": false
         }
       ],
-      "frontier": 101
+      "frontier": {
+        "frontier": "designated",
+        "number": 101
+      }
     }
   },
   "provenance": {

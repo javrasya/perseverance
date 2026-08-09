@@ -21,7 +21,8 @@
             "type": "research"
           },
           "state": "resolved",
-          "waitsOn": []
+          "waitsOn": [],
+          "boundElsewhere": false
         },
         {
           "number": 92,
@@ -34,7 +35,8 @@
           "state": "resolved",
           "waitsOn": [
             91
-          ]
+          ],
+          "boundElsewhere": false
         },
         {
           "number": 93,
@@ -44,10 +46,13 @@
             "kind": "spec"
           },
           "state": "takeable",
-          "waitsOn": []
+          "waitsOn": [],
+          "boundElsewhere": false
         }
       ],
-      "frontier": null
+      "frontier": {
+        "frontier": "nothingToStart"
+      }
     }
   },
   "provenance": {

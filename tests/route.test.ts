@@ -26,6 +26,7 @@ function node(number: number, over: Partial<Node> = {}): Node {
     kind: { kind: "ticket", type: "task" },
     state: "takeable",
     waitsOn: [],
+    boundElsewhere: false,
     ...over,
   };
 }
@@ -38,9 +39,14 @@ function mapOf(nodes: readonly Node[], over: Partial<Map> = {}): Map {
     phase: "wayfinding",
     counts: { tickets: nodes.length, open: nodes.length, specs: 0 },
     nodes: [...nodes],
-    frontier: null,
+    frontier: { frontier: "nothingToStart" },
     ...over,
   };
+}
+
+/** The frontier in the one reading that names a number. */
+function designating(number: number): Map["frontier"] {
+  return { frontier: "designated", number };
 }
 
 /**
@@ -201,7 +207,7 @@ describe("the top section is one section with two headings", () => {
    * itself.
    */
   it("reads Next and holds only the designated node when nothing is claimed", () => {
-    const route = routeOf(mapOf([node(1), node(2), node(3)], { frontier: 2 }));
+    const route = routeOf(mapOf([node(1), node(2), node(3)], { frontier: designating(2) }));
 
     expect(route.sections[0]?.heading).toBe(NEXT_HEADING);
     expect(numbersIn(sectionIn(route, "now"))).toEqual([2]);
@@ -213,7 +219,7 @@ describe("the top section is one section with two headings", () => {
   it("reads Now and holds every claimed node when something is", () => {
     const route = routeOf(
       mapOf([node(1, { state: "claimed" }), node(2), node(3, { state: "claimed" })], {
-        frontier: 2,
+        frontier: designating(2),
       }),
     );
 
@@ -237,7 +243,7 @@ describe("a mark has one precedence: claimed, then designated, then state", () =
    * next thing to pick up would send two operators at one ticket.
    */
   it("marks a claimed node claimed even when the model designated it", () => {
-    const route = routeOf(mapOf([node(1, { state: "claimed" })], { frontier: 1 }));
+    const route = routeOf(mapOf([node(1, { state: "claimed" })], { frontier: designating(1) }));
 
     expect(markOn(route, 1)).toBe("claimed");
     // The designation is carried rather than overwritten.
@@ -245,7 +251,7 @@ describe("a mark has one precedence: claimed, then designated, then state", () =
   });
 
   it("marks the designated node designated ahead of its own state", () => {
-    const route = routeOf(mapOf([node(1)], { frontier: 1 }));
+    const route = routeOf(mapOf([node(1)], { frontier: designating(1) }));
 
     expect(markOn(route, 1)).toBe("designated");
   });
@@ -346,7 +352,7 @@ describe("the frontier is Rust's answer, carried and never re-resolved", () => {
     const map = awkward();
     const marked = rowsIn(routeOf(map)).filter((row) => row.designated);
 
-    expect(map.frontier).toBe(75);
+    expect(map.frontier).toEqual({ frontier: "designated", number: 75 });
     expect(numbersIn(marked)).toEqual([75]);
   });
 
@@ -364,6 +370,85 @@ describe("the frontier is Rust's answer, carried and never re-resolved", () => {
     const route = routeOf(mapOf([node(1), node(2)]));
 
     expect(rowsIn(route).some((row) => row.designated)).toBe(false);
+  });
+});
+
+describe("the tickets this machine cannot start are listed and not offered", () => {
+  /**
+   * The Windows reading of `platform-bound`: three takeable tickets, every one
+   * of them labelled for a machine this is not. The pane's whole job here is to
+   * keep them exactly where their state puts them, keep them in the count, and
+   * say in a word why none of them is designated — the alternative is a
+   * *Frontier* section of three rows with nothing marked, which reads as a bug.
+   */
+  function bound(): Map {
+    const map = FIXTURES["platform-bound-windows"].model.map;
+    if (map === null) throw new Error("the platform-bound fixture has no map");
+    return map;
+  }
+
+  it("leaves every one of them under Frontier and in its count", () => {
+    const route = routeOf(bound());
+    const frontier = sectionIn(route, "frontier");
+
+    expect(numbersIn(frontier)).toEqual([80, 81, 82, 84]);
+    expect(route.sections.find((section) => section.name === "frontier")?.count).toBe(4);
+    // The three tickets, plus the spec that was never frontier-eligible for a
+    // reason that has nothing to do with machines.
+    expect(frontier.filter((row) => row.boundElsewhere)).toHaveLength(3);
+  });
+
+  it("designates none of them and draws no Now section at all", () => {
+    const route = routeOf(bound());
+
+    expect(rowsIn(route).some((row) => row.designated)).toBe(false);
+    // Not an empty group under a heading: *nothing for this machine* is said in
+    // the readout, and a heading over nothing would say it as a shrug.
+    expect(route.sections.some((section) => section.name === "now")).toBe(false);
+  });
+
+  it("carries the verdict onto the row rather than working it out here", () => {
+    const rows = rowsIn(routeOf(bound()));
+    const boundElsewhere = (number: number) =>
+      rows.find((row) => row.node.number === number)?.boundElsewhere;
+
+    // A copy of `node.boundElsewhere`, node by node, including the two the
+    // machine has nothing to say about.
+    for (const row of rows) {
+      expect([row.node.number, row.boundElsewhere]).toEqual([
+        row.node.number,
+        row.node.boundElsewhere,
+      ]);
+    }
+    expect(boundElsewhere(80)).toBe(true);
+    // #83 is for this machine and merely blocked, and #84 is the spec.
+    expect(boundElsewhere(83)).toBe(false);
+    expect(boundElsewhere(84)).toBe(false);
+  });
+
+  it("reads the other machine's answer off the same map with nothing else moved", () => {
+    const mac = FIXTURES["platform-bound-macos"].model.map;
+    if (mac === null) throw new Error("the platform-bound fixture has no map");
+
+    const here = routeOf(bound());
+    const there = routeOf(mac);
+
+    // Every row is drawn on both, and every row is counted on both. What moves
+    // is which section the designated one is read under — the pane's own
+    // *Now/Next* rule — and nothing else, which is what *still render and still
+    // count* looks like from the pane an operator reads.
+    const drawn = (route: Route) => numbersIn(rowsIn(route)).sort((a, b) => a - b);
+    const counted = (route: Route) =>
+      route.sections.reduce((total, section) => total + section.count, 0);
+
+    expect(drawn(there)).toEqual(drawn(here));
+    expect(counted(there)).toBe(counted(here));
+    expect(numbersIn(rowsIn(there).filter((row) => row.designated))).toEqual([81]);
+    // And the state of every row is the same on both machines, because a
+    // machine is a fact about the reader.
+    const stateOf = (route: Route) =>
+      Object.fromEntries(rowsIn(route).map((row) => [row.node.number, row.node.state]));
+    expect(stateOf(there)).toEqual(stateOf(here));
   });
 });
 

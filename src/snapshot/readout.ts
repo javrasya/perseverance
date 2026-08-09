@@ -18,7 +18,7 @@
  * — the same rule `chrome/stamp.ts` holds the staleness vocabulary to.
  */
 
-import type { Model } from "./model.generated";
+import type { Frontier, Model } from "./model.generated";
 
 /** What each rung of the ladder is called on screen. */
 export const PHASE_NAMES = {
@@ -38,12 +38,41 @@ export const NO_MAP_OPEN = "no map open";
  */
 export const NO_FRONTIER = "nothing to start";
 
+/**
+ * The other reading of an empty frontier, and two sentences rather than one.
+ *
+ * A map with tickets left on it that *this machine* cannot start is a different
+ * fact from a map with nothing left at all: the first is finished for you and
+ * not for the project, and somebody reading *nothing to start* on it would
+ * graduate the fog or compose the spec on the strength of it. One sentence for
+ * both is exactly what makes the first read as the second.
+ *
+ * Neither phrase contains the other, so a test can tell them apart and so can
+ * a person glancing at the line.
+ */
+export const NOTHING_FOR_THIS_MACHINE = "nothing for this machine";
+
+/**
+ * The three readings the model settled on, spelled. Which of them applies was
+ * decided in Rust — this only picks the words.
+ */
+function describeFrontier(frontier: Frontier): string {
+  switch (frontier.frontier) {
+    case "designated":
+      return `frontier #${frontier.number}`;
+    case "notOnThisMachine":
+      return NOTHING_FOR_THIS_MACHINE;
+    case "nothingToStart":
+      return NO_FRONTIER;
+  }
+}
+
 export function describeModel(model: Model): string {
   const map = model.map;
   if (map === null) return NO_MAP_OPEN;
 
   const counts = map.counts;
-  const frontier = map.frontier === null ? NO_FRONTIER : `frontier #${map.frontier}`;
+  const frontier = describeFrontier(map.frontier);
 
   return [
     `#${map.number}`,

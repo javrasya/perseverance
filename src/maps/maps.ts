@@ -67,6 +67,19 @@ export interface MapsView {
   /** A page GitHub's own limits say cannot exist. Said, never paged through. */
   truncated: boolean;
   /**
+   * A label list longer than one page — an ordinary thing for an issue to have,
+   * and the one truncation that fails unsafe.
+   *
+   * Beside `truncated` rather than inside it: nothing caps how many labels an
+   * issue may carry, so folding this into the flag that draws *GitHub's own
+   * limits say this cannot happen* would print an impossibility at an operator
+   * whose issue is merely well-labelled — and would print it instead of the one
+   * sentence that names what the overrun costs. The two read disjoint halves of
+   * one Rust `Truncation`, so they cannot disagree; either, both or neither can
+   * be true.
+   */
+  labelsTruncated: boolean;
+  /**
    * Whether the rate-limit budget is what is holding the poller's interval
    * down. Decided in Rust — the inputs to that decision are not on this side at
    * all — and true only while the budget is the *winning* term, so the clause
@@ -126,6 +139,7 @@ export function nothingReadYet(folderId: number): MapsView {
     provenance: { source: "none", outcome: { kind: "notAttempted" }, fetchedAt: null },
     rateLimit: null,
     truncated: false,
+    labelsTruncated: false,
     yieldingToRateLimit: false,
   };
 }
@@ -319,9 +333,35 @@ export const NOT_READ_COPY =
  * The tripwire's sentence. It names what was cut off rather than how much,
  * because the number is beside the point: GitHub's own limits say this cannot
  * happen, so if it has, the thing worth reporting is that it has.
+ *
+ * It is drawn from `truncated`, which is the Rust side's `Truncation::capped()`
+ * and covers the three connections that really are capped. The fourth flag has
+ * its own sentence below, because *this cannot happen* is exactly what is not
+ * true of it.
  */
 export const TRUNCATED_NOTE =
   "GitHub answered with more than one page, which its own limits say cannot happen. Some of what is here is not on screen.";
+
+/**
+ * The fourth tripwire's sentence, and why it is a second one.
+ *
+ * Nothing caps how many labels an issue may carry, so this page can exist and
+ * the sentence above would be false about it. And it is the only truncation
+ * whose silent version is *unsafe* rather than merely incomplete, so it is the
+ * only one with a consequence worth naming: a platform label past the end of the
+ * page reads, in the model, exactly like a ticket that said nothing about
+ * machines — and a ticket that said nothing about machines is offered on all of
+ * them. So the copy names that outcome rather than the count, which is what
+ * makes it something an operator can act on: the fix is fewer labels on the
+ * issue, and until then a designated ticket is worth a second look.
+ *
+ * The label family is named in prose and never spelled with its prefix, here or
+ * in the copy. Matching happens in `crates/model/src/derive.rs` and the prefix
+ * itself stays there — ADR 0006, and the structural guard in
+ * `tests/snapshot.test.ts` that reads every file on this side looking for it.
+ */
+export const LABELS_TRUNCATED_NOTE =
+  "An issue here carries more labels than one page holds, so some of them were not read. A ticket whose platform label was cut off reads as one that said nothing about machines, so it can be offered on this one even though it is bound to another.";
 
 /**
  * What a section says when the poller has stopped reading it.
