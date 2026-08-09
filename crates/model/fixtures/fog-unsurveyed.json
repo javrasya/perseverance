@@ -1,0 +1,58 @@
+{
+  "_why": "A map document that was written and a fog that was never surveyed. Notes and Decisions-so-far are there; `## Not yet specified` is not. The bullet under Decisions is the trap: a scan that counted bullets without bounding them by the heading would report one thing nobody specified, and there are none — nobody has said either way.",
+  "data": {
+    "repository": {
+      "nameWithOwner": "o/r",
+      "maps": {
+        "pageInfo": { "hasNextPage": false },
+        "nodes": [
+          {
+            "number": 100,
+            "title": "Spec: nobody surveyed the fog",
+            "state": "OPEN",
+            "url": "https://github.com/o/r/issues/100",
+            "updatedAt": "2026-08-05T09:12:44Z"
+          }
+        ]
+      },
+      "issue": {
+        "number": 100,
+        "title": "Spec: nobody surveyed the fog",
+        "state": "OPEN",
+        "body": "## Notes\n\nThe charting session ran out of time before the last pass.\n\n## Decisions so far\n\n- GitHub is read over a socket this app owns.\n",
+        "url": "https://github.com/o/r/issues/100",
+        "updatedAt": "2026-08-05T09:12:44Z",
+        "labels": { "nodes": [{ "name": "wayfinder:map" }] },
+        "subIssues": {
+          "pageInfo": { "hasNextPage": false },
+          "nodes": [
+            {
+              "number": 101,
+              "title": "Read the map over a socket",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/101",
+              "updatedAt": "2026-08-05T09:12:44Z",
+              "labels": { "nodes": [{ "name": "wayfinder:task", "color": "1d76db" }] },
+              "assignees": { "nodes": [] },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 0,
+                "blocking": 0,
+                "totalBlocking": 0
+              },
+              "blockedBy": { "pageInfo": { "hasNextPage": false }, "nodes": [] }
+            }
+          ]
+        }
+      }
+    },
+    "rateLimit": {
+      "cost": 1,
+      "nodeCount": 4,
+      "limit": 5000,
+      "remaining": 4988,
+      "resetAt": "2026-08-05T11:02:14Z"
+    }
+  }
+}

@@ -69,6 +69,13 @@ pub struct MapGraph {
     /// GitHub's own state for the map itself, which is the top rung of the
     /// phase ladder and the one rung no ticket can put the map on.
     pub closed: bool,
+    /// The map issue's body, exactly as GitHub sent it.
+    ///
+    /// Nothing here reads it. It is the Notes / Decisions-so-far / Fog document
+    /// the operator writes, and *which* of its lines are the fog is
+    /// [`crate::derive::Fog::of`]'s judgement — the same split the labels take,
+    /// which cross as strings and are classified one file over.
+    pub body: String,
     /// **Sub-issue order**, exactly as GitHub answered — which is the order the
     /// operator dragged them into in GitHub's own UI. Never re-sorted here, and
     /// never re-sorted anywhere: a ranking invented by this app is a ranking the
@@ -344,6 +351,7 @@ pub fn read_response(body: &str) -> Result<MapRead, ReadError> {
             // response about a map that was open at the time.
             closed: issue.state.eq_ignore_ascii_case("CLOSED"),
             title: issue.title,
+            body: issue.body,
             children,
         }
     });
@@ -561,6 +569,10 @@ mod wire {
         /// arguing against.
         #[serde(default)]
         pub labels: Connection<Label>,
+        /// The map document itself. Carried and not read: which part of it is
+        /// the fog is a conclusion, and conclusions live in `derive`.
+        #[serde(default)]
+        pub body: String,
         #[serde(default)]
         pub sub_issues: Connection<Child>,
     }
@@ -700,6 +712,29 @@ mod tests {
     const TWO_MAPS: &str = include_str!("../fixtures/two-maps-one-open.json");
     const AWKWARD: &str = include_str!("../fixtures/awkward-children.json");
     const NO_MAP: &str = include_str!("../fixtures/no-map-in-this-repo.json");
+    const FOG_CHARTED: &str = include_str!("../fixtures/fog-charted.json");
+
+    /// The whole document arrives and none of it is interpreted here. A parse
+    /// that had already cut the fog out would be this file taking the decision
+    /// `derive` is the only place allowed to take.
+    #[test]
+    fn the_map_body_crosses_this_parse_whole_and_unread() {
+        let map = read_response(FOG_CHARTED)
+            .expect("reads")
+            .map
+            .expect("a map");
+
+        assert!(map.body.contains("## Notes"));
+        assert!(map.body.contains("## Not yet specified"));
+        assert!(map.body.contains("## Decisions so far"));
+    }
+
+    #[test]
+    fn an_answer_with_no_body_reads_as_an_empty_one_rather_than_a_refusal() {
+        let map = read_response(TWO_MAPS).expect("reads").map.expect("a map");
+
+        assert_eq!(map.body, "");
+    }
 
     #[test]
     fn a_response_yields_the_maps_the_label_found_in_the_order_they_arrived() {

@@ -29,6 +29,12 @@
  * no previous session to have ended. Its ledger is the only one on disk that is
  * not empty, so it is the only fixture where a real zero and *first open* are
  * distinguishable on screen.
+ *
+ * The three fog fixtures are there because the fog is the one region whose
+ * *absence* is the fact: a browser has no way to edit a map document, and
+ * *nobody surveyed*, *surveyed and found nothing* and *surveyed and wrote four
+ * lines* are three states that must be tellable apart on screen and not only in
+ * the type.
  */
 
 import type { Snapshot } from "./model.generated";
@@ -36,6 +42,9 @@ import type { Snapshot } from "./model.generated";
 import authFailed from "./fixtures/auth-failed.json";
 import awkwardMap from "./fixtures/awkward-map.json";
 import emptyMap from "./fixtures/empty-map.json";
+import fogCharted from "./fixtures/fog-charted.json";
+import fogEmpty from "./fixtures/fog-empty.json";
+import fogUnsurveyed from "./fixtures/fog-unsurveyed.json";
 import mapClosed from "./fixtures/map-closed.json";
 import mapGone from "./fixtures/map-gone.json";
 import noMapOpen from "./fixtures/no-map-open.json";
@@ -61,6 +70,9 @@ export const FIXTURES = {
   "auth-failed": AS_GENERATED(authFailed),
   "awkward-map": AS_GENERATED(awkwardMap),
   "empty-map": AS_GENERATED(emptyMap),
+  "fog-charted": AS_GENERATED(fogCharted),
+  "fog-empty": AS_GENERATED(fogEmpty),
+  "fog-unsurveyed": AS_GENERATED(fogUnsurveyed),
   "map-closed": AS_GENERATED(mapClosed),
   "map-gone": AS_GENERATED(mapGone),
   "no-map-open": AS_GENERATED(noMapOpen),

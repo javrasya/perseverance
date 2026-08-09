@@ -132,9 +132,16 @@ interface DrawnSection {
   rows: number[];
 }
 
-/** Each heading, the count it carries, and the rows the heading names. */
+/**
+ * Each heading, the count it carries, and the rows the heading names.
+ *
+ * Scoped to the row sections. The fog draws an `h2` too — it is a peer of these
+ * groups — but it heads no rows and carries no count that could be
+ * `rows.length`, so a reader that swept both would be asking one question of
+ * two different things.
+ */
 function sectionsIn(host: HTMLElement): DrawnSection[] {
-  return all(host, "h2").map((heading) => {
+  return all(host, 'h2[id^="route-section-"]').map((heading) => {
     const rows = host.querySelector(`[aria-labelledby="${heading.id}"]`);
     if (rows === null) throw new Error(`nothing is labelled by ${heading.id}`);
     const [name, , count] = [...heading.children];
@@ -253,13 +260,12 @@ describe("a grouped list in one column", () => {
     }
 
     /*
-     * Four, and the two that would follow are named holes rather than stubs.
-     * Out of scope is #36 and fog is #35, and a stubbed heading here would have
-     * to carry a count — which is the zero `—` exists to be told apart from,
-     * and the exact failure #35 is open to prevent.
+     * Four sections, and the one that would follow is a named hole rather than
+     * a stub. Out of scope is #36, and a stubbed heading here would have to
+     * carry a count — which is the zero `—` exists to be told apart from. The
+     * fog is no longer a hole; it is a region, and it is asserted below.
      */
     expect(host.textContent).not.toContain("Out of scope");
-    expect(host.textContent).not.toContain("Fog");
   });
 
   it("puts the sections in one column, each in the operator's own order", async () => {
@@ -293,8 +299,11 @@ describe("a grouped list in one column", () => {
 
     // A heading is a claim that there is something under it, and a count
     // standing in for an absence is the zero `—` exists to be told apart from.
-    expect(all(host, "h2")).toEqual([]);
+    expect(all(host, 'h2[id^="route-section-"]')).toEqual([]);
     expect(all(host, "[data-node]")).toEqual([]);
+    // The fog is the exception to *a heading is a claim that there is something
+    // under it*, because on this map the absence is the thing there is to say.
+    expect(host.querySelector("[data-fog]")).not.toBeNull();
   });
 
   it("draws five marks, each a different shape", async () => {
@@ -388,6 +397,76 @@ describe("edges get words, never pixels", () => {
   it("draws no edge on an empty map or on no map at all", async () => {
     expect(all(await paint(FIXTURES["empty-map"].model), ANY_DRAWN_EDGE)).toEqual([]);
     expect(all(await paint(FIXTURES["no-map-open"].model), ANY_DRAWN_EDGE)).toEqual([]);
+  });
+});
+
+describe("the fog is a named region and not a smudge", () => {
+  const withFog = (fog: Map["fog"]): Model => ({ map: { ...awkward(), fog } });
+  const unsurveyed = withFog({ fog: "unsurveyed" });
+  const empty = withFog({ fog: "surveyed", region: { count: 0, text: "" } });
+  const charted = withFog({
+    fog: "surveyed",
+    region: { count: 2, text: "- one\n  - nested\n\n- two" },
+  });
+
+  it("names itself on every map, and not only counts itself", async () => {
+    for (const model of [unsurveyed, empty, charted]) {
+      const region = (await paint(model)).querySelector("[data-fog]");
+      expect(region?.querySelector("h2")?.firstElementChild?.textContent).toBe("Fog");
+    }
+  });
+
+  /**
+   * The region's shape, read off the DOM while it is up.
+   *
+   * Read rather than held: `paint` repaints into the same root, so React keeps
+   * the one `<section>` and a reference taken before the second paint would be
+   * the second region wearing the first one's name.
+   */
+  const shapeOfTheFog = async (model: Model) => {
+    const region = (await paint(model)).querySelector("[data-fog]");
+    return {
+      which: region?.getAttribute("data-fog"),
+      count: region?.querySelector("[data-count]")?.textContent ?? null,
+      dash: region?.querySelector("[data-unsurveyed]")?.textContent ?? null,
+      elements: region?.children.length,
+    };
+  };
+
+  it("tells a map nobody surveyed from a survey that found nothing, by form", async () => {
+    const nobody = await shapeOfTheFog(unsurveyed);
+    const nothing = await shapeOfTheFog(empty);
+
+    /*
+     * Different elements in the count's slot — not one element with different
+     * text in it, which is the distinction #35 refuses to settle for — and a
+     * different number of elements in the region, because nobody surveyed and
+     * so there is nothing under the heading at all.
+     */
+    expect(nobody).toEqual({ which: "unsurveyed", count: null, dash: "—", elements: 1 });
+    expect(nothing).toEqual({ which: "surveyed", count: "0", dash: null, elements: 2 });
+  });
+
+  it("renders the section verbatim, indentation and blank line intact", async () => {
+    const region = (await paint(charted)).querySelector("[data-fog] pre");
+
+    // Byte for byte. Nothing re-rendered it as a list, nothing collapsed the
+    // blank line, nothing ate the two spaces in front of the nested bullet.
+    expect(region?.textContent).toBe("- one\n  - nested\n\n- two");
+  });
+
+  it("carries the model's count and never one of its own", async () => {
+    // Two, though there are three bullet-looking lines on screen: the nesting
+    // was judged in Rust and this side does not recount it.
+    const host = await paint(charted);
+
+    expect(host.querySelector("[data-count]")?.textContent).toBe("2");
+  });
+
+  it("draws no edge of any kind, fog included", async () => {
+    for (const model of [unsurveyed, empty, charted]) {
+      expect(all(await paint(model), ANY_DRAWN_EDGE)).toEqual([]);
+    }
   });
 });
 

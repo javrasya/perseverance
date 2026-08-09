@@ -20,8 +20,8 @@ mod read;
 mod snapshot;
 
 pub use derive::{
-    ChildKind, Counts, Frontier, Machine, Map, Model, Node, NodeState, Phase, TicketType,
-    PLATFORM_PREFIX, WAYFINDER_PREFIX,
+    ChildKind, Counts, Fog, FogRegion, Frontier, Machine, Map, Model, Node, NodeState, Phase,
+    TicketType, FOG_HEADING, PLATFORM_PREFIX, WAYFINDER_PREFIX,
 };
 pub use ledger::{ChangeLog, Clause, ClauseKind, Entry, Ledger, Occasion, Since, RING_CAPACITY};
 pub use read::{

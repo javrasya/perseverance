@@ -2,48 +2,32 @@
   "schemaVersion": 3,
   "model": {
     "map": {
-      "number": 28,
-      "title": "Spec: perseverance",
+      "number": 100,
+      "title": "Spec: nobody surveyed the fog",
       "closed": false,
       "phase": "wayfinding",
       "counts": {
-        "tickets": 2,
-        "open": 2,
+        "tickets": 1,
+        "open": 1,
         "specs": 0
       },
       "nodes": [
         {
-          "number": 32,
-          "title": "Maps on screen",
-          "url": "https://github.com/o/r/issues/32",
+          "number": 101,
+          "title": "Read the map over a socket",
+          "url": "https://github.com/o/r/issues/101",
           "kind": {
             "kind": "ticket",
             "type": "task"
           },
           "state": "takeable",
-          "waitsOn": [
-            30
-          ],
-          "boundElsewhere": false
-        },
-        {
-          "number": 33,
-          "title": "The derived model",
-          "url": "https://github.com/o/r/issues/33",
-          "kind": {
-            "kind": "ticket",
-            "type": "task"
-          },
-          "state": "blocked",
-          "waitsOn": [
-            32
-          ],
+          "waitsOn": [],
           "boundElsewhere": false
         }
       ],
       "frontier": {
         "frontier": "designated",
-        "number": 32
+        "number": 101
       },
       "fog": {
         "fog": "unsurveyed"

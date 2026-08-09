@@ -371,9 +371,35 @@ describe("dev:web", () => {
      * `—` exists to be told apart from, so neither is drawn. What an empty map
      * should *say* — as opposed to what it may not claim — is #37's.
      */
-    expect(route.querySelectorAll("h2")).toHaveLength(0);
+    expect(route.querySelectorAll('h2[id^="route-section-"]')).toHaveLength(0);
     expect(route.querySelectorAll("[data-node]")).toHaveLength(0);
     expect(route.querySelectorAll(ANY_DRAWN_EDGE)).toHaveLength(0);
+    // The fog is the one region drawn on a map with nothing on it, because
+    // here the absence is the fact rather than the reason to say nothing.
+    expect(route.querySelector('[data-fog="unsurveyed"]')).not.toBeNull();
+  });
+
+  it("boots each fog state and keeps the two nothings apart on screen", async () => {
+    await boot("/?map=fog-unsurveyed");
+    const nobody = theRoute().querySelector("[data-fog]");
+    expect(nobody?.getAttribute("data-fog")).toBe("unsurveyed");
+    expect(nobody?.textContent).toContain("—");
+    expect(nobody?.querySelector("[data-count]")).toBeNull();
+
+    await boot("/?map=fog-empty");
+    const nothing = theRoute().querySelector("[data-fog]");
+    expect(nothing?.getAttribute("data-fog")).toBe("surveyed");
+    expect(nothing?.querySelector("[data-count]")?.textContent).toBe("0");
+
+    await boot("/?map=fog-charted");
+    const charted = theRoute().querySelector("[data-fog]");
+    expect(charted?.querySelector("[data-count]")?.textContent).toBe("3");
+    // The nested line is on screen and is not one of the three.
+    expect(charted?.querySelector("pre")?.textContent).toContain(
+      "  - and whether the split is remembered",
+    );
+    // And the section stopped where the next heading did.
+    expect(charted?.textContent).not.toContain("The Route is a grouped list");
   });
 
   it("boots whichever map the url named", async () => {

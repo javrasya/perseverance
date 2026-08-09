@@ -2,10 +2,10 @@
   "schemaVersion": 3,
   "model": {
     "map": {
-      "number": 100,
-      "title": "Spec: called finished",
-      "closed": true,
-      "phase": "done",
+      "number": 102,
+      "title": "Spec: the fog was surveyed and was empty",
+      "closed": false,
+      "phase": "wayfinding",
       "counts": {
         "tickets": 1,
         "open": 1,
@@ -13,9 +13,9 @@
       },
       "nodes": [
         {
-          "number": 101,
-          "title": "Never picked up, and no longer needed",
-          "url": "https://github.com/o/r/issues/101",
+          "number": 103,
+          "title": "Compose the spec",
+          "url": "https://github.com/o/r/issues/103",
           "kind": {
             "kind": "ticket",
             "type": "task"
@@ -27,10 +27,14 @@
       ],
       "frontier": {
         "frontier": "designated",
-        "number": 101
+        "number": 103
       },
       "fog": {
-        "fog": "unsurveyed"
+        "fog": "surveyed",
+        "region": {
+          "count": 0,
+          "text": ""
+        }
       }
     }
   },

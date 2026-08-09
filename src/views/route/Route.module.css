@@ -354,3 +354,61 @@
 .node[data-selected] {
   --c-node-fill: var(--s-surface-hover);
 }
+
+/* --------------------------------------------------------------- fog --- */
+
+/*
+ * A region and not a section: it reuses the section heading's form, because it
+ * is a peer of the four groups above it, and it is the only one of the five
+ * that is drawn when it is empty.
+ */
+.fog {
+  display: flex;
+  flex-direction: column;
+}
+
+/* A count, set exactly as a section's count is. */
+.fogCount {
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * Not a count, and deliberately not set like one. `—` stands where a numeral
+ * would go, in the ui face and the ink of a thing not yet established — the
+ * same pair the chrome's own numeral gives *first open*, and for the same
+ * reason: a survey that found nothing and a survey nobody ran must not read as
+ * one claim. The face carries it on a monochrome screen and through a retheme,
+ * where a colour alone would not.
+ */
+.fogUnsurveyed {
+  color: var(--s-ink-faint);
+  font-family: var(--s-font-ui);
+}
+
+/*
+ * The section, verbatim.
+ *
+ * `pre-wrap` and not `pre`: the operator's own line breaks and indentation are
+ * kept, and a line longer than the column wraps rather than putting the pane
+ * into a horizontal scroll it has no room for. Nothing here re-renders markdown
+ * — a `- ` on screen is the `- ` in the map document, which is the whole point
+ * of carrying the text rather than a parse of it.
+ */
+.fogText {
+  margin: 0;
+  padding: 0 var(--s-space-base) var(--s-space-base);
+  color: var(--s-ink-secondary);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-small);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+/* A survey that found nothing still says so, so the difference from an
+   unsurveyed region is two elements rather than one character. */
+.fogEmpty {
+  margin: 0;
+  padding: 0 var(--s-space-base) var(--s-space-base);
+  color: var(--s-ink-faint);
+  font-size: var(--s-text-small);
+}

@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import type { Node } from "../../snapshot/model.generated";
+import type { Fog, Node } from "../../snapshot/model.generated";
 import { NO_MAP_OPEN } from "../../snapshot/readout";
 /*
  * The props are the shared type and never a local one. A view that declared its
@@ -10,6 +10,9 @@ import type { ViewProps } from "../views";
 import {
   BOUND_ELSEWHERE_TAG,
   DESIGNATED_TAG,
+  FOG_ALL_CHARTED,
+  FOG_HEADING,
+  NOBODY_SURVEYED,
   STATE_NAMES,
   beyondTheMapNote,
   blockedByLabel,
@@ -41,7 +44,10 @@ import styles from "./Route.module.css";
  * section, heading, count, mark and tally that reaches the screen: no counting
  * here, no filtering, no grouping and no state resolution, which is what makes
  * the claim checkable — and no positions are stored anywhere, because the same
- * model always answers with the same list.
+ * model always answers with the same list. The fog is parsed nowhere near here
+ * either. What arrives is a region already bounded, already counted and already
+ * told apart from a region nobody surveyed; this file chooses a word and a
+ * shape for it and reads not one character of it.
  *
  * **Import this file as `Route.jsx`.** It sits beside `route.ts`, and macOS and
  * Windows filesystems are case-insensitive, so an extensionless `./Route`
@@ -65,6 +71,11 @@ const GLYPHS = {
   blocked: styles.markBlocked,
   resolved: styles.markResolved,
 } satisfies Record<Mark, string | undefined>;
+
+/* The fog heading's own id, so its region is labelled by it exactly as a
+   section's rows are labelled by theirs — and so a reader after the four row
+   sections can ask for `route-section-*` and not sweep this one in with them. */
+const FOG_ID = "route-fog";
 
 export function Route({ model, selected, onSelect }: ViewProps) {
   /*
@@ -108,10 +119,7 @@ export function Route({ model, selected, onSelect }: ViewProps) {
         decoration on resolved rather than a fifth state, and the counts stay at
         three.
       */}
-      {/*
-        Fog sits here, last inside this same column. #35 — it must name itself
-        and not only count itself, and a missing heading is `—` and never `0`.
-      */}
+      <FogRegion fog={route.fog} />
     </section>
   );
 }
@@ -153,6 +161,63 @@ function Section({
         ))}
       </ul>
     </>
+  );
+}
+
+/**
+ * The fog: a region that names itself, counts itself, and says which of the two
+ * nothings it is in its shape rather than in a character.
+ *
+ * **Drawn on every map, including one with nothing else on it.** Every other
+ * group here is dropped when it is empty, because a group is a claim that there
+ * is something in it. This is the one place where the emptiness is the claim —
+ * and the fog is the only element on the map with no identity of its own, which
+ * is why it gets a name instead of a number in the margin.
+ *
+ * The two readings differ in **form** and not only in the glyph, which is what
+ * #35 asks for: the unsurveyed region stands an em dash in a different type
+ * face where a numeral would go **and draws nothing at all beneath its
+ * heading**, while a surveyed one draws a numeral and always draws a body under
+ * it. Nothing has to read a character to tell them apart, and neither of the
+ * two differences is a colour.
+ */
+function FogRegion({ fog }: { fog: Fog }) {
+  if (fog.fog === "unsurveyed") {
+    return (
+      <section className={styles.fog} data-fog="unsurveyed" aria-labelledby={FOG_ID}>
+        <h2 className={styles.sectionHeading} id={FOG_ID}>
+          <span className={styles.sectionName}>{FOG_HEADING}</span>
+          <span className={styles.rule} aria-hidden="true" />
+          {/* Not a numeral, and not in a numeral's slot: nobody has been here,
+              and a zero would report that as a finding. */}
+          <span className={styles.fogUnsurveyed} data-unsurveyed>
+            {NOBODY_SURVEYED}
+          </span>
+        </h2>
+      </section>
+    );
+  }
+
+  return (
+    <section className={styles.fog} data-fog="surveyed" aria-labelledby={FOG_ID}>
+      <h2 className={styles.sectionHeading} id={FOG_ID}>
+        <span className={styles.sectionName}>{FOG_HEADING}</span>
+        <span className={styles.rule} aria-hidden="true" />
+        <span className={styles.fogCount} data-count>
+          {fog.region.count}
+        </span>
+      </h2>
+      {fog.region.text === "" ? (
+        <p className={styles.fogEmpty}>{FOG_ALL_CHARTED}</p>
+      ) : (
+        /* One text node, unmodified. The section is not re-rendered from
+           markdown, not split into rows and not trimmed: `pre-wrap` in the
+           stylesheet is what puts the operator's own line breaks and
+           indentation on screen, and the parse in Rust is the only thing that
+           ever chose where this string starts and stops. */
+        <pre className={styles.fogText}>{fog.region.text}</pre>
+      )}
+    </section>
   );
 }
 

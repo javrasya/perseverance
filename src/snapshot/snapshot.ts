@@ -47,12 +47,14 @@ export type {
 } from "./model.generated";
 
 /**
- * Two, since the ledger joined the wire. It rides on the snapshot **beside**
- * the model rather than inside it, which is what puts it outside the type every
- * view is handed — so *no view renders the ledger* is structural here rather
- * than a rule anybody has to keep.
+ * Three, since the fog joined the map. Two was the ledger, which rides on the
+ * snapshot **beside** the model rather than inside it — what puts it outside
+ * the type every view is handed, so *no view renders the ledger* is structural
+ * here rather than a rule anybody has to keep. The fog went the other way: it
+ * is a member of the map itself, with no default behind it, so a version-two
+ * body no longer deserialises at all.
  */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 /**
  * True when the app is running inside the Tauri shell. Its negation is the

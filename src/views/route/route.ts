@@ -32,7 +32,7 @@
  * authority nobody granted.
  */
 
-import type { Map, Node, NodeState } from "../../snapshot/model.generated";
+import type { Fog, Map, Node, NodeState } from "../../snapshot/model.generated";
 
 /*
  * `Map` above is the derived model's map, which shadows the built-in one for
@@ -162,11 +162,16 @@ function attendanceOf(node: Node): Attendance | null {
 /**
  * The sections the pane can draw, in document order.
  *
- * Four, and two more belong to tickets that are not this one: out of scope is
- * #36, which owns the decoration and the argument that it is not progress, and
- * fog is #35. Neither is stubbed here. A stubbed section would have to carry a
- * count, and a count nobody derived is the zero that `—` exists to keep apart
- * from a real one.
+ * Four, and the fifth belongs to a ticket that is not this one: out of scope is
+ * #36, which owns the decoration and the argument that it is not progress. It
+ * is not stubbed here, because a stubbed section would have to carry a count,
+ * and a count nobody derived is the zero that `—` exists to keep apart from a
+ * real one.
+ *
+ * **The fog is not on this list either, and for the opposite reason**: it is
+ * real, it is drawn, and it is not a section — [`RouteSection.count`] is always
+ * `rows.length` and the fog has no rows, so it rides beside the sections on
+ * [`Route`] rather than being bent into one.
  */
 export type SectionName = "now" | "frontier" | "blocked" | "resolved";
 
@@ -200,7 +205,20 @@ export type RouteSection = {
   readonly count: number;
 };
 
-export type Route = { readonly sections: readonly RouteSection[] };
+export type Route = {
+  readonly sections: readonly RouteSection[];
+  /**
+   * The known unknowns, as the model settled them.
+   *
+   * **Always here, unlike a section.** A section with no rows is dropped
+   * because a group is a claim that there is something in it; the fog region is
+   * the one place on the map where *there is nothing in it* is the claim, and
+   * two different nothings at that. Carried through untouched — which of the
+   * two readings applies was decided in Rust, and asking again here is
+   * resolving, which is the one thing this side may not do.
+   */
+  readonly fog: Fog;
+};
 
 function sectionOf(
   name: SectionName,
@@ -294,6 +312,7 @@ export function routeOf(map: Map): Route {
       sectionOf("blocked", SECTION_HEADINGS.blocked, blocked),
       sectionOf("resolved", SECTION_HEADINGS.resolved, resolved),
     ].filter((section) => section.count > 0),
+    fog: map.fog,
   };
 }
 
@@ -353,6 +372,43 @@ export const SECTION_HEADINGS: Record<SectionName, string> = {
   blocked: "Blocked",
   resolved: "Resolved",
 };
+
+/**
+ * The fog names itself.
+ *
+ * Everything else on this map has an identity — a number, a title, a URL — and
+ * the fog has none of the three, because it is the work nobody has cut a ticket
+ * for yet. That is exactly why it is named rather than left as a figure in the
+ * margin: a region with a name is somewhere an operator can go, and an
+ * unlabelled number is a smudge.
+ *
+ * Sentence case like the section headings, and uppercased by the stylesheet for
+ * the same reason.
+ */
+export const FOG_HEADING = "Fog";
+
+/**
+ * What stands where the count would be when the map's body never named the fog
+ * at all.
+ *
+ * `—` and never `0`, and the dash is only half of the answer: it is set in a
+ * different face from a numeral and the region draws nothing beneath it, so
+ * *nobody surveyed* and *surveyed and found nothing* differ in form rather than
+ * in one character. The same em dash `environment.ts` spells as `NOTHING_YET` —
+ * one dash for one meaning across the window, declared here as that file and
+ * `folder.ts` each declare their own.
+ */
+export const NOBODY_SURVEYED = "—";
+
+/**
+ * Said under the heading when the survey happened and turned up nothing.
+ *
+ * A real claim, and the reason the surveyed branch always draws something under
+ * its heading: an empty region and an unsurveyed one would otherwise look
+ * identical below the count, and the count is not the only place the difference
+ * is meant to be legible.
+ */
+export const FOG_ALL_CHARTED = "nothing left unspecified";
 
 /**
  * The on-screen word for each of the four states.
