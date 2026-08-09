@@ -5180,13 +5180,19 @@ mod tests {
         // The child's environment is cleared before it starts, so a sleeper
         // given only `TERM` has no `PATH` and is not a sleeper at all — it is a
         // run that ended before the assertions got to it.
-        let mut environment = vec![("TERM".to_string(), "xterm-256color".to_string())];
         #[cfg(windows)]
-        {
+        let system = {
             let root = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_string());
-            environment.push(("PATH".to_string(), format!("{root}\\system32")));
-            environment.push(("SystemRoot".to_string(), root));
-        }
+            [
+                ("PATH".to_string(), format!("{root}\\system32")),
+                ("SystemRoot".to_string(), root),
+            ]
+        };
+        #[cfg(not(windows))]
+        let system: [(String, String); 0] = [];
+
+        let mut environment = vec![("TERM".to_string(), "xterm-256color".to_string())];
+        environment.extend(system);
 
         let accepted = perseverance_pty::accept(perseverance_agent::Launch::new(
             argv,
