@@ -44,8 +44,16 @@ The DAG is the wrong primitive for *what do I work on next*. That question wants
 one answer and a short queue behind it, and a graph answers it by drawing
 everything at once and leaving the ranking to the eye. So the structure is
 carried by two channels the eye reads first: **membership of a section** — Now /
-Next, Frontier, Blocked, Resolved — and **position in the column**. Everything a
-row adds beyond that, it adds in words.
+Next, Frontier, Blocked, Resolved, Out of scope — and **position in the
+column**. Everything a row adds beyond that, it adds in words.
+
+The last of those is the one that is not a state. *Out of scope* heads rows that
+are all resolved, and its count is deliberately **not progress**: it holds the
+work the map document itself cut, apart from the rest so that *Resolved* goes on
+meaning decisions made — see
+[ADR 0017](0017-out-of-scope-is-not-progress.md). It is a section rather than a
+marking on the rows because membership is the channel this view reads with, and
+it keeps the rule every other section keeps: the count is the rows it heads.
 
 Edges get words rather than pixels. `blocked by N` on the row that waits, where
 N is the count of that node's named blockers this map still shows as open; and a

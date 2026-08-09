@@ -29,6 +29,7 @@ export type {
   Clause,
   ClauseKind,
   Counts,
+  Cut,
   Degraded,
   Entry,
   Ledger,
@@ -47,14 +48,15 @@ export type {
 } from "./model.generated";
 
 /**
- * Three, since the fog joined the map. Two was the ledger, which rides on the
- * snapshot **beside** the model rather than inside it — what puts it outside
- * the type every view is handed, so *no view renders the ledger* is structural
- * here rather than a rule anybody has to keep. The fog went the other way: it
- * is a member of the map itself, with no default behind it, so a version-two
- * body no longer deserialises at all.
+ * Four, since a node says whether the map document cut it. Two was the ledger,
+ * which rides on the snapshot **beside** the model rather than inside it — what
+ * puts it outside the type every view is handed, so *no view renders the
+ * ledger* is structural here rather than a rule anybody has to keep. Three was
+ * the fog, and this one went the same way: a member with no default behind it,
+ * this time on the node rather than on the map, so an older body no longer
+ * deserialises at all.
  */
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 /**
  * True when the app is running inside the Tauri shell. Its negation is the

@@ -27,6 +27,7 @@ function node(number: number, over: Partial<Node> = {}): Node {
     state: "takeable",
     waitsOn: [],
     boundElsewhere: false,
+    cut: { cut: "inScope" },
     ...over,
   };
 }
@@ -450,6 +451,104 @@ describe("the tickets this machine cannot start are listed and not offered", () 
     const stateOf = (route: Route) =>
       Object.fromEntries(rowsIn(route).map((row) => [row.node.number, row.node.state]));
     expect(stateOf(there)).toEqual(stateOf(here));
+  });
+});
+
+describe("a ticket the map cut is resolved, and is not counted as progress", () => {
+  /**
+   * The out-of-scope fixture closes two tickets and the map document cut one of
+   * them: #106 was dropped with a reason written under `## Out of scope`, #107
+   * was actually done. GitHub calls both of them closed, so a *Resolved*
+   * heading that counted the pair would report progress for work nobody did —
+   * which is the whole of what this section exists to stop.
+   */
+  function cutSomething(): Map {
+    const map = FIXTURES["out-of-scope"].model.map;
+    if (map === null) throw new Error("the out-of-scope fixture has no map");
+    return map;
+  }
+
+  it("heads Resolved with the decisions made and the cut one with its own", () => {
+    const route = routeOf(cutSomething());
+
+    expect(route.sections.map((section) => section.name)).toEqual([
+      "now",
+      "frontier",
+      "resolved",
+      "outOfScope",
+    ]);
+    expect(route.sections.map((section) => section.heading)).toEqual([
+      NEXT_HEADING,
+      "Frontier",
+      "Resolved",
+      "Out of scope",
+    ]);
+    expect(numbersIn(sectionIn(route, "resolved"))).toEqual([107]);
+    expect(numbersIn(sectionIn(route, "outOfScope"))).toEqual([106]);
+  });
+
+  /**
+   * The arithmetic, said as the file says it everywhere else: a count is the
+   * rows it heads. *Resolved* reads 1 because one row is under it, and the cut
+   * row is not among them — there is no subtraction anywhere for a reader to
+   * check against the screen.
+   */
+  it("counts one under each heading, and each count is the rows it heads", () => {
+    const route = routeOf(cutSomething());
+    const countIn = (name: string) =>
+      route.sections.find((section) => section.name === name)?.count;
+
+    for (const section of route.sections) {
+      expect(section.count).toBe(section.rows.length);
+    }
+    expect(countIn("resolved")).toBe(1);
+    expect(countIn("outOfScope")).toBe(1);
+  });
+
+  it("keeps the cut row resolved, because this is a decoration and not a mark", () => {
+    const cut = sectionIn(routeOf(cutSomething()), "outOfScope")[0];
+
+    expect(cut?.node.state).toBe("resolved");
+    expect(cut?.mark).toBe("resolved");
+  });
+
+  it("carries the operator's own bullet onto the row, verbatim", () => {
+    const route = routeOf(cutSomething());
+    const cutOn = (number: number) =>
+      rowsIn(route).find((row) => row.node.number === number)?.cut;
+
+    expect(cutOn(106)).toBe(
+      "#106 - the launcher never touched the PTY, so there was nothing to strip out and nothing left to keep",
+    );
+    // The other closed ticket was finished rather than dropped, and an open one
+    // is not in that section at all.
+    expect(cutOn(107)).toBeNull();
+    expect(cutOn(105)).toBeNull();
+  });
+
+  it("leaves the open tickets exactly where the frontier put them", () => {
+    const route = routeOf(cutSomething());
+
+    // A cut is a fact about a closed ticket, so nothing open moves for it: #105
+    // is still the one answer to *what next* and #108 is still behind it.
+    expect(numbersIn(sectionIn(route, "now"))).toEqual([105]);
+    expect(numbersIn(sectionIn(route, "frontier"))).toEqual([108]);
+    expect(rowsIn(route).filter((row) => row.cut !== null)).toHaveLength(1);
+  });
+
+  /**
+   * A group is a claim that there is something in it, and this one claims the
+   * map dropped work. On a map that dropped none, the heading would be that
+   * claim made about nothing.
+   */
+  it("draws no out-of-scope section at all on a map that cut nothing", () => {
+    const route = routeOf(mapOf([node(1), node(2, { state: "resolved" })]));
+
+    expect(route.sections.map((section) => section.name)).toEqual([
+      "frontier",
+      "resolved",
+    ]);
+    expect(numbersIn(sectionIn(route, "resolved"))).toEqual([2]);
   });
 });
 

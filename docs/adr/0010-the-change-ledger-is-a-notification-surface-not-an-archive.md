@@ -70,10 +70,12 @@ answers well for the fields somebody thought of and silently answers *nothing
 happened* for the rest. So `unnamed` exists, it reads as *changed*, and a
 differing tick **always** draws a row — asserted by a `debug_assert` in the
 differ rather than left to the shape of the match. A field added later is
-carried in free as an unnamed change, and one word is still declared with no
-producer behind it (`cutFromScope` for #36) so that the precedence does not
-shift when that ticket lands. `fogChanged` was the other, and #35 gave it one:
-it is keyed on `Map::fog` and listed in the map-level residual.
+carried in free as an unnamed change. Two words were declared here with no
+producer behind them so that the precedence would not shift when their tickets
+landed, and both have one now: #35 keyed `fogChanged` on `Map::fog` and listed
+it in the map-level residual, and #36 keyed `cutFromScope` on `Node::cut` — see
+[ADR 0017](0017-out-of-scope-is-not-progress.md). Every word in the vocabulary
+is produced by something, and the seats they were holding never moved.
 
 **And the catch-all is a residual rather than an `else`.** Both the node-level
 and the map-level one are taken by rebuilding the value the named clauses fully
@@ -147,15 +149,17 @@ week loses its oldest rows silently — acceptable for a surface whose job is
 *what moved since you looked*, and wrong for anything that called itself an
 archive.
 
-**One clause kind has no producer.** `cutFromScope` waits on #36; until then the
-catch-all carries those changes, which is exactly its stated job, and the
-variant carries a doc comment saying so. `fogChanged` was the second of the two
-and no longer is: #35 put the fog on `Map`, keyed the clause on it, and added
-`fog` to the map-level residual — without that second line every fog change
-would have gone to the catch-all, which is the state that ticket found the
-vocabulary in.
+**Two clause kinds shipped with no producer, and both have one now.** The
+catch-all carried those changes in the meantime, which is exactly its stated
+job. #35 put the fog on `Map`, keyed `fogChanged` on it, and added `fog` to the
+map-level residual — without that second line every fog change would have gone
+to the catch-all, which is the state that ticket found the vocabulary in. #36
+keyed `cutFromScope` on `Node::cut` and drew it *instead of* `resolved` rather
+than beside it, pre-accounting the decoration in the node residual only where
+the clause fired, so a cut taken back still reaches the catch-all — see
+[ADR 0017](0017-out-of-scope-is-not-progress.md).
 
-**`announce`'s exclusion has no producer either.** `Claims` is managed state
+**`announce`'s exclusion still has no producer.** `Claims` is managed state
 with a `claimed(number)` that nothing calls yet — #48's to call. Today the slice
 is empty, so every claim on screen is somebody else's and announces, which is
 correct rather than merely harmless.

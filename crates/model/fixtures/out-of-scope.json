@@ -1,0 +1,109 @@
+{
+  "_why": "Two branches that stopped, and the map document says which. #106 is closed and named under `## Out of scope`, so it is resolved with a cut on it: drawn with its reason as visible text, and gone from the counts. #105 is named there too and is still open, so nothing happens to it at all — it stays takeable, stays counted, and nothing warns anybody. #107 is closed and only named through another repository's prefix, so it stays plain resolved, which is what keeps a resolved row on screen beside the cut one and makes the smaller resolved count visible rather than merely asserted. #999 is a number with no row here, and the nested bullet is a detail of the line above it rather than a second cut. Three tickets, two open, one resolved.",
+  "data": {
+    "repository": {
+      "nameWithOwner": "o/r",
+      "maps": {
+        "pageInfo": { "hasNextPage": false },
+        "nodes": [
+          {
+            "number": 104,
+            "title": "Spec: the launcher was scoped",
+            "state": "OPEN",
+            "url": "https://github.com/o/r/issues/104",
+            "updatedAt": "2026-08-05T09:12:44Z"
+          }
+        ]
+      },
+      "issue": {
+        "number": 104,
+        "title": "Spec: the launcher was scoped",
+        "state": "OPEN",
+        "body": "## Notes\n\nTwo branches stopped here.\n\n## Out of scope\n\n- #106 - the launcher never touched the PTY, so there was nothing to strip out and nothing left to keep\n  - and the same was true of the folder picker\n- #105 - deferred until somebody asks for it twice\n- #999 was never a child of this map\n- javrasya/other#107 belongs to another repository\n\n## Not yet specified\n\n- Whether the ledger survives a restart\n",
+        "url": "https://github.com/o/r/issues/104",
+        "updatedAt": "2026-08-05T09:12:44Z",
+        "labels": { "nodes": [{ "name": "wayfinder:map" }] },
+        "subIssues": {
+          "pageInfo": { "hasNextPage": false },
+          "nodes": [
+            {
+              "number": 105,
+              "title": "Remember the folder you opened last",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/105",
+              "updatedAt": "2026-08-04T10:00:00Z",
+              "labels": { "nodes": [{ "name": "wayfinder:task", "color": "1d76db" }] },
+              "assignees": { "nodes": [] },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 0,
+                "blocking": 0,
+                "totalBlocking": 0
+              },
+              "blockedBy": { "pageInfo": { "hasNextPage": false }, "nodes": [] }
+            },
+            {
+              "number": 106,
+              "title": "Strip the PTY out of the launcher",
+              "state": "CLOSED",
+              "stateReason": "COMPLETED",
+              "url": "https://github.com/o/r/issues/106",
+              "updatedAt": "2026-08-03T10:00:00Z",
+              "labels": { "nodes": [{ "name": "wayfinder:task", "color": "1d76db" }] },
+              "assignees": { "nodes": [] },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 0,
+                "blocking": 0,
+                "totalBlocking": 0
+              },
+              "blockedBy": { "pageInfo": { "hasNextPage": false }, "nodes": [] }
+            },
+            {
+              "number": 107,
+              "title": "Draw the folder picker",
+              "state": "CLOSED",
+              "stateReason": "COMPLETED",
+              "url": "https://github.com/o/r/issues/107",
+              "updatedAt": "2026-08-03T09:00:00Z",
+              "labels": { "nodes": [{ "name": "wayfinder:task", "color": "1d76db" }] },
+              "assignees": { "nodes": [] },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 0,
+                "blocking": 0,
+                "totalBlocking": 0
+              },
+              "blockedBy": { "pageInfo": { "hasNextPage": false }, "nodes": [] }
+            },
+            {
+              "number": 108,
+              "title": "Name the window after the map",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/108",
+              "updatedAt": "2026-08-04T09:00:00Z",
+              "labels": { "nodes": [{ "name": "wayfinder:task", "color": "1d76db" }] },
+              "assignees": { "nodes": [] },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 0,
+                "blocking": 0,
+                "totalBlocking": 0
+              },
+              "blockedBy": { "pageInfo": { "hasNextPage": false }, "nodes": [] }
+            }
+          ]
+        }
+      }
+    },
+    "rateLimit": {
+      "cost": 1,
+      "nodeCount": 10,
+      "limit": 5000,
+      "remaining": 4985,
+      "resetAt": "2026-08-05T11:02:14Z"
+    }
+  }
+}

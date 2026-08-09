@@ -142,6 +142,21 @@ const CASES: &[Case] = &[
               structurally* can both be seen, and the only one where the \
               region is drawn under real sections.",
     },
+    Case {
+        slug: "out-of-scope",
+        answer: Some("out-of-scope.json"),
+        why: "Two branches that stopped, and the map document says which. #106 \
+              is closed and named under `## Out of scope`, so it is resolved \
+              with a cut on it: drawn with its reason as visible text, and gone \
+              from the counts. #105 is named there too and is still open, so \
+              nothing happens to it at all — it stays takeable, stays counted, \
+              and nothing warns anybody. #107 is closed and only named through \
+              another repository's prefix, so it stays plain resolved, which is \
+              what keeps a resolved row on screen beside the cut one and makes \
+              the smaller resolved count visible rather than merely asserted. \
+              #999 is a number with no row here, and the nested bullet is a \
+              detail of the line above it rather than a second cut.",
+    },
 ];
 
 /// One `dev:web` fixture for a read that did not land: what it is called, which

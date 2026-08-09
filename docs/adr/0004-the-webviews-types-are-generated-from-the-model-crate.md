@@ -22,9 +22,11 @@ an assertion happens to point.
 one screen: it is **the** seam, the whole derived model, and it is the input to
 `dev:web`, to the conformance suite (#43) and to every rendering ticket after
 this one. It is also the type most likely to grow — the ledger (#41), fog (#35),
-platform filtering (#61) and out-of-scope exclusion (#36) all add to it. A
-hand-written mirror of a type that six later tickets will each extend is a
-mirror that will be wrong at some point, and wrong quietly.
+platform filtering (#61) and out-of-scope exclusion (#36) were each already
+scheduled to add to it. A hand-written mirror of a type that six later tickets
+will each extend is a mirror that will be wrong at some point, and wrong
+quietly. (All four have since landed. The Consequences below record each one
+that moved `SCHEMA_VERSION` with it.)
 
 The ticket asks for exactly that guarantee: *a model change that is not
 propagated fails the build*.
@@ -107,6 +109,16 @@ version bump has to edit it by hand.
 [ADR 0016](0016-the-fog-is-a-named-region-with-two-absences.md). The prediction
 above held twice over: the hand-maintained fixture again had to be edited by
 hand, and every one of the sixteen generated ones moved in the same keystroke.
+
+**And the third, which was the out-of-scope exclusion this ADR named.** #36
+added `Cut` as a member of `Node`, taking `SCHEMA_VERSION` to 4 — see
+[ADR 0017](0017-out-of-scope-is-not-progress.md). Three for three on the
+hand-maintained fixture, and the seventeenth generated one is the ticket's own
+new case. What the prediction did *not* cover, and what steps 1–4 above caught
+instead, is the doc comments: the reasoning above `Counts` and `NodeState` is
+carried across as JSDoc, so rewriting those to explain the new arithmetic
+rewrote the generated file too, and the byte-for-byte comparison held that
+rewrite to being run rather than described.
 
 **A serde attribute and its `ts` counterpart could in principle disagree.** The
 `serde-compat` feature reads the serde attributes directly, and the two hardest

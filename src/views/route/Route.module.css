@@ -7,9 +7,12 @@
  * markup either — a literal in the `.tsx` is a colour the retheme cannot see
  * and the stylesheet check cannot scan.
  *
- * There is no geometry here beyond the shape of a glyph, because there is
- * nothing to place: the pane is a list, position in it is the encoding, and
- * nothing is drawn between two rows. ADR 0006.
+ * The geometry here is the shape of a glyph and the size of a plate, and a size
+ * is not a position: the pane is still a list, position in it is still the
+ * encoding, and nothing is drawn between two rows. A row is capped at one plate
+ * and a cut row at two, because the reason a branch stopped takes a plate's
+ * worth of room — nothing is placed by that, and nothing is routed around.
+ * ADR 0006.
  */
 
 /*
@@ -115,8 +118,15 @@
  * where a 1.5px ring carrying the whole of *this is yours to take* needs 3:1.
  * Takeable and blocked share the one ink, as C5 has them, so the shape
  * everything else is read against is never fainter than a departure from it.
+ *
+ * The plate is the row's own measure, and it is a length rather than a semantic
+ * token for the reason `--c-app-terminal-width` is: the middle tier answers
+ * *which ink*, not *how wide*. It is declared because *double-width* needs a
+ * standard width to be double of — the two are one number here, so a row and a
+ * cut row cannot drift apart.
  */
 .node {
+  --c-node-plate: 26rem;
   --c-node-fill: transparent;
   --c-node-rail: transparent;
   --c-node-glyph: var(--s-ink-faint);
@@ -125,6 +135,7 @@
   --c-node-faint: var(--s-ink-faint);
 
   display: flex;
+  max-width: var(--c-node-plate);
   align-items: center;
   gap: var(--s-space-tight);
   padding: var(--s-space-tight) var(--s-space-base);
@@ -133,6 +144,17 @@
   font-size: var(--s-text-small);
   cursor: pointer;
   transition: background-color var(--s-motion-fast) var(--s-motion-ease);
+}
+
+/*
+ * Twice the plate, and only for a row that has a reason to put in the second
+ * one. The tags keep `margin-left: auto`, so they land at the first plate's
+ * right edge here exactly as they do on a standard row, and the reason fills
+ * the plate beyond them: the row is double-width *because* the words take a
+ * plate's worth of room, which is the whole of the layout claim.
+ */
+.node[data-plate="double"] {
+  max-width: calc(var(--c-node-plate) * 2);
 }
 
 /* Inside, because the pane is its own scrollport and a ring drawn outside the
@@ -215,13 +237,33 @@
   color: var(--s-live);
 }
 
+/*
+ * Why a branch stopped, and it is the one thing on a row that is allowed to
+ * take more than a line. `normal` and not `nowrap`: a reason is a sentence, and
+ * a sentence the browser ellipsises is a sentence nobody read — the row grows
+ * taller instead, which is the one cost worth paying for a decision being
+ * legible. It is exactly one plate wide, so the second plate is spent on it and
+ * on nothing else.
+ */
+.reason {
+  flex: 0 0 var(--c-node-plate);
+  min-width: 0;
+  color: var(--c-node-quiet);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-micro);
+  white-space: normal;
+  overflow-wrap: break-word;
+}
+
 /* --------------------------------------------------------------- marks --- */
 
 /*
- * Five marks: the model's four states plus the one designation. Two of C5's
- * seven are not here — `g-oos` is #36's decoration on a resolved row, and
- * `g-done` is *resolved by this session*, which needs a run lifecycle the
- * derived model does not carry.
+ * Five marks: the model's four states plus the one designation. C5's `g-oos` is
+ * a sixth shape and not a sixth mark — it is `.markCut`, composed onto the
+ * resolved disc of a row the map cut, which is what keeps a cut a decoration on
+ * *resolved* rather than a state beside it. `g-done` is the one still missing:
+ * *resolved by this session* needs a run lifecycle the derived model does not
+ * carry.
  *
  * The row's colours come from `[data-mark]`; the shape comes from a class on
  * the glyph itself, because a ring, a dot and a hatch are different geometry
@@ -312,6 +354,28 @@
   border-radius: 50%;
   background: var(--c-node-glyph);
   opacity: 0.55;
+}
+
+/*
+ * Cut: the resolved disc it is composed onto, struck through. A shape change
+ * and nothing else — no colour of its own, and no opacity on the row, because a
+ * decision the map cut is still a decision and still has to be read. The bar
+ * overhangs the disc on both sides so it reads as a strike rather than as a
+ * notch in the fill.
+ */
+.markCut {
+  position: relative;
+}
+
+.markCut::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: -3px;
+  left: -3px;
+  height: 1.5px;
+  background: var(--c-node-glyph);
+  transform: translateY(-50%);
 }
 
 .node[data-mark="designated"] {

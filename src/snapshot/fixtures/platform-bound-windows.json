@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 3,
+  "schemaVersion": 4,
   "model": {
     "map": {
       "number": 90,
@@ -22,7 +22,10 @@
           },
           "state": "takeable",
           "waitsOn": [],
-          "boundElsewhere": true
+          "boundElsewhere": true,
+          "cut": {
+            "cut": "inScope"
+          }
         },
         {
           "number": 81,
@@ -34,7 +37,10 @@
           },
           "state": "takeable",
           "waitsOn": [],
-          "boundElsewhere": true
+          "boundElsewhere": true,
+          "cut": {
+            "cut": "inScope"
+          }
         },
         {
           "number": 82,
@@ -46,7 +52,10 @@
           },
           "state": "takeable",
           "waitsOn": [],
-          "boundElsewhere": true
+          "boundElsewhere": true,
+          "cut": {
+            "cut": "inScope"
+          }
         },
         {
           "number": 83,
@@ -60,7 +69,10 @@
           "waitsOn": [
             80
           ],
-          "boundElsewhere": false
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
         },
         {
           "number": 84,
@@ -71,7 +83,10 @@
           },
           "state": "takeable",
           "waitsOn": [],
-          "boundElsewhere": false
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
         }
       ],
       "frontier": {

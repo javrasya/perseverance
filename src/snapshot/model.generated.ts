@@ -61,6 +61,16 @@ export type ClauseKind = "created" | "removed" | "resolved" | "cutFromScope" | "
  *
  * *Resolved* is not a fourth field: it is `tickets - open`, and a fourth
  * number is a fourth thing that can disagree with the other three.
+ *
+ * **Out of scope is not a fourth field either, and the arithmetic is the
+ * argument.** A cut ticket is *subtracted from the denominator* rather than
+ * added as a number beside it: [`Node::is_counted`] refuses it to `tickets`
+ * and to `open` in the same breath, so `tickets - open` goes on meaning
+ * decisions made. Counting a cut as resolved would report progress for work
+ * nobody did; counting it as open would leave a map that can never finish; and
+ * a fourth number naming it would be one more thing that can disagree with the
+ * three. What an operator sees instead is a section of its own on the Route,
+ * whose count is the rows it heads.
  */
 export type Counts = { 
 /**
@@ -79,6 +89,37 @@ open: number,
  * not an invariant this file gets to assume.
  */
 specs: number, };
+
+/**
+ * Whether the map document says this child was **cut** — a decoration on a
+ * resolved node, and not a fifth state.
+ *
+ * `CLOSED` covers a decision *made* and a decision *cut*, and GitHub cannot
+ * tell the two apart. What can is the map document: `## Out of scope` is where
+ * the operator says what was dropped and why, so the cut is read from there
+ * and rides beside [`NodeState`] rather than joining it. The four states stay
+ * four, [`Counts`] stays three, and what changes is only that a cut ticket is
+ * no longer progress.
+ *
+ * **[`Cut::FromScope`] is only ever assigned to a child GitHub already calls
+ * resolved.** A link in that section pointing at an *open* issue leaves the
+ * node in scope, silently: API state wins, there is no warning anywhere and no
+ * UI for one, and the model gets the invariant that a cut node is a resolved
+ * node. The refusal is deliberate rather than unhandled — a warning here would
+ * be this app arguing with an operator about a ticket whose state is on the
+ * same screen, and the operator's next edit settles it either way.
+ *
+ * **`stateReason` was not the mechanism**, though the query already selects it
+ * (`crates/github/src/map-read.graphql`) and `wire::Child` already drops it on
+ * the floor. `NOT_PLANNED` says only that a ticket was not completed and
+ * carries no reason at all — and a cut whose reason nobody can read is the
+ * exact thing this decoration exists to make visible. The map document is
+ * where the operator writes the reason, so the map document is what is read.
+ *
+ * Adjacently tagged, with a payload on one variant and none on the other,
+ * which is [`Fog`]'s and [`Frontier`]'s existing shape on the wire.
+ */
+export type Cut = { "cut": "inScope" } | { "cut": "fromScope", "reason": string };
 
 /**
  * Why a read did not land, as a structure rather than as prose.
@@ -284,7 +325,15 @@ waitsOn: Array<number>,
  * [`Frontier::of`] needs it per node to tell *nothing for this machine*
  * from *nothing left at all*.
  */
-boundElsewhere: boolean, };
+boundElsewhere: boolean, 
+/**
+ * Whether the map document cut this one, and the words it was cut in.
+ *
+ * A decoration on a resolved node rather than a state of its own, and the
+ * reason a cut ticket is neither open nor progress — see [`Cut`], which is
+ * also where the silent refusal to decorate an open child is argued.
+ */
+cut: Cut, };
 
 /**
  * The four states, and there is no fifth.
@@ -293,6 +342,13 @@ boundElsewhere: boolean, };
  * claimed** — which is why a closed ticket with an open blocker reads as
  * resolved rather than as blocked. Work that is finished is finished; that
  * something still points at it is a fact about the blocker.
+ *
+ * *Out of scope* did not become the fifth. A cut is a **decoration that rides
+ * beside the state** — [`Cut`], on the node — because a ticket the operator
+ * dropped is still a ticket GitHub calls closed: everything that reads a state
+ * would go on wanting *resolved* out of it, and a fifth variant would turn
+ * every match here into a question about which of the two closings this is.
+ * What the cut changes is the arithmetic, and that is [`Node::is_counted`].
  */
 export type NodeState = "resolved" | "blocked" | "claimed" | "takeable";
 

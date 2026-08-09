@@ -3,18 +3,18 @@
   "model": {
     "map": {
       "number": 104,
-      "title": "Spec: the fog was charted",
+      "title": "Spec: the launcher was scoped",
       "closed": false,
       "phase": "wayfinding",
       "counts": {
-        "tickets": 2,
-        "open": 1,
+        "tickets": 3,
+        "open": 2,
         "specs": 0
       },
       "nodes": [
         {
           "number": 105,
-          "title": "Draw the Route",
+          "title": "Remember the folder you opened last",
           "url": "https://github.com/o/r/issues/105",
           "kind": {
             "kind": "ticket",
@@ -29,13 +29,44 @@
         },
         {
           "number": 106,
-          "title": "Chart the map",
+          "title": "Strip the PTY out of the launcher",
           "url": "https://github.com/o/r/issues/106",
           "kind": {
             "kind": "ticket",
             "type": "task"
           },
           "state": "resolved",
+          "waitsOn": [],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "fromScope",
+            "reason": "#106 - the launcher never touched the PTY, so there was nothing to strip out and nothing left to keep"
+          }
+        },
+        {
+          "number": 107,
+          "title": "Draw the folder picker",
+          "url": "https://github.com/o/r/issues/107",
+          "kind": {
+            "kind": "ticket",
+            "type": "task"
+          },
+          "state": "resolved",
+          "waitsOn": [],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
+        },
+        {
+          "number": 108,
+          "title": "Name the window after the map",
+          "url": "https://github.com/o/r/issues/108",
+          "kind": {
+            "kind": "ticket",
+            "type": "task"
+          },
+          "state": "takeable",
           "waitsOn": [],
           "boundElsewhere": false,
           "cut": {
@@ -50,8 +81,8 @@
       "fog": {
         "fog": "surveyed",
         "region": {
-          "count": 3,
-          "text": "- Whether the ledger survives a restart\n- How the terminal splits\n  - and whether the split is remembered\n- What happens to a map that is deleted mid-run\n\nEach of these needs a session with the operator."
+          "count": 1,
+          "text": "- Whether the ledger survives a restart"
         }
       }
     }
