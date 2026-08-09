@@ -367,14 +367,26 @@ mod tests {
 
     use crate::shim::accept;
 
-    #[cfg(windows)]
+    /// A run that stays up until something ends it — and says so first.
+    ///
+    /// The line it prints is what makes *this run started* observable, and the
+    /// only portable evidence of it there is: this crate cannot ask the
+    /// operating system whether a pid is alive, so the one thing a test can see
+    /// about a child is what it printed. A silent sleeper prints nothing at all
+    /// into its pty, so `end > 0` is never true of one on unix and a wait for it
+    /// spends its whole timeout and then fails. On Windows the same probe passed
+    /// anyway — the console host repaints the screen when the pseudoconsole
+    /// opens, so the bytes were the harness's and never the child's, and the
+    /// wait was measuring nothing about the run either. One line of output makes
+    /// the probe mean the same thing on both platforms: the shell got as far as
+    /// running the command, and what follows it is the sleeper.
     fn a_run_that_waits() -> Accepted {
-        a_run_of("timeout /t 30 /nobreak >nul")
-    }
+        #[cfg(windows)]
+        let line = "echo up&& timeout /t 30 /nobreak >nul";
+        #[cfg(not(windows))]
+        let line = "printf 'up\\n'; sleep 30";
 
-    #[cfg(not(windows))]
-    fn a_run_that_waits() -> Accepted {
-        a_run_of("sleep 30")
+        a_run_of(line)
     }
 
     /// A session always runs inside an environment — the folder's harvest, in
@@ -794,9 +806,17 @@ mod tests {
         let mut runs = Runs::new();
 
         // `ping` never reads standard input, so nothing about this run could be
-        // taking a hint: whatever ends it is the console session going.
-        runs.open(a_run_of("ping -n 31 127.0.0.1 >nul"), directory.path(), &[])
-            .expect("a shell starts");
+        // taking a hint: whatever ends it is the console session going. The
+        // `echo` in front of it is the same announcement `a_run_that_waits`
+        // makes, and for the same reason — without it the only bytes in the ring
+        // are the console host's repaint, and the wait below would pass before
+        // the child had started.
+        runs.open(
+            a_run_of("echo up&& ping -n 31 127.0.0.1 >nul"),
+            directory.path(),
+            &[],
+        )
+        .expect("a shell starts");
         wait_until("the run started", || {
             runs.telemetry().iter().all(|run| run.end > 0)
         });
