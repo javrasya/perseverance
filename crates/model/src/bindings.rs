@@ -114,6 +114,34 @@ const CASES: &[Case] = &[
         why: "A closed map with an open ticket still on it: done beats \
               everything the children could say.",
     },
+    Case {
+        slug: "fog-unsurveyed",
+        answer: Some("fog-unsurveyed.json"),
+        why: "A map document that was written and a fog that was never \
+              surveyed: Notes and Decisions-so-far are there and the heading \
+              is not. The region still names itself and stands an em dash \
+              where a count would go — the fact a `0` would destroy, and the \
+              only fixture that can show it.",
+    },
+    Case {
+        slug: "fog-empty",
+        answer: Some("fog-empty.json"),
+        why: "The other absence: somebody surveyed and found nothing. The \
+              heading is there with no bullets under it, so the count is a \
+              real zero — and this fixture beside `fog-unsurveyed` is what \
+              makes *nobody looked* and *nothing there* distinguishable on \
+              screen rather than merely in the type.",
+    },
+    Case {
+        slug: "fog-charted",
+        answer: Some("fog-charted.json"),
+        why: "A surveyed fog with something in it: three top-level bullets, a \
+              nested one that is a detail rather than a fourth thing, a blank \
+              line inside the section, and a heading after it that bounds it. \
+              It is the only fixture where *rendered verbatim* and *counted \
+              structurally* can both be seen, and the only one where the \
+              region is drawn under real sections.",
+    },
 ];
 
 /// One `dev:web` fixture for a read that did not land: what it is called, which

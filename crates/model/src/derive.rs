@@ -212,6 +212,13 @@ pub struct Map {
     pub nodes: Vec<Node>,
     /// What this map has to say about *what next* — see [`Frontier`].
     pub frontier: Frontier,
+    /// What this map says nobody has specified yet — see [`Fog`].
+    ///
+    /// Only the section, never the body it was cut from. The map document also
+    /// holds Notes and Decisions-so-far, and model equality is the diff unit
+    /// (see [`Model`]), so carrying the whole body here would make every
+    /// keystroke in an unrelated section a change on screen.
+    pub fog: Fog,
 }
 
 /// The designated frontier, in the only three readings there are.
@@ -269,6 +276,135 @@ impl Frontier {
             }
             None => Frontier::NothingToStart,
         }
+    }
+}
+
+/// The literal heading the fog is found under, and the whole of what is
+/// matched.
+///
+/// A string compared against a line, and never a pattern, a synonym list or a
+/// fuzzy match. The map document is written by an agent session against a
+/// convention, so *the heading is spelled this way or there is no fog section*
+/// is a fact and not a guess — and a parser that accepted `## Unspecified` too
+/// would be this crate deciding what an operator meant.
+pub const FOG_HEADING: &str = "## Not yet specified";
+
+/// The known unknowns, in the only two readings there are.
+///
+/// **An enum and not `Option<usize>`**, for the reason [`Frontier`] is one:
+/// *nobody surveyed* and *somebody surveyed and found nothing* are different
+/// facts about the same map, and a count is capable of expressing only the
+/// second. A map whose body never names the fog has not declared that
+/// everything is charted — it has said nothing at all, and `0` in that slot is
+/// the harness inventing a claim on the operator's behalf.
+///
+/// Adjacently tagged, with a payload on one variant and none on the other,
+/// which is [`Frontier`]'s and [`ChildKind`]'s existing shape on the wire.
+#[cfg_attr(test, derive(ts_rs::TS), ts(export_to = "model.generated.ts"))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "fog", content = "region", rename_all = "camelCase")]
+pub enum Fog {
+    /// No [`FOG_HEADING`] line anywhere in the map's body. Nobody has been
+    /// here, and what stands in the count's place on screen is `—`.
+    Unsurveyed,
+    /// The heading is there, and what is under it — including nothing.
+    Surveyed(FogRegion),
+}
+
+/// One surveyed fog region: how many things are named in it, and the words they
+/// are named in.
+///
+/// Both, and never only the count. The fog is the one region of the map with no
+/// identity of its own — no number, no title, no URL — so a bare count is a
+/// smudge an operator cannot act on, and the words are the whole of what makes
+/// it somewhere to go.
+#[cfg_attr(test, derive(ts_rs::TS), ts(export_to = "model.generated.ts"))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FogRegion {
+    /// Top-level bullets under the heading, counted and never interpreted. A
+    /// nested bullet is a detail of the thing above it rather than a second
+    /// thing nobody specified, so the count is of lines that begin at column
+    /// zero and nothing else.
+    pub count: usize,
+    /// **The section, verbatim.**
+    ///
+    /// The parse chooses boundaries; it never edits content. Every line between
+    /// the heading and the next one survives with its indentation, its bullet
+    /// marker and its blank lines intact, rejoined with `\n`. Blank lines at
+    /// the two ends are outside the boundary rather than trimmed off the inside
+    /// — a distinction worth keeping, because *nothing is modified* is a claim
+    /// a renderer can rely on and *almost nothing is modified* is not.
+    pub text: String,
+}
+
+/// Whether a line opens an ATX heading — the only boundary this parse knows.
+///
+/// One to six `#` at column zero, then a space or the end of the line. There is
+/// no fence tracking and no markdown grammar behind it: a `#` at column zero
+/// inside a fenced code block ends the region, and that is the correct trade
+/// for a scan asked to be structural rather than semantic — fence tracking is
+/// the first step to a markdown grammar in a crate whose charter is a boring
+/// dependency tree. Setext headings are not a boundary either, because the
+/// convention this reads writes ATX.
+fn opens_a_heading(line: &str) -> bool {
+    let hashes = line.len() - line.trim_start_matches('#').len();
+    (1..=6).contains(&hashes) && matches!(line.as_bytes().get(hashes), None | Some(b' '))
+}
+
+/// Whether a line is a bullet nobody nested. Column zero, one marker, one
+/// space.
+fn opens_a_top_level_bullet(line: &str) -> bool {
+    line.starts_with("- ") || line.starts_with("* ") || line.starts_with("+ ")
+}
+
+impl Fog {
+    /// **The whole of the fog parse, and it is a line scan.**
+    ///
+    /// Find the one line that is [`FOG_HEADING`], take the lines up to the next
+    /// heading, count the ones that start a top-level bullet, and carry the
+    /// rest of them across unchanged. Nothing here reads a word.
+    pub(crate) fn of(body: &str) -> Fog {
+        // `str::lines` strips a trailing `\r`, so a CRLF document and an LF one
+        // parse identically: a line terminator is a delimiter and not content.
+        let lines: Vec<&str> = body.lines().collect();
+
+        // `trim_end` and nothing more: trailing spaces on a heading line are
+        // invisible in every editor, and refusing a section over one would be a
+        // fog that vanishes for a reason nobody can see. Everything else about
+        // the match is exact, case included.
+        let Some(heading) = lines.iter().position(|line| line.trim_end() == FOG_HEADING) else {
+            return Fog::Unsurveyed;
+        };
+
+        let after = &lines[heading + 1..];
+        let end = after
+            .iter()
+            .position(|line| opens_a_heading(line))
+            .unwrap_or(after.len());
+        let region = &after[..end];
+
+        // The boundary, moved past the blank lines at each end. A section is
+        // always written with a blank line under its heading, and rendering it
+        // as an empty first row would be the document's punctuation on screen.
+        let region = match region.iter().position(|line| !line.trim().is_empty()) {
+            None => &region[..0],
+            Some(first) => {
+                let last = region
+                    .iter()
+                    .rposition(|line| !line.trim().is_empty())
+                    .unwrap_or(first);
+                &region[first..=last]
+            }
+        };
+
+        Fog::Surveyed(FogRegion {
+            count: region
+                .iter()
+                .filter(|line| opens_a_top_level_bullet(line))
+                .count(),
+            text: region.join("\n"),
+        })
     }
 }
 
@@ -584,6 +720,7 @@ impl Map {
             frontier: Frontier::of(&nodes),
             counts,
             nodes,
+            fog: Fog::of(&graph.body),
         }
     }
 }
@@ -623,6 +760,9 @@ mod tests {
     const MAP_CLOSED: &str = include_str!("../fixtures/map-closed.json");
     const NO_MAP: &str = include_str!("../fixtures/no-map-in-this-repo.json");
     const PLATFORM_BOUND: &str = include_str!("../fixtures/platform-bound.json");
+    const FOG_UNSURVEYED: &str = include_str!("../fixtures/fog-unsurveyed.json");
+    const FOG_EMPTY: &str = include_str!("../fixtures/fog-empty.json");
+    const FOG_CHARTED: &str = include_str!("../fixtures/fog-charted.json");
 
     /// The machine every test that is not *about* machines derives for.
     ///
@@ -1247,6 +1387,75 @@ mod tests {
                 "closed={closed} {counts:?}"
             );
         }
+    }
+
+    /* --------------------------------------------------------------- fog --- */
+
+    #[test]
+    fn a_map_whose_body_never_names_the_fog_is_unsurveyed_rather_than_empty() {
+        // The body is written — Notes, Decisions, and a bullet under one of
+        // them. What it does not have is a survey, and `Surveyed { count: 0 }`
+        // here would be this crate claiming somebody looked.
+        assert_eq!(map_of(FOG_UNSURVEYED).fog, Fog::Unsurveyed);
+    }
+
+    #[test]
+    fn a_map_with_no_body_at_all_is_unsurveyed() {
+        assert_eq!(map_of(TWO_MAPS).fog, Fog::Unsurveyed);
+        assert_eq!(map_of(EMPTY_MAP).fog, Fog::Unsurveyed);
+    }
+
+    #[test]
+    fn a_fog_heading_with_nothing_under_it_is_a_survey_that_found_nothing() {
+        assert_eq!(
+            map_of(FOG_EMPTY).fog,
+            Fog::Surveyed(FogRegion {
+                count: 0,
+                text: String::new()
+            })
+        );
+    }
+
+    #[test]
+    fn the_fog_is_bounded_by_the_next_heading_and_counts_only_its_own_bullets() {
+        let Fog::Surveyed(region) = map_of(FOG_CHARTED).fog else {
+            panic!("the charted fixture was surveyed");
+        };
+
+        // Three, and not four: the bullet under *Decisions so far* is past the
+        // boundary, and the indented one is a detail of the line above it.
+        assert_eq!(region.count, 3);
+        assert!(!region.text.contains("The Route is a grouped list"));
+        assert!(!region.text.contains("## "));
+    }
+
+    #[test]
+    fn the_fog_section_crosses_verbatim_down_to_the_blank_line_inside_it() {
+        let Fog::Surveyed(region) = map_of(FOG_CHARTED).fog else {
+            panic!("the charted fixture was surveyed");
+        };
+
+        assert_eq!(
+            region.text,
+            "- Whether the ledger survives a restart\n\
+             - How the terminal splits\n\
+             \u{20}\u{20}- and whether the split is remembered\n\
+             - What happens to a map that is deleted mid-run\n\
+             \n\
+             Each of these needs a session with the operator."
+        );
+    }
+
+    #[test]
+    fn nothing_of_the_map_body_but_the_fog_reaches_the_derived_model() {
+        // The Notes and the Decisions are in the answer and must not be in the
+        // model: equality here is the diff unit, and a note taken during a
+        // session would otherwise draw a change on every poll.
+        let json = serde_json::to_string(&model_of(FOG_CHARTED)).expect("serialises");
+
+        assert!(!json.contains("Charted on the second pass"));
+        assert!(!json.contains("Decisions so far"));
+        assert!(json.contains("Whether the ledger survives a restart"));
     }
 
     /* ------------------------------------------------------- no map open --- */

@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "model": {
     "map": {
       "number": 90,
@@ -52,6 +52,9 @@
       ],
       "frontier": {
         "frontier": "nothingToStart"
+      },
+      "fog": {
+        "fog": "unsurveyed"
       }
     }
   },

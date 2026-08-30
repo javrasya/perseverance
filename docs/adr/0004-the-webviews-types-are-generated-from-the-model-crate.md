@@ -102,6 +102,12 @@ One hand-maintained file did not move with it: `crates/model/fixtures/no-map-ope
 is `include_str!`d by the crate's own tests rather than generated, so a further
 version bump has to edit it by hand.
 
+**And the second.** #35 added the fog as a member of `Map`, taking
+`SCHEMA_VERSION` to 3 — see
+[ADR 0016](0016-the-fog-is-a-named-region-with-two-absences.md). The prediction
+above held twice over: the hand-maintained fixture again had to be edited by
+hand, and every one of the sixteen generated ones moved in the same keystroke.
+
 **A serde attribute and its `ts` counterpart could in principle disagree.** The
 `serde-compat` feature reads the serde attributes directly, and the two hardest
 cases here — adjacent tagging over a mixed unit/newtype variant set with a

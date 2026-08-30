@@ -1,0 +1,58 @@
+{
+  "_why": "The heading is there and nothing is under it: somebody surveyed and found nothing, which is a claim, where `fog-unsurveyed` is a silence. The heading that follows immediately is also the tightest test of the boundary — a scan that ran past it would count the decision below as a thing nobody specified.",
+  "data": {
+    "repository": {
+      "nameWithOwner": "o/r",
+      "maps": {
+        "pageInfo": { "hasNextPage": false },
+        "nodes": [
+          {
+            "number": 102,
+            "title": "Spec: the fog was surveyed and was empty",
+            "state": "OPEN",
+            "url": "https://github.com/o/r/issues/102",
+            "updatedAt": "2026-08-05T09:12:44Z"
+          }
+        ]
+      },
+      "issue": {
+        "number": 102,
+        "title": "Spec: the fog was surveyed and was empty",
+        "state": "OPEN",
+        "body": "## Notes\n\nEverything on this map has a ticket.\n\n## Not yet specified\n\n## Decisions so far\n\n- Ship the Route first.\n",
+        "url": "https://github.com/o/r/issues/102",
+        "updatedAt": "2026-08-05T09:12:44Z",
+        "labels": { "nodes": [{ "name": "wayfinder:map" }] },
+        "subIssues": {
+          "pageInfo": { "hasNextPage": false },
+          "nodes": [
+            {
+              "number": 103,
+              "title": "Compose the spec",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/103",
+              "updatedAt": "2026-08-05T09:12:44Z",
+              "labels": { "nodes": [{ "name": "wayfinder:task", "color": "1d76db" }] },
+              "assignees": { "nodes": [] },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 0,
+                "blocking": 0,
+                "totalBlocking": 0
+              },
+              "blockedBy": { "pageInfo": { "hasNextPage": false }, "nodes": [] }
+            }
+          ]
+        }
+      }
+    },
+    "rateLimit": {
+      "cost": 1,
+      "nodeCount": 4,
+      "limit": 5000,
+      "remaining": 4987,
+      "resetAt": "2026-08-05T11:02:14Z"
+    }
+  }
+}

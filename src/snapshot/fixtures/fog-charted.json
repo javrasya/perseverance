@@ -2,51 +2,51 @@
   "schemaVersion": 3,
   "model": {
     "map": {
-      "number": 28,
-      "title": "Spec: perseverance",
+      "number": 104,
+      "title": "Spec: the fog was charted",
       "closed": false,
       "phase": "wayfinding",
       "counts": {
         "tickets": 2,
-        "open": 2,
+        "open": 1,
         "specs": 0
       },
       "nodes": [
         {
-          "number": 32,
-          "title": "Maps on screen",
-          "url": "https://github.com/o/r/issues/32",
+          "number": 105,
+          "title": "Draw the Route",
+          "url": "https://github.com/o/r/issues/105",
           "kind": {
             "kind": "ticket",
             "type": "task"
           },
           "state": "takeable",
-          "waitsOn": [
-            30
-          ],
+          "waitsOn": [],
           "boundElsewhere": false
         },
         {
-          "number": 33,
-          "title": "The derived model",
-          "url": "https://github.com/o/r/issues/33",
+          "number": 106,
+          "title": "Chart the map",
+          "url": "https://github.com/o/r/issues/106",
           "kind": {
             "kind": "ticket",
             "type": "task"
           },
-          "state": "blocked",
-          "waitsOn": [
-            32
-          ],
+          "state": "resolved",
+          "waitsOn": [],
           "boundElsewhere": false
         }
       ],
       "frontier": {
         "frontier": "designated",
-        "number": 32
+        "number": 105
       },
       "fog": {
-        "fog": "unsurveyed"
+        "fog": "surveyed",
+        "region": {
+          "count": 3,
+          "text": "- Whether the ledger survives a restart\n- How the terminal splits\n  - and whether the split is remembered\n- What happens to a map that is deleted mid-run\n\nEach of these needs a session with the operator."
+        }
       }
     }
   },

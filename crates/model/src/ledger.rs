@@ -82,10 +82,10 @@ pub enum ClauseKind {
     Claimed,
     Released,
     FrontierMoved,
-    /// **No producer yet** — the fog is #35, and the model carries no fog
-    /// field to key on. Declared now for the same reason
-    /// [`ClauseKind::CutFromScope`] is: so the precedence is stable when #35
-    /// lands, with the catch-all carrying those changes in the meantime.
+    /// The fog region moved: a line added under `## Not yet specified`, one
+    /// struck off, or the heading itself appearing or going away. Keyed on
+    /// [`crate::derive::Map::fog`], which is the section and not the body it
+    /// came from — so a note taken elsewhere in the map document draws nothing.
     FogChanged,
     PhaseChanged,
     MapClosed,
@@ -510,6 +510,9 @@ fn clauses_of(previous: &Model, next: &Model) -> Vec<Clause> {
     if before.frontier != after.frontier {
         map_level.push(ClauseKind::FrontierMoved);
     }
+    if before.fog != after.fog {
+        map_level.push(ClauseKind::FogChanged);
+    }
 
     // **The nodes are rebuilt rather than pre-accounted**, and this is the one
     // field where the difference bites. The loop above is order-blind — it keys
@@ -559,6 +562,10 @@ fn clauses_of(previous: &Model, next: &Model) -> Vec<Clause> {
     // hang a catch-all off every single resolution, which is the opposite of
     // the catch-all's job.
     //
+    // And `fog`, by the clause just pushed. Leaving it out would send every fog
+    // change to the catch-all, which is the state this ticket found the
+    // vocabulary in.
+    //
     // `closed` takes the new value only where the clause above actually named
     // it. A map that *reopened* is a change the vocabulary has no word for, so
     // it keeps the old value here, differs from `after`, and reaches the
@@ -578,6 +585,7 @@ fn clauses_of(previous: &Model, next: &Model) -> Vec<Clause> {
         frontier: after.frontier,
         counts: after.counts,
         nodes: accounted_nodes,
+        fog: after.fog.clone(),
         ..before.clone()
     };
     let unnamed_map = accounted != *after;
@@ -638,10 +646,11 @@ fn clauses_of(previous: &Model, next: &Model) -> Vec<Clause> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::derive::{Frontier, Machine, Map, Phase, TicketType};
+    use crate::derive::{Fog, FogRegion, Frontier, Machine, Map, Phase, TicketType};
     use crate::read_response;
 
     const AWKWARD: &str = include_str!("../fixtures/awkward-children.json");
+    const FOG_CHARTED: &str = include_str!("../fixtures/fog-charted.json");
 
     /// Named rather than [`Machine::host`], so these entries read the same on
     /// every runner. Nothing in this fixture carries a `platform:` label, so
@@ -893,6 +902,64 @@ mod tests {
         // about the reader rather than about the graph.
         assert_eq!(kinds(&entry), vec![ClauseKind::Unnamed]);
         assert_eq!(entry.clauses[0].count, 1);
+    }
+
+    /// The word that had no producer until #35, producing.
+    #[test]
+    fn a_fog_that_moved_is_named_rather_than_carried_by_the_catch_all() {
+        let mut log = watching();
+        let mut next = base();
+        map_of(&mut next).fog = Fog::Surveyed(FogRegion {
+            count: 1,
+            text: "- Whether the ledger survives a restart".to_string(),
+        });
+
+        log.observed(&next, &[]);
+        let entry = only_entry(&log);
+
+        assert_eq!(kinds(&entry), vec![ClauseKind::FogChanged]);
+        // A map-level clause names no node and counts as one.
+        assert!(clause(&entry, ClauseKind::FogChanged).numbers.is_empty());
+        assert_eq!(clause(&entry, ClauseKind::FogChanged).count, 1);
+    }
+
+    /// The reason the model carries the section and not the document.
+    ///
+    /// Two answers about one map whose bodies differ only under *Notes*. The
+    /// fog is the same section either way, so the two derive equal models and
+    /// the tick draws nothing — where a `Map` carrying the whole body would
+    /// have written a row for a sentence somebody typed during a session.
+    #[test]
+    fn a_map_document_edited_outside_the_fog_is_not_a_change_at_all() {
+        let charted = |notes: &str| {
+            Model::of(
+                &read_response(&FOG_CHARTED.replace("Charted on the second pass.", notes))
+                    .expect("reads"),
+                MACHINE,
+            )
+        };
+        let before = charted("Charted on the second pass.");
+        let after = charted("Charted on the second pass, and again on the third.");
+
+        // The substitution really did land, so this is not two identical
+        // answers agreeing with each other.
+        assert_ne!(
+            read_response(FOG_CHARTED)
+                .expect("reads")
+                .map
+                .expect("a map")
+                .body,
+            read_response(&FOG_CHARTED.replace("Charted on the second pass.", "Something else."))
+                .expect("reads")
+                .map
+                .expect("a map")
+                .body
+        );
+        assert_eq!(before, after);
+
+        let mut log = ChangeLog::resuming(before);
+        log.observed(&after, &[]);
+        assert!(log.ledger().entries.is_empty());
     }
 
     /* ------------------------------------------------------ the catch-all --- */

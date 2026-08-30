@@ -1,0 +1,75 @@
+{
+  "_why": "A surveyed fog with something in it. It is the only fixture where *counted structurally* and *rendered verbatim* are both visible: the nested bullet is a detail of the line above it rather than a fourth thing, the blank line inside the section survives to the screen, and the heading after it is where the region stops.",
+  "data": {
+    "repository": {
+      "nameWithOwner": "o/r",
+      "maps": {
+        "pageInfo": { "hasNextPage": false },
+        "nodes": [
+          {
+            "number": 104,
+            "title": "Spec: the fog was charted",
+            "state": "OPEN",
+            "url": "https://github.com/o/r/issues/104",
+            "updatedAt": "2026-08-05T09:12:44Z"
+          }
+        ]
+      },
+      "issue": {
+        "number": 104,
+        "title": "Spec: the fog was charted",
+        "state": "OPEN",
+        "body": "## Notes\n\nCharted on the second pass.\n\n## Not yet specified\n\n- Whether the ledger survives a restart\n- How the terminal splits\n  - and whether the split is remembered\n- What happens to a map that is deleted mid-run\n\nEach of these needs a session with the operator.\n\n## Decisions so far\n\n- The Route is a grouped list.\n",
+        "url": "https://github.com/o/r/issues/104",
+        "updatedAt": "2026-08-05T09:12:44Z",
+        "labels": { "nodes": [{ "name": "wayfinder:map" }] },
+        "subIssues": {
+          "pageInfo": { "hasNextPage": false },
+          "nodes": [
+            {
+              "number": 105,
+              "title": "Draw the Route",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/105",
+              "updatedAt": "2026-08-04T10:00:00Z",
+              "labels": { "nodes": [{ "name": "wayfinder:task", "color": "1d76db" }] },
+              "assignees": { "nodes": [] },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 0,
+                "blocking": 0,
+                "totalBlocking": 0
+              },
+              "blockedBy": { "pageInfo": { "hasNextPage": false }, "nodes": [] }
+            },
+            {
+              "number": 106,
+              "title": "Chart the map",
+              "state": "CLOSED",
+              "stateReason": "COMPLETED",
+              "url": "https://github.com/o/r/issues/106",
+              "updatedAt": "2026-08-03T10:00:00Z",
+              "labels": { "nodes": [{ "name": "wayfinder:task", "color": "1d76db" }] },
+              "assignees": { "nodes": [] },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 0,
+                "blocking": 0,
+                "totalBlocking": 0
+              },
+              "blockedBy": { "pageInfo": { "hasNextPage": false }, "nodes": [] }
+            }
+          ]
+        }
+      }
+    },
+    "rateLimit": {
+      "cost": 1,
+      "nodeCount": 6,
+      "limit": 5000,
+      "remaining": 4986,
+      "resetAt": "2026-08-05T11:02:14Z"
+    }
+  }
+}

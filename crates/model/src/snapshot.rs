@@ -5,12 +5,14 @@ use crate::ledger::Ledger;
 
 /// Forward-only. An unrecognised version is refused rather than guessed at.
 ///
-/// Two, since the ledger joined the wire. The field is required rather than
+/// Three, since the fog joined the map. The field is required rather than
 /// defaulted: nothing persists a snapshot anywhere, the fixtures are this
 /// crate's own regenerated output, and a `serde(default)` would let a build
-/// that speaks version two quietly accept a version-one body — which is the
-/// guessing this constant exists to refuse.
-pub const SCHEMA_VERSION: u32 = 2;
+/// that speaks version three quietly accept a version-two body — which is the
+/// guessing this constant exists to refuse. [`crate::derive::Map`] gained a
+/// member with no default of its own, so a version-two body no longer
+/// deserialises at all: the constant and the shape moved together.
+pub const SCHEMA_VERSION: u32 = 3;
 
 /// Everything the WebView is given for one tick.
 ///
@@ -381,7 +383,7 @@ mod tests {
     #[test]
     fn a_failed_read_carries_both_what_was_concluded_and_what_was_said() {
         let json = r#"{
-            "schemaVersion": 2,
+            "schemaVersion": 3,
             "model": { "map": null },
             "provenance": {
                 "source": "cache",

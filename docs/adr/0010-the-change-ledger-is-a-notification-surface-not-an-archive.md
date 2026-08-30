@@ -70,9 +70,10 @@ answers well for the fields somebody thought of and silently answers *nothing
 happened* for the rest. So `unnamed` exists, it reads as *changed*, and a
 differing tick **always** draws a row — asserted by a `debug_assert` in the
 differ rather than left to the shape of the match. A field added later is
-carried in free as an unnamed change, and two words are already declared with no
-producer behind them (`cutFromScope` for #36, `fogChanged` for #35) so that the
-precedence does not shift when those tickets land.
+carried in free as an unnamed change, and one word is still declared with no
+producer behind it (`cutFromScope` for #36) so that the precedence does not
+shift when that ticket lands. `fogChanged` was the other, and #35 gave it one:
+it is keyed on `Map::fog` and listed in the map-level residual.
 
 **And the catch-all is a residual rather than an `else`.** Both the node-level
 and the map-level one are taken by rebuilding the value the named clauses fully
@@ -146,9 +147,13 @@ week loses its oldest rows silently — acceptable for a surface whose job is
 *what moved since you looked*, and wrong for anything that called itself an
 archive.
 
-**Two clause kinds have no producer.** `cutFromScope` waits on #36 and
-`fogChanged` on #35. Until then the catch-all carries those changes, which is
-exactly its stated job, and each variant carries a doc comment saying so.
+**One clause kind has no producer.** `cutFromScope` waits on #36; until then the
+catch-all carries those changes, which is exactly its stated job, and the
+variant carries a doc comment saying so. `fogChanged` was the second of the two
+and no longer is: #35 put the fog on `Map`, keyed the clause on it, and added
+`fog` to the map-level residual — without that second line every fog change
+would have gone to the catch-all, which is the state that ticket found the
+vocabulary in.
 
 **`announce`'s exclusion has no producer either.** `Claims` is managed state
 with a `claimed(number)` that nothing calls yet — #48's to call. Today the slice

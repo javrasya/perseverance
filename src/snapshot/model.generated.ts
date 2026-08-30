@@ -121,6 +121,50 @@ seq: number, occasion: Occasion,
 clauses: Array<Clause>, };
 
 /**
+ * The known unknowns, in the only two readings there are.
+ *
+ * **An enum and not `Option<usize>`**, for the reason [`Frontier`] is one:
+ * *nobody surveyed* and *somebody surveyed and found nothing* are different
+ * facts about the same map, and a count is capable of expressing only the
+ * second. A map whose body never names the fog has not declared that
+ * everything is charted — it has said nothing at all, and `0` in that slot is
+ * the harness inventing a claim on the operator's behalf.
+ *
+ * Adjacently tagged, with a payload on one variant and none on the other,
+ * which is [`Frontier`]'s and [`ChildKind`]'s existing shape on the wire.
+ */
+export type Fog = { "fog": "unsurveyed" } | { "fog": "surveyed", "region": FogRegion };
+
+/**
+ * One surveyed fog region: how many things are named in it, and the words they
+ * are named in.
+ *
+ * Both, and never only the count. The fog is the one region of the map with no
+ * identity of its own — no number, no title, no URL — so a bare count is a
+ * smudge an operator cannot act on, and the words are the whole of what makes
+ * it somewhere to go.
+ */
+export type FogRegion = { 
+/**
+ * Top-level bullets under the heading, counted and never interpreted. A
+ * nested bullet is a detail of the thing above it rather than a second
+ * thing nobody specified, so the count is of lines that begin at column
+ * zero and nothing else.
+ */
+count: number, 
+/**
+ * **The section, verbatim.**
+ *
+ * The parse chooses boundaries; it never edits content. Every line between
+ * the heading and the next one survives with its indentation, its bullet
+ * marker and its blank lines intact, rejoined with `\n`. Blank lines at
+ * the two ends are outside the boundary rather than trimmed off the inside
+ * — a distinction worth keeping, because *nothing is modified* is a claim
+ * a renderer can rely on and *almost nothing is modified* is not.
+ */
+text: string, };
+
+/**
  * The designated frontier, in the only three readings there are.
  *
  * **An enum and not `Option<u64>` beside a flag.** The absence has always been
@@ -171,7 +215,16 @@ nodes: Array<Node>,
 /**
  * What this map has to say about *what next* — see [`Frontier`].
  */
-frontier: Frontier, };
+frontier: Frontier, 
+/**
+ * What this map says nobody has specified yet — see [`Fog`].
+ *
+ * Only the section, never the body it was cut from. The map document also
+ * holds Notes and Decisions-so-far, and model equality is the diff unit
+ * (see [`Model`]), so carrying the whole body here would make every
+ * keystroke in an unrelated section a change on screen.
+ */
+fog: Fog, };
 
 /**
  * The derived model for one tick, whole.

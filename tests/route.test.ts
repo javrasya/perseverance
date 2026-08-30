@@ -40,6 +40,7 @@ function mapOf(nodes: readonly Node[], over: Partial<Map> = {}): Map {
     counts: { tickets: nodes.length, open: nodes.length, specs: 0 },
     nodes: [...nodes],
     frontier: { frontier: "nothingToStart" },
+    fog: { fog: "unsurveyed" },
     ...over,
   };
 }
@@ -490,5 +491,57 @@ describe("the sections are computed on every call and stored nowhere", () => {
 
     expect(routeOf(rearranged)).toEqual(routeOf(rearranged));
     expect(routeOf(awkward())).toEqual(routeOf(awkward()));
+  });
+});
+
+describe("the fog is a region beside the sections and never one of them", () => {
+  it("carries the model's own reading through without asking again", () => {
+    const charted = {
+      fog: "surveyed",
+      region: { count: 2, text: "- one\n- two" },
+    } as const;
+
+    expect(routeOf(mapOf([], { fog: charted })).fog).toEqual(charted);
+    expect(routeOf(mapOf([])).fog).toEqual({ fog: "unsurveyed" });
+  });
+
+  it("keeps a survey that found nothing apart from a map nobody surveyed", () => {
+    /*
+     * The distinction this whole ticket exists for, at the layer it is decided
+     * — and it is a shape here rather than a number, so no reader can flatten
+     * the two into one by reaching for a count.
+     */
+    const surveyed = routeOf(
+      mapOf([], { fog: { fog: "surveyed", region: { count: 0, text: "" } } }),
+    ).fog;
+    const unsurveyed = routeOf(mapOf([])).fog;
+
+    expect(surveyed).not.toEqual(unsurveyed);
+    expect(unsurveyed.fog).toBe("unsurveyed");
+  });
+
+  it("is never a section, so nothing counts it with the rows", () => {
+    /*
+     * A `RouteSection` count is always the rows it heads. The fog has no rows,
+     * so a fog that arrived as a section would be a count nothing could check.
+     */
+    const route = routeOf(
+      mapOf([node(70)], { fog: { fog: "surveyed", region: { count: 9, text: "- x" } } }),
+    );
+
+    expect(route.sections.map((section) => section.name)).not.toContain("fog");
+    for (const section of route.sections) expect(section.count).toBe(section.rows.length);
+  });
+
+  it("survives a map the arithmetic gives no section at all", () => {
+    /*
+     * Every section is dropped when it is empty; this is the one region where
+     * the emptiness is the claim, so it is still in the answer for a map with
+     * nothing on it.
+     */
+    const route = routeOf(mapOf([]));
+
+    expect(route.sections).toEqual([]);
+    expect(route.fog).toEqual({ fog: "unsurveyed" });
   });
 });
