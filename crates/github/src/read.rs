@@ -12,6 +12,7 @@
 //! reachable in a test with no network and no token, which matters here for the
 //! same reason it mattered there — no CI runner has signed in.
 
+use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use perseverance_model::{
@@ -35,21 +36,92 @@ pub const MAP_READ_QUERY: &str = include_str!("map-read.graphql");
 /// cleanly and simply answers with less: #61 widened both `labels` pages from
 /// ten to a hundred and added `pageInfo`, and a body cached before it reads as
 /// a child with no eleventh label and a `labelsTruncated` that is falsely
-/// clean. Nothing has to be remembered here; the bytes cannot change without
+/// clean. Nothing has to be remembered here; the document cannot change without
 /// this changing.
 ///
+/// **What is hashed is the question, not the file.** The only thing the stamp
+/// is ever asked is *could this body be narrower than what I would get now*,
+/// and a comment cannot move that answer — GitHub never sees one. So a
+/// `#`-comment is dropped and a run of whitespace collapses to one space before
+/// a byte reaches the hash. Twenty-three of `map-read.graphql`'s sixty-two
+/// lines are prose, and in this repo prose gets edited more often than fields
+/// do; charging every operator a *first open* baseline plus a `labelsTruncated`
+/// caveat for a reworded rationale would be spending the cold start on nothing.
+///
+/// Inside a string literal both rules are off, because there whitespace and `#`
+/// are data rather than layout. `labels: ["wayfinder:map"]` is the document's
+/// only one, and a narrowing hidden in it has to bite like any other.
+///
 /// FNV-1a rather than a real digest because nothing adversarial is being
-/// resisted — the only question ever asked of it is *are these the same bytes
-/// this build sends* — and because a hash crate would be this crate's first new
+/// resisted — the only question ever asked of it is *is this the document this
+/// build sends* — and because a hash crate would be this crate's first new
 /// dependency for a sixteen-character string.
-const fn fnv1a_64(bytes: &[u8]) -> u64 {
+const fn fnv1a_step(hash: u64, byte: u8) -> u64 {
+    (hash ^ byte as u64).wrapping_mul(0x0000_0100_0000_01b3)
+}
+
+/// FNV-1a over the significant bytes of a GraphQL document, per the rules
+/// above. The normalisation is folded into the walk rather than done to a
+/// buffer first, because a `const fn` on the 1.82 floor cannot allocate one.
+const fn fnv1a_64_of_document(bytes: &[u8]) -> u64 {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
     let mut index = 0;
+    let mut in_string = false;
+    // Whether a separator has been skipped since the last byte that counted,
+    // and whether any byte has counted yet — together they turn every run of
+    // layout into exactly one space, and leading layout into none.
+    let mut separated = false;
+    let mut emitted = false;
+
     while index < bytes.len() {
-        hash ^= bytes[index] as u64;
-        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+        let byte = bytes[index];
+
+        if in_string {
+            // A backslash takes the byte after it with it, so an escaped quote
+            // cannot be read as the end of the string.
+            if byte == b'\\' && index + 1 < bytes.len() {
+                hash = fnv1a_step(hash, byte);
+                hash = fnv1a_step(hash, bytes[index + 1]);
+                index += 2;
+                continue;
+            }
+            if byte == b'"' {
+                in_string = false;
+            }
+            hash = fnv1a_step(hash, byte);
+            index += 1;
+            continue;
+        }
+
+        if byte == b'#' {
+            while index < bytes.len() && bytes[index] != b'\n' {
+                index += 1;
+            }
+            // A comment sat between two tokens is a separator like the
+            // whitespace around it, never a splice joining them.
+            separated = true;
+            continue;
+        }
+
+        if byte == b' ' || byte == b'\t' || byte == b'\n' || byte == b'\r' {
+            separated = true;
+            index += 1;
+            continue;
+        }
+
+        if separated && emitted {
+            hash = fnv1a_step(hash, b' ');
+        }
+        separated = false;
+
+        if byte == b'"' {
+            in_string = true;
+        }
+        hash = fnv1a_step(hash, byte);
+        emitted = true;
         index += 1;
     }
+
     hash
 }
 
@@ -57,15 +129,21 @@ const fn fnv1a_64(bytes: &[u8]) -> u64 {
 /// the workspace's 1.82 floor — `str::from_utf8` is not a `const fn` there — so
 /// the rendering lives in [`map_read_query_id`] and only the arithmetic is
 /// const.
-const MAP_READ_QUERY_ID: u64 = fnv1a_64(MAP_READ_QUERY.as_bytes());
+const MAP_READ_QUERY_ID: u64 = fnv1a_64_of_document(MAP_READ_QUERY.as_bytes());
+
+/// The rendering, done once. Sixteen hex digits fully determined at compile
+/// time have no business being formatted afresh on every cache read.
+static MAP_READ_QUERY_ID_HEX: OnceLock<String> = OnceLock::new();
 
 /// What this build stamps a cached body with, as lowercase hex.
 ///
 /// Public and free-standing so the reader side can ask what the current build
 /// sends without holding a [`FreshRead`]: a cached row is believed only while
 /// its stamp is byte-equal to this.
-pub fn map_read_query_id() -> String {
-    format!("{MAP_READ_QUERY_ID:016x}")
+pub fn map_read_query_id() -> &'static str {
+    MAP_READ_QUERY_ID_HEX
+        .get_or_init(|| format!("{MAP_READ_QUERY_ID:016x}"))
+        .as_str()
 }
 
 /// The only endpoint this app ever reaches.
@@ -104,6 +182,13 @@ pub struct FreshRead {
     body: String,
     read: MapRead,
     fetched_at: i64,
+    /// The identity of the document that asked for `body`, set once beside it.
+    ///
+    /// A field rather than a lookup, and handed in by whoever chose the
+    /// document rather than read off a global here: the day this crate ships a
+    /// second query, a body produced by it cannot quietly wear the map read's
+    /// stamp and pass a comparison it should fail.
+    query_id: &'static str,
 }
 
 impl FreshRead {
@@ -114,11 +199,12 @@ impl FreshRead {
 
     /// The identity of the document that asked for this body.
     ///
-    /// It rides on the value that already proves a read was live, so the stamp
-    /// and the body cannot be written from two different places and disagree.
-    /// See [`map_read_query_id`] for why the identity is the document's bytes.
-    pub fn query_id(&self) -> String {
-        map_read_query_id()
+    /// It rides on the value that already proves a read was live — the same
+    /// value, written at the same moment — so the stamp and the body cannot be
+    /// written from two different places and disagree. See
+    /// [`map_read_query_id`] for why the identity is the document itself.
+    pub fn query_id(&self) -> &'static str {
+        self.query_id
     }
 
     /// What that response says. Parsed once, here, so that a body which cannot
@@ -365,7 +451,10 @@ pub fn read_maps(
 ) -> Result<FreshRead, ReadFailure> {
     let sent = send(token, &request_body(owner, repo, map));
 
-    interpret_read(sent, epoch_seconds())
+    // The stamp is handed over here because here is where the document was
+    // chosen: `request_body` above is the one call that decides which query
+    // this exchange is an answer to.
+    interpret_read(sent, epoch_seconds(), map_read_query_id())
 }
 
 /// The request body, as JSON. Separated so a test can read the document this
@@ -415,9 +504,14 @@ fn when_it_resets(answer: &Answer, fetched_at: i64) -> Option<String> {
 
 /// What a finished exchange means. Pure, and the reason every branch below is
 /// reachable on a runner that has never signed in to anything.
+///
+/// `query_id` is the identity of the document the request was built from, and
+/// it is a parameter rather than a constant read here so that the stamp on a
+/// [`FreshRead`] is always the document that actually produced it.
 pub fn interpret_read(
     sent: Result<Answer, ReadFailure>,
     fetched_at: i64,
+    query_id: &'static str,
 ) -> Result<FreshRead, ReadFailure> {
     let answer = sent?;
 
@@ -457,6 +551,7 @@ pub fn interpret_read(
         body: answer.body,
         read,
         fetched_at,
+        query_id,
     })
 }
 
@@ -583,7 +678,8 @@ mod tests {
 
     #[test]
     fn a_successful_answer_becomes_a_read_carrying_the_body_github_actually_sent() {
-        let fresh = interpret_read(answered(200, TWO_MAPS), 1_785_888_000).expect("reads");
+        let fresh = interpret_read(answered(200, TWO_MAPS), 1_785_888_000, map_read_query_id())
+            .expect("reads");
 
         // Verbatim, because the cache stores this and #33 derives from it.
         assert_eq!(fresh.body(), TWO_MAPS);
@@ -597,7 +693,8 @@ mod tests {
         // alone would let this write the cache.
         let refused = r#"{ "data": null, "errors": [ { "message": "Bad credentials" } ] }"#;
 
-        let failure = interpret_read(answered(200, refused), 0).expect_err("refuses");
+        let failure =
+            interpret_read(answered(200, refused), 0, map_read_query_id()).expect_err("refuses");
 
         assert!(matches!(failure, ReadFailure::Unreadable(_)), "{failure:?}");
         assert!(failure.to_string().contains("Bad credentials"));
@@ -605,8 +702,12 @@ mod tests {
 
     #[test]
     fn a_status_that_is_not_success_is_reported_with_the_code_that_tells_them_apart() {
-        let failure = interpret_read(answered(401, "{\"message\":\"Bad credentials\"}"), 0)
-            .expect_err("refuses");
+        let failure = interpret_read(
+            answered(401, "{\"message\":\"Bad credentials\"}"),
+            0,
+            map_read_query_id(),
+        )
+        .expect_err("refuses");
 
         match failure {
             ReadFailure::Status { code, detail, .. } => {
@@ -619,7 +720,8 @@ mod tests {
 
     #[test]
     fn a_non_answer_that_said_nothing_is_reported_as_the_code_and_nothing_more() {
-        let failure = interpret_read(answered(502, "   \n  "), 0).expect_err("refuses");
+        let failure =
+            interpret_read(answered(502, "   \n  "), 0, map_read_query_id()).expect_err("refuses");
 
         match failure {
             ReadFailure::Status { code, detail, .. } => {
@@ -638,6 +740,7 @@ mod tests {
         let failure = interpret_read(
             answered_after(403, "{\"message\":\"API rate limit exceeded\"}", 60),
             1_785_888_000,
+            map_read_query_id(),
         )
         .expect_err("refuses");
 
@@ -662,8 +765,12 @@ mod tests {
 
         // A header this build will not read is *nothing said when* rather than
         // *the reset is now*, which is a horizon nobody established.
-        let unsaid =
-            interpret_read(answered(429, "{\"message\":\"slow down\"}"), 0).expect_err("refuses");
+        let unsaid = interpret_read(
+            answered(429, "{\"message\":\"slow down\"}"),
+            0,
+            map_read_query_id(),
+        )
+        .expect_err("refuses");
         assert_eq!(unsaid.degraded(), Degraded::RateLimited { resets_at: None });
     }
 
@@ -692,6 +799,7 @@ mod tests {
                 refills_at,
             ),
             1_785_888_000,
+            map_read_query_id(),
         )
         .expect_err("refuses");
 
@@ -714,6 +822,7 @@ mod tests {
                 refills_at,
             ),
             1_785_888_000,
+            map_read_query_id(),
         )
         .expect_err("refuses");
 
@@ -735,6 +844,7 @@ mod tests {
         let failure = interpret_read(
             answered_drained(200, refused, 0, 1_785_888_000 + 3_600),
             1_785_888_000,
+            map_read_query_id(),
         )
         .expect_err("refuses");
 
@@ -756,7 +866,8 @@ mod tests {
     fn a_page_of_html_from_a_proxy_is_quoted_at_a_length_a_sentence_can_hold() {
         let page = format!("<html>{}</html>", "x".repeat(4000));
 
-        let failure = interpret_read(answered(503, &page), 0).expect_err("refuses");
+        let failure =
+            interpret_read(answered(503, &page), 0, map_read_query_id()).expect_err("refuses");
 
         assert!(failure.to_string().len() < 400, "{failure}");
     }
@@ -909,6 +1020,7 @@ mod tests {
         let failure = interpret_read(
             Err(ReadFailure::NoAnswer("connection closed".to_string())),
             0,
+            map_read_query_id(),
         )
         .expect_err("refuses");
 
@@ -920,7 +1032,8 @@ mod tests {
         // The fixture's reset is 2026-08-05T11:02:14Z, and this read landed at
         // midnight the same day — so the horizon is the eleven hours between
         // them, anchored to the answer rather than to whenever anybody asks.
-        let fresh = interpret_read(answered(200, TWO_MAPS), 1_785_888_000).expect("reads");
+        let fresh = interpret_read(answered(200, TWO_MAPS), 1_785_888_000, map_read_query_id())
+            .expect("reads");
 
         assert_eq!(
             fresh.budget(),
@@ -941,7 +1054,8 @@ mod tests {
         ];
 
         for (fetched_at, seconds_to_reset) in landed {
-            let fresh = interpret_read(answered(200, TWO_MAPS), fetched_at).expect("reads");
+            let fresh = interpret_read(answered(200, TWO_MAPS), fetched_at, map_read_query_id())
+                .expect("reads");
             assert_eq!(
                 fresh.budget().expect("a budget").seconds_to_reset,
                 seconds_to_reset,
@@ -964,7 +1078,8 @@ mod tests {
         ];
 
         for body in unbudgeted {
-            let fresh = interpret_read(answered(200, body), 1_785_888_000).expect("reads");
+            let fresh = interpret_read(answered(200, body), 1_785_888_000, map_read_query_id())
+                .expect("reads");
             assert_eq!(fresh.budget(), None, "{body}");
         }
     }
@@ -997,15 +1112,64 @@ mod tests {
     }
 
     #[test]
-    fn the_hash_the_stamp_is_built_from_is_the_published_fnv_1a_64_of_its_bytes() {
+    fn the_hash_the_stamp_is_built_from_is_the_published_fnv_1a_64() {
         // Vectors from the FNV reference (Landon Curt Noll). A hash that stopped
-        // being a function of the bytes — reduced to a constant, or seeded
+        // being a function of the document — reduced to a constant, or seeded
         // wrongly — would still let every stamp comparison in the app pass, so
         // the arithmetic is pinned here against numbers this repo did not
-        // choose.
-        assert_eq!(fnv1a_64(b""), 0xcbf2_9ce4_8422_2325);
-        assert_eq!(fnv1a_64(b"a"), 0xaf63_dc4c_8601_ec8c);
-        assert_eq!(fnv1a_64(b"foobar"), 0x8594_4171_f739_67e8);
+        // choose. None of the three carries a comment or a space, so the
+        // normalisation is the identity on them and what is left is the
+        // arithmetic.
+        assert_eq!(fnv1a_64_of_document(b""), 0xcbf2_9ce4_8422_2325);
+        assert_eq!(fnv1a_64_of_document(b"a"), 0xaf63_dc4c_8601_ec8c);
+        assert_eq!(fnv1a_64_of_document(b"foobar"), 0x8594_4171_f739_67e8);
+    }
+
+    #[test]
+    fn prose_and_layout_are_not_part_of_what_the_document_asks_for() {
+        // The stamp answers *could this body be narrower than what I would get
+        // now*, and GitHub is never shown a comment. Twenty-three of this
+        // file's sixty-two lines are prose; a reworded paragraph that cost
+        // every operator a cold start would be spending it on nothing.
+        let without_prose: String = MAP_READ_QUERY
+            .lines()
+            .filter(|line| !line.trim_start().starts_with('#'))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert_ne!(
+            without_prose, MAP_READ_QUERY,
+            "the document has prose in it"
+        );
+        assert_eq!(
+            fnv1a_64_of_document(without_prose.as_bytes()),
+            MAP_READ_QUERY_ID
+        );
+
+        // Nor is the layout: the same tokens re-wrapped and re-indented are the
+        // same question.
+        let reflowed = without_prose
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join("\n      ");
+        assert_ne!(reflowed, without_prose, "the reflow has to bite");
+        assert_eq!(fnv1a_64_of_document(reflowed.as_bytes()), MAP_READ_QUERY_ID);
+    }
+
+    #[test]
+    fn inside_a_string_literal_a_space_and_a_hash_are_data() {
+        // `labels: ["wayfinder:map"]` is the document's only string, and it is
+        // a filter: a body read under a different one is a different answer.
+        // So neither rule reaches inside the quotes.
+        assert_ne!(
+            fnv1a_64_of_document(b"labels: [\"wayfinder:map\"]"),
+            fnv1a_64_of_document(b"labels: [\"wayfinder: map\"]")
+        );
+        // A `#` in a string starts no comment — if it did, both of these would
+        // hash the same prefix and stop.
+        assert_ne!(
+            fnv1a_64_of_document(b"labels: [\"a#one\"]"),
+            fnv1a_64_of_document(b"labels: [\"a#two\"]")
+        );
     }
 
     #[test]
@@ -1013,17 +1177,20 @@ mod tests {
         // The claim the whole slice rests on: editing the bytes changes the
         // stamp. A one-character difference, and the narrowing that actually
         // happened in #61 — ten labels widened to a hundred.
-        assert_ne!(fnv1a_64(b"query MapRead"), fnv1a_64(b"query MapReab"));
         assert_ne!(
-            fnv1a_64(b"labels(first: 10)"),
-            fnv1a_64(b"labels(first: 100)")
+            fnv1a_64_of_document(b"query MapRead"),
+            fnv1a_64_of_document(b"query MapReab")
+        );
+        assert_ne!(
+            fnv1a_64_of_document(b"labels(first: 10)"),
+            fnv1a_64_of_document(b"labels(first: 100)")
         );
 
         let narrower = MAP_READ_QUERY.replace("labels(first: 100)", "labels(first: 10)");
         assert_ne!(narrower, MAP_READ_QUERY, "the substitution has to bite");
         assert_ne!(
-            fnv1a_64(narrower.as_bytes()),
-            fnv1a_64(MAP_READ_QUERY.as_bytes())
+            fnv1a_64_of_document(narrower.as_bytes()),
+            fnv1a_64_of_document(MAP_READ_QUERY.as_bytes())
         );
     }
 
@@ -1035,7 +1202,7 @@ mod tests {
 
         assert_eq!(
             stamp,
-            format!("{:016x}", fnv1a_64(MAP_READ_QUERY.as_bytes()))
+            format!("{:016x}", fnv1a_64_of_document(MAP_READ_QUERY.as_bytes()))
         );
         assert_eq!(stamp.len(), 16);
         assert!(stamp

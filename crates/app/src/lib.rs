@@ -34,7 +34,7 @@ use perseverance_model::{
     Source, TicketType,
 };
 use perseverance_pty::{Delivery, Geometry, RunId, Runs, GRACE};
-use perseverance_store::{CachedGraph, Folder, RepoBindingError, Store, StoreError};
+use perseverance_store::{CachedBody, CachedGraph, Folder, RepoBindingError, Store, StoreError};
 use serde::Serialize;
 use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
@@ -291,7 +291,7 @@ impl MapsView {
 /// brings through the upgrade — is not this build's either, because `None` is
 /// not this build's id.
 fn under_this_builds_query(cached: &CachedGraph) -> bool {
-    cached.query_id.as_deref() == Some(map_read_query_id().as_str())
+    cached.query_id.as_deref() == Some(map_read_query_id())
 }
 
 /// The cached row for a folder-and-map, but only if this build asked the
@@ -415,22 +415,19 @@ fn remember_read(
     map: Option<u64>,
     fresh: &FreshRead,
 ) -> Result<(), StoreError> {
-    store.cache_graph(
-        folder_id,
-        None,
-        fresh.body(),
-        fresh.fetched_at(),
-        &fresh.query_id(),
-    )?;
+    // Taken off the live read once. The body and the stamp of the document
+    // that produced it are one value from here down, so the folder's row and
+    // the map's row cannot be written from two readings of the same read.
+    let body = CachedBody {
+        graph_json: fresh.body(),
+        fetched_at: fresh.fetched_at(),
+        query_id: fresh.query_id(),
+    };
+
+    store.cache_graph(folder_id, None, &body)?;
 
     if let Some(number) = map {
-        store.cache_graph(
-            folder_id,
-            Some(number),
-            fresh.body(),
-            fresh.fetched_at(),
-            &fresh.query_id(),
-        )?;
+        store.cache_graph(folder_id, Some(number), &body)?;
     }
 
     let still_listed: Vec<u64> = fresh
@@ -2899,6 +2896,7 @@ mod tests {
                 rate_limit_reset: None,
             }),
             fetched_at,
+            map_read_query_id(),
         )
         .expect("reads")
     }
@@ -3123,6 +3121,7 @@ mod tests {
                 rate_limit_reset: None,
             }),
             200,
+            map_read_query_id(),
         );
         let refusal = failed.expect_err("refuses");
         let held = from_cache(&store, folder_id).stale(refusal.degraded(), refusal.to_string());
@@ -3414,9 +3413,11 @@ mod tests {
             .cache_graph(
                 folder_id,
                 Some(99),
-                "a map that has since gone",
-                10,
-                &map_read_query_id(),
+                &CachedBody {
+                    graph_json: "a map that has since gone",
+                    fetched_at: 10,
+                    query_id: map_read_query_id(),
+                },
             )
             .expect("caches");
 
@@ -3436,9 +3437,11 @@ mod tests {
             .cache_graph(
                 folder_id,
                 None,
-                "<html>a proxy got at it</html>",
-                100,
-                &map_read_query_id(),
+                &CachedBody {
+                    graph_json: "<html>a proxy got at it</html>",
+                    fetched_at: 100,
+                    query_id: map_read_query_id(),
+                },
             )
             .expect("overwrites with something unreadable");
 
@@ -3557,9 +3560,11 @@ mod tests {
             .cache_graph(
                 folder_id,
                 Some(AWKWARD_MAP),
-                AWKWARD,
-                100,
-                &map_read_query_id(),
+                &CachedBody {
+                    graph_json: AWKWARD,
+                    fetched_at: 100,
+                    query_id: map_read_query_id(),
+                },
             )
             .expect("caches");
 
@@ -3614,9 +3619,11 @@ mod tests {
             .cache_graph(
                 folder_id,
                 Some(AWKWARD_MAP),
-                AWKWARD,
-                100,
-                "the narrower document that shipped before #61",
+                &CachedBody {
+                    graph_json: AWKWARD,
+                    fetched_at: 100,
+                    query_id: "the narrower document that shipped before #61",
+                },
             )
             .expect("caches");
 
@@ -3649,7 +3656,15 @@ mod tests {
     fn a_folders_cached_map_list_from_another_query_document_still_paints() {
         let (store, folder_id) = registry_with_a_folder();
         store
-            .cache_graph(folder_id, None, TWO_MAPS, 1_785_888_000, "some older shape")
+            .cache_graph(
+                folder_id,
+                None,
+                &CachedBody {
+                    graph_json: TWO_MAPS,
+                    fetched_at: 1_785_888_000,
+                    query_id: "some older shape",
+                },
+            )
             .expect("caches");
 
         let json = serde_json::to_value(from_cache(&store, folder_id)).expect("serialises");
@@ -3660,13 +3675,50 @@ mod tests {
         assert_eq!(json["maps"].as_array().expect("an array").len(), 2);
         assert_eq!(json["maps"][0]["number"], 28);
         // The unstamped row a version-2 file upgrades into is this same case —
-        // `None` is not this build's id either. That one is held in
-        // `perseverance-store`, which is the only crate that can write a NULL
-        // stamp: nothing here can, because every write comes off a `FreshRead`.
+        // `None` is not this build's id either, and
+        // `a_row_with_no_stamp_at_all_is_not_this_builds_query_either` below
+        // says so against the gate both readers ask.
         assert!(store
             .cached_graph(folder_id, None)
             .expect("reads")
             .is_some());
+    }
+
+    /// The row shape every existing operator actually has on the first launch
+    /// after the upgrade — and the one no other test here can write.
+    ///
+    /// A wrong stamp arrives only once somebody has edited the document; `None`
+    /// arrives for everybody, off the version-2 migration. Nothing in this
+    /// crate can produce it — every write comes off a [`FreshRead`], which is
+    /// always stamped — so the row is built directly, which `CachedGraph`'s
+    /// public fields allow.
+    ///
+    /// Pinning the gate pins both readers, because both ask this and nothing
+    /// else: [`resuming_from`] filters its baseline through it, so `None` is
+    /// *first open*, and [`from_cache`] paints
+    /// [`MapsView::unvouched`] on the same answer, so `None` caveats
+    /// `labelsTruncated`.
+    #[test]
+    fn a_row_with_no_stamp_at_all_is_not_this_builds_query_either() {
+        let unstamped = CachedGraph {
+            graph_json: TWO_MAPS.to_string(),
+            fetched_at: 1_785_888_000,
+            query_id: None,
+        };
+
+        assert!(!under_this_builds_query(&unstamped));
+
+        // The controls, so the `false` above is the missing stamp and not the
+        // row: the same body is believed under this build's own id, and
+        // refused under somebody else's.
+        assert!(under_this_builds_query(&CachedGraph {
+            query_id: Some(map_read_query_id().to_string()),
+            ..unstamped.clone()
+        }));
+        assert!(!under_this_builds_query(&CachedGraph {
+            query_id: Some("some older shape".to_string()),
+            ..unstamped
+        }));
     }
 
     /// What the stamp *is* evidence about, on this reader: `labelsTruncated`,
@@ -3688,7 +3740,15 @@ mod tests {
     fn an_unfamiliar_document_caveats_labels_truncated_and_leaves_capped_clean() {
         let (store, folder_id) = registry_with_a_folder();
         store
-            .cache_graph(folder_id, None, TWO_MAPS, 1_785_888_000, "some older shape")
+            .cache_graph(
+                folder_id,
+                None,
+                &CachedBody {
+                    graph_json: TWO_MAPS,
+                    fetched_at: 1_785_888_000,
+                    query_id: "some older shape",
+                },
+            )
             .expect("caches");
 
         let json = serde_json::to_value(from_cache(&store, folder_id)).expect("serialises");
@@ -3700,9 +3760,11 @@ mod tests {
             .cache_graph(
                 folder_id,
                 None,
-                TWO_MAPS,
-                1_785_888_000,
-                &map_read_query_id(),
+                &CachedBody {
+                    graph_json: TWO_MAPS,
+                    fetched_at: 1_785_888_000,
+                    query_id: map_read_query_id(),
+                },
             )
             .expect("re-caches under the document this build sends");
 
@@ -3725,9 +3787,11 @@ mod tests {
             .cache_graph(
                 folder_id,
                 Some(AWKWARD_MAP),
-                AWKWARD,
-                100,
-                &map_read_query_id(),
+                &CachedBody {
+                    graph_json: AWKWARD,
+                    fetched_at: 100,
+                    query_id: map_read_query_id(),
+                },
             )
             .expect("caches");
 
@@ -3781,9 +3845,11 @@ mod tests {
             .cache_graph(
                 folder_id,
                 Some(AWKWARD_MAP),
-                "<html>a proxy got at it</html>",
-                100,
-                &map_read_query_id(),
+                &CachedBody {
+                    graph_json: "<html>a proxy got at it</html>",
+                    fetched_at: 100,
+                    query_id: map_read_query_id(),
+                },
             )
             .expect("caches");
 
@@ -3814,9 +3880,11 @@ mod tests {
             .cache_graph(
                 folder_id,
                 Some(AWKWARD_MAP),
-                AWKWARD,
-                100,
-                &map_read_query_id(),
+                &CachedBody {
+                    graph_json: AWKWARD,
+                    fetched_at: 100,
+                    query_id: map_read_query_id(),
+                },
             )
             .expect("caches");
 
@@ -3859,9 +3927,11 @@ mod tests {
             .cache_graph(
                 folder_id,
                 Some(AWKWARD_MAP),
-                AWKWARD_LATER,
-                100,
-                &map_read_query_id(),
+                &CachedBody {
+                    graph_json: AWKWARD_LATER,
+                    fetched_at: 100,
+                    query_id: map_read_query_id(),
+                },
             )
             .expect("caches");
 

@@ -33,7 +33,7 @@ mod repo;
 mod schema;
 mod store;
 
-pub use cache::CachedGraph;
+pub use cache::{CachedBody, CachedGraph};
 pub use folders::Folder;
 pub use repo::{bind_repo, RepoBindingError, RepoRef};
 pub use schema::STORE_SCHEMA_VERSION;

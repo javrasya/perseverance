@@ -43,6 +43,27 @@ pub struct CachedGraph {
     pub query_id: Option<String>,
 }
 
+/// One body to write, and everything the row records about it.
+///
+/// The three fields are exactly what a single live read produces, so they
+/// travel as one argument rather than three positions. A caller cannot pair a
+/// body from one read with the stamp of another without saying so out loud,
+/// and the next thing a cached read learns about itself is a field here rather
+/// than a sixth parameter on the writer.
+///
+/// Borrowed rather than owned: every caller already holds all three, and
+/// copying them to hand them over would be a cache write allocating for the
+/// privilege.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CachedBody<'a> {
+    /// The GraphQL response, verbatim, as GitHub sent it.
+    pub graph_json: &'a str,
+    /// Seconds since the Unix epoch, taken when the answer arrived.
+    pub fetched_at: i64,
+    /// The identity of the query document that produced `graph_json`.
+    pub query_id: &'a str,
+}
+
 impl Store {
     /// The cached read for a folder — of the map that was open, or of the
     /// folder itself when none was.
@@ -82,21 +103,22 @@ impl Store {
     ///
     /// Nothing in this signature can tell whether the text came from GitHub —
     /// which is why the caller that has that proof is the only one that may
-    /// call it, and why the proof is a type rather than a promise. `query_id`
-    /// travels for the same reason: it is the identity of the document that
-    /// asked, and it comes off the same value that proves the answer was live.
+    /// call it, and why the proof is a type rather than a promise. The
+    /// [`CachedBody`] is one argument for the same reason: the stamp is the
+    /// identity of the document that asked, it comes off the same value that
+    /// proves the answer was live, and arriving here bundled with the body is
+    /// what stops the two being assembled from two places.
     ///
-    /// It is named in the `DO UPDATE SET` clause deliberately. A column left
-    /// out of that clause keeps its old value on every write after the first,
-    /// so a body from a widened document would go on wearing the stamp of the
-    /// narrow one — which is precisely the bug the column exists to close.
+    /// `query_id` is named in the `DO UPDATE SET` clause deliberately. A column
+    /// left out of that clause keeps its old value on every write after the
+    /// first, so a body from a widened document would go on wearing the stamp
+    /// of the narrow one — which is precisely the bug the column exists to
+    /// close.
     pub fn cache_graph(
         &self,
         folder_id: i64,
         map_number: Option<u64>,
-        graph_json: &str,
-        fetched_at: i64,
-        query_id: &str,
+        body: &CachedBody<'_>,
     ) -> Result<(), StoreError> {
         let listed: bool = self
             .conn
@@ -119,9 +141,9 @@ impl Store {
             params![
                 folder_id,
                 map_number.map(|number| number as i64),
-                graph_json,
-                fetched_at,
-                query_id
+                body.graph_json,
+                body.fetched_at,
+                body.query_id
             ],
         )?;
 
@@ -200,7 +222,15 @@ mod tests {
         let (store, folder_id) = store_with_folder();
 
         store
-            .cache_graph(folder_id, None, r#"{"data":{}}"#, 1_785_888_000, "abc123")
+            .cache_graph(
+                folder_id,
+                None,
+                &CachedBody {
+                    graph_json: r#"{"data":{}}"#,
+                    fetched_at: 1_785_888_000,
+                    query_id: "abc123",
+                },
+            )
             .expect("caches");
 
         assert_eq!(
@@ -218,10 +248,26 @@ mod tests {
         let (store, folder_id) = store_with_folder();
 
         store
-            .cache_graph(folder_id, Some(28), "first", 100, "abc123")
+            .cache_graph(
+                folder_id,
+                Some(28),
+                &CachedBody {
+                    graph_json: "first",
+                    fetched_at: 100,
+                    query_id: "abc123",
+                },
+            )
             .expect("caches");
         store
-            .cache_graph(folder_id, Some(28), "second", 200, "abc123")
+            .cache_graph(
+                folder_id,
+                Some(28),
+                &CachedBody {
+                    graph_json: "second",
+                    fetched_at: 200,
+                    query_id: "abc123",
+                },
+            )
             .expect("caches again");
 
         assert_eq!(
@@ -244,10 +290,26 @@ mod tests {
         let (store, folder_id) = store_with_folder();
 
         store
-            .cache_graph(folder_id, None, "the folder's map list", 100, "abc123")
+            .cache_graph(
+                folder_id,
+                None,
+                &CachedBody {
+                    graph_json: "the folder's map list",
+                    fetched_at: 100,
+                    query_id: "abc123",
+                },
+            )
             .expect("caches");
         store
-            .cache_graph(folder_id, Some(28), "map 28's graph", 200, "abc123")
+            .cache_graph(
+                folder_id,
+                Some(28),
+                &CachedBody {
+                    graph_json: "map 28's graph",
+                    fetched_at: 200,
+                    query_id: "abc123",
+                },
+            )
             .expect("caches");
 
         // No map open is not map zero, and a read taken with none open must not
@@ -279,10 +341,26 @@ mod tests {
             .id;
 
         store
-            .cache_graph(first, Some(1), "one", 10, "abc123")
+            .cache_graph(
+                first,
+                Some(1),
+                &CachedBody {
+                    graph_json: "one",
+                    fetched_at: 10,
+                    query_id: "abc123",
+                },
+            )
             .expect("caches");
         store
-            .cache_graph(second, Some(1), "another", 20, "abc123")
+            .cache_graph(
+                second,
+                Some(1),
+                &CachedBody {
+                    graph_json: "another",
+                    fetched_at: 20,
+                    query_id: "abc123",
+                },
+            )
             .expect("caches");
 
         assert_eq!(
@@ -299,13 +377,37 @@ mod tests {
     fn a_map_a_successful_read_no_longer_lists_is_dropped_and_the_rest_are_kept() {
         let (store, folder_id) = store_with_folder();
         store
-            .cache_graph(folder_id, None, "the map list", 10, "abc123")
+            .cache_graph(
+                folder_id,
+                None,
+                &CachedBody {
+                    graph_json: "the map list",
+                    fetched_at: 10,
+                    query_id: "abc123",
+                },
+            )
             .expect("caches");
         store
-            .cache_graph(folder_id, Some(1), "one", 10, "abc123")
+            .cache_graph(
+                folder_id,
+                Some(1),
+                &CachedBody {
+                    graph_json: "one",
+                    fetched_at: 10,
+                    query_id: "abc123",
+                },
+            )
             .expect("caches");
         store
-            .cache_graph(folder_id, Some(2), "two", 10, "abc123")
+            .cache_graph(
+                folder_id,
+                Some(2),
+                &CachedBody {
+                    graph_json: "two",
+                    fetched_at: 10,
+                    query_id: "abc123",
+                },
+            )
             .expect("caches");
 
         let dropped = store
@@ -329,10 +431,26 @@ mod tests {
     fn a_repository_whose_last_map_was_deleted_still_keeps_its_map_list_row() {
         let (store, folder_id) = store_with_folder();
         store
-            .cache_graph(folder_id, None, "the map list", 10, "abc123")
+            .cache_graph(
+                folder_id,
+                None,
+                &CachedBody {
+                    graph_json: "the map list",
+                    fetched_at: 10,
+                    query_id: "abc123",
+                },
+            )
             .expect("caches");
         store
-            .cache_graph(folder_id, Some(1), "one", 10, "abc123")
+            .cache_graph(
+                folder_id,
+                Some(1),
+                &CachedBody {
+                    graph_json: "one",
+                    fetched_at: 10,
+                    query_id: "abc123",
+                },
+            )
             .expect("caches");
 
         let dropped = store
@@ -354,10 +472,26 @@ mod tests {
             .expect("remembers")
             .id;
         store
-            .cache_graph(first, Some(1), "one", 10, "abc123")
+            .cache_graph(
+                first,
+                Some(1),
+                &CachedBody {
+                    graph_json: "one",
+                    fetched_at: 10,
+                    query_id: "abc123",
+                },
+            )
             .expect("caches");
         store
-            .cache_graph(second, Some(1), "one", 10, "abc123")
+            .cache_graph(
+                second,
+                Some(1),
+                &CachedBody {
+                    graph_json: "one",
+                    fetched_at: 10,
+                    query_id: "abc123",
+                },
+            )
             .expect("caches");
 
         store.forget_cached_maps_except(first, &[]).expect("prunes");
@@ -373,7 +507,15 @@ mod tests {
         let store = Store::open_in_memory().expect("opens");
 
         let refusal = store
-            .cache_graph(404, Some(1), "one", 10, "abc123")
+            .cache_graph(
+                404,
+                Some(1),
+                &CachedBody {
+                    graph_json: "one",
+                    fetched_at: 10,
+                    query_id: "abc123",
+                },
+            )
             .expect_err("refuses");
 
         assert!(matches!(refusal, StoreError::UnknownFolder(404)));
@@ -383,7 +525,15 @@ mod tests {
     fn a_relocated_folder_keeps_the_cache_it_had_before_the_move() {
         let (store, folder_id) = store_with_folder();
         store
-            .cache_graph(folder_id, Some(28), "map 28's graph", 10, "abc123")
+            .cache_graph(
+                folder_id,
+                Some(28),
+                &CachedBody {
+                    graph_json: "map 28's graph",
+                    fetched_at: 10,
+                    query_id: "abc123",
+                },
+            )
             .expect("caches");
 
         store
@@ -401,7 +551,15 @@ mod tests {
     fn forgetting_a_folder_takes_its_cache_with_it_rather_than_leaving_it_behind() {
         let (store, folder_id) = store_with_folder();
         store
-            .cache_graph(folder_id, Some(28), "map 28's graph", 10, "abc123")
+            .cache_graph(
+                folder_id,
+                Some(28),
+                &CachedBody {
+                    graph_json: "map 28's graph",
+                    fetched_at: 10,
+                    query_id: "abc123",
+                },
+            )
             .expect("caches");
 
         store.forget_folder(folder_id).expect("forgets");
@@ -417,11 +575,27 @@ mod tests {
     fn re_caching_a_map_under_a_different_document_replaces_the_stamp_it_was_written_with() {
         let (store, folder_id) = store_with_folder();
         store
-            .cache_graph(folder_id, Some(28), "ten labels", 100, "the narrow one")
+            .cache_graph(
+                folder_id,
+                Some(28),
+                &CachedBody {
+                    graph_json: "ten labels",
+                    fetched_at: 100,
+                    query_id: "the narrow one",
+                },
+            )
             .expect("caches");
 
         store
-            .cache_graph(folder_id, Some(28), "a hundred labels", 200, "the wide one")
+            .cache_graph(
+                folder_id,
+                Some(28),
+                &CachedBody {
+                    graph_json: "a hundred labels",
+                    fetched_at: 200,
+                    query_id: "the wide one",
+                },
+            )
             .expect("caches again");
 
         // A stamp left out of the `ON CONFLICT ... DO UPDATE SET` clause keeps

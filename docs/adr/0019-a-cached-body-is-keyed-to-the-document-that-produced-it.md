@@ -51,26 +51,44 @@ never asked is worse than no flag, because an operator believes it.
 nothing derived from a body whose identity is not this build's may be
 believed.**
 
-**The identity is the document's bytes.** `MAP_READ_QUERY` is
-`include_str!("map-read.graphql")`, and its stamp is FNV-1a over those bytes,
-sixteen hex characters. Not a version number beside the file: a version number
-is a thing somebody has to remember to bump, and the failure it guards against
-is precisely somebody editing the query and not thinking about the cache. The
-bytes cannot be edited without the stamp changing. FNV-1a rather than a real
-digest because nothing adversarial is being resisted — the only question ever
-asked of the value is *are these the same bytes this build sends* — and because
-a hash crate would have been `perseverance-github`'s first new dependency for a
-sixteen-character string. The arithmetic is a `const fn`; only the hex
-rendering is not, because `str::from_utf8` is not `const` on the workspace's
-1.82 floor.
+**The identity is the document, not a number beside it.** `MAP_READ_QUERY` is
+`include_str!("map-read.graphql")`, and its stamp is FNV-1a over it, sixteen hex
+characters. Not a version number beside the file: a version number is a thing
+somebody has to remember to bump, and the failure it guards against is precisely
+somebody editing the query and not thinking about the cache. What the document
+asks for cannot be edited without the stamp changing.
+
+**What is hashed is the question, not the file.** A `#`-comment is dropped and a
+run of whitespace collapses to one space before a byte reaches the hash, because
+the only thing the stamp is ever asked is *could this body be narrower than what
+I would get now* and GitHub is never shown a comment. Twenty-three of
+`map-read.graphql`'s sixty-two lines are prose, and in this repo prose gets
+edited more often than fields do; a reworded rationale that cost every operator
+a *first open* baseline plus a `labelsTruncated` caveat would be spending the
+cold start on nothing. Inside a string literal both rules are off — there a
+space and a `#` are data, and `labels: ["wayfinder:map"]` is a filter whose
+narrowing has to bite like any other.
+
+FNV-1a rather than a real digest because nothing adversarial is being resisted —
+the only question ever asked of the value is *is this the document this build
+sends* — and because a hash crate would have been `perseverance-github`'s first
+new dependency for a sixteen-character string. The arithmetic, normalisation
+included, is a `const fn`; only the hex rendering is not, because
+`str::from_utf8` is not `const` on the workspace's 1.82 floor, so it is rendered
+once into a `OnceLock` rather than formatted afresh on every cache read.
 
 **The stamp travels on `FreshRead`.** `FreshRead::query_id` sits beside `body`
 and `fetched_at` on the value that has no public constructor outside
 `perseverance-github` — the same mechanism that already makes *the cache is
 written only on a successful GitHub read* unspellable to break rather than a
-rule to remember. The stamp and the body therefore cannot be written from two
-places and disagree. `map_read_query_id()` is free-standing beside it so the
-reader can ask what this build sends without holding a read.
+rule to remember. It is a **field**, not a lookup: `read_maps` hands the stamp
+to `interpret_read` because `read_maps` is where the document was chosen, so a
+second query added to that crate cannot quietly produce bodies wearing the map
+read's id. It stays one value on the way out too — the writer takes a single
+`CachedBody { graph_json, fetched_at, query_id }` rather than three positions.
+The stamp and the body therefore cannot be written from two places and
+disagree. `map_read_query_id()` is free-standing beside it so the reader can ask
+what this build sends without holding a read.
 
 **A mismatch is scoped to what the stamp is evidence about, and it is never an
 error or a deletion.** `under_this_builds_query` in `crates/app` is the whole
@@ -166,8 +184,8 @@ successful poll per folder. The same reasoning does not reach `truncated`, whose
 sentence would be wrong about GitHub rather than cautious about a page.
 
 **A widening now costs a baseline rather than corrupting one.** Anybody editing
-`map-read.graphql` gets the cold start for free, in exchange for nothing they
-have to remember. The equivalent hand-maintained constant would have been
+what `map-read.graphql` *asks for* gets the cold start for free, in exchange for
+nothing they have to remember; anybody editing only its prose pays nothing. The equivalent hand-maintained constant would have been
 correct only for as long as everyone kept bumping it.
 
 **The stamp is not a version and cannot be ordered.** There is no *newer* or
