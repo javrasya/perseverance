@@ -85,13 +85,13 @@ the body on different things:
   for the answer, because *nobody has looked here yet* was already the honest
   thing to say — and the phantom *while you were away* row is the failure this
   ADR exists to close.
-- **The map list still paints, with its truncation flags moved to the caveat.**
+- **The map list still paints, with `labelsTruncated` moved to the caveat.**
   `from_cache` reads the row whatever its stamp and paints it through
-  `MapsView::of`, then applies `MapsView::unvouched`: `truncated` and
-  `labelsTruncated` both go to `true`. The stamp is evidence about a `pageInfo`
-  the old document may never have asked for. It is not evidence about whether
-  the operator has any maps, and the numbers, titles and states are the part of
-  a body a widening leaves alone.
+  `MapsView::of`, then applies `MapsView::unvouched`, which sets
+  `labelsTruncated` and touches nothing else. The stamp is evidence about a
+  `pageInfo` the old document may never have asked for. It is not evidence about
+  whether the operator has any maps, and the numbers, titles and states are the
+  part of a body a widening leaves alone.
 
 The second is not a softening of the first, it is the same rule aimed at the
 same target. A flag that reads clean because the question was never asked is
@@ -100,6 +100,29 @@ statement, and `MapsView::stale` already refuses to make it — `from_cache` is
 the copy `poll_once` holds across every failing exit it has, so a stamp that
 blanked it would report *your maps are gone* for as long as the polls went on
 failing.
+
+**Of the two truncation flags, only `labelsTruncated` is caveated, and the
+asymmetry is the point.** It is the one #82 names, the one #61's widening
+actually moved, and the one whose page can ordinarily exist: nothing caps how
+many labels an issue carries, so *this may have been cut off* is a sentence a
+stamp really is evidence for. `truncated` is `Truncation::capped()`, and its
+sentence on screen says GitHub answered a page its own limits forbid. That flag
+is a tripwire whose whole value is that it has never fired — `crates/model`
+refuses to fold labels into it for exactly this reason — and a stamp is no
+evidence that a cap was broken. Setting it would print a false sentence to every
+operator on their first launch after the version-3 upgrade, and go on printing
+it for as long as the polls kept failing, which is the offline and rate-limited
+case the scoping was chosen for in the first place. The three capped connections
+therefore stay **unvouched and silent**: a cap GitHub forbids has never been
+observed, and a caveat that asserts something false is not a smaller lie than a
+flag that reads clean.
+
+The alternative — a third state on `MapsView` with a sentence of its own, *this
+copy was read under a query this build no longer sends, so what it says was cut
+off may be incomplete* — was rejected. It buys a caveat over three flags that
+have never fired at the price of a WebView-visible field, a regenerated binding
+and a fourth note to keep true, and this ADR's answer is that the honest thing
+to say about the three is nothing.
 
 The row is **not** deleted. Only a successful GitHub read may delete anything,
 and that principle has no exception for a row we happen to dislike. It does not
@@ -127,11 +150,20 @@ reversed.
 **Every operator takes one first open, once, and never a blank launcher.** The
 upgrade to version 3 leaves existing rows unstamped, so the first launch after
 it starts every map's ledger from *first open* and paints every folder's list
-under the truncation caveat. Both are the correct answer for those rows — nobody
+under the labels caveat. Both are the correct answer for those rows — nobody
 knows what document filled them — and both cost one poll. The list itself is on
 screen the whole time, including on a first launch whose poll never lands: that
 is the case the scoping is for, since an operator who is offline or rate-limited
 would otherwise be told their maps were gone by an upgrade.
+
+**The one caveat it does show, it may show wrongly, and that is the safe
+direction.** `LABELS_TRUNCATED_NOTE` says an issue carries more labels than one
+page holds, and after the upgrade some folders will wear it having been cut off
+by nothing. What it asks of an operator is a second look at a designated ticket
+— the cost of being wrong is a glance, where the cost of the clean answer this
+replaces is an agent launched on a machine the operator ruled out. It lasts one
+successful poll per folder. The same reasoning does not reach `truncated`, whose
+sentence would be wrong about GitHub rather than cautious about a page.
 
 **A widening now costs a baseline rather than corrupting one.** Anybody editing
 `map-read.graphql` gets the cold start for free, in exchange for nothing they

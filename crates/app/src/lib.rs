@@ -213,14 +213,27 @@ impl MapsView {
     /// would be the assertion [`MapsView::stale`] already refuses to make —
     /// *your maps are gone* on the strength of not having been able to look.
     ///
-    /// What cannot stay is *nothing was cut off*. Both flags are derived from
-    /// what the document asked for, so a narrower one answers clean by never
-    /// having asked, and clean is the answer that misleads: an operator who
-    /// reads no caveat believes there is nothing past the end of the page. So
-    /// they go to the caveat until a live read re-derives them, which is the
-    /// same direction [`Truncation`] fails in everywhere else.
+    /// What cannot stay is `labels_truncated` reading clean. Nothing caps how
+    /// many labels an issue carries, so that page really can exist, and the
+    /// flag is derived from a `pageInfo` a narrower document may never have
+    /// asked for — #61 is exactly that widening. A flag that answers clean
+    /// because the question was never put is the harm #82 opened for: an
+    /// operator who reads no caveat believes there is nothing past the end of
+    /// the list, and a `platform:` label past the end is indistinguishable from
+    /// a ticket that named no machine. So it goes to the caveat until a live
+    /// read re-derives it, which is the direction [`Truncation::labels`] fails
+    /// in everywhere else.
+    ///
+    /// `truncated` is deliberately left alone, and this is the whole of the
+    /// asymmetry. It is [`Truncation::capped`], whose sentence on screen says a
+    /// page GitHub's own limits forbid was answered anyway — a tripwire whose
+    /// value is that it has never fired. Setting it here would print that
+    /// sentence to every operator on their first launch after the version-3
+    /// upgrade, and keep printing it for as long as the polls went on failing,
+    /// on the strength of a stamp that is evidence about a `pageInfo` and no
+    /// evidence at all that GitHub broke its own caps. A caveat that says
+    /// something false is not a smaller lie than a flag that reads clean.
     fn unvouched(mut self) -> MapsView {
-        self.truncated = true;
         self.labels_truncated = true;
         self
     }
@@ -296,7 +309,7 @@ fn under_this_builds_query(cached: &CachedGraph) -> bool {
 ///
 /// It is not what the map list reaches for. A stamp says nothing against the
 /// numbers, titles and states already on screen, and [`from_cache`] goes on
-/// painting them; what it does not do is repeat the body's truncation flags.
+/// painting them; what it does not do is repeat the body's `labelsTruncated`.
 /// The rule is scoped to what cannot be trusted rather than to the whole row,
 /// because the wider version would answer *your maps are gone* every time
 /// somebody edits the query document.
@@ -324,12 +337,11 @@ fn cached_under_this_builds_query(
 /// cache rather than deleted: **only a successful GitHub read may delete
 /// anything**, and that rule has no exception for a row we happen to dislike.
 ///
-/// A row from another document still paints, with
-/// [`MapsView::unvouched`] over its truncation flags. This is the copy
-/// [`poll_once`] holds across every failing exit it has, so a stamp that
-/// blanked it would empty the launcher for as long as the polls kept failing —
-/// and the stamp is evidence about a `pageInfo`, not about whether the operator
-/// has any maps.
+/// A row from another document still paints, with [`MapsView::unvouched`] over
+/// its `labelsTruncated`. This is the copy [`poll_once`] holds across every
+/// failing exit it has, so a stamp that blanked it would empty the launcher for
+/// as long as the polls kept failing — and the stamp is evidence about a
+/// `pageInfo`, not about whether the operator has any maps.
 fn from_cache(store: &Store, folder_id: i64) -> MapsView {
     // A registry that cannot be read is not a map list that is empty, but there
     // is nothing to paint either way and the launcher already carries the
@@ -391,7 +403,7 @@ fn from_cache(store: &Store, folder_id: i64) -> MapsView {
 /// were away* row rather than an error. The stamp is spent twice and not
 /// alike: [`cached_under_this_builds_query`] turns an unfamiliar one into
 /// *first open* for whoever is about to derive something from the body, while
-/// the map list itself still paints and only its truncation flags move to the
+/// the map list itself still paints and only its `labelsTruncated` moves to the
 /// caveat.
 ///
 /// The prune is last on purpose. A map the live list no longer names loses its
@@ -3657,16 +3669,23 @@ mod tests {
             .is_some());
     }
 
-    /// What the stamp *is* evidence about, on this reader: the two flags.
+    /// What the stamp *is* evidence about, on this reader: `labelsTruncated`,
+    /// and only it.
     ///
-    /// Both are derived from what the document asked for, so a narrower one
-    /// answers clean by never having asked — and a `labelsTruncated` that reads
-    /// clean because the question was skipped is worse than no flag, because an
-    /// operator believes it. The same bytes under this build's own stamp report
-    /// clean, which is how this test says it is the stamp doing the work and
-    /// not the body.
+    /// That flag is derived from a `pageInfo` a narrower document may never
+    /// have asked for, so it answers clean by never having asked — and a
+    /// `labelsTruncated` that reads clean because the question was skipped is
+    /// worse than no flag, because an operator believes it. The same bytes
+    /// under this build's own stamp report clean, which is how this test says
+    /// it is the stamp doing the work and not the body.
+    ///
+    /// `truncated` stays clean throughout, and that is the second assertion
+    /// this test exists to hold. It is `Truncation::capped`, whose sentence
+    /// claims GitHub answered a page its own limits forbid; a stamp is no
+    /// evidence of that, and firing it here would print that sentence to every
+    /// operator on the first launch after the version-3 upgrade.
     #[test]
-    fn the_truncation_flags_of_an_unfamiliar_document_are_the_caveat_and_not_clean() {
+    fn an_unfamiliar_document_caveats_labels_truncated_and_leaves_capped_clean() {
         let (store, folder_id) = registry_with_a_folder();
         store
             .cache_graph(folder_id, None, TWO_MAPS, 1_785_888_000, "some older shape")
@@ -3674,8 +3693,8 @@ mod tests {
 
         let json = serde_json::to_value(from_cache(&store, folder_id)).expect("serialises");
 
-        assert_eq!(json["truncated"], true);
         assert_eq!(json["labelsTruncated"], true);
+        assert_eq!(json["truncated"], false, "a stamp is not a broken cap");
 
         store
             .cache_graph(
