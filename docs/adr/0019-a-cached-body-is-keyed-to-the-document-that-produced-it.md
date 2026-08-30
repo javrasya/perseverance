@@ -47,8 +47,9 @@ never asked is worse than no flag, because an operator believes it.
 
 ## Decision
 
-**The cached body carries the identity of the document that produced it, and a
-body whose identity is not this build's is *first open*.**
+**The cached body carries the identity of the document that produced it, and
+nothing derived from a body whose identity is not this build's may be
+believed.**
 
 **The identity is the document's bytes.** `MAP_READ_QUERY` is
 `include_str!("map-read.graphql")`, and its stamp is FNV-1a over those bytes,
@@ -71,13 +72,34 @@ rule to remember. The stamp and the body therefore cannot be written from two
 places and disagree. `map_read_query_id()` is free-standing beside it so the
 reader can ask what this build sends without holding a read.
 
-**A mismatch is *first open*, not an error and not a deletion.** One helper in
-`crates/app` fetches a row and returns `None` unless the stamp is byte-equal to
-this build's; both readers then take the `None` branch they already had —
-`MapsView::nothing_read_yet` and `ChangeLog::first_open`. Nothing new had to be
-invented for the answer, because *nobody has looked here yet* was already the
-honest thing to say. An unstamped row — one a version-2 file brings through the
-upgrade — is a mismatch too: `None` is not this build's id either.
+**A mismatch is scoped to what the stamp is evidence about, and it is never an
+error or a deletion.** `under_this_builds_query` in `crates/app` is the whole
+comparison, byte-equal or not, and an unstamped row — one a version-2 file
+brings through the upgrade — is a mismatch too: `None` is not this build's id
+either. What the two readers do with that answer differs, because they spend
+the body on different things:
+
+- **A derivation is *first open*.** `cached_under_this_builds_query` hands the
+  row back only under this build's stamp, and `resuming_from` takes the `None`
+  branch it already had: `ChangeLog::first_open`. Nothing new had to be invented
+  for the answer, because *nobody has looked here yet* was already the honest
+  thing to say — and the phantom *while you were away* row is the failure this
+  ADR exists to close.
+- **The map list still paints, with its truncation flags moved to the caveat.**
+  `from_cache` reads the row whatever its stamp and paints it through
+  `MapsView::of`, then applies `MapsView::unvouched`: `truncated` and
+  `labelsTruncated` both go to `true`. The stamp is evidence about a `pageInfo`
+  the old document may never have asked for. It is not evidence about whether
+  the operator has any maps, and the numbers, titles and states are the part of
+  a body a widening leaves alone.
+
+The second is not a softening of the first, it is the same rule aimed at the
+same target. A flag that reads clean because the question was never asked is
+the harm; a list emptied on the strength of a stamp is a *different* false
+statement, and `MapsView::stale` already refuses to make it — `from_cache` is
+the copy `poll_once` holds across every failing exit it has, so a stamp that
+blanked it would report *your maps are gone* for as long as the polls went on
+failing.
 
 The row is **not** deleted. Only a successful GitHub read may delete anything,
 and that principle has no exception for a row we happen to dislike. It does not
@@ -102,10 +124,14 @@ directions across the same wire, and the new migration's comment states the
 distinction beside the old one's so no later reader concludes #32 was quietly
 reversed.
 
-**Every operator takes one first open, once.** The upgrade to version 3 leaves
-existing rows unstamped, so the first launch after it starts every folder and
-every map from *nothing read yet*. That is the correct answer for those rows —
-nobody knows what document filled them — and it costs one poll.
+**Every operator takes one first open, once, and never a blank launcher.** The
+upgrade to version 3 leaves existing rows unstamped, so the first launch after
+it starts every map's ledger from *first open* and paints every folder's list
+under the truncation caveat. Both are the correct answer for those rows — nobody
+knows what document filled them — and both cost one poll. The list itself is on
+screen the whole time, including on a first launch whose poll never lands: that
+is the case the scoping is for, since an operator who is offline or rate-limited
+would otherwise be told their maps were gone by an upgrade.
 
 **A widening now costs a baseline rather than corrupting one.** Anybody editing
 `map-read.graphql` gets the cold start for free, in exchange for nothing they

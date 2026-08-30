@@ -205,6 +205,26 @@ impl MapsView {
         }
     }
 
+    /// The same list, read out of a body this build cannot identify the
+    /// question behind.
+    ///
+    /// The maps themselves stay. Numbers, titles and states are the part of a
+    /// body a widening leaves alone, and emptying the launcher over a stamp
+    /// would be the assertion [`MapsView::stale`] already refuses to make —
+    /// *your maps are gone* on the strength of not having been able to look.
+    ///
+    /// What cannot stay is *nothing was cut off*. Both flags are derived from
+    /// what the document asked for, so a narrower one answers clean by never
+    /// having asked, and clean is the answer that misleads: an operator who
+    /// reads no caveat believes there is nothing past the end of the page. So
+    /// they go to the caveat until a live read re-derives them, which is the
+    /// same direction [`Truncation`] fails in everywhere else.
+    fn unvouched(mut self) -> MapsView {
+        self.truncated = true;
+        self.labels_truncated = true;
+        self
+    }
+
     /// Which floor holds the interval this view is being emitted *into*.
     ///
     /// The tense is load-bearing, and it is the poller's [`Ahead`] query that
@@ -251,30 +271,51 @@ impl MapsView {
     }
 }
 
+/// Whether a cached row answers the question this build asks.
+///
+/// The one place the comparison lives, and the whole of it: byte-equal or not.
+/// A row written before anything was stamped at all — the one a version-2 file
+/// brings through the upgrade — is not this build's either, because `None` is
+/// not this build's id.
+fn under_this_builds_query(cached: &CachedGraph) -> bool {
+    cached.query_id.as_deref() == Some(map_read_query_id().as_str())
+}
+
 /// The cached row for a folder-and-map, but only if this build asked the
 /// question it answers.
 ///
-/// The one place the mismatch rule lives. Every field of the read model
-/// tolerates absence, so a body recorded under a **narrower** document parses
-/// perfectly and simply answers with less — #61 widened both `labels` pages
-/// from ten to a hundred and added `pageInfo`, and a body cached before it
-/// reports a child with no eleventh label and a `labelsTruncated` that is
-/// falsely clean. Believed as a cold-start baseline, that body draws a *while
-/// you were away* row for a change that never happened.
+/// Every field of the read model tolerates absence, so a body recorded under a
+/// **narrower** document parses perfectly and simply answers with less — #61
+/// widened both `labels` pages from ten to a hundred and added `pageInfo`, and
+/// a body cached before it reports a child with no eleventh label and a
+/// `labelsTruncated` that is falsely clean. Believed as a cold-start baseline,
+/// that body draws a *while you were away* row for a change that never
+/// happened. So for a **derivation** — a baseline, a flag — an unfamiliar stamp
+/// is **first open**: this is what a caller reaches for when the answer it is
+/// about to compute would be a guess.
 ///
-/// So a stamp that is not byte-equal to this build's is **first open**, and so
-/// is a row written before anything was stamped at all. Not an error: there is
-/// nothing wrong with the row, we simply cannot say what it means. And not a
-/// deletion either — only a successful GitHub read may delete anything, and
-/// that rule has no exception for a row we happen to dislike. The condition
-/// heals itself: the next successful read overwrites the row, stamp included.
+/// It is not what the map list reaches for. A stamp says nothing against the
+/// numbers, titles and states already on screen, and [`from_cache`] goes on
+/// painting them; what it does not do is repeat the body's truncation flags.
+/// The rule is scoped to what cannot be trusted rather than to the whole row,
+/// because the wider version would answer *your maps are gone* every time
+/// somebody edits the query document.
+///
+/// Not an error, either way: there is nothing wrong with the row, we simply
+/// cannot say what parts of it are missing. And not a deletion — only a
+/// successful GitHub read may delete anything, and that rule has no exception
+/// for a row we happen to dislike. The condition heals itself: the next
+/// successful read overwrites the row, stamp included.
 fn cached_under_this_builds_query(
     store: &Store,
     folder_id: i64,
     map: Option<u64>,
 ) -> Option<CachedGraph> {
-    let cached = store.cached_graph(folder_id, map).ok().flatten()?;
-    (cached.query_id.as_deref() == Some(map_read_query_id().as_str())).then_some(cached)
+    store
+        .cached_graph(folder_id, map)
+        .ok()
+        .flatten()
+        .filter(under_this_builds_query)
 }
 
 /// The cached read for a folder, as a view — or the *nothing read yet* state.
@@ -282,17 +323,30 @@ fn cached_under_this_builds_query(
 /// A cached body that cannot be parsed is reported as a failed read of the
 /// cache rather than deleted: **only a successful GitHub read may delete
 /// anything**, and that rule has no exception for a row we happen to dislike.
+///
+/// A row from another document still paints, with
+/// [`MapsView::unvouched`] over its truncation flags. This is the copy
+/// [`poll_once`] holds across every failing exit it has, so a stamp that
+/// blanked it would empty the launcher for as long as the polls kept failing —
+/// and the stamp is evidence about a `pageInfo`, not about whether the operator
+/// has any maps.
 fn from_cache(store: &Store, folder_id: i64) -> MapsView {
     // A registry that cannot be read is not a map list that is empty, but there
     // is nothing to paint either way and the launcher already carries the
-    // registry's own refusal. A row from another document lands here too, for
-    // the reason [`cached_under_this_builds_query`] gives.
-    let Some(cached) = cached_under_this_builds_query(store, folder_id, None) else {
+    // registry's own refusal.
+    let Some(cached) = store.cached_graph(folder_id, None).ok().flatten() else {
         return MapsView::nothing_read_yet(folder_id);
     };
 
     match read_response(&cached.graph_json) {
-        Ok(read) => MapsView::of(folder_id, &read, Source::Cache, cached.fetched_at),
+        Ok(read) => {
+            let view = MapsView::of(folder_id, &read, Source::Cache, cached.fetched_at);
+            if under_this_builds_query(&cached) {
+                view
+            } else {
+                view.unvouched()
+            }
+        }
         // A body this build cannot read is schema drift on a copy, and drift is
         // [`Degraded::Unreachable`] wherever it happens: the next live read
         // replaces it, and a condition that stopped the poller over a cached
@@ -334,8 +388,11 @@ fn from_cache(store: &Store, folder_id: i64) -> MapsView {
 /// [`FreshRead`] that proves the read was live. A baseline is only trustworthy
 /// if we know what question it answers — a body recorded under a narrower
 /// document parses cleanly and answers with less, which is a phantom *while you
-/// were away* row rather than an error. [`cached_under_this_builds_query`] is
-/// where that stamp is spent.
+/// were away* row rather than an error. The stamp is spent twice and not
+/// alike: [`cached_under_this_builds_query`] turns an unfamiliar one into
+/// *first open* for whoever is about to derive something from the body, while
+/// the map list itself still paints and only its truncation flags move to the
+/// caveat.
 ///
 /// The prune is last on purpose. A map the live list no longer names loses its
 /// row even if this call just wrote one, because the evidence entitling the
@@ -3565,14 +3622,19 @@ mod tests {
             .is_some());
     }
 
-    /// The same rule on the other reader: the first paint of a folder.
+    /// The same stamp on the other reader, and a different answer: the first
+    /// paint of a folder keeps its list.
     ///
-    /// A stamp this build does not send means the `pageInfo` behind
-    /// `labelsTruncated` may never have been asked for, and a flag that reports
-    /// clean because the question was not asked is worse than no flag. So the
-    /// view is *nobody has looked* rather than a cache-sourced answer.
+    /// The rule is scoped to what the stamp is evidence about. A document this
+    /// build does not send may have asked for fewer labels; it did not ask for
+    /// fewer maps, and this view is the copy `poll_once` holds across every one
+    /// of its failing exits. Blanking it would report *your maps are gone* on
+    /// the strength of somebody having edited a query — the same assertion
+    /// `MapsView::stale` exists to refuse — and it would go on reporting it for
+    /// as long as the polls kept failing, rather than for the one poll ADR 0019
+    /// costs.
     #[test]
-    fn a_folders_cached_map_list_from_another_query_document_paints_as_nothing_read_yet() {
+    fn a_folders_cached_map_list_from_another_query_document_still_paints() {
         let (store, folder_id) = registry_with_a_folder();
         store
             .cache_graph(folder_id, None, TWO_MAPS, 1_785_888_000, "some older shape")
@@ -3580,17 +3642,55 @@ mod tests {
 
         let json = serde_json::to_value(from_cache(&store, folder_id)).expect("serialises");
 
-        assert_eq!(json["provenance"]["source"], "none");
-        assert_eq!(json["provenance"]["outcome"]["kind"], "notAttempted");
-        assert_eq!(json["maps"].as_array().expect("an array").len(), 0);
-        // The unstamped row a version-2 file upgrades into lands in this same
-        // branch — `None` is not this build's id either. That one is held in
+        assert_eq!(json["provenance"]["source"], "cache");
+        assert_eq!(json["provenance"]["outcome"]["kind"], "ok");
+        assert_eq!(json["provenance"]["fetchedAt"], "2026-08-05T00:00:00Z");
+        assert_eq!(json["maps"].as_array().expect("an array").len(), 2);
+        assert_eq!(json["maps"][0]["number"], 28);
+        // The unstamped row a version-2 file upgrades into is this same case —
+        // `None` is not this build's id either. That one is held in
         // `perseverance-store`, which is the only crate that can write a NULL
         // stamp: nothing here can, because every write comes off a `FreshRead`.
         assert!(store
             .cached_graph(folder_id, None)
             .expect("reads")
             .is_some());
+    }
+
+    /// What the stamp *is* evidence about, on this reader: the two flags.
+    ///
+    /// Both are derived from what the document asked for, so a narrower one
+    /// answers clean by never having asked — and a `labelsTruncated` that reads
+    /// clean because the question was skipped is worse than no flag, because an
+    /// operator believes it. The same bytes under this build's own stamp report
+    /// clean, which is how this test says it is the stamp doing the work and
+    /// not the body.
+    #[test]
+    fn the_truncation_flags_of_an_unfamiliar_document_are_the_caveat_and_not_clean() {
+        let (store, folder_id) = registry_with_a_folder();
+        store
+            .cache_graph(folder_id, None, TWO_MAPS, 1_785_888_000, "some older shape")
+            .expect("caches");
+
+        let json = serde_json::to_value(from_cache(&store, folder_id)).expect("serialises");
+
+        assert_eq!(json["truncated"], true);
+        assert_eq!(json["labelsTruncated"], true);
+
+        store
+            .cache_graph(
+                folder_id,
+                None,
+                TWO_MAPS,
+                1_785_888_000,
+                &map_read_query_id(),
+            )
+            .expect("re-caches under the document this build sends");
+
+        let json = serde_json::to_value(from_cache(&store, folder_id)).expect("serialises");
+
+        assert_eq!(json["truncated"], false);
+        assert_eq!(json["labelsTruncated"], false);
     }
 
     /// **A failed poll draws no row**, and the copy on screen keeps the age it
