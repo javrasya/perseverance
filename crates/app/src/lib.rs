@@ -13,6 +13,7 @@
 //!
 //! [`perseverance_store`]: https://github.com/javrasya/perseverance
 
+use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, OnceLock};
@@ -30,13 +31,14 @@ use perseverance_github::{
 };
 use perseverance_model::{
     read_response, ChangeLog, Degraded, MapRead, Model, Provenance, ReadOutcome, Snapshot, Source,
+    TicketType,
 };
-use perseverance_pty::{Delivery, Geometry, RunId, Runs};
+use perseverance_pty::{Delivery, Geometry, RunId, Runs, GRACE};
 use perseverance_store::{Folder, RepoBindingError, Store, StoreError};
 use serde::Serialize;
 use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
-use tauri_plugin_dialog::DialogExt;
+use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
 
 /// The whole model for one tick, in one call.
 ///
@@ -1787,6 +1789,16 @@ pub struct Terminals {
     /// monitored run and a second sink would be a second thing entitled to
     /// disagree about which.
     bytes: Mutex<Option<Channel<InvokeResponseBody>>>,
+    /// What each run is working on, beside the registry rather than in it.
+    ///
+    /// A side table because [`perseverance_pty::Runs`] carries a [`RunId`] and
+    /// nothing else, deliberately: a ticket number, a folder and a run's kind
+    /// are product knowledge, and the byte scan at the bottom of this file
+    /// exists to keep that crate from acquiring any. So the join happens here,
+    /// where the product vocabulary already lives, and a run whose stakes were
+    /// never recorded is still a live run — [`what_it_loses`] says so rather
+    /// than leaving it out.
+    stakes: Mutex<BTreeMap<RunId, Stakes>>,
 }
 
 impl Terminals {
@@ -1794,6 +1806,7 @@ impl Terminals {
         Terminals {
             runs: Mutex::new(Runs::new()),
             bytes: Mutex::new(None),
+            stakes: Mutex::new(BTreeMap::new()),
         }
     }
 
@@ -1811,6 +1824,59 @@ impl Terminals {
         self.bytes
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn staked_here(&self) -> MutexGuard<'_, BTreeMap<RunId, Stakes>> {
+        self.stakes
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// This run is working on that ticket, in that folder, on those terms.
+    ///
+    /// No caller in the shipped app today, and honestly so: nothing in this
+    /// workspace opens a run yet — [`perseverance_pty::Runs::open`] is reached
+    /// only from a test — so the table is empty every launch and a quit has
+    /// nothing to name. #48 *Start Working* is what calls this, at the moment it
+    /// opens the run; the rule it feeds is implemented, and it is exercised
+    /// end to end from a test that opens a real run through the registry and
+    /// stakes it, so the day that ticket lands the only new thing is the caller.
+    /// The same posture [`Claims::claimed`] takes, for the same reason.
+    pub fn staked(&self, run: RunId, stakes: Stakes) {
+        self.staked_here().insert(run, stakes);
+    }
+
+    /// One sentence per live run, in the order they were opened — and the count
+    /// a quit is decided on, because it is the length of this.
+    ///
+    /// **One snapshot, not two.** How many runs are live and what each of them
+    /// loses used to be two separate reads of the registry lock, and a child
+    /// that exited between them produced *0 runs are still live, and quitting
+    /// ends every one of them* with nothing named under it. A confirmation that
+    /// can be asked about nothing is the failure the whole gate exists to avoid,
+    /// so there is one read and everything downstream counts these.
+    ///
+    /// Live rather than every run in the registry: a run whose child has exited
+    /// is still there — its terminal stays readable until the ending is
+    /// resolved, which is #49's — and a quit takes nothing from it.
+    ///
+    /// The two locks are taken one after the other and never nested, which is
+    /// the whole of the care needed here: the frame thread takes the runs lock
+    /// several times a second, and a quit is not entitled to be the thing that
+    /// makes it wait on anything else.
+    pub fn losses(&self) -> Vec<String> {
+        let live: Vec<RunId> = self
+            .held()
+            .telemetry()
+            .iter()
+            .filter(|readout| !readout.over)
+            .map(|readout| readout.run)
+            .collect();
+
+        let stakes = self.staked_here();
+        live.into_iter()
+            .map(|run| what_it_loses(run, stakes.get(&run)))
+            .collect()
     }
 }
 
@@ -2028,9 +2094,414 @@ fn start_terminals(app: AppHandle) -> std::io::Result<()> {
     Ok(())
 }
 
+/* --------------------------------------------------- what a quit costs --- */
+
+/// Whether losing a run costs a claim that can be picked back up, or everything
+/// it has not already posted.
+///
+/// Derived from the ticket, not from the process: `crates/pty` has no notion of
+/// either and must not acquire one.
+///
+/// **Not a third vocabulary.** [`perseverance_model::TicketType`] is the noun
+/// this repository already has, and `Attendance` in `src/views/route/route.ts`
+/// is the same one-bit split of it the frontend already draws — its own comment
+/// calls itself *a rule with exactly one home*. This is that home's Rust half
+/// rather than a second rule, which is why [`RunKind::of`] exists and is the
+/// only way one of these is meant to be made: the mapping is written once, here,
+/// and #48 calls it instead of writing it again. The day the model carries the
+/// distinction itself, both spellings move together.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RunKind {
+    Work,
+    Research,
+}
+
+impl RunKind {
+    /// The mapping, and the only one. Research runs AFK and everything else has
+    /// somebody at the keyboard — the same line `attendanceOf` draws in
+    /// `route.ts`, and drawn from the same enum so the two cannot drift.
+    pub fn of(ticket: TicketType) -> RunKind {
+        match ticket {
+            TicketType::Research => RunKind::Research,
+            TicketType::Prototype | TicketType::Grilling | TicketType::Task => RunKind::Work,
+        }
+    }
+}
+
+/// What one live run would lose if the app quit now.
+#[derive(Debug, Clone)]
+pub struct Stakes {
+    pub ticket: u64,
+    pub folder: String,
+    pub kind: RunKind,
+}
+
+/// A work run's loss, which is not the work.
+///
+/// The claim is a GitHub assignment and nothing this process holds, so quitting
+/// does not drop it: the next launch reads the same assignment back as a claimed
+/// node with no live run beside it, and that is exactly the stranded claim
+/// Resume is for. Nothing is written down to make this true, which is why there
+/// is no reattach machinery to write.
+const WORK_LOSS: &str = "the claim stays yours and Resume picks it up on the next launch";
+
+/// A research run's loss, which is everything.
+///
+/// There is no worktree, no queue row and no transcript kept on this side, so
+/// what the agent has not already posted to the ticket goes with the process.
+/// The mitigation is upstream in the prompt and never here.
+const RESEARCH_LOSS: &str =
+    "a research run keeps nothing, so whatever it has not already posted goes with it";
+
+/// A live run this app cannot describe.
+///
+/// It is named anyway. A confirmation that quietly omitted a run because the
+/// side table had no row for it would be a confirmation that under-reports
+/// exactly when the app is most confused, and *I do not know what this costs* is
+/// a thing an operator can act on where silence is not.
+const UNKNOWN_LOSS: &str =
+    "this app was not told what it is working on, so it cannot say what this one loses";
+
+/// The question, as the window manager asks it.
+const QUIT_TITLE: &str = "Quit perseverance?";
+
+/// The two answers. Named for what they do rather than *OK* and *Cancel*,
+/// because a destructive confirmation whose buttons are both agreements is a
+/// confirmation answered by whichever one the hand was already over.
+const QUIT_LABEL: &str = "Quit anyway";
+const KEEP_LABEL: &str = "Keep working";
+
+/// What one live run loses, in one sentence.
+///
+/// A free function over plain values rather than a method on anything, so the
+/// prose is testable with no Tauri app, no PTY and no child process — which is
+/// the only way it can be tested at all today, since nothing opens a run yet.
+fn what_it_loses(run: RunId, stakes: Option<&Stakes>) -> String {
+    match stakes {
+        Some(stakes) => format!(
+            "#{} in {} — {}",
+            stakes.ticket,
+            stakes.folder,
+            match stakes.kind {
+                RunKind::Work => WORK_LOSS,
+                RunKind::Research => RESEARCH_LOSS,
+            }
+        ),
+        // `RunId`'s own `Display` is *run 7*, which is the most this side can
+        // truthfully say about a run it was never told anything about.
+        None => format!("{run} — {UNKNOWN_LOSS}"),
+    }
+}
+
+/// The last line, and the only place the grace is ever spoken to an operator.
+///
+/// The number is read off [`perseverance_pty::GRACE`] rather than written out,
+/// so a figure that is a labelled guess cannot drift from the sentence that
+/// describes it: change the constant and this sentence changes with it.
+fn closing() -> String {
+    format!(
+        "each one is asked to stop first, and anything still running {} seconds later is ended",
+        GRACE.as_secs()
+    )
+}
+
+/// **One** confirmation, however many runs are live.
+///
+/// A headline saying how many there are, then one line per run, then what the
+/// quit will actually do. One dialog rather than one per run for the reason the
+/// grace is one deadline rather than one per run: four terminals must not cost
+/// four questions, and a question asked four times is a question answered
+/// without being read.
+fn confirmation(losses: &[String]) -> String {
+    let mut said = match losses.len() {
+        1 => "one run is still live, and quitting ends it".to_string(),
+        many => format!("{many} runs are still live, and quitting ends every one of them"),
+    };
+
+    for loss in losses {
+        said.push_str("\n\n");
+        said.push_str(loss);
+    }
+    said.push_str("\n\n");
+    said.push_str(&closing());
+    said
+}
+
+/// Whether this launch has been asked about quitting yet.
+///
+/// Three states and not a boolean, because *asked and waiting* is a state a
+/// boolean cannot hold: the dialog is shown on its own thread, and every close
+/// request that arrives while it is up has to be refused without asking a second
+/// time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Quit {
+    NotAsked,
+    Asking,
+    Confirmed,
+}
+
+/// The gate on the way out.
+pub struct Quitting(Mutex<Quit>);
+
+impl Quitting {
+    pub fn new() -> Quitting {
+        Quitting(Mutex::new(Quit::NotAsked))
+    }
+
+    /// A poisoned lock is an earlier panic and not an answer, and the posture
+    /// [`Terminals::held`] takes applies with more force here: writing this off
+    /// would leave the app either unquittable or quitting unasked.
+    fn held(&self) -> MutexGuard<'_, Quit> {
+        self.0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn asked(&self) -> Quit {
+        *self.held()
+    }
+
+    fn now(&self, quit: Quit) {
+        *self.held() = quit;
+    }
+
+    /// The dialog is no longer up, whatever became of it.
+    ///
+    /// Only [`Quit::Asking`] is cleared, so an answer that already landed is not
+    /// undone. This exists because *asked and waiting* is the one state that can
+    /// be entered and never left: the thread that shows the dialog is the only
+    /// thing that can clear it, and `blocking_show` has a `recv().unwrap()` in
+    /// it, so a panic there would leave every later close request answered with
+    /// *wait for the answer* — an app that can no longer be quit by any clean
+    /// path, holding every PTY. Released from a `Drop` rather than from the
+    /// happy path, so unwinding releases it too.
+    fn no_longer_asking(&self) {
+        let mut held = self.held();
+        if *held == Quit::Asking {
+            *held = Quit::NotAsked;
+        }
+    }
+}
+
+impl Default for Quitting {
+    fn default() -> Quitting {
+        Quitting::new()
+    }
+}
+
+/// What a close request means.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OnClose {
+    GoNow,
+    Ask,
+    WaitForTheAnswer,
+}
+
+/// What a close request means, given how many runs are live and what has already
+/// been asked. A function rather than a branch inside the handler because
+/// getting it wrong yields either an unquittable app or a confirmation that is
+/// skipped, and neither is reachable from a test that needs a window.
+///
+/// `live` is the length of [`Terminals::losses`] and never a second count of its
+/// own: the number in the headline and the sentences under it come from one
+/// snapshot, so *0 runs are still live* cannot be asked.
+fn on_close(live: usize, asked: &Quit) -> OnClose {
+    match (live, asked) {
+        // Nothing live is nothing to lose, and an app that asked anyway would be
+        // an app whose confirmation means nothing by the time it matters.
+        (0, _) | (_, Quit::Confirmed) => OnClose::GoNow,
+        (_, Quit::Asking) => OnClose::WaitForTheAnswer,
+        (_, Quit::NotAsked) => OnClose::Ask,
+    }
+}
+
+/// Whether a quit may proceed, and the confirmation started if it may not yet.
+///
+/// **The one door out**, and there are three ways in: the window's close button,
+/// macOS's Quit menu item, and the dialog's own *Quit anyway* coming back
+/// through [`AppHandle::exit`]. All three ask this, so the gate cannot be
+/// reached around.
+///
+/// Returns `true` when the caller should let the quit happen. When it returns
+/// `false` the caller must **keep its window**: the whole point of asking here
+/// rather than at `ExitRequested` is that the operator who answers *Keep
+/// working* still has the app they were working in. `ExitRequested` arrives only
+/// after the last window has already been destroyed — that is where tao emits it
+/// from — so a confirmation hung off it would be a question whose safe answer
+/// leaves a headless process holding every live run.
+fn may_quit<R: Runtime>(app: &AppHandle<R>) -> bool {
+    // One snapshot of the runs, and the count is its length. Absent state is
+    // read as *already confirmed* rather than *not asked*: of the two ways to be
+    // wrong about a gate that is not there, only one of them leaves a process
+    // tree behind.
+    let losses = app
+        .try_state::<Terminals>()
+        .map(|terminals| terminals.losses())
+        .unwrap_or_default();
+    let asked = app
+        .try_state::<Quitting>()
+        .map_or(Quit::Confirmed, |quitting| quitting.asked());
+
+    match on_close(losses.len(), &asked) {
+        OnClose::GoNow => true,
+        OnClose::WaitForTheAnswer => false,
+        OnClose::Ask => {
+            ask(app.clone(), losses);
+            false
+        }
+    }
+}
+
+/// The gate released however the asking ends, including by unwinding.
+///
+/// A `Drop` rather than a line at the end of the thread, because the ways the
+/// asking does not reach its end are the ways that matter: `blocking_show` has a
+/// `recv().unwrap()` inside it, and a panic there with nothing to clear `Asking`
+/// leaves an app that answers every later close request with *wait for the
+/// answer* — unquittable by any clean path, still holding every PTY.
+struct Released<R: Runtime>(AppHandle<R>);
+
+impl<R: Runtime> Drop for Released<R> {
+    fn drop(&mut self) {
+        if let Some(quitting) = self.0.try_state::<Quitting>() {
+            quitting.no_longer_asking();
+        }
+    }
+}
+
+/// Show the one confirmation, on a thread of its own.
+///
+/// A message box drawn from the event loop would be waiting on the very thread
+/// that has to draw it — the same reason `choose_folder` is `(async)` — so the
+/// answer comes back by re-entering through [`AppHandle::exit`] rather than by
+/// returning.
+fn ask<R: Runtime>(app: AppHandle<R>, losses: Vec<String>) {
+    if let Some(quitting) = app.try_state::<Quitting>() {
+        quitting.now(Quit::Asking);
+    }
+
+    std::thread::spawn(move || {
+        let released = Released(app.clone());
+
+        let quit = app
+            .dialog()
+            .message(confirmation(&losses))
+            .title(QUIT_TITLE)
+            .buttons(MessageDialogButtons::OkCancelCustom(
+                QUIT_LABEL.to_string(),
+                KEEP_LABEL.to_string(),
+            ))
+            .blocking_show();
+
+        if quit {
+            if let Some(quitting) = app.try_state::<Quitting>() {
+                quitting.now(Quit::Confirmed);
+            }
+        }
+        // Before the exit rather than at the end of the thread, so the state the
+        // exit path reads is the one this answer left. A confirmed answer is not
+        // undone by it.
+        drop(released);
+
+        // Back through the same door, which this time finds the gate open.
+        // Asking again would be asking a question already answered.
+        if quit {
+            app.exit(0);
+        }
+    });
+}
+
+/// The id of the Quit item on the menu macOS is given.
+///
+/// macOS never routes its own Quit through a window: `[NSApp terminate:]` is
+/// answered by tao's `applicationWillTerminate:`, which becomes `RunEvent::Exit`
+/// and never `ExitRequested`, and `applicationShouldTerminate:` is not
+/// implemented at all — so the default menu's predefined Quit cannot be asked
+/// about, only observed on the way past. The app therefore declines the default
+/// menu and owns this one item, whose handler is [`may_quit`] like every other
+/// way out.
+const QUIT_ITEM: &str = "perseverance-quit";
+
+/// The menu macOS gets, because the default one has a Quit this app cannot
+/// intercept.
+///
+/// It is the default menu minus that item and plus [`QUIT_ITEM`]. Everything
+/// else is kept as predefined items rather than reinvented — the Edit submenu in
+/// particular is what makes `Cmd+C` and `Cmd+V` work in a WebView on macOS, so
+/// dropping it to save code would break copy and paste to buy nothing.
+#[cfg(target_os = "macos")]
+fn a_menu_with_our_own_quit<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<tauri::menu::Menu<R>> {
+    use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
+
+    let info = app.package_info();
+    let about = AboutMetadata {
+        name: Some(info.name.clone()),
+        version: Some(info.version.to_string()),
+        ..Default::default()
+    };
+
+    Menu::with_items(
+        app,
+        &[
+            &Submenu::with_items(
+                app,
+                info.name.clone(),
+                true,
+                &[
+                    &PredefinedMenuItem::about(app, None, Some(about))?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &PredefinedMenuItem::services(app, None)?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &PredefinedMenuItem::hide(app, None)?,
+                    &PredefinedMenuItem::hide_others(app, None)?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &MenuItem::with_id(app, QUIT_ITEM, "Quit", true, Some("Cmd+Q"))?,
+                ],
+            )?,
+            &Submenu::with_items(
+                app,
+                "Edit",
+                true,
+                &[
+                    &PredefinedMenuItem::undo(app, None)?,
+                    &PredefinedMenuItem::redo(app, None)?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &PredefinedMenuItem::cut(app, None)?,
+                    &PredefinedMenuItem::copy(app, None)?,
+                    &PredefinedMenuItem::paste(app, None)?,
+                    &PredefinedMenuItem::select_all(app, None)?,
+                ],
+            )?,
+            &Submenu::with_items(
+                app,
+                "View",
+                true,
+                &[&PredefinedMenuItem::fullscreen(app, None)?],
+            )?,
+            &Submenu::with_items(
+                app,
+                "Window",
+                true,
+                &[
+                    &PredefinedMenuItem::minimize(app, None)?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &PredefinedMenuItem::close_window(app, None)?,
+                ],
+            )?,
+        ],
+    )
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        // macOS is given a menu of this app's own, below in `setup`, and the one
+        // thing it changes is the Quit item. Declining the default here is what
+        // makes that possible: with neither a menu nor this call, Tauri installs
+        // `Menu::default`, whose Quit is AppKit's `terminate:` — a quit that
+        // reaches no handler in this file at all. On every other platform this
+        // is a flag nothing reads.
+        .enable_macos_default_menu(false)
         .setup(|app| {
             app.manage(Registry::open(app.handle()));
             app.manage(Ambient::harvesting());
@@ -2059,7 +2530,33 @@ pub fn run() {
             // rather than a missed screenful.
             app.manage(Terminals::new());
             start_terminals(app.handle().clone())?;
+            // The gate every way out reads. Managed here rather than lazily,
+            // because a close request that found no gate would be a quit that
+            // skipped the confirmation — the one failure of this machinery that
+            // costs an operator something.
+            app.manage(Quitting::new());
+            // The one platform whose primary quit gesture never touches a
+            // window. Built here rather than through `Builder::menu`, because a
+            // menu set on Windows or Linux is a menu *bar* in the window and
+            // this app has no use for one.
+            #[cfg(target_os = "macos")]
+            app.set_menu(a_menu_with_our_own_quit(app.handle())?)?;
             Ok(())
+        })
+        /*
+         * The Quit item macOS gets. Every other menu item here is predefined and
+         * answered by the operating system; this one is ours precisely so the
+         * gesture goes through the same gate the window's close button does.
+         *
+         * `exit` is only reached when the gate is already open — either nothing
+         * is live, or the confirmation has been answered — and it is safe from
+         * this thread because `request_exit` posts to the event loop rather than
+         * running inline.
+         */
+        .on_menu_event(|app, event| {
+            if event.id() == QUIT_ITEM && may_quit(app) {
+                app.exit(0);
+            }
         })
         /*
          * Focus is read here rather than in the WebView, and that is the whole
@@ -2069,8 +2566,8 @@ pub fn run() {
          * manager's own account of itself, needs no capability the app does not
          * already have, and cannot be wrong about which window has the operator.
          */
-        .on_window_event(|window, event| {
-            if let tauri::WindowEvent::Focused(has_it) = event {
+        .on_window_event(|window, event| match event {
+            tauri::WindowEvent::Focused(has_it) => {
                 if let Some(poker) = window.try_state::<Poker>() {
                     poker.poke(Poke::Attention(if *has_it {
                         Attention::Focused
@@ -2079,6 +2576,22 @@ pub fn run() {
                     }));
                 }
             }
+            /*
+             * The confirmation, and this is the only place it can be asked
+             * from.
+             *
+             * `RunEvent::ExitRequested` is emitted from tao's `Destroyed`, i.e.
+             * after the window has already been torn down — asking there and
+             * preventing the exit would leave *Keep working* meaning a headless
+             * process holding every PTY, invisible, reachable only through Task
+             * Manager. So the question is asked here, where `prevent_close`
+             * still has a window to keep, and the exit path below is left as
+             * shutdown only.
+             */
+            tauri::WindowEvent::CloseRequested { api, .. } if !may_quit(window.app_handle()) => {
+                api.prevent_close();
+            }
+            _ => (),
         })
         .invoke_handler(tauri::generate_handler![
             snapshot,
@@ -2105,23 +2618,41 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("perseverance failed to start")
         /*
-         * Every session ended before the process is.
+         * Every session ended before the process is. **No question is asked
+         * here** — that is `CloseRequested`'s, above, because by the time either
+         * of these arrives the window is already gone.
          *
          * Tauri cleans up no child of ours — its own tracker has years of issues
          * about exactly that — so this is the hook and the behaviour is entirely
-         * ours. Dropping the sessions drops each one's guard, which on Windows
-         * closes the pseudoconsole and the job object and takes the whole tree
-         * with it.
+         * ours. `shut_down` hangs every run up, gives them all one deadline, and
+         * then drops each session, which drops its guard: on Windows that closes
+         * the pseudoconsole and the job object and takes the whole tree with it.
+         *
+         * It blocks this thread for up to `GRACE`, and that is deliberate. The
+         * event loop has nothing left to draw and the alternative is returning
+         * before the children are gone, which is the orphan the whole promise is
+         * about.
+         *
+         * **Both events, and neither is redundant.** `ExitRequested` is the way
+         * out on Windows and Linux and from this app's own `exit`. `Exit` is the
+         * only one macOS delivers when AppKit terminates the process — the Dock's
+         * Quit and anything else that reaches `[NSApp terminate:]` produce
+         * `applicationWillTerminate:`, which tao maps to `LoopDestroyed` and
+         * Tauri to `Exit`, with no `ExitRequested` anywhere in it. Running the
+         * shutdown twice on the ordinary path costs nothing: the second one has
+         * an empty registry, takes no grace and kills nothing.
          *
          * This is the *clean* path only. It does not fire on a crash or on Task
          * Manager's End Task, which is why the guard exists as well: the kernel
-         * closes a dead process's handles however it died. #51 builds the
-         * confirmation and the deadline on top of this.
+         * closes a dead process's handles however it died.
          */
         .run(|app, event| {
-            if let tauri::RunEvent::ExitRequested { .. } = event {
+            if matches!(
+                event,
+                tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit
+            ) {
                 if let Some(terminals) = app.try_state::<Terminals>() {
-                    terminals.held().close_all();
+                    terminals.held().shut_down();
                 }
             }
         });
@@ -4609,5 +5140,387 @@ mod tests {
             Override::from_argv(vec![OsString::from(" ")]),
             Err(OverrideRefusal::BlankProgram)
         );
+    }
+
+    /* ----------------------------------------------- what a quit costs --- */
+
+    fn a_stake(ticket: u64, folder: &str, kind: RunKind) -> Stakes {
+        Stakes {
+            ticket,
+            folder: folder.to_string(),
+            kind,
+        }
+    }
+
+    /// A run this app really opened, so the join between the registry and the
+    /// stakes table is exercised against a run rather than against a value the
+    /// test wrote down itself.
+    ///
+    /// Nothing in the shipped app opens a run yet — that is #48's — but nothing
+    /// stops a test from doing it, and the sentence a quit shows is the wrong
+    /// thing to leave standing on a pure function alone.
+    fn a_live_run_in(terminals: &Terminals, directory: &Path) -> RunId {
+        #[cfg(windows)]
+        let (argv, line) = (
+            vec![
+                std::env::var_os("COMSPEC").expect("a command interpreter"),
+                OsString::from("/c"),
+            ],
+            "timeout /t 30 /nobreak >nul",
+        );
+        #[cfg(not(windows))]
+        let (argv, line) = (
+            vec![OsString::from("/bin/sh"), OsString::from("-c")],
+            "sleep 30",
+        );
+
+        let mut argv = argv;
+        argv.push(OsString::from(line));
+
+        // The child's environment is cleared before it starts, so a sleeper
+        // given only `TERM` has no `PATH` and is not a sleeper at all — it is a
+        // run that ended before the assertions got to it.
+        #[cfg(windows)]
+        let system = {
+            let root = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_string());
+            [
+                ("PATH".to_string(), format!("{root}\\system32")),
+                ("SystemRoot".to_string(), root),
+            ]
+        };
+        #[cfg(not(windows))]
+        let system: [(String, String); 0] = [];
+
+        let mut environment = vec![("TERM".to_string(), "xterm-256color".to_string())];
+        environment.extend(system);
+
+        let accepted = perseverance_pty::accept(perseverance_agent::Launch::new(
+            argv,
+            &[],
+            environment,
+            perseverance_agent::Ready::Quiet {
+                quiet: std::time::Duration::from_millis(400),
+                max: std::time::Duration::from_secs(10),
+            },
+        ))
+        .expect("a system shell is a native image");
+
+        terminals
+            .held()
+            .open(accepted, directory, &[])
+            .expect("a shell starts")
+    }
+
+    /// The first criterion, end to end: a run opened through the registry, given
+    /// stakes, and named by what it loses.
+    ///
+    /// The pure function is well covered elsewhere; this is the part that was
+    /// not — that `staked` and `losses` join the two sides at all, and that a
+    /// work run and a research run come out of a real registry saying different
+    /// things. A run nobody staked is here too, because that is the only
+    /// sentence the shipped app can produce until #48 lands and it must not be
+    /// the one nobody looked at.
+    #[test]
+    fn a_staked_run_is_named_by_what_it_loses_and_an_unstaked_one_is_still_named() {
+        let directory = TempDir::new().expect("temp dir");
+        let terminals = Terminals::new();
+
+        let work = a_live_run_in(&terminals, directory.path());
+        let research = a_live_run_in(&terminals, directory.path());
+        let _unstaked = a_live_run_in(&terminals, directory.path());
+
+        terminals.staked(work, a_stake(51, "perseverance", RunKind::Work));
+        terminals.staked(research, a_stake(58, "controlayer", RunKind::Research));
+
+        let losses = terminals.losses();
+        assert_eq!(losses.len(), 3, "{losses:?}");
+        assert!(losses[0].contains("#51 in perseverance"), "{}", losses[0]);
+        assert!(losses[0].contains(WORK_LOSS), "{}", losses[0]);
+        assert!(losses[1].contains("#58 in controlayer"), "{}", losses[1]);
+        assert!(losses[1].contains(RESEARCH_LOSS), "{}", losses[1]);
+        assert!(losses[2].contains(UNKNOWN_LOSS), "{}", losses[2]);
+
+        // And the confirmation those three produce is the one an operator would
+        // be shown, counted off the same snapshot the gate decided on.
+        assert_eq!(on_close(losses.len(), &Quit::NotAsked), OnClose::Ask);
+        let said = confirmation(&losses);
+        assert!(said.contains("3 runs are still live"), "{said}");
+
+        // After the quit there is nothing left to name, and a second close
+        // request goes straight through rather than asking about nothing.
+        terminals.held().shut_down();
+        assert!(terminals.losses().is_empty());
+        assert_eq!(
+            on_close(terminals.losses().len(), &Quit::NotAsked),
+            OnClose::GoNow
+        );
+    }
+
+    /// The mapping is written once. `route.ts` draws the same line for
+    /// `Attendance`, and both read [`TicketType`] rather than a second enum.
+    #[test]
+    fn a_run_kind_is_read_off_the_ticket_type_and_not_spelled_again() {
+        assert_eq!(RunKind::of(TicketType::Research), RunKind::Research);
+        assert_eq!(RunKind::of(TicketType::Prototype), RunKind::Work);
+        assert_eq!(RunKind::of(TicketType::Grilling), RunKind::Work);
+        assert_eq!(RunKind::of(TicketType::Task), RunKind::Work);
+    }
+
+    #[test]
+    fn one_confirmation_names_what_every_live_run_loses() {
+        let losses = [
+            what_it_loses(
+                RunId::from_u64(1),
+                Some(&a_stake(51, "perseverance", RunKind::Work)),
+            ),
+            what_it_loses(
+                RunId::from_u64(2),
+                Some(&a_stake(58, "controlayer", RunKind::Research)),
+            ),
+        ];
+
+        let said = confirmation(&losses);
+
+        assert!(said.contains("#51"), "{said}");
+        assert!(said.contains("perseverance"), "{said}");
+        assert!(said.contains("#58"), "{said}");
+        assert!(said.contains("controlayer"), "{said}");
+        assert!(said.contains("2 runs are still live"), "{said}");
+
+        // The distinction the ticket is about: a work run strands something
+        // that can be picked back up, and a research run strands nothing
+        // because there was nothing kept to strand.
+        assert!(losses[0].contains("claim"), "{}", losses[0]);
+        assert!(!losses[1].contains("claim"), "{}", losses[1]);
+        assert!(losses[1].contains("keeps nothing"), "{}", losses[1]);
+
+        // One confirmation and not one per run. The headline is counted once
+        // and the sentence saying what a quit will do appears once, however
+        // many runs are named between them — which is what makes this a single
+        // question rather than a queue of them.
+        assert_eq!(said.matches("still live").count(), 1, "{said}");
+        assert_eq!(said.matches(&closing()).count(), 1, "{said}");
+    }
+
+    /// A run with no row in the stakes table is still a live run, and a quit
+    /// still ends it. Leaving it out would make the confirmation quietest
+    /// exactly where the app is least sure.
+    #[test]
+    fn a_live_run_this_app_cannot_name_is_still_named_in_the_confirmation() {
+        let loss = what_it_loses(RunId::from_u64(7), None);
+
+        assert!(loss.contains("run 7"), "{loss}");
+        assert!(loss.contains("cannot say what this one loses"), "{loss}");
+        // It says it does not know rather than guessing a kind, which is the
+        // one thing a sentence about an unrecoverable loss may not do.
+        assert!(!loss.contains("claim"), "{loss}");
+        assert!(!loss.contains("keeps nothing"), "{loss}");
+
+        let said = confirmation(std::slice::from_ref(&loss));
+        assert!(said.contains("one run is still live"), "{said}");
+        assert!(said.contains(&loss), "{said}");
+    }
+
+    #[test]
+    fn a_quit_with_nothing_live_asks_nothing() {
+        assert_eq!(on_close(0, &Quit::NotAsked), OnClose::GoNow);
+    }
+
+    #[test]
+    fn the_confirmation_is_asked_once_however_many_runs_are_live() {
+        assert_eq!(on_close(4, &Quit::NotAsked), OnClose::Ask);
+        // Every close request that arrives while the dialog is up is refused
+        // rather than answered with a second dialog.
+        assert_eq!(on_close(4, &Quit::Asking), OnClose::WaitForTheAnswer);
+        // And the one the confirmed dialog itself sends goes straight through,
+        // because the question has already been answered.
+        assert_eq!(on_close(4, &Quit::Confirmed), OnClose::GoNow);
+    }
+
+    /// *Keep working* is the answer that has to leave the app exactly as it was,
+    /// and the transition that makes that true is the gate going back to *not
+    /// asked* — so a second close request asks again rather than quitting
+    /// silently or wedging.
+    #[test]
+    fn keeping_working_puts_the_gate_back_and_a_second_close_request_asks_again() {
+        let quitting = Quitting::new();
+        assert_eq!(quitting.asked(), Quit::NotAsked);
+
+        quitting.now(Quit::Asking);
+        assert_eq!(on_close(2, &quitting.asked()), OnClose::WaitForTheAnswer);
+
+        quitting.no_longer_asking();
+        assert_eq!(quitting.asked(), Quit::NotAsked);
+        assert_eq!(on_close(2, &quitting.asked()), OnClose::Ask);
+    }
+
+    /// And the other half of that transition: an answer that already landed is
+    /// not undone by the thread that carried it ending.
+    #[test]
+    fn an_answered_quit_is_not_taken_back_when_the_asking_ends() {
+        let quitting = Quitting::new();
+        quitting.now(Quit::Asking);
+        quitting.now(Quit::Confirmed);
+
+        quitting.no_longer_asking();
+
+        assert_eq!(quitting.asked(), Quit::Confirmed);
+        assert_eq!(on_close(2, &quitting.asked()), OnClose::GoNow);
+    }
+
+    /// The failure mode nothing else would catch: the asking thread dies without
+    /// reaching an answer. `Released` is the whole of the defence and it is a
+    /// `Drop`, so unwinding out of `blocking_show` releases the gate too.
+    #[test]
+    fn a_question_that_never_gets_an_answer_still_lets_go_of_the_gate() {
+        let app = mock_app();
+        app.manage(Quitting::new());
+        app.state::<Quitting>().now(Quit::Asking);
+
+        drop(Released(app.handle().clone()));
+
+        assert_eq!(app.state::<Quitting>().asked(), Quit::NotAsked);
+    }
+
+    /// Nothing live is let through without a word, and the gate is left alone —
+    /// an app that recorded a question it never asked would ask nothing the next
+    /// time either.
+    #[test]
+    fn a_quit_with_nothing_live_is_let_through_and_asks_nobody() {
+        let app = mock_app();
+        app.manage(Terminals::new());
+        app.manage(Quitting::new());
+
+        assert!(may_quit(app.handle()));
+        assert_eq!(app.state::<Quitting>().asked(), Quit::NotAsked);
+    }
+
+    /// A close request that lands while the question is up is refused, and no
+    /// second dialog is started. Asserted through the door the operator uses
+    /// rather than through the rule alone.
+    #[test]
+    fn a_close_request_while_the_question_is_up_is_refused_and_asks_nothing_twice() {
+        let directory = TempDir::new().expect("temp dir");
+        let app = mock_app();
+        app.manage(Terminals::new());
+        app.manage(Quitting::new());
+        a_live_run_in(&app.state::<Terminals>(), directory.path());
+        app.state::<Quitting>().now(Quit::Asking);
+
+        assert!(!may_quit(app.handle()));
+        assert_eq!(app.state::<Quitting>().asked(), Quit::Asking);
+
+        app.state::<Terminals>().held().shut_down();
+    }
+
+    /// The same three properties `crates/pty`'s guard asserts of every refusal
+    /// it can raise: long enough to be a sentence, no trailing full stop, and
+    /// no capital at the front. A quit is the last thing an operator reads from
+    /// this app and it is not exempt.
+    #[test]
+    fn every_sentence_a_quit_shows_is_a_sentence() {
+        let lines = [
+            what_it_loses(
+                RunId::from_u64(1),
+                Some(&a_stake(51, "perseverance", RunKind::Work)),
+            ),
+            what_it_loses(
+                RunId::from_u64(2),
+                Some(&a_stake(58, "controlayer", RunKind::Research)),
+            ),
+            what_it_loses(RunId::from_u64(7), None),
+        ];
+
+        for line in &lines {
+            assert!(
+                line.len() > 40,
+                "{line:?} is a label rather than a sentence"
+            );
+            assert!(
+                !line.ends_with('.'),
+                "{line:?} ends in a full stop; house style does not"
+            );
+            assert!(
+                line.chars()
+                    .next()
+                    .is_some_and(|opening| !opening.is_uppercase()),
+                "{line:?} opens upper case; house style does not"
+            );
+        }
+
+        let said = confirmation(&lines);
+        assert!(said.len() > 40, "{said:?} is a label rather than a message");
+        assert!(
+            said.chars()
+                .next()
+                .is_some_and(|opening| !opening.is_uppercase()),
+            "{said:?} opens upper case; house style does not"
+        );
+        for line in said.lines().filter(|line| !line.is_empty()) {
+            assert!(
+                !line.ends_with('.'),
+                "{line:?} ends in a full stop; house style does not"
+            );
+        }
+        // The grace is spoken by reading the constant, so the sentence cannot
+        // drift from the number it describes.
+        assert!(
+            said.contains(&format!("{} seconds later is ended", GRACE.as_secs())),
+            "{said}"
+        );
+    }
+
+    /// *No reattach machinery* is discharged by absence, and this is what keeps
+    /// it discharged. A quit writes nothing about a run down — no session id,
+    /// no run row, no claim — so the next launch has nothing to reattach to and
+    /// a stranded claim is found the only way it ever was: by reading GitHub,
+    /// where it is still an assignment.
+    ///
+    /// It is asserted against `crates/store` rather than against a behaviour
+    /// because absence has no behaviour to test. The store's whole schema is
+    /// three tables and this ticket added none of them.
+    #[test]
+    fn nothing_about_a_run_is_written_down_when_the_app_quits() {
+        const STORE_SOURCES: [(&str, &str); 6] = [
+            ("cache.rs", include_str!("../../store/src/cache.rs")),
+            ("folders.rs", include_str!("../../store/src/folders.rs")),
+            ("lib.rs", include_str!("../../store/src/lib.rs")),
+            ("repo.rs", include_str!("../../store/src/repo.rs")),
+            ("schema.rs", include_str!("../../store/src/schema.rs")),
+            ("store.rs", include_str!("../../store/src/store.rs")),
+        ];
+
+        assert_eq!(perseverance_store::STORE_SCHEMA_VERSION, 2);
+
+        // Down to the test module and no further: that crate's own tests write
+        // a table nobody ships, to prove a foreign file is refused rather than
+        // migrated over, and counting it here would be counting a fixture.
+        let schema = include_str!("../../store/src/schema.rs");
+        let shipped = schema
+            .split_once("#[cfg(test)]")
+            .map_or(schema, |(before, _)| before);
+        let tables: Vec<&str> = shipped
+            .match_indices("CREATE TABLE ")
+            .map(|(at, marker)| {
+                shipped[at + marker.len()..]
+                    .split_whitespace()
+                    .next()
+                    .expect("a table name follows CREATE TABLE")
+            })
+            .collect();
+        assert_eq!(tables, ["folders", "app", "graph_cache"]);
+
+        // Every name a reattach would have to reach for. A run is a process and
+        // a process does not survive its harness, so none of these belongs in a
+        // file that outlives the launch.
+        for (file, source) in STORE_SOURCES {
+            for written in ["session", "Session", "run_id", "RunId", "runs"] {
+                assert!(
+                    !source.contains(written),
+                    "crates/store/src/{file} names {written}, so something about a run \
+                     outlives the process that had it"
+                );
+            }
+        }
     }
 }

@@ -122,8 +122,14 @@ export type Mark = "claimed" | "designated" | "takeable" | "blocked" | "resolved
  * The wayfinder's vocabulary and not the model's: nothing crossing the seam
  * says this, so it is derived here from the ticket type — research runs AFK,
  * every other kind of ticket is human-in-the-loop. That makes this the first
- * thing to move the day the model carries attendance itself, and until then a
- * rule with exactly one home.
+ * thing to move the day the model carries attendance itself.
+ *
+ * One rule, and now two readers of it: `RunKind::of` in `crates/app` draws the
+ * same line from the same `TicketType`, because a quit confirmation has to say
+ * whether a run strands a claim or loses everything and that question is asked
+ * in Rust. Neither side derives the other — the seam carries the ticket type
+ * and not the split — so the two are kept identical by saying so here and
+ * there, and both move together the day the model carries it.
  */
 export type Attendance = "AFK" | "HITL";
 

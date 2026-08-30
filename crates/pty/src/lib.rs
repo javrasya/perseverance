@@ -62,13 +62,39 @@
 //! attached. Which run bytes cross for is [`Runs`]'s and never a session's,
 //! because a session has no channel to send on.
 //!
+//! **A quit is three phases, and each of them is a handle rather than a word.**
+//! [`Runs::shut_down`] hangs up, waits once, and then kills. *Hanging up*
+//! releases every session's write end and nothing else, and what that means is
+//! not the same on the two platforms: on unix it is a dup of the master fd whose
+//! `Drop` writes the terminal's `VEOF` into the pty, which a child may read or
+//! ignore; on Windows it closes the pseudoconsole's input pipe, and the console
+//! host answers that by breaking the session — measured, a run that never reads
+//! its input is gone inside a tenth of a second with `STATUS_CONTROL_C_EXIT`. So
+//! the asking is a request on one platform and an interrupt on the other, and
+//! the grace behind it is in practice a unix mechanism. The read end is kept
+//! either way, because dropping the master on Windows is `ClosePseudoConsole`,
+//! an unconditional terminate rather than something a child gets to answer.
+//! *The wait* is one [`GRACE`] across the whole quit and not one per run, ended
+//! early the moment every run is over. *The kill* is every session dropping: on
+//! Windows `TerminateProcess`, then `ClosePseudoConsole` taking the tree, then
+//! the job object closing behind it; on unix `SIGHUP`, five 50 ms looks at the
+//! child, then `SIGKILL` — the escalation that only the **owned** child carries,
+//! which is why [`Session`] keeps it rather than a cloned signaller — after
+//! which the kernel hangs up the controlling terminal's foreground group.
+//! [`Session`]'s `Drop` remains the backstop for the paths where nothing gets to
+//! run at all. **No adapter participates in any of it** — what ends a run here
+//! is a handle lifetime and a clock, so the contract stays at four members and
+//! this crate learns no product vocabulary.
+//!
 //! Filled in by:
 //! - #47 PTY ownership and the embedded terminal (the environment a session
 //!   starts in comes from [`perseverance_env`]; everything with a terminal in
 //!   it stays here)
+//! - #51 quitting: one confirmation, clean shutdown, no orphans (the deadline
+//!   and the kill are here; the confirmation is `crates/app`'s, because what a
+//!   run is working on is product vocabulary this crate may not hold)
 //! - #49 two endings: spent, exited-but-unresolved, and Resume
 //! - #50 silence taxonomy: quiet versus wedged, readiness, and the parked caret
-//! - #51 quitting: one confirmation, clean shutdown, no orphans
 //!
 //! [`perseverance_env`]: https://github.com/javrasya/perseverance
 
@@ -85,7 +111,7 @@ pub use geometry::{Geometry, Panes};
 pub use guard::{Guard, GuardRefusal};
 pub use queries::{Queries, ANSWER};
 pub use ring::{Ring, SCROLLBACK};
-pub use runs::{RunId, Runs, Telemetry};
+pub use runs::{RunId, Runs, Telemetry, GRACE};
 pub use session::{Ending, Session, SessionFailure};
 pub use shim::{accept, Accepted, SpawnRefusal};
 pub use tap::{Delivery, Tap, SLACK};
