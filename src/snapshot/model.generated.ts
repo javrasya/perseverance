@@ -121,6 +121,23 @@ seq: number, occasion: Occasion,
 clauses: Array<Clause>, };
 
 /**
+ * The designated frontier, in the only three readings there are.
+ *
+ * **An enum and not `Option<u64>` beside a flag.** The absence has always been
+ * "a state with its own reading and not a zero", and there are two of those
+ * readings rather than one: a map with work left on it that this machine
+ * cannot start is a different fact from a map with nothing left at all. Two
+ * fields would be two things that can disagree — the argument [`Counts`] makes
+ * against a fourth number — and the WebView would have to decide *which
+ * reading applies* from a conjunction, which is resolving, which is the one
+ * thing that side may not do.
+ *
+ * Adjacently tagged, with a payload on one variant and none on the others,
+ * which is [`ChildKind`]'s existing shape on the wire.
+ */
+export type Frontier = { "frontier": "designated", "number": number } | { "frontier": "notOnThisMachine" } | { "frontier": "nothingToStart" };
+
+/**
  * One map's log, as it crosses to the WebView.
  *
  * No `PartialEq`, for the reason [`crate::Provenance`] has none: this rides on
@@ -152,11 +169,9 @@ closed: boolean, phase: Phase, counts: Counts,
  */
 nodes: Array<Node>, 
 /**
- * The designated frontier: the number of the first node in map order that
- * [`Node::is_takeable`] admits. `None` when nothing on this map can be
- * started, which is a state with its own reading and not a zero.
+ * What this map has to say about *what next* — see [`Frontier`].
  */
-frontier: number | null, };
+frontier: Frontier, };
 
 /**
  * The derived model for one tick, whole.
@@ -200,7 +215,23 @@ export type Node = { number: number, title: string, url: string, kind: ChildKind
  * because a rank is *how far along* and there is no way to compute one
  * from a number.
  */
-waitsOn: Array<number>, };
+waitsOn: Array<number>, 
+/**
+ * Labelled for a machine that is not this one.
+ *
+ * **A verdict and not an input.** The labels themselves still do not cross
+ * the seam, for the reason the blocker count and the assignee list do not:
+ * what crosses is already decided, so there is nothing here for a second
+ * resolver to be written from. This is the same kind of value `kind` and
+ * `state` are — a conclusion drawn from labels and counts that stayed
+ * behind.
+ *
+ * It is on the node rather than only on the map because *not offered* has
+ * to be legible on the row an operator is looking at, and because
+ * [`Frontier::of`] needs it per node to tell *nothing for this machine*
+ * from *nothing left at all*.
+ */
+boundElsewhere: boolean, };
 
 /**
  * The four states, and there is no fifth.

@@ -8,6 +8,7 @@ import { NO_MAP_OPEN } from "../../snapshot/readout";
  */
 import type { ViewProps } from "../views";
 import {
+  BOUND_ELSEWHERE_TAG,
   DESIGNATED_TAG,
   STATE_NAMES,
   beyondTheMapNote,
@@ -188,6 +189,9 @@ function Row({
       data-kind={node.kind.kind}
       data-mark={row.mark}
       data-frontier={row.designated ? "" : undefined}
+      /* The verdict Rust took, carried onto the row so *listed but not
+         offered* is a thing on screen rather than an absence of one. */
+      data-elsewhere={row.boundElsewhere ? "" : undefined}
       data-selected={selected ? "" : undefined}
       /* The same word `FolderRow` uses for the row you picked, so the fill is
          not the only place the choice is said. */
@@ -220,6 +224,17 @@ function Row({
         */}
         {row.blockers.unresolved > 0 ? (
           <span className={styles.tag}>{blockedByLabel(row.blockers.unresolved)}</span>
+        ) : null}
+        {/*
+          The one thing on the row that is a fact about the reader rather than
+          about the ticket. It sits with the other tags and takes the same
+          class: the row keeps its section, its count and its state, and only
+          gains a word naming what the ticket is bound to. Ungated on purpose —
+          the binding is true of a blocked or resolved row too, and gating it
+          would mean deciding startability a second time on this side.
+        */}
+        {row.boundElsewhere ? (
+          <span className={styles.tag}>{BOUND_ELSEWHERE_TAG}</span>
         ) : null}
         <KindTag node={node} />
         {row.attendance === null ? null : (

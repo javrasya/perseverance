@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   COMPLETED_GROUP,
+  LABELS_TRUNCATED_NOTE,
   MAPS_PREAMBLE,
   MAP_LABEL,
   NO_MAP_COPY,
@@ -8,6 +9,7 @@ import {
   NOT_READ_COPY,
   REMEDY,
   STOPPED_COPY,
+  TRUNCATED_NOTE,
   completedMaps,
   describeStamp,
   hasBeenRead,
@@ -269,6 +271,42 @@ describe("the cache age is on screen in every state", () => {
     // Rust side too, and a rename on either is silent on the other.
     expect(nothingReadYet(1).yieldingToRateLimit).toBe(false);
     expect(loadFixture(1).yieldingToRateLimit).toBe(false);
+  });
+});
+
+describe("a page that cannot exist and a label list that ran long are two caveats", () => {
+  it("carries the two truncation flags apart, both false until something says otherwise", () => {
+    // Two fields because there are two sentences. The Rust side reads them off
+    // disjoint halves of one `Truncation`, so a rename on either is silent here
+    // and this is the half that notices.
+    expect(nothingReadYet(1).truncated).toBe(false);
+    expect(nothingReadYet(1).labelsTruncated).toBe(false);
+    expect(loadFixture(1).labelsTruncated).toBe(false);
+  });
+
+  it("says an impossible thing happened only about the pages that are capped", () => {
+    /*
+     * The whole reason the label flag is not folded into `truncated`. GitHub
+     * caps sub-issues and linked issues, so a second page of either really is
+     * something its own limits forbid — but nothing caps labels, so an issue
+     * with more than a hundred of them is ordinary. One sentence over both
+     * would tell an operator with a well-labelled issue that the impossible
+     * had happened.
+     */
+    expect(TRUNCATED_NOTE).toContain("cannot happen");
+    expect(LABELS_TRUNCATED_NOTE).not.toContain("cannot");
+  });
+
+  it("names what a cut-off label list costs rather than how much was cut", () => {
+    // The one truncation that fails unsafe, so the one with an outcome worth
+    // printing: a ticket may be offered on a machine it is bound away from, and
+    // an operator who is told only *some of this is not on screen* has nothing
+    // to do with that.
+    expect(LABELS_TRUNCATED_NOTE).toContain("bound to another");
+    expect(LABELS_TRUNCATED_NOTE).toContain("labels");
+    // Two sentences, and neither is a reading of the other.
+    expect(LABELS_TRUNCATED_NOTE).not.toContain(TRUNCATED_NOTE);
+    expect(TRUNCATED_NOTE).not.toContain(LABELS_TRUNCATED_NOTE);
   });
 });
 

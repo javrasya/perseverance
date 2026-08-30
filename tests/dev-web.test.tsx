@@ -7,9 +7,16 @@ import { CacheStamp } from "../src/chrome/CacheStamp";
 import { OVERRIDE_REFUSED_COUNSEL } from "../src/environment/folder";
 import { CONDITIONS } from "../src/chrome/stamp";
 import { MapList } from "../src/maps/MapList";
-import { STOPPED_COPY, loadFixture } from "../src/maps/maps";
+import {
+  LABELS_TRUNCATED_NOTE,
+  STOPPED_COPY,
+  TRUNCATED_NOTE,
+  loadFixture,
+  type MapsView,
+} from "../src/maps/maps";
 import { FIXTURES, FIXTURE_NAMES, type FixtureName } from "../src/snapshot/fixtures";
-import { NO_MAP_OPEN } from "../src/snapshot/readout";
+import type { Snapshot } from "../src/snapshot/model.generated";
+import { NOTHING_FOR_THIS_MACHINE, NO_MAP_OPEN } from "../src/snapshot/readout";
 import { hasRustBehindIt } from "../src/snapshot/snapshot";
 
 /**
@@ -78,6 +85,18 @@ function theReadout(): string {
   return document.querySelector("footer")?.textContent ?? "";
 }
 
+/**
+ * The number a map's frontier names, for the fixtures where it names one. The
+ * union is read rather than the number assumed, because two of its three
+ * readings are absences with words of their own.
+ */
+function designatedIn(map: NonNullable<Snapshot["model"]["map"]>): number {
+  if (map.frontier.frontier !== "designated") {
+    throw new Error("this fixture designates nobody");
+  }
+  return map.frontier.number;
+}
+
 /** One row, by the number it carries. */
 function theRow(number: number): Element {
   const row = theRoute().querySelector(`[data-node="${number}"]`);
@@ -126,7 +145,7 @@ describe("dev:web", () => {
 
     expect(text).toContain("perseverance");
     expect(text).toContain("wayfinding");
-    expect(text).toContain(`frontier #${map.frontier}`);
+    expect(text).toContain(`frontier #${designatedIn(map)}`);
   });
 
   it("opens on the Route and lists the map's own nodes, grouped and in map order", async () => {
@@ -180,6 +199,53 @@ describe("dev:web", () => {
 
     expect(frontier).toHaveLength(1);
     expect(frontier[0]?.getAttribute("data-node")).toBe("75");
+  });
+
+  it("lists the work this machine cannot start and offers none of it", async () => {
+    /*
+     * The whole of #61, end to end from a booted app. The map has three
+     * takeable tickets on it and every one of them belongs on a machine this is
+     * not — so all three are on screen, all three say so, nothing is
+     * designated, and the readout says *nothing for this machine* rather than
+     * the sentence a finished map gets.
+     */
+    const text = await boot("/?map=platform-bound-windows");
+
+    const held = [...theRoute().querySelectorAll("[data-elsewhere]")];
+    expect(held.map((el) => el.getAttribute("data-node"))).toEqual(["80", "81", "82"]);
+    for (const row of held) {
+      expect(row.getAttribute("data-state")).toBe("takeable");
+      expect(row.textContent).toContain("not on this machine");
+    }
+
+    // Nothing is offered, and the row that *is* for this machine is merely
+    // blocked — which is what makes the reading below about the machine.
+    expect(theRoute().querySelectorAll("[data-frontier]")).toHaveLength(0);
+    expect(theRow(83).getAttribute("data-elsewhere")).toBeNull();
+    expect(theRow(83).getAttribute("data-state")).toBe("blocked");
+
+    expect(theReadout()).toContain(NOTHING_FOR_THIS_MACHINE);
+    expect(text).not.toContain("nothing to start");
+  });
+
+  it("offers the same map's work on the machine it belongs to", async () => {
+    // The other reading of one recorded answer, so the fixture pair is what
+    // proves the difference rather than a sentence about it.
+    await boot("/?map=platform-bound-macos");
+
+    const frontier = [...theRoute().querySelectorAll("[data-frontier]")];
+    expect(frontier).toHaveLength(1);
+    expect(frontier[0]?.getAttribute("data-node")).toBe("81");
+    // And #80 is still listed, still under Frontier, and still tagged.
+    expect(theRow(80).getAttribute("data-elsewhere")).toBe("");
+    expect(theHeadingOver(80)).toBe("Frontier");
+    // And #83 wears the tag while being unstartable for another reason
+    // entirely: the verdict is about the ticket's binding, so it rides a
+    // blocked row without moving its section, its state or its count.
+    expect(theRow(83).getAttribute("data-elsewhere")).toBe("");
+    expect(theRow(83).getAttribute("data-state")).toBe("blocked");
+    expect(theHeadingOver(83)).toBe("Blocked");
+    expect(theReadout()).not.toContain(NOTHING_FOR_THIS_MACHINE);
   });
 
   it("is a list rather than a drawing, on every fixture there is", async () => {
@@ -331,7 +397,7 @@ describe("dev:web", () => {
 
     // Never silence. The frontier is still named, because what was read last
     // time is still what is true of the last time anybody looked.
-    expect(text).toContain(`frontier #${map.frontier}`);
+    expect(text).toContain(`frontier #${designatedIn(map)}`);
   });
 
   it("says the model is stale rather than showing a failed poll as a fresh one", async () => {
@@ -1047,6 +1113,15 @@ describe("the map list is disabled in place when the poller has stopped reading"
   function renderMaps(
     fixture: FixtureName,
     onOpen: (number: number) => void = () => {},
+    /*
+     * A truncation is a condition of the read rather than of the map, so no
+     * `?map=` name can put one on screen — the flags are the app crate's, and
+     * `dev:web` has no app crate behind it. Overridden here rather than given a
+     * hand-written second fixture, because the shape is already pinned from
+     * Rust and a second account of it is the drift `maps.fixture.json` is
+     * careful not to be.
+     */
+    over: Partial<MapsView> = {},
   ): Element {
     teardown();
 
@@ -1057,7 +1132,11 @@ describe("the map list is disabled in place when the poller has stopped reading"
 
     act(() => {
       root.render(
-        <MapList view={loadFixture(1, `?map=${fixture}`)} selected={null} onOpen={onOpen} />,
+        <MapList
+          view={{ ...loadFixture(1, `?map=${fixture}`), ...over }}
+          selected={null}
+          onOpen={onOpen}
+        />,
       );
     });
 
@@ -1087,6 +1166,33 @@ describe("the map list is disabled in place when the poller has stopped reading"
       expect(row.getAttribute("data-disabled")).toBe("true");
     }
     expect(stopped.getAttribute("data-degraded")).toBe("authFailed");
+  });
+
+  it("tells a label list that ran long apart from a page that cannot exist", () => {
+    /*
+     * The one truncation that fails unsafe gets its own sentence, and the
+     * sentence that says *GitHub's own limits say this cannot happen* is not
+     * said about it — nothing caps how many labels an issue may carry. An
+     * operator whose issue is merely well-labelled would otherwise be told an
+     * impossibility had occurred, and told nothing about the consequence: a
+     * ticket bound to another machine can be offered on this one while a label
+     * that said so sits past the end of the page.
+     */
+    const ranLong = renderMaps("awkward-map", () => {}, { labelsTruncated: true });
+
+    expect(ranLong.textContent).toContain(LABELS_TRUNCATED_NOTE);
+    expect(ranLong.textContent).not.toContain(TRUNCATED_NOTE);
+    expect(ranLong.querySelectorAll("[data-labels-truncated]")).toHaveLength(1);
+
+    // And the two are independent conditions rather than two readings of one,
+    // so an answer with both cut off draws both.
+    const both = renderMaps("awkward-map", () => {}, {
+      truncated: true,
+      labelsTruncated: true,
+    });
+
+    expect(both.textContent).toContain(TRUNCATED_NOTE);
+    expect(both.textContent).toContain(LABELS_TRUNCATED_NOTE);
   });
 
   it("prints the reason and the fixing command above the rows, as text", () => {

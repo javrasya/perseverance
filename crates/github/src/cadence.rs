@@ -114,6 +114,14 @@ pub const BACKOFF_CAP: Duration = Duration::from_secs(5 * 60);
 /// $open)`, so it sends a strictly smaller query than the fixture was captured
 /// from and may honestly cost less.
 ///
+/// That two-point measurement was recorded before #61 raised both `labels`
+/// ceilings from ten to a hundred — one of them nested under `subIssues(first:
+/// 100)` — and neither guard can see the reprice: the fixture is a recording of
+/// the older document, and the live bound's call opens no map, so
+/// `@include(if: $open)` skips the whole subtree the bump lives in. The risk
+/// runs one way, towards under-waiting, and the number wants re-measuring the
+/// next time a signed-in machine runs that ignored test with a map open.
+///
 /// A constant rather than the `cost` the last answer happened to report. An odd
 /// answer saying zero would remove the pacing entirely — the failure mode being
 /// *spend everything*, silently — and *two points per poll* is the sentence the

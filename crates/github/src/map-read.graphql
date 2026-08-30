@@ -12,6 +12,14 @@
 # `pageInfo` is a tripwire, not a cursor. GitHub caps sub-issues at 100 per
 # parent and linked issues at 50 per relationship, so neither page can exist —
 # and a paging loop for a page that cannot exist is code nobody has ever run.
+#
+# `labels` is the exception, and it carries the tripwire for a different reason.
+# There is no product cap on how many labels an issue may hold, so an eleventh
+# label is ordinary rather than impossible — and a truncated label list is the
+# one truncation that fails *unsafe*: a `platform:` label cut off the end reads
+# as a ticket that said nothing about machines, which is offered everywhere. So
+# the ceiling is 100 (the connection maximum GitHub will answer in one page) and
+# `hasNextPage` is parsed and reported like the other three.
 query MapRead($owner: String!, $repo: String!, $number: Int!, $open: Boolean!) {
   repository(owner: $owner, name: $repo) {
     # Which repository this answer is about. A blocker carries its own, and an
@@ -32,12 +40,12 @@ query MapRead($owner: String!, $repo: String!, $number: Int!, $open: Boolean!) {
 
     issue(number: $number) @include(if: $open) {
       number title state body url updatedAt
-      labels(first: 10) { nodes { name } }
+      labels(first: 100) { pageInfo { hasNextPage } nodes { name } }
       subIssues(first: 100) {
         pageInfo { hasNextPage }
         nodes {
           number title state stateReason url updatedAt
-          labels(first: 10) { nodes { name color } }
+          labels(first: 100) { pageInfo { hasNextPage } nodes { name color } }
           assignees(first: 5) { nodes { login } }
           issueDependenciesSummary { blockedBy totalBlockedBy blocking totalBlocking }
           blockedBy(first: 50) {

@@ -3,6 +3,7 @@ import {
   COMPLETED_GROUP,
   COMPLETED_HINT,
   CONDITIONS,
+  LABELS_TRUNCATED_NOTE,
   MAPS_HEADING,
   MAPS_PREAMBLE,
   NOT_READ_COPY,
@@ -75,6 +76,21 @@ export function MapList({ view, selected, onOpen }: MapListProps) {
       {view.truncated ? (
         <p className={styles.caveat} role="status">
           {TRUNCATED_NOTE}
+        </p>
+      ) : null}
+
+      {/*
+        Its own caveat rather than a second reading of the one above. A page a
+        cap forbids and a label list that simply ran long are two facts: the
+        first has no action attached to it, and the second changes what the
+        screen beside it is claiming, because a ticket whose platform label was
+        cut off is offered here whether or not it belongs here. Independent
+        conditions, so both can be drawn at once, and neither is written in
+        terms of the other.
+      */}
+      {view.labelsTruncated ? (
+        <p className={styles.caveat} role="status" data-labels-truncated="">
+          {LABELS_TRUNCATED_NOTE}
         </p>
       ) : null}
 

@@ -130,24 +130,65 @@ pub struct RateLimit {
     pub reset_at: String,
 }
 
-/// Tripwires for pages that cannot exist.
+/// Tripwires for pages that were cut off.
 ///
-/// GitHub caps sub-issues at 100 per parent and linked issues at 50 per
-/// relationship, and both fit in one page — so a paging loop here would be code
-/// nobody has ever run, which is worse than no code at all. These are parsed and
-/// asserted on instead: if one ever fires, the fact is in the read rather than
-/// silently missing from the graph.
+/// Three of these are for pages that cannot exist: GitHub caps sub-issues at 100
+/// per parent and linked issues at 50 per relationship, and both fit in one page
+/// — so a paging loop here would be code nobody has ever run, which is worse than
+/// no code at all. They are parsed and asserted on instead: if one ever fires,
+/// the fact is in the read rather than silently missing from the graph.
+///
+/// [`Truncation::labels`] is the fourth and is a different animal. Nothing caps
+/// how many labels an issue may carry, so its page *can* exist — and it is the
+/// one truncation that fails **unsafe** rather than merely incomplete. A
+/// `platform:` label cut off the end of the list is indistinguishable from a
+/// ticket that said nothing about machines, and a ticket that said nothing about
+/// machines is offered on all of them. The query asks for 100, which is the most
+/// GitHub will answer in one page; past that, this flag is the only thing
+/// standing between a truncated answer and an agent launched on a machine the
+/// operator ruled out.
+///
+/// Which is why the two are asked about separately —
+/// [`Truncation::capped`] for the three and [`Truncation::labels`] for the
+/// fourth. They reach an operator as two sentences because they are two facts:
+/// *something that cannot happen has, and some of this is not on screen* is
+/// the whole of the first, and it names no action because there is none; the
+/// second has a named consequence and something to do about it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Truncation {
     pub maps: bool,
     pub children: bool,
     pub blocked_by: bool,
+    /// A child (or the map itself) carried more labels than one page holds.
+    ///
+    /// Not part of [`Truncation::capped`], and the one flag here that is about
+    /// a page which can ordinarily exist.
+    pub labels: bool,
 }
 
 impl Truncation {
     /// Whether anything at all was cut off. One question, so a caller does not
-    /// have to remember which three fields to ask about.
+    /// have to remember which four fields to ask about.
+    ///
+    /// This is `capped() || labels`, and it is the right question for a test or
+    /// an assertion — *was this answer whole*. It is the **wrong** question for
+    /// copy, because the two halves are two different facts with two different
+    /// consequences, and one sentence over both would have to be either false
+    /// about one of them or too vague to act on. What the chrome prints is
+    /// [`Truncation::capped`] and [`Truncation::labels`], separately.
     pub fn any(&self) -> bool {
+        self.capped() || self.labels
+    }
+
+    /// Whether a page GitHub's own limits forbid was answered anyway.
+    ///
+    /// The three capped connections and deliberately not [`Truncation::labels`].
+    /// These three are one sentence on screen because they are one fact — a page
+    /// that cannot exist has — and that sentence stays true only while the flag
+    /// behind it is fed by the three connections that really are capped. Labels
+    /// have no product cap, so folding them in here is what would turn *which
+    /// its own limits say cannot happen* into a lie.
+    pub fn capped(&self) -> bool {
         self.maps || self.children || self.blocked_by
     }
 }
@@ -240,6 +281,7 @@ pub fn read_response(body: &str) -> Result<MapRead, ReadError> {
 
     let map = repository.issue.map(|issue| {
         truncation.children |= issue.sub_issues.page_info.has_next_page;
+        truncation.labels |= issue.labels.page_info.has_next_page;
 
         // Flattened twice for the reason the map list is: the connection may be
         // absent, and any single node in a GraphQL list may be null.
@@ -252,6 +294,9 @@ pub fn read_response(body: &str) -> Result<MapRead, ReadError> {
             .map(|child| {
                 let blocked_by = child.blocked_by;
                 truncation.blocked_by |= blocked_by.page_info.has_next_page;
+                // The one that decides whether a `platform:` label was even
+                // there to read — see [`Truncation::labels`].
+                truncation.labels |= child.labels.page_info.has_next_page;
                 ChildRead {
                     number: child.number,
                     title: child.title,
@@ -509,6 +554,13 @@ mod wire {
         pub title: String,
         #[serde(default)]
         pub state: String,
+        /// Read for its `pageInfo` alone. The map's own labels decide nothing —
+        /// discovery already happened by the time this answer exists — but a
+        /// truncated page here is the same tripwire as a truncated page on a
+        /// child, and a selection with no tripwire is the thing this file keeps
+        /// arguing against.
+        #[serde(default)]
+        pub labels: Connection<Label>,
         #[serde(default)]
         pub sub_issues: Connection<Child>,
     }
@@ -876,6 +928,7 @@ mod tests {
                             "pageInfo": { "hasNextPage": true },
                             "nodes": [
                                 { "number": 2,
+                                  "labels": { "pageInfo": { "hasNextPage": true }, "nodes": [] },
                                   "blockedBy": { "pageInfo": { "hasNextPage": true }, "nodes": [] } }
                             ]
                         }
@@ -893,8 +946,79 @@ mod tests {
                 maps: true,
                 children: true,
                 blocked_by: true,
+                labels: true,
             }
         );
+    }
+
+    #[test]
+    fn a_child_whose_labels_did_not_all_fit_says_so_rather_than_reading_as_unlabelled() {
+        // The one truncation that fails unsafe. A `platform:` label past the end
+        // of the page is indistinguishable, in `ChildRead::labels`, from a ticket
+        // that said nothing about machines — and a ticket that said nothing about
+        // machines is offered on all of them. The flag is what turns that from a
+        // silent mis-derivation into something the chrome prints.
+        let body = r#"{
+            "data": {
+                "repository": {
+                    "maps": { "pageInfo": { "hasNextPage": false }, "nodes": [] },
+                    "issue": {
+                        "number": 1,
+                        "title": "One",
+                        "subIssues": {
+                            "pageInfo": { "hasNextPage": false },
+                            "nodes": [
+                                { "number": 2,
+                                  "labels": {
+                                      "pageInfo": { "hasNextPage": true },
+                                      "nodes": [ { "name": "wayfinder:task" } ]
+                                  } }
+                            ]
+                        }
+                    }
+                },
+                "rateLimit": null
+            }
+        }"#;
+
+        let read = read_response(body).expect("reads");
+
+        assert!(read.truncation.labels);
+        assert!(read.truncation.any());
+        // And only that one: nothing else about this answer was cut off.
+        assert!(!read.truncation.maps);
+        assert!(!read.truncation.children);
+        assert!(!read.truncation.blocked_by);
+        // **And it is not a capped page.** This is the assertion that keeps the
+        // chrome's sentence honest: *a page GitHub's own limits say cannot
+        // exist* is fed by `capped()`, and a label list that overran has not
+        // overrun any cap — nothing limits how many labels an issue may carry.
+        // Folding it in would print an impossibility at an operator whose issue
+        // is merely well-labelled, and would print it in place of the one
+        // sentence that names what the overrun actually costs.
+        assert!(!read.truncation.capped());
+    }
+
+    #[test]
+    fn a_page_that_cannot_exist_and_a_label_list_that_ran_long_are_two_readings() {
+        // `any()` is the question a test asks; `capped()` and `labels` are the
+        // two an operator is answered with. The three capped connections are one
+        // fact with no action attached to it — GitHub broke its own promise, and
+        // some of the graph is missing. A label list that ran long is a fact
+        // about an ordinary issue with a consequence that can be acted on. One
+        // sentence over both would have to be false about one of them.
+        let capped = Truncation {
+            maps: true,
+            ..Truncation::default()
+        };
+        let ran_long = Truncation {
+            labels: true,
+            ..Truncation::default()
+        };
+
+        assert!(capped.any() && ran_long.any());
+        assert!(capped.capped() && !capped.labels);
+        assert!(!ran_long.capped() && ran_long.labels);
     }
 
     #[test]

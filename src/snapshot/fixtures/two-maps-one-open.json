@@ -23,7 +23,8 @@
           "state": "takeable",
           "waitsOn": [
             30
-          ]
+          ],
+          "boundElsewhere": false
         },
         {
           "number": 33,
@@ -36,10 +37,14 @@
           "state": "blocked",
           "waitsOn": [
             32
-          ]
+          ],
+          "boundElsewhere": false
         }
       ],
-      "frontier": 32
+      "frontier": {
+        "frontier": "designated",
+        "number": 32
+      }
     }
   },
   "provenance": {

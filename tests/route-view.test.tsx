@@ -195,7 +195,10 @@ describe("the four states and the one designation are the model's answers, drawn
     const marked = all(host, "[data-frontier]");
 
     expect(marked).toHaveLength(1);
-    expect(marked[0]?.getAttribute("data-node")).toBe(String(map.frontier));
+    if (map.frontier.frontier !== "designated") {
+      throw new Error("the awkward fixture designates nobody");
+    }
+    expect(marked[0]?.getAttribute("data-node")).toBe(String(map.frontier.number));
   });
 
   it("leaves the takeable spec children takeable and unmarked", async () => {

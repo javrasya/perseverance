@@ -12,7 +12,9 @@
         "specs": 0
       },
       "nodes": [],
-      "frontier": null
+      "frontier": {
+        "frontier": "nothingToStart"
+      }
     }
   },
   "provenance": {

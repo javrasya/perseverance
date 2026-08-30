@@ -9,6 +9,7 @@ import {
 } from "../src/snapshot/fixtures";
 import { CONDITIONS, REMEDY, describeStamp, stampDetail, stampReason } from "../src/chrome/stamp";
 import {
+  NOTHING_FOR_THIS_MACHINE,
   NO_FRONTIER,
   NO_MAP_OPEN,
   PHASE_NAMES,
@@ -49,7 +50,11 @@ describe("dev:web boots from a checked-in snapshot with no Rust behind it", () =
     const map = FIXTURES["awkward-map"].model.map;
     if (map === null) throw new Error("the awkward fixture has no map");
 
-    const frontier = map.nodes.find((node) => node.number === map.frontier);
+    if (map.frontier.frontier !== "designated") {
+      throw new Error("the awkward fixture designates nobody");
+    }
+    const designated = map.frontier.number;
+    const frontier = map.nodes.find((node) => node.number === designated);
     expect(frontier?.kind.kind).toBe("ticket");
     expect(frontier?.state).toBe("takeable");
 
@@ -57,14 +62,14 @@ describe("dev:web boots from a checked-in snapshot with no Rust behind it", () =
     // not the frontier. That is the whole reason the third category exists.
     const spec = map.nodes.find((node) => node.kind.kind === "spec");
     expect(spec?.state).toBe("takeable");
-    expect(spec?.number).not.toBe(map.frontier);
+    expect(spec?.number).not.toBe(designated);
   });
 
   it("has a map with nothing on it that is unstarted rather than finished", () => {
     const map = FIXTURES["empty-map"].model.map;
     expect(map?.nodes).toHaveLength(0);
     expect(map?.phase).toBe("unstarted");
-    expect(map?.frontier).toBeNull();
+    expect(map?.frontier).toEqual({ frontier: "nothingToStart" });
   });
 
   it("has a closed map that is done whatever its tickets say", () => {
@@ -77,7 +82,7 @@ describe("dev:web boots from a checked-in snapshot with no Rust behind it", () =
   it("has a map whose tickets are all closed and whose spec exists", () => {
     const map = FIXTURES["spec-composed"].model.map;
     expect(map?.phase).toBe("specced");
-    expect(map?.frontier).toBeNull();
+    expect(map?.frontier).toEqual({ frontier: "nothingToStart" });
   });
 
   it("tells no map open apart from a map with nothing on it", () => {
@@ -142,10 +147,16 @@ describe("the derived model on screen is spelled and never worked out", () => {
     const said = describeModel(FIXTURES["awkward-map"].model);
     const map = FIXTURES["awkward-map"].model.map;
     if (map === null) throw new Error("the awkward fixture has no map");
+    // Refused rather than narrowed inline: a ternary here would turn a fixture
+    // that stopped designating into the needle `frontier #`, which is an
+    // assertion quietly agreeing to check less.
+    if (map.frontier.frontier !== "designated") {
+      throw new Error("the awkward fixture designates nobody");
+    }
 
     expect(said).toContain(PHASE_NAMES[map.phase]);
     expect(said).toContain(`${map.counts.open}/${map.counts.tickets} tickets open`);
-    expect(said).toContain(`frontier #${map.frontier}`);
+    expect(said).toContain(`frontier #${map.frontier.number}`);
     // Eight children and five tickets are both on screen, because one is what
     // is on the map and the other is what the frontier can work through.
     expect(said).toContain(`${map.nodes.length} nodes`);
@@ -153,6 +164,47 @@ describe("the derived model on screen is spelled and never worked out", () => {
 
   it("reads an absent frontier as nothing to start rather than as zero", () => {
     expect(describeModel(FIXTURES["spec-composed"].model)).toContain(NO_FRONTIER);
+  });
+
+  it("reads an empty frontier for this machine apart from a map with nothing left", () => {
+    /*
+     * Two sentences, and the whole point is that they are two. A map with three
+     * takeable tickets on it that this machine cannot start is not a map that
+     * has been worked through, and one phrase for both is what would make the
+     * first read as the second — at which point an operator graduates the fog or
+     * composes the spec on the strength of a sentence about their laptop.
+     */
+    const bound = describeModel(FIXTURES["platform-bound-windows"].model);
+    const finished = describeModel(FIXTURES["spec-composed"].model);
+
+    expect(bound).toContain(NOTHING_FOR_THIS_MACHINE);
+    expect(finished).toContain(NO_FRONTIER);
+
+    // Neither phrase contains the other, so *contains* is a real test on both.
+    expect(NOTHING_FOR_THIS_MACHINE).not.toContain(NO_FRONTIER);
+    expect(NO_FRONTIER).not.toContain(NOTHING_FOR_THIS_MACHINE);
+    expect(bound).not.toContain(NO_FRONTIER);
+    expect(finished).not.toContain(NOTHING_FOR_THIS_MACHINE);
+  });
+
+  it("still lists and still counts the tickets it will not offer", () => {
+    const map = FIXTURES["platform-bound-windows"].model.map;
+    if (map === null) throw new Error("the platform-bound fixture has no map");
+
+    // Nothing is filtered out of the model by the machine: the rows are there,
+    // the counts are the same numbers the other machine reads, and the three
+    // held-back tickets are still `takeable`.
+    expect(map.nodes).toHaveLength(5);
+    expect(map.counts.tickets).toBe(4);
+    expect(map.counts.open).toBe(4);
+    expect(map.counts).toEqual(FIXTURES["platform-bound-macos"].model.map?.counts);
+
+    const held = map.nodes.filter((node) => node.boundElsewhere);
+    expect(held.map((node) => node.number)).toEqual([80, 81, 82]);
+    for (const node of held) {
+      expect([node.number, node.state]).toEqual([node.number, "takeable"]);
+      expect([node.number, node.kind.kind]).toEqual([node.number, "ticket"]);
+    }
   });
 });
 
@@ -166,6 +218,28 @@ describe("there is one frontier resolver and it is in Rust", () => {
   it("never lets the inputs to a node's state reach this side", () => {
     const offenders = collect([".ts", ".tsx"])
       .filter((file) => /\bblockedBy\b|\bassignees\b/.test(file.text))
+      .map((file) => file.path);
+
+    expect(offenders).toEqual([]);
+  });
+
+  /**
+   * The machine is matched in Rust, and the label family it is matched against
+   * never reaches this side at all.
+   *
+   * `blockedBy` and `assignees` are kept out because a second state resolver
+   * would be writable from them. This one is the same rule for the same reason:
+   * `node.boundElsewhere` is the verdict and the labels behind it stayed
+   * behind, so *first takeable ticket whose platform matches* is not something
+   * this side has the material to write.
+   */
+  it("never lets the label the machine is matched against reach this side", () => {
+    // Built rather than written, so the needle is not sitting in the file that
+    // looks for it — `collect` walks `src/` only today, and a day it walked
+    // `tests/` too is not a day this should start passing vacuously.
+    const needle = `platform${":"}`;
+    const offenders = collect([".ts", ".tsx"])
+      .filter((file) => file.text.includes(needle))
       .map((file) => file.path);
 
     expect(offenders).toEqual([]);
