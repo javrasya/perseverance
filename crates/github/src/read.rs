@@ -997,6 +997,53 @@ mod tests {
     }
 
     #[test]
+    fn the_hash_the_stamp_is_built_from_is_the_published_fnv_1a_64_of_its_bytes() {
+        // Vectors from the FNV reference (Landon Curt Noll). A hash that stopped
+        // being a function of the bytes — reduced to a constant, or seeded
+        // wrongly — would still let every stamp comparison in the app pass, so
+        // the arithmetic is pinned here against numbers this repo did not
+        // choose.
+        assert_eq!(fnv1a_64(b""), 0xcbf2_9ce4_8422_2325);
+        assert_eq!(fnv1a_64(b"a"), 0xaf63_dc4c_8601_ec8c);
+        assert_eq!(fnv1a_64(b"foobar"), 0x8594_4171_f739_67e8);
+    }
+
+    #[test]
+    fn two_different_documents_cannot_share_an_identity() {
+        // The claim the whole slice rests on: editing the bytes changes the
+        // stamp. A one-character difference, and the narrowing that actually
+        // happened in #61 — ten labels widened to a hundred.
+        assert_ne!(fnv1a_64(b"query MapRead"), fnv1a_64(b"query MapReab"));
+        assert_ne!(
+            fnv1a_64(b"labels(first: 10)"),
+            fnv1a_64(b"labels(first: 100)")
+        );
+
+        let narrower = MAP_READ_QUERY.replace("labels(first: 100)", "labels(first: 10)");
+        assert_ne!(narrower, MAP_READ_QUERY, "the substitution has to bite");
+        assert_ne!(
+            fnv1a_64(narrower.as_bytes()),
+            fnv1a_64(MAP_READ_QUERY.as_bytes())
+        );
+    }
+
+    #[test]
+    fn the_stamp_this_build_sends_is_the_hex_of_the_shipped_documents_own_bytes() {
+        // Sixteen lowercase hex digits, and nothing between the document and
+        // them: no hand-maintained version constant to forget to bump.
+        let stamp = map_read_query_id();
+
+        assert_eq!(
+            stamp,
+            format!("{:016x}", fnv1a_64(MAP_READ_QUERY.as_bytes()))
+        );
+        assert_eq!(stamp.len(), 16);
+        assert!(stamp
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
+    }
+
+    #[test]
     fn a_read_with_no_map_open_still_sends_every_variable_the_document_declares() {
         let body = request_body("javrasya", "perseverance", None);
         let sent: serde_json::Value = serde_json::from_str(&body).expect("is JSON");
