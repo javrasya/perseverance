@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FIXTURES } from "../src/snapshot/fixtures";
+import { FIXTURES, FIXTURE_NAMES } from "../src/snapshot/fixtures";
 import type { Map, Node } from "../src/snapshot/model.generated";
 import {
   NEXT_HEADING,
@@ -92,9 +92,16 @@ function numbersIn(nodes: readonly { node: Node }[]): number[] {
   return nodes.map((one) => one.node.number);
 }
 
-/** Every row the pane would draw, top to bottom, which is the reading order. */
+/**
+ * Every row the pane would draw, top to bottom, which is the reading order.
+ *
+ * The destination is on the end because that is where it is drawn: after every
+ * section and before the fog. It is not a section — it heads no count — but it
+ * holds rows, and a reader of *every row* that missed them would be reading a
+ * shorter map than the one on screen.
+ */
 function rowsIn(route: Route): RouteRow[] {
-  return route.sections.flatMap((section) => [...section.rows]);
+  return [...route.sections.flatMap((section) => [...section.rows]), ...route.destination];
 }
 
 function sectionIn(route: Route, name: string): RouteRow[] {
@@ -105,14 +112,35 @@ function markOn(route: Route, number: number): string | undefined {
   return rowsIn(route).find((row) => row.node.number === number)?.mark;
 }
 
+/**
+ * The one state no fixture holds: a spec the map document itself cut.
+ *
+ * Reachable from real data — `Node::of` hangs `Cut::FromScope` on any child
+ * GitHub already calls resolved that the map's own `## Out of scope` names, and
+ * it asks nothing about the kind — and it is the single row where the two rules
+ * this file adds pull in opposite directions. Built by hand because a recorded
+ * answer for it would cost a fixture nothing else needs.
+ */
+function cutSpec(): Map {
+  return mapOf([
+    node(1, {
+      kind: { kind: "spec" },
+      state: "resolved",
+      cut: { cut: "fromScope", reason: "#1 - this map is not going there" },
+    }),
+    node(2),
+  ]);
+}
+
 describe("the sections are the model's own words and nothing else", () => {
   /**
    * The awkward fixture holds one of everything: a claimed ticket, a designated
-   * frontier, three other takeable children, one blocked and one already
-   * closed. A grouping invented here rather than read off `state` would put at
-   * least one of them somewhere the map cannot account for.
+   * frontier, one other takeable child, one blocked, one already closed, one
+   * nobody classified and two spec children. A grouping invented here rather
+   * than read off `kind` and `state` would put at least one of them somewhere
+   * the map cannot account for.
    */
-  it("groups the fixture by state, in document order", () => {
+  it("groups the fixture by kind and then by state, in document order", () => {
     const route = routeOf(awkward());
 
     expect(route.sections.map((section) => section.name)).toEqual([
@@ -120,17 +148,23 @@ describe("the sections are the model's own words and nothing else", () => {
       "frontier",
       "blocked",
       "resolved",
+      "unclassified",
     ]);
     expect(route.sections.map((section) => section.heading)).toEqual([
       NOW_HEADING,
       "Frontier",
       "Blocked",
       "Resolved",
+      "Unclassified",
     ]);
     expect(numbersIn(sectionIn(route, "now"))).toEqual([77]);
-    expect(numbersIn(sectionIn(route, "frontier"))).toEqual([70, 73, 74, 75, 76]);
+    // Two, and not four: the stray issue and the two spec children are takeable
+    // by every state predicate there is, and none of the three is work.
+    expect(numbersIn(sectionIn(route, "frontier"))).toEqual([75, 76]);
     expect(numbersIn(sectionIn(route, "blocked"))).toEqual([72]);
     expect(numbersIn(sectionIn(route, "resolved"))).toEqual([71]);
+    expect(numbersIn(sectionIn(route, "unclassified"))).toEqual([70]);
+    expect(numbersIn(route.destination)).toEqual([73, 74]);
   });
 
   it("heads every section with the rows it actually has", () => {
@@ -139,7 +173,7 @@ describe("the sections are the model's own words and nothing else", () => {
     for (const section of route.sections) {
       expect(section.count).toBe(section.rows.length);
     }
-    expect(route.sections.map((section) => section.count)).toEqual([1, 5, 1, 1]);
+    expect(route.sections.map((section) => section.count)).toEqual([1, 2, 1, 1, 1]);
   });
 
   /**
@@ -171,7 +205,9 @@ describe("intra-section order is map order and nothing else", () => {
     const map = awkward();
 
     expect(map.nodes.map((one) => one.number)).toEqual(MAP_ORDER);
-    expect(numbersIn(rowsIn(routeOf(map)))).toEqual([77, 70, 73, 74, 75, 76, 72, 71]);
+    // 75 before 76 inside Frontier and 73 before 74 inside the destination are
+    // the operator's own arrangement, which no sort would produce.
+    expect(numbersIn(rowsIn(routeOf(map)))).toEqual([77, 75, 76, 72, 71, 70, 73, 74]);
   });
 
   it("keeps descending numbers descending inside a section", () => {
@@ -358,14 +394,25 @@ describe("the frontier is Rust's answer, carried and never re-resolved", () => {
     expect(numbersIn(marked)).toEqual([75]);
   });
 
-  it("leaves the takeable spec children unmarked", () => {
-    const specs = rowsIn(routeOf(awkward())).filter((row) => row.node.kind.kind === "spec");
+  it("leaves the takeable spec children unmarked, and draws them as the destination", () => {
+    const route = routeOf(awkward());
+    const specs = route.destination;
 
     expect(specs).toHaveLength(2);
     for (const spec of specs) {
+      expect(spec.node.kind.kind).toBe("spec");
+      // GitHub's word, carried unchanged: the pane regroups the row, it does
+      // not rewrite what the model said about it.
       expect(spec.node.state).toBe("takeable");
       expect(spec.designated).toBe(false);
+      expect(spec.mark).toBe("destination");
     }
+    // And no section holds one, so nothing counts one.
+    expect(
+      route.sections.flatMap((section) =>
+        section.rows.filter((row) => row.node.kind.kind === "spec"),
+      ),
+    ).toEqual([]);
   });
 
   it("marks nothing when the model named nobody", () => {
@@ -393,11 +440,17 @@ describe("the tickets this machine cannot start are listed and not offered", () 
     const route = routeOf(bound());
     const frontier = sectionIn(route, "frontier");
 
-    expect(numbersIn(frontier)).toEqual([80, 81, 82, 84]);
-    expect(route.sections.find((section) => section.name === "frontier")?.count).toBe(4);
-    // The three tickets, plus the spec that was never frontier-eligible for a
-    // reason that has nothing to do with machines.
+    expect(numbersIn(frontier)).toEqual([80, 81, 82]);
+    expect(route.sections.find((section) => section.name === "frontier")?.count).toBe(3);
+    /*
+     * All three, and the section holds nothing else: *a ticket this machine
+     * cannot start* and *not a ticket at all* are two different reasons not to
+     * be offered, and they are drawn in two different places. The spec, which
+     * was never frontier-eligible for a reason that has nothing to do with
+     * machines, is at the destination.
+     */
     expect(frontier.filter((row) => row.boundElsewhere)).toHaveLength(3);
+    expect(numbersIn(route.destination)).toEqual([84]);
   });
 
   it("designates none of them and draws no Now section at all", () => {
@@ -575,6 +628,187 @@ describe("attendance is the wayfinder's rule, applied where the model is silent"
 
     expect(attendance(73)).toBeNull();
     expect(attendance(70)).toBeNull();
+  });
+});
+
+describe("a child that is not a ticket is not on the work scale", () => {
+  /**
+   * The classification is three-way in Rust — a `wayfinder:<type>` in the four
+   * is a ticket, `wayfinder:spec` is the destination, anything else at all is
+   * unclassified — and the third row is what stops a stray issue dragged onto
+   * the map from satisfying every state predicate there is. This is the same
+   * rule read on this side: neither of the two non-tickets is grouped as work,
+   * whatever GitHub says about its state.
+   */
+  it("puts every spec child at the destination and in no section at all", () => {
+    for (const name of FIXTURE_NAMES) {
+      const map = FIXTURES[name].model.map;
+      if (map === null) continue;
+
+      const route = routeOf(map);
+      const specs = map.nodes
+        .filter((one) => one.kind.kind === "spec" && one.cut.cut !== "fromScope")
+        .map((one) => one.number);
+
+      expect([name, numbersIn(route.destination)]).toEqual([name, specs]);
+      // A section's count is the rows it heads, so a spec inside one is a spec
+      // counted as work. There is no subtraction anywhere — the row is
+      // somewhere else.
+      expect([
+        name,
+        route.sections.flatMap((section) =>
+          numbersIn(section.rows.filter((row) => row.node.kind.kind === "spec")),
+        ),
+      ]).toEqual([name, []]);
+    }
+  });
+
+  it("keeps an unclassified child out of every state's section, whatever its state", () => {
+    /*
+     * One stray issue per state GitHub can put one in. All four are the same
+     * fault — a child nobody classified — and the state it happens to carry is
+     * exactly the thing that must not decide where it goes.
+     */
+    const route = routeOf(
+      mapOf([
+        node(1, { kind: { kind: "unclassified" }, state: "takeable" }),
+        node(2, { kind: { kind: "unclassified" }, state: "claimed" }),
+        node(3, { kind: { kind: "unclassified" }, state: "blocked" }),
+        node(4, { kind: { kind: "unclassified" }, state: "resolved" }),
+      ]),
+    );
+
+    expect(route.sections.map((section) => section.name)).toEqual(["unclassified"]);
+    expect(numbersIn(sectionIn(route, "unclassified"))).toEqual([1, 2, 3, 4]);
+    expect(route.sections.find((one) => one.name === "unclassified")?.count).toBe(4);
+    expect(route.destination).toEqual([]);
+  });
+
+  it("heads the stray issues last, after the rows the map cut", () => {
+    const route = routeOf(
+      mapOf([
+        node(1),
+        node(2, { kind: { kind: "unclassified" } }),
+        node(3, {
+          state: "resolved",
+          cut: { cut: "fromScope", reason: "#3 - dropped" },
+        }),
+      ]),
+    );
+
+    // The list is the progression of work, and a child nobody classified is not
+    // on it — so it goes after the last group that is.
+    expect(route.sections.map((section) => section.name)).toEqual([
+      "frontier",
+      "outOfScope",
+      "unclassified",
+    ]);
+  });
+
+  it("refuses a spec the designated mark and the Now section, even when the frontier names it", () => {
+    /*
+     * `map.frontier` cannot name a spec — `is_startable_work` requires a ticket
+     * — so this map is impossible from Rust. It is built anyway, because *fails
+     * safe* means the pane refuses the offer on its own rather than trusting
+     * the one upstream: two things would have to fail together to draw the
+     * *start this* ring on the destination.
+     */
+    const route = routeOf(
+      mapOf([node(1, { kind: { kind: "spec" } }), node(2)], { frontier: designating(1) }),
+    );
+
+    expect(route.sections.some((section) => section.name === "now")).toBe(false);
+    expect(numbersIn(route.destination)).toEqual([1]);
+    expect(route.destination[0]?.mark).toBe("destination");
+    // The model's word is carried rather than hidden: the pane refuses the
+    // shape, it does not pretend the frontier said something else.
+    expect(route.destination[0]?.designated).toBe(true);
+  });
+
+  it("leaves a cut spec under Out of scope, because the operator's own word outranks a label", () => {
+    const route = routeOf(cutSpec());
+
+    expect(numbersIn(sectionIn(route, "outOfScope"))).toEqual([1]);
+    expect(route.destination).toEqual([]);
+    /*
+     * And it wears the mark its bucket is about. `.markCut` is a decoration
+     * composed onto a mark that is *true* of the row — #36's rule — so the
+     * thing under the strike has to be the resolved disc every other cut row
+     * carries. Left as `destination` the pane would draw a waypoint under a
+     * heading reading *Out of scope*, and the strike, positioned inside a glyph
+     * rotated 45°, would come out diagonal.
+     */
+    expect(markOn(route, 1)).toBe("resolved");
+  });
+
+  it("never lets the bucket and the mark disagree about a row", () => {
+    /*
+     * Every fixture there is, and then the one state none of them holds. A
+     * bucket and a mark are two answers to one question, and the cut spec is
+     * where they would come apart: the cut decides the bucket and the kind
+     * would have decided the mark, so a rule that asked them in different
+     * orders would file the row under *Out of scope* while drawing it as the
+     * destination. No recorded answer reaches that row, so the guard has to.
+     */
+    const maps: readonly (readonly [string, Map | null])[] = [
+      ...FIXTURE_NAMES.map((name) => [name, FIXTURES[name].model.map] as const),
+      ["a spec the map cut", cutSpec()] as const,
+    ];
+
+    for (const [name, map] of maps) {
+      if (map === null) continue;
+
+      const route = routeOf(map);
+      const stray = sectionIn(route, "unclassified");
+      const elsewhere = rowsIn(route).filter(
+        (row) => !stray.includes(row) && !route.destination.includes(row),
+      );
+
+      expect([name, route.destination.map((row) => row.mark)]).toEqual([
+        name,
+        route.destination.map(() => "destination"),
+      ]);
+      expect([name, stray.map((row) => row.mark)]).toEqual([
+        name,
+        stray.map(() => "unclassified"),
+      ]);
+      // And nowhere else wears either, which is the half that catches a row
+      // drawn as the destination while counted as work.
+      expect([
+        name,
+        elsewhere.filter(
+          (row) => row.mark === "destination" || row.mark === "unclassified",
+        ),
+      ]).toEqual([name, []]);
+    }
+  });
+
+  it("counts every node exactly once, on every fixture there is", () => {
+    /*
+     * The single strongest guard on this file, and the one that fails if a
+     * resolved row is ever hidden, a spec is counted twice, or any row is
+     * dropped on the way to a group: every number the map holds is drawn
+     * exactly once, and the counts the headings print plus the uncounted
+     * destination account for all of them.
+     */
+    for (const name of FIXTURE_NAMES) {
+      const map = FIXTURES[name].model.map;
+      if (map === null) continue;
+
+      const route = routeOf(map);
+      const drawn = numbersIn(rowsIn(route));
+      const counted = route.sections.reduce((total, one) => total + one.count, 0);
+
+      expect([name, [...drawn].sort((a, b) => a - b)]).toEqual([
+        name,
+        map.nodes.map((one) => one.number).sort((a, b) => a - b),
+      ]);
+      expect([name, drawn.length]).toEqual([name, new Set(drawn).size]);
+      expect([name, counted + route.destination.length]).toEqual([
+        name,
+        map.nodes.length,
+      ]);
+    }
   });
 });
 

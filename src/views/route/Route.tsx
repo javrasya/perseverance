@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, type ReactElement } from "react";
 import type { Fog, Node } from "../../snapshot/model.generated";
 import { NO_MAP_OPEN } from "../../snapshot/readout";
 /*
@@ -10,10 +10,13 @@ import type { ViewProps } from "../views";
 import {
   BOUND_ELSEWHERE_TAG,
   DESIGNATED_TAG,
+  DESTINATION_HEADING,
   FOG_ALL_CHARTED,
   FOG_HEADING,
   NOBODY_SURVEYED,
+  SPEC_TAG,
   STATE_NAMES,
+  UNCLASSIFIED_TAG,
   beyondTheMapNote,
   blockedByLabel,
   routeOf,
@@ -70,12 +73,19 @@ const GLYPHS = {
   claimed: styles.markClaimed,
   blocked: styles.markBlocked,
   resolved: styles.markResolved,
+  unclassified: styles.markUnclassified,
+  destination: styles.markDestination,
 } satisfies Record<Mark, string | undefined>;
 
 /* The fog heading's own id, so its region is labelled by it exactly as a
    section's rows are labelled by theirs — and so a reader after the four row
    sections can ask for `route-section-*` and not sweep this one in with them. */
 const FOG_ID = "route-fog";
+
+/* The destination's own id, and it is not `route-section-*` for the same reason
+   the fog's is not: a reader asking for the groups that head a count would
+   otherwise sweep in the one group that deliberately heads none. */
+const DESTINATION_ID = "route-destination";
 
 export function Route({ model, selected, onSelect }: ViewProps) {
   /*
@@ -110,10 +120,17 @@ export function Route({ model, selected, onSelect }: ViewProps) {
       ))}
 
       {/*
-        Resolved is the last section #34 draws, and what it draws is C5's muted
-        title and id. The guarantee that a resolved row stays focusable,
-        locatable and countable through a retheme is #37's, rule and test both.
+        Then the far end of the route, and then what nobody has charted. The
+        order is the journey: what is being worked, what can be started, what is
+        held up, what is done, what was cut, what nobody classified — then where
+        all of it is going, and then the ground beyond it. The fog stays the last
+        thing on the pane.
+
+        Resolved keeps C5's muted title and id, and it recedes in ink weight and
+        in nothing else: `route-view.test.tsx` now holds that block to it, which
+        is the test the stylesheet's own comment has been asking for.
       */}
+      <Destination rows={route.destination} selected={selected} onSelect={onSelect} />
       <FogRegion fog={route.fog} />
     </section>
   );
@@ -156,6 +173,67 @@ function Section({
         ))}
       </ul>
     </>
+  );
+}
+
+/**
+ * The destination: the spec children, drawn as where the map is going rather
+ * than as something to take.
+ *
+ * **A region and not a section, and the missing count is the whole of it.** A
+ * section's heading carries `rows.length` and that is the only honest number
+ * this pane can print — so *never counted* cannot be a subtraction anywhere,
+ * and the only way to keep the invariant and stop counting the spec is to head
+ * it with something that prints no number at all. That is a third form in the
+ * slot a numeral would take: a numeral over a section, an em dash over a fog
+ * nobody surveyed, and nothing whatsoever over here. The model agrees from the
+ * other side — `counts.tickets` has never included a spec, and `counts.specs`
+ * is where a number about specs belongs.
+ *
+ * Dropped when the map has no spec child, exactly as an empty section is: a map
+ * still being charted has no destination yet, and there is no second absence to
+ * tell apart the way there is in the fog.
+ *
+ * The rows are ordinary rows. They are selectable and reachable from the
+ * keyboard like any other, because selecting is not starting — the one thing
+ * they may never be is *offered*, and that is refused in the mark, in the
+ * bucket and in `map.frontier`, none of which is a control.
+ */
+function Destination({
+  rows,
+  selected,
+  onSelect,
+}: {
+  rows: readonly RouteRow[];
+  selected: number | null;
+  onSelect: (number: number | null) => void;
+}) {
+  if (rows.length === 0) return null;
+
+  return (
+    <section
+      className={styles.destination}
+      data-destination
+      aria-labelledby={DESTINATION_ID}
+    >
+      <h2 className={styles.sectionHeading} id={DESTINATION_ID}>
+        <span className={styles.sectionName}>{DESTINATION_HEADING}</span>
+        {/* Two children where a section has three. There is no count here and
+            there is no placeholder for one either: a slot standing empty would
+            read as a number that failed to arrive. */}
+        <span className={styles.rule} aria-hidden="true" />
+      </h2>
+      <ul className={styles.rows} aria-labelledby={DESTINATION_ID}>
+        {rows.map((row) => (
+          <Row
+            key={row.node.number}
+            row={row}
+            selected={selected === row.node.number}
+            onSelect={onSelect}
+          />
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -226,8 +304,20 @@ function FogRegion({ fog }: { fog: Fog }) {
  * *designated* while its state stays *takeable*, and nothing has to look at two
  * attributes to know which ring to draw.
  *
- * A cut row is a third claim on top of those two and changes neither: the state
- * stays *resolved* and so does the mark, because the ticket really is closed.
+ * `data-kind` is the third, and it is the model's word again: *ticket*, *spec*
+ * or *unclassified*, decided in Rust off the map's own labels. It is the only
+ * thing on this row about spawnability, and it is not a spawnability flag —
+ * there is no `data-spawnable` here and there will not be one, because the
+ * single answer to *may this be started* is `map.frontier`, and a second
+ * boolean invented on this side is a second answer that can disagree with it.
+ * What a non-ticket row loses is the offer, never the row: it keeps its
+ * `tabIndex`, its click and its selection, because selecting a ticket is not
+ * starting one and the row an operator most needs to open is the one that is
+ * wrong.
+ *
+ * A cut row is a fourth claim on top of those and changes neither of the first
+ * two: the state stays *resolved* and so does the mark, because the ticket
+ * really is closed.
  * What it gains is `data-cut`, a struck disc, and the operator's own words as a
  * text node in the document — **never a `title`, and nothing behind a hover.** A
  * branch that stops has to show why on screen, and a reason an operator has to
@@ -257,7 +347,25 @@ function Row({
       data-state={node.state}
       data-kind={node.kind.kind}
       data-mark={row.mark}
-      data-frontier={row.designated ? "" : undefined}
+      /*
+       * The hook that means *the one to take*, and it is withheld from a row
+       * that is not on the scale of work at all. `row.designated` still carries
+       * `map.frontier`'s word verbatim — hiding that would be this side
+       * resolving rather than reading — but a row marked *destination* or
+       * *unclassified* is one the mark has already refused, and drawing the
+       * offer's own attribute on it would leave the pane saying two things at
+       * once: a waypoint in the glyph and *start here* in the DOM.
+       *
+       * A rendering suppression and not a second answer. Nothing here decides
+       * spawnability; `map.frontier` is still the only thing that does, and it
+       * is read once, above, unchanged. What this stops is the pane handing a
+       * later reader — a test, a socket — a hook the shape it draws contradicts.
+       */
+      data-frontier={
+        row.designated && row.mark !== "destination" && row.mark !== "unclassified"
+          ? ""
+          : undefined
+      }
       /* The verdict Rust took, carried onto the row so *listed but not
          offered* is a thing on screen rather than an absence of one. */
       data-elsewhere={row.boundElsewhere ? "" : undefined}
@@ -373,12 +481,20 @@ function Note({ row }: { row: RouteRow }) {
  * a designated node somebody is already on would otherwise read as free.
  * *Claimed* is the model's own word, deliberately: C5 says *running*, which is
  * a claim about a live PTY that this view cannot verify.
+ *
+ * **Read off the mark and not off `row.designated`, so the word and the shape
+ * cannot part company.** `markOf` already settled the precedence — a cut, then
+ * the kind, then claimed, then the designation — so a row is marked
+ * *designated* exactly when the pane is willing to draw the *start this* ring
+ * on it. Asking the boolean instead would put the visible word *designated* on
+ * a row wearing a waypoint, which is the same contradiction `data-frontier` is
+ * gated against and the one an operator would actually read.
  */
 function MarkerTag({ row }: { row: RouteRow }) {
   if (row.mark === "claimed") {
     return <span className={`${styles.tag} ${styles.tagLive}`}>{STATE_NAMES.claimed}</span>;
   }
-  if (row.designated) {
+  if (row.mark === "designated") {
     return (
       <span className={`${styles.tag} ${styles.tagDesignated}`}>{DESIGNATED_TAG}</span>
     );
@@ -387,14 +503,28 @@ function MarkerTag({ row }: { row: RouteRow }) {
 }
 
 /**
- * What kind of work this is, in the words `/to-issues` labels it with.
+ * What this child is, in the model's own three words: the ticket type
+ * `/to-issues` labelled it with, *spec*, or *unclassified*.
  *
- * A ticket only. A spec is not a kind of ticket and an unclassified child is a
- * child nobody classified, so neither gets a word invented for it here —
- * `data-kind` carries what the model said, and how an unclassified child reads
- * on screen is #37's.
+ * **Every child says what it is, and the two that are not tickets say it
+ * loudest.** A row nobody classified is the one row on this pane that nothing
+ * will ever move, and the group it sits in and the shape it wears both say so —
+ * but a group is read once at the top and a shape has to be learned, while a
+ * word on the row is read by anyone, by a page search, by a screenshot and by a
+ * reader. That is what makes *visibly unclassified* survive a retheme: the
+ * strongest of the three channels is text.
+ *
+ * The switch is exhaustive and the return type is annotated rather than
+ * inferred, so a fourth `ChildKind` arriving from Rust is a compile error here
+ * rather than a row that quietly says nothing about itself.
  */
-function KindTag({ node }: { node: Node }) {
-  if (node.kind.kind !== "ticket") return null;
-  return <span className={styles.tag}>{node.kind.type}</span>;
+function KindTag({ node }: { node: Node }): ReactElement {
+  switch (node.kind.kind) {
+    case "ticket":
+      return <span className={styles.tag}>{node.kind.type}</span>;
+    case "spec":
+      return <span className={styles.tag}>{SPEC_TAG}</span>;
+    case "unclassified":
+      return <span className={styles.tag}>{UNCLASSIFIED_TAG}</span>;
+  }
 }
