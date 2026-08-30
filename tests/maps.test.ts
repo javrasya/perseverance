@@ -308,6 +308,25 @@ describe("a page that cannot exist and a label list that ran long are two caveat
     expect(LABELS_TRUNCATED_NOTE).not.toContain(TRUNCATED_NOTE);
     expect(TRUNCATED_NOTE).not.toContain(LABELS_TRUNCATED_NOTE);
   });
+
+  it("says a label list may have been cut off rather than that it was", () => {
+    /*
+     * The flag has two producers and one sentence. A live read raises it off a
+     * `hasNextPage` GitHub really answered; a cached body read under a query
+     * document this build no longer sends raises it off `MapsView::unvouched`,
+     * where nothing is known either way because the `pageInfo` may never have
+     * been asked for (ADR 0019). Asserting *some of them were not read* would
+     * be false for almost every folder on the first launch after the version-3
+     * upgrade, and this app prints an unknown as an absence everywhere else —
+     * `nothingReadYet` is not an empty list, *first open* is not `0 changes`.
+     * So the sentence hedges by one word, and the word is what this pins.
+     */
+    expect(LABELS_TRUNCATED_NOTE).toContain("may not have been read");
+    expect(LABELS_TRUNCATED_NOTE).not.toContain("were not read");
+    // What an operator does about it is unhedged, because the act is the same
+    // under either producer: a second look at a designated ticket.
+    expect(LABELS_TRUNCATED_NOTE).toContain("bound to another");
+  });
 });
 
 describe("a read that stopped disables the list in place rather than hiding it", () => {

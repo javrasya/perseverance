@@ -355,13 +355,24 @@ export const TRUNCATED_NOTE =
  * makes it something an operator can act on: the fix is fewer labels on the
  * issue, and until then a designated ticket is worth a second look.
  *
+ * It says *may not have been read* rather than *were not read*, and the word is
+ * load-bearing. The flag has two producers now: a `hasNextPage` a live read
+ * really came back with, and a cached body read under a query document this
+ * build no longer sends (ADR 0019), where nothing is known either way because
+ * the `pageInfo` may never have been asked for. One sentence over both has to
+ * be the weaker of the two, and the weaker one is still true of the stronger
+ * case. The alternative was a second sentence keyed to the second producer,
+ * which buys a state on the wire and a fourth note to keep true for a
+ * difference an operator would act on identically — the act is the same second
+ * look either way.
+ *
  * The label family is named in prose and never spelled with its prefix, here or
  * in the copy. Matching happens in `crates/model/src/derive.rs` and the prefix
  * itself stays there — ADR 0006, and the structural guard in
  * `tests/snapshot.test.ts` that reads every file on this side looking for it.
  */
 export const LABELS_TRUNCATED_NOTE =
-  "An issue here carries more labels than one page holds, so some of them were not read. A ticket whose platform label was cut off reads as one that said nothing about machines, so it can be offered on this one even though it is bound to another.";
+  "Some of the labels here may not have been read. A ticket whose platform label was cut off reads as one that said nothing about machines, so it can be offered on this one even though it is bound to another.";
 
 /**
  * What a section says when the poller has stopped reading it.

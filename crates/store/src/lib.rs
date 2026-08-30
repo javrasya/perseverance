@@ -24,6 +24,7 @@
 //! Filled in by:
 //! - #30 the launcher folder list
 //! - #32 the read cache: `graph_cache`, a copy and never an authority
+//! - #82 the query-document stamp on `graph_cache`, and the version-3 schema
 //!
 //! [`perseverance_app`]: https://github.com/javrasya/perseverance
 

@@ -7,8 +7,14 @@ them](https://github.com/javrasya/perseverance/issues/82), under the spec
 [ADR 0003](0003-github-is-read-over-a-blocking-socket-this-app-owns.md) for the
 one query document and the one socket, and on
 [ADR 0010](0010-the-change-ledger-is-a-notification-surface-not-an-archive.md)
-for the ledger whose cold-start baseline is the cached row this stamps — and
-for what a `STORE_SCHEMA_VERSION` bump costs.
+for the ledger whose cold-start baseline is the cached row this stamps.
+
+It **changes** ADR 0010 on one point rather than resting on it. That ADR
+recorded #41 as needing no `STORE_SCHEMA_VERSION` bump, and refused an
+append-only table beside `graph_cache` as a second, less accurate copy of a
+history GitHub already keeps. This one takes the bump ADR 0010 declined — but
+for a column on the row that already exists, not for a history beside it, so
+what ADR 0010 refused stays refused.
 
 `0019` and not `0018`: the directory holds two ADRs numbered `0010`, so `0018`
 is the highest number in use.
@@ -120,20 +126,37 @@ blanked it would report *your maps are gone* for as long as the polls went on
 failing.
 
 **Of the two truncation flags, only `labelsTruncated` is caveated, and the
-asymmetry is the point.** It is the one #82 names, the one #61's widening
-actually moved, and the one whose page can ordinarily exist: nothing caps how
-many labels an issue carries, so *this may have been cut off* is a sentence a
-stamp really is evidence for. `truncated` is `Truncation::capped()`, and its
-sentence on screen says GitHub answered a page its own limits forbid. That flag
-is a tripwire whose whole value is that it has never fired — `crates/model`
-refuses to fold labels into it for exactly this reason — and a stamp is no
-evidence that a cap was broken. Setting it would print a false sentence to every
-operator on their first launch after the version-3 upgrade, and go on printing
-it for as long as the polls kept failing, which is the offline and rate-limited
-case the scoping was chosen for in the first place. The three capped connections
+asymmetry is which sentence survives being weakened.** It is the one #82 names
+and the one #61's widening actually moved, and its sentence is about a page
+rather than about GitHub, so there is a true version of it to print under a
+stamp: *some of the labels here may not have been read*. `truncated`'s sentence
+says GitHub answered a page its own limits forbid, and there is no cautious
+version of that — *a cap may have been broken* is a different accusation, not a
+softer reading of the same one. That flag is a tripwire whose whole value is
+that it has never fired — `crates/model` refuses to fold labels into it for
+exactly this reason — and a stamp is evidence about a `pageInfo`, never about
+what GitHub did. Setting it would put a sentence about GitHub in front of every
+operator on their first launch after the version-3 upgrade, and keep it there
+for as long as the polls kept failing, which is the offline and rate-limited
+case the scoping was chosen for in the first place. The capped connections
 therefore stay **unvouched and silent**: a cap GitHub forbids has never been
 observed, and a caveat that asserts something false is not a smaller lie than a
 flag that reads clean.
+
+**The `maps` leg of `capped()` is a known gap in that scoping, and this ADR
+does not close it.** `Truncation::capped()` is `maps || children || blocked_by`,
+and only two of the three are the ones `map-read.graphql` argues are impossible
+— sub-issues at 100 per parent, linked issues at 50 per relationship. The map
+list is `issues(first: 100, labels: ["wayfinder:map"])`, and nothing caps how
+many issues carry a label, so that page can ordinarily exist too. The
+consequence is real and left open on purpose: if `maps(first: N)` or its
+`pageInfo` is ever widened the way #61 widened labels, a body cached under the
+narrower document reports `truncated: false` with no caveat at all. The fix is
+not to reach for `truncated`'s sentence, which would be false about GitHub for
+the other two legs; it is to split `capped()` so the `maps` leg carries a
+sentence of its own and can then be vouched for like `labelsTruncated`. That
+grouping predates this stack and is not #82's to unpick — but #82 now leans on
+it, which is why it is written down here rather than left implied.
 
 The alternative — a third state on `MapsView` with a sentence of its own, *this
 copy was read under a query this build no longer sends, so what it says was cut
@@ -174,14 +197,30 @@ screen the whole time, including on a first launch whose poll never lands: that
 is the case the scoping is for, since an operator who is offline or rate-limited
 would otherwise be told their maps were gone by an upgrade.
 
-**The one caveat it does show, it may show wrongly, and that is the safe
-direction.** `LABELS_TRUNCATED_NOTE` says an issue carries more labels than one
-page holds, and after the upgrade some folders will wear it having been cut off
-by nothing. What it asks of an operator is a second look at a designated ticket
-— the cost of being wrong is a glance, where the cost of the clean answer this
-replaces is an agent launched on a machine the operator ruled out. It lasts one
-successful poll per folder. The same reasoning does not reach `truncated`, whose
-sentence would be wrong about GitHub rather than cautious about a page.
+**The one caveat it does show cost the copy a word, and that is what buying
+the reuse was.** `LABELS_TRUNCATED_NOTE` used to assert a fact — *an issue here
+carries more labels than one page holds, so some of them were not read* — and
+after the upgrade every folder would have worn that sentence while almost none
+of them had been cut off by anything. Printing an unknown as a value is what
+this app refuses everywhere else: `MapsView::nothing_read_yet` is an absence and
+not an empty list, `ChangeLog::first_open` is *first open* and not `0 changes`.
+So the sentence was weakened to *some of the labels here may not have been
+read*, which is true of both of the flag's producers — a `hasNextPage` a live
+read really saw, and a `pageInfo` an unfamiliar document may never have asked
+for. The consequence it names is unchanged and is still the actionable half: a
+ticket whose platform label was cut off is offered on a machine it is bound away
+from.
+
+The rejected alternative was a second sentence keyed to the stamp, on the
+`Provenance` channel. It is more precise, and the extra precision buys nothing
+an operator does differently — the act under either sentence is a second look at
+a designated ticket — at the price of a state on the wire and a fourth note to
+keep true. What is lost is real and is recorded here: an operator who reads the
+caveat after a live read can no longer tell from the copy alone that the
+truncation was *observed* rather than merely possible. The word is the price of
+one sentence over two producers. The same weakening is not available to
+`truncated`, whose sentence would be wrong about GitHub rather than cautious
+about a page, which is why that flag stays silent instead.
 
 **A widening now costs a baseline rather than corrupting one.** Anybody editing
 what `map-read.graphql` *asks for* gets the cold start for free, in exchange for

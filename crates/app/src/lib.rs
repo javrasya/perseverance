@@ -224,15 +224,39 @@ impl MapsView {
     /// read re-derives it, which is the direction [`Truncation::labels`] fails
     /// in everywhere else.
     ///
+    /// **Setting it here does not assert that a list was cut off.** This build
+    /// cannot know that, and an unknown printed as a fact is the thing
+    /// [`MapsView::nothing_read_yet`] and `ChangeLog::first_open` refuse to do
+    /// everywhere else in this app — an absence is not an empty list and a
+    /// missing baseline is not *0 changes*. What the flag asserts is the
+    /// sentence `LABELS_TRUNCATED_NOTE` actually prints, and that sentence was
+    /// weakened by one word to make it true of both of the flag's producers:
+    /// *some of the labels here may not have been read*, over a `hasNextPage` a
+    /// live read really saw and over a `pageInfo` an unfamiliar document may
+    /// never have asked for. The alternative — a second sentence of its own —
+    /// buys a state on the wire and a fourth note to keep true for a difference
+    /// an operator acts on identically, since the act is the same second look
+    /// either way. ADR 0019 records the trade.
+    ///
     /// `truncated` is deliberately left alone, and this is the whole of the
-    /// asymmetry. It is [`Truncation::capped`], whose sentence on screen says a
-    /// page GitHub's own limits forbid was answered anyway — a tripwire whose
-    /// value is that it has never fired. Setting it here would print that
-    /// sentence to every operator on their first launch after the version-3
-    /// upgrade, and keep printing it for as long as the polls went on failing,
-    /// on the strength of a stamp that is evidence about a `pageInfo` and no
-    /// evidence at all that GitHub broke its own caps. A caveat that says
-    /// something false is not a smaller lie than a flag that reads clean.
+    /// asymmetry. Its sentence names GitHub — a page GitHub's own limits forbid
+    /// was answered anyway — and the same weakening is not available to it: *a
+    /// cap may have been broken* is not a cautious reading of that sentence but
+    /// a different accusation, and a stamp is evidence about a `pageInfo`,
+    /// never about what GitHub did. Setting it here would put that sentence in
+    /// front of every operator on their first launch after the version-3
+    /// upgrade, and keep it there for as long as the polls went on failing. A
+    /// caveat that says something false is not a smaller lie than a flag that
+    /// reads clean.
+    ///
+    /// That reasoning covers the `children` and `blocked_by` legs of
+    /// [`Truncation::capped`], which are the ones `map-read.graphql` argues are
+    /// impossible. It does **not** cover the `maps` leg: `issues(first: 100,
+    /// labels: [...])` has no product cap behind it, so a second page of maps is
+    /// ordinary and a narrower `maps` document would go unvouched and silent
+    /// here. That grouping predates #82 and is not this change's to unpick; it
+    /// is a known gap, recorded in ADR 0019, and closing it means splitting
+    /// `capped()` rather than reusing a sentence that would be false.
     fn unvouched(mut self) -> MapsView {
         self.labels_truncated = true;
         self
@@ -3730,6 +3754,12 @@ mod tests {
     /// worse than no flag, because an operator believes it. The same bytes
     /// under this build's own stamp report clean, which is how this test says
     /// it is the stamp doing the work and not the body.
+    ///
+    /// Raising it here is not a claim that a list *was* cut off. The sentence
+    /// behind the flag — `LABELS_TRUNCATED_NOTE`, pinned on the TS side — says
+    /// some labels *may* not have been read, which is the true statement under
+    /// both a `hasNextPage` and an unfamiliar document. See ADR 0019 for why
+    /// one weakened sentence was taken over a second one on the wire.
     ///
     /// `truncated` stays clean throughout, and that is the second assertion
     /// this test exists to hold. It is `Truncation::capped`, whose sentence
