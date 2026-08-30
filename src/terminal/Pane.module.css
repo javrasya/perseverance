@@ -1,0 +1,81 @@
+/*
+ * Tier 3 — component tokens, defined from semantic tokens only.
+ *
+ * No `transition`, no `animation`, no `@keyframes`. A terminal is already the
+ * most motion on the screen, and chrome that moved beside it would be competing
+ * with the thing the operator is reading.
+ */
+
+.pane {
+  --c-pane-fill: var(--s-surface-sunken);
+  --c-pane-line: var(--s-line-quiet);
+
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border: var(--s-border-hairline) solid var(--c-pane-line);
+  border-radius: var(--s-radius-panel);
+  background: var(--c-pane-fill);
+  overflow: hidden;
+}
+
+/*
+ * Where every fact about the stream is written, and the only such place.
+ *
+ * It is above the terminal rather than over it: an overlay would cover the last
+ * line the agent printed, which on a run that has just ended is the one line
+ * worth reading.
+ */
+.chrome {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-space-snug);
+  padding: var(--s-space-hair) var(--s-space-snug);
+  border-bottom: var(--s-border-hairline) solid var(--c-pane-line);
+  color: var(--s-ink-secondary);
+  font-size: var(--s-text-micro);
+}
+
+.truncation,
+.desync,
+.over {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--s-space-hair);
+}
+
+.truncation {
+  color: var(--s-ink-faint);
+}
+
+/*
+ * Behind, not broken. The colour that already means *something is happening
+ * right now* rather than an alarm one — a desynced terminal is a terminal that
+ * is about to be replayed, which is a state and not a fault.
+ */
+.desync {
+  color: var(--s-live);
+}
+
+.over {
+  color: var(--s-ink-secondary);
+}
+
+/*
+ * The terminal's own node is appended here. It has no padding: xterm.js
+ * measures the box it is given, and a padded box would make every character
+ * count slightly wrong.
+ */
+.host {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+.empty {
+  margin: 0;
+  padding: var(--s-space-base);
+  color: var(--s-ink-faint);
+  font-size: var(--s-text-small);
+}

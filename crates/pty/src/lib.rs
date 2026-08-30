@@ -45,6 +45,23 @@
 //! routed around. It reads a file and never runs one, so it is exercisable
 //! from hand-written bytes with no agent CLI installed.
 //!
+//! **Lag-drop cannot mean dropping bytes.** A VT stream is not sampleable: a
+//! range discarded mid-flight cuts an escape sequence in half and the terminal
+//! renders garbage permanently. So no path in this crate ever hands over a
+//! non-contiguous byte range. [`Ring`] reduces only by dropping *whole
+//! scrollback from the front*, which is the one reduction that leaves what
+//! remains a contiguous suffix; [`Tap`] has three answers and none of them is a
+//! shortened range — when the WebView falls behind, what stops is the sending,
+//! and the way back is a reset and the ring replayed whole. Truncation is
+//! reported to the chrome as a count and never written into the stream.
+//!
+//! **A run nobody is watching is drained on identical terms.** It has to be: an
+//! unread PTY fills its pipe and blocks the child, and on Windows an unanswered
+//! cursor-position query means the child never starts at all — so [`Queries`]
+//! lives in the plumbing rather than in whatever renderer happens to be
+//! attached. Which run bytes cross for is [`Runs`]'s and never a session's,
+//! because a session has no channel to send on.
+//!
 //! Filled in by:
 //! - #47 PTY ownership and the embedded terminal (the environment a session
 //!   starts in comes from [`perseverance_env`]; everything with a terminal in
@@ -55,6 +72,20 @@
 //!
 //! [`perseverance_env`]: https://github.com/javrasya/perseverance
 
+mod geometry;
+mod guard;
+mod queries;
+mod ring;
+mod runs;
+mod session;
 mod shim;
+mod tap;
 
+pub use geometry::{Geometry, Panes};
+pub use guard::{Guard, GuardRefusal};
+pub use queries::{Queries, ANSWER};
+pub use ring::{Ring, SCROLLBACK};
+pub use runs::{RunId, Runs, Telemetry};
+pub use session::{Ending, Session, SessionFailure};
 pub use shim::{accept, Accepted, SpawnRefusal};
+pub use tap::{Delivery, Tap, SLACK};

@@ -1,22 +1,20 @@
-import { useCallback, useState } from "react";
-import { readDefaultView, writeDefaultView, type ViewName } from "./views";
+import { chooseView, useUi } from "../stores/ui";
+import type { ViewName } from "./views";
 
 /**
- * The remembered view, read once at mount and written the moment it changes.
+ * The remembered view.
  *
- * `useTheme`'s shape exactly, minus the effect: a theme has to be applied to
- * the document on every change, and a view is simply what gets rendered, so
- * there is nothing to apply. Nothing calls the setter yet — the view dial is a
- * later ticket — and it exists now so that the ticket which adds one has a
- * place to call rather than a persistence decision to re-make.
+ * It lives in the UI store now rather than in this hook's own `useState`, and
+ * that is #47's doing: the two stores exist so that what the operator is doing
+ * and what the poller last derived have different lifetimes. A view held in
+ * component state would be a view that a re-render is entitled to have an
+ * opinion about; held there, a poll landing cannot reach it.
+ *
+ * The persistence is unchanged — `readDefaultView` and `writeDefaultView`, the
+ * same two functions, still the only ones — so the eventual swap to the `app`
+ * key/value table is still one file. Nothing calls the setter yet; the view dial
+ * is #52's.
  */
 export function useDefaultView(): [ViewName, (view: ViewName) => void] {
-  const [view, setView] = useState<ViewName>(readDefaultView);
-
-  const choose = useCallback((next: ViewName) => {
-    writeDefaultView(next);
-    setView(next);
-  }, []);
-
-  return [view, choose];
+  return [useUi().view, chooseView];
 }

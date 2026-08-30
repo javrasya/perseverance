@@ -16,6 +16,7 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, OnceLock};
+use std::time::Duration;
 
 use perseverance_agent::{agent, AgentId, Override, Platform, Scope};
 use perseverance_env::{
@@ -30,8 +31,10 @@ use perseverance_github::{
 use perseverance_model::{
     read_response, ChangeLog, Degraded, MapRead, Model, Provenance, ReadOutcome, Snapshot, Source,
 };
+use perseverance_pty::{Delivery, Geometry, RunId, Runs};
 use perseverance_store::{Folder, RepoBindingError, Store, StoreError};
 use serde::Serialize;
+use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 use tauri_plugin_dialog::DialogExt;
 
@@ -1769,6 +1772,262 @@ fn clear_override(
     read_folder(&harvests, remembered_override(&registry), &path, false)
 }
 
+/* ------------------------------------------------------------ terminals --- */
+
+/// Every live run, and the one place bytes leave this process for a terminal.
+///
+/// The registry itself is [`perseverance_pty::Runs`] and every decision in it is
+/// that crate's — which run bytes cross for, what may be sent, whether a gesture
+/// is a resize. What is held here is the wiring: the lock, and the sink the
+/// WebView registered.
+pub struct Terminals {
+    runs: Mutex<Runs>,
+    /// Where the monitored run's bytes go, once the WebView has said where that
+    /// is. One sink for the app rather than one per run, because there is one
+    /// monitored run and a second sink would be a second thing entitled to
+    /// disagree about which.
+    bytes: Mutex<Option<Channel<InvokeResponseBody>>>,
+}
+
+impl Terminals {
+    pub fn new() -> Terminals {
+        Terminals {
+            runs: Mutex::new(Runs::new()),
+            bytes: Mutex::new(None),
+        }
+    }
+
+    /// A poisoned lock means an earlier frame panicked. The runs are not the
+    /// thing that panicked, and writing them off would leave live children with
+    /// nothing holding them — the posture [`Registry::store`] takes, with more
+    /// at stake.
+    fn held(&self) -> MutexGuard<'_, Runs> {
+        self.runs
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn sink(&self) -> MutexGuard<'_, Option<Channel<InvokeResponseBody>>> {
+        self.bytes
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+}
+
+impl Default for Terminals {
+    fn default() -> Terminals {
+        Terminals::new()
+    }
+}
+
+/// How often the byte channel is served.
+///
+/// **This is the coalescing.** The ring is written every time the PTY has
+/// something, which for a build is hundreds of times a second; this reads it
+/// once per frame and hands over everything that accumulated. There is no
+/// buffer, no queue and no timer per run — one interval, one read, one message.
+const FRAME: Duration = Duration::from_millis(16);
+
+/// How often every run's readout is sent. Three hertz, inside the 2–4 the ticket
+/// asks for.
+///
+/// **Nothing behind it is a GitHub read.** These are counts held in this
+/// process, so no rate limit can make them stale and no poller condition has
+/// anything to say about them — which is why they can be this frequent while the
+/// map list is on a cadence ladder.
+const READOUT: Duration = Duration::from_millis(333);
+
+/// One delivery, framed, as it crosses to the WebView.
+///
+/// A header and then the bytes, rather than JSON with the bytes in it: a VT
+/// stream is bytes, and JSON's only rendering of a byte is a number three or
+/// four characters wide. Ten bytes of header is the whole cost of saying which
+/// of the two kinds of delivery this is.
+///
+/// - byte 0 — `0` continues, `1` reset and replay
+/// - byte 1 — whether this run has lost scrollback
+/// - bytes 2..10 — the absolute offset this delivery ends at, big endian
+fn framed(delivery: &Delivery) -> Option<Vec<u8>> {
+    let (kind, truncated, through, bytes) = match delivery {
+        Delivery::Nothing => return None,
+        Delivery::Continues { bytes, through } => (0u8, 0u8, *through, bytes),
+        Delivery::Replay {
+            bytes,
+            through,
+            truncated,
+        } => (1u8, u8::from(*truncated), *through, bytes),
+    };
+
+    let mut framed = Vec::with_capacity(bytes.len() + 10);
+    framed.push(kind);
+    framed.push(truncated);
+    framed.extend_from_slice(&through.to_be_bytes());
+    framed.extend_from_slice(bytes);
+    Some(framed)
+}
+
+/// One run's readout, as the WebView receives it.
+///
+/// Every field is a count or a flag, and `truncation` is the one the chrome
+/// prints. **It is here rather than in the byte stream**, which is the whole of
+/// the rule: a terminal that had *scrollback lost* written into it would be a
+/// terminal whose contents are no longer only what the agent said.
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RunReadout {
+    run: u64,
+    held: usize,
+    dropped: u64,
+    through: u64,
+    end: u64,
+    truncated: bool,
+    desynced: bool,
+    over: bool,
+    code: Option<u32>,
+    monitored: bool,
+}
+
+impl From<&perseverance_pty::Telemetry> for RunReadout {
+    fn from(telemetry: &perseverance_pty::Telemetry) -> RunReadout {
+        RunReadout {
+            run: telemetry.run.as_u64(),
+            held: telemetry.held,
+            dropped: telemetry.dropped,
+            through: telemetry.through,
+            end: telemetry.end,
+            truncated: telemetry.truncated,
+            desynced: telemetry.desynced,
+            over: telemetry.over,
+            code: telemetry.code,
+            monitored: telemetry.monitored,
+        }
+    }
+}
+
+/// Where the monitored run's bytes go.
+///
+/// Registered once, at mount, and never per run — switching which run is
+/// monitored does not re-register anything, which is what keeps a bind from
+/// being a reset. A second call replaces the sink, which is what a reloaded
+/// WebView needs.
+#[tauri::command]
+fn terminal_channel(terminals: State<'_, Terminals>, bytes: Channel<InvokeResponseBody>) {
+    *terminals.sink() = Some(bytes);
+}
+
+/// Which run this window is looking at. A declaration and not a fetch — the same
+/// shape [`watching`] takes for the map, and for the same reason: the bytes
+/// arrive on the channel whenever the frame produced them, and a promise
+/// resolving with a screenful here would be a second delivery path entitled to
+/// disagree with the first.
+#[tauri::command]
+fn monitor_run(terminals: State<'_, Terminals>, run: Option<u64>) {
+    terminals.held().monitor(run.map(RunId::from_u64));
+}
+
+/// The WebView confirming it has written this run's bytes up to `through`.
+///
+/// The whole of the backpressure signal. Without it a WebView that had stopped
+/// writing would go on being sent to, and the only way that ends is a terminal
+/// several megabytes behind with no way back.
+#[tauri::command]
+fn run_took(terminals: State<'_, Terminals>, run: u64, through: u64) {
+    terminals.held().took(RunId::from_u64(run), through);
+}
+
+/// Keystrokes. xterm.js hands them over as a string and this crate turns it into
+/// bytes; nothing here reads them.
+#[tauri::command]
+fn typed_at_run(terminals: State<'_, Terminals>, run: u64, text: String) -> Result<(), String> {
+    terminals
+        .held()
+        .typed(RunId::from_u64(run), text.as_bytes())
+        .map_err(|error| error.to_string())
+}
+
+/// A completed gesture settled on a pane size.
+///
+/// **The only thing in this process that resizes a PTY**, and the WebView calls
+/// it once per settled gesture — never during a drag, never on bind, never on
+/// peek, never on arrival. `src/panes/geometry.ts` is where that is decided and
+/// `tests/panes.test.ts` is where it is asserted; what this side adds is that a
+/// gesture settling on the size already in force resizes nothing at all.
+#[tauri::command]
+fn settled_geometry(terminals: State<'_, Terminals>, rows: u16, cols: u16) -> usize {
+    terminals.held().settled(Geometry::new(rows, cols))
+}
+
+/// Every run's readout, on demand. The event carries the same value, so asking
+/// as well as subscribing covers the gap between a tick landing and the WebView
+/// having a listener — the ordering every other surface in this file uses.
+#[tauri::command]
+fn run_readouts(terminals: State<'_, Terminals>) -> Vec<RunReadout> {
+    terminals
+        .held()
+        .telemetry()
+        .iter()
+        .map(RunReadout::from)
+        .collect()
+}
+
+/// The frame pump and the readout tick, on one thread each.
+///
+/// Two rather than one because they are two different rates for two different
+/// reasons — bytes at a frame because that is when a screen can change, readouts
+/// at three hertz because that is as often as a number is worth reading — and
+/// one thread doing both would make the slower one the faster one's jitter.
+fn start_terminals(app: AppHandle) -> std::io::Result<()> {
+    let frames = app.clone();
+    std::thread::Builder::new()
+        .name("perseverance-frames".to_string())
+        .spawn(move || loop {
+            std::thread::sleep(FRAME);
+
+            let Some(terminals) = frames.try_state::<Terminals>() else {
+                continue;
+            };
+            // The frame is taken before the sink is looked at, and the sink lock
+            // is never held across it: this thread may not be what keeps a
+            // command waiting.
+            let Some((run, delivery)) = terminals.held().frame() else {
+                continue;
+            };
+            let Some(message) = framed(&delivery) else {
+                continue;
+            };
+            let sink = terminals.sink().clone();
+            if let Some(sink) = sink {
+                // A channel that will not take it is a WebView that has gone.
+                // Nothing is retried and nothing is dropped from the stream: the
+                // bytes are still in the ring, and the tap still says this run's
+                // terminal has them — which is the one place a lie here would
+                // cost a splice.
+                if sink.send(InvokeResponseBody::Raw(message)).is_err() {
+                    terminals.held().unsent(run);
+                }
+            }
+        })?;
+
+    std::thread::Builder::new()
+        .name("perseverance-readouts".to_string())
+        .spawn(move || loop {
+            std::thread::sleep(READOUT);
+
+            let Some(terminals) = app.try_state::<Terminals>() else {
+                continue;
+            };
+            let readouts: Vec<RunReadout> = terminals
+                .held()
+                .telemetry()
+                .iter()
+                .map(RunReadout::from)
+                .collect();
+            let _ = app.emit("run-readouts", readouts);
+        })?;
+
+    Ok(())
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -1795,6 +2054,11 @@ pub fn run() {
                 move |watched, ahead| poll_once(&handle, watched, ahead),
             )?);
             start_harvesting(app.handle().clone())?;
+            // Managed before its threads are started, for the reason the poller
+            // is: a frame that arrived before this existed would be a panic
+            // rather than a missed screenful.
+            app.manage(Terminals::new());
+            start_terminals(app.handle().clone())?;
             Ok(())
         })
         /*
@@ -1830,10 +2094,37 @@ pub fn run() {
             folder_environment,
             retry_folder_environment,
             use_override,
-            clear_override
+            clear_override,
+            terminal_channel,
+            monitor_run,
+            run_took,
+            typed_at_run,
+            settled_geometry,
+            run_readouts
         ])
-        .run(tauri::generate_context!())
-        .expect("perseverance failed to start");
+        .build(tauri::generate_context!())
+        .expect("perseverance failed to start")
+        /*
+         * Every session ended before the process is.
+         *
+         * Tauri cleans up no child of ours — its own tracker has years of issues
+         * about exactly that — so this is the hook and the behaviour is entirely
+         * ours. Dropping the sessions drops each one's guard, which on Windows
+         * closes the pseudoconsole and the job object and takes the whole tree
+         * with it.
+         *
+         * This is the *clean* path only. It does not fire on a crash or on Task
+         * Manager's End Task, which is why the guard exists as well: the kernel
+         * closes a dead process's handles however it died. #51 builds the
+         * confirmation and the deadline on top of this.
+         */
+        .run(|app, event| {
+            if let tauri::RunEvent::ExitRequested { .. } = event {
+                if let Some(terminals) = app.try_state::<Terminals>() {
+                    terminals.held().close_all();
+                }
+            }
+        });
 }
 
 #[cfg(test)]
@@ -1960,6 +2251,94 @@ mod tests {
         // The finished map is in the list rather than filtered out of it.
         assert_eq!(json["maps"][1]["closed"], true);
         assert_eq!(json.as_object().expect("an object").len(), 6);
+    }
+
+    /// `src/terminal/runs.ts` is a hand-written mirror of this, pinned from both
+    /// sides for the same reason [`FolderEntry`] is.
+    ///
+    /// Every field is a count or a flag. **There is no field on it that carries
+    /// a byte**, and that absence is the rule rather than an economy: truncation
+    /// and desync are facts *about* a stream, and a terminal that had either of
+    /// them written into its buffer would be a terminal whose contents are no
+    /// longer only what the agent said — with nothing afterwards able to tell
+    /// the two apart.
+    #[test]
+    fn a_run_readout_crosses_in_the_shape_the_frontend_declares() {
+        let readout = RunReadout {
+            run: 4,
+            held: 2_048,
+            dropped: 1_024,
+            through: 3_000,
+            end: 3_072,
+            truncated: true,
+            desynced: true,
+            over: true,
+            code: Some(0),
+            monitored: true,
+        };
+
+        let json = serde_json::to_value(readout).expect("serialises");
+
+        assert_eq!(json["run"], 4);
+        assert_eq!(json["held"], 2_048);
+        assert_eq!(json["dropped"], 1_024);
+        assert_eq!(json["through"], 3_000);
+        assert_eq!(json["end"], 3_072);
+        assert_eq!(json["truncated"], true);
+        assert_eq!(json["desynced"], true);
+        assert_eq!(json["over"], true);
+        assert_eq!(json["code"], 0);
+        assert_eq!(json["monitored"], true);
+        assert_eq!(json.as_object().expect("an object").len(), 10);
+
+        // A run still going says so by having no code rather than by a zero,
+        // which is a real exit status and the commonest one there is.
+        let running = RunReadout {
+            over: false,
+            code: None,
+            ..readout
+        };
+        assert!(serde_json::to_value(running).expect("serialises")["code"].is_null());
+    }
+
+    /// The framing is a header and then the bytes, and the header is ten bytes.
+    ///
+    /// Asserted byte for byte because `src/terminal/runs.ts` reads it with a
+    /// `DataView` and hard-coded offsets: this is the one seam in the app where
+    /// a field moving by one byte is not a type error on either side, it is a
+    /// terminal full of garbage.
+    #[test]
+    fn a_delivery_is_framed_as_a_header_and_then_the_stream_untouched() {
+        let carried = framed(&Delivery::Continues {
+            bytes: b"hi".to_vec(),
+            through: 1_234,
+        })
+        .expect("something to send");
+
+        assert_eq!(carried[0], 0, "continues");
+        assert_eq!(carried[1], 0, "not truncated");
+        assert_eq!(&carried[2..10], &1_234u64.to_be_bytes());
+        // The bytes cross exactly as they came off the wire. Anything this side
+        // rewrote would be a stream the terminal renders differently from the
+        // one the agent produced.
+        assert_eq!(&carried[10..], b"hi");
+
+        let replayed = framed(&Delivery::Replay {
+            bytes: b"whole ring".to_vec(),
+            through: 10,
+            truncated: true,
+        })
+        .expect("something to send");
+
+        assert_eq!(replayed[0], 1, "replay");
+        assert_eq!(replayed[1], 1, "truncated");
+        assert_eq!(&replayed[10..], b"whole ring");
+
+        // Nothing to say is nothing sent, rather than a header with no bytes
+        // after it — an empty write is still a message, and a channel that
+        // carried sixty of them a second would be a channel doing nothing
+        // sixty times a second.
+        assert_eq!(framed(&Delivery::Nothing), None);
     }
 
     /// The clause on the stamp appears only while the budget is the winning
@@ -2719,18 +3098,29 @@ mod tests {
     /// the haystack it is searching. A test living in the crate it reads would
     /// be a test whose own source satisfies the thing it looks for.
     ///
-    /// It is a byte-level check because `crates/pty` is still mostly doc
-    /// comment: #44 added the shim gate, which reads a file and never runs one,
-    /// so there is a boundary here but not yet a terminal. Every file in the
-    /// crate is named below, and that is the limit README records — a *third*
-    /// file added to `crates/pty/src` escapes this scan until someone adds it
-    /// here, and #47 is where the whole thing has to be re-asserted against a
-    /// crate that actually owns a terminal.
+    /// It is a byte-level check, and #47 is where it had to hold against a crate
+    /// that actually owns a terminal: a PTY that fails to open, a child that
+    /// will not start, a job object that cannot be made and a ring that has
+    /// overrun are all things that crate now knows about, and not one of them is
+    /// a condition on the graph.
+    ///
+    /// Every file in the crate is named below, and that is the limit README
+    /// records — a file added to `crates/pty/src` escapes this scan until someone
+    /// adds it here. The count is part of the array's type, so adding a file
+    /// without adding a line here is a compile error in whichever direction it
+    /// is noticed.
     #[test]
     fn nothing_inside_the_terminal_can_raise_a_condition_on_the_graph() {
-        const PTY_SOURCES: [(&str, &str); 2] = [
+        const PTY_SOURCES: [(&str, &str); 9] = [
+            ("geometry.rs", include_str!("../../pty/src/geometry.rs")),
+            ("guard.rs", include_str!("../../pty/src/guard.rs")),
             ("lib.rs", include_str!("../../pty/src/lib.rs")),
+            ("queries.rs", include_str!("../../pty/src/queries.rs")),
+            ("ring.rs", include_str!("../../pty/src/ring.rs")),
+            ("runs.rs", include_str!("../../pty/src/runs.rs")),
+            ("session.rs", include_str!("../../pty/src/session.rs")),
             ("shim.rs", include_str!("../../pty/src/shim.rs")),
+            ("tap.rs", include_str!("../../pty/src/tap.rs")),
         ];
 
         // Every name a child process's failure would have to reach for to put
