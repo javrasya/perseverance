@@ -36,7 +36,7 @@ use std::collections::{HashMap, VecDeque};
 
 use serde::{Deserialize, Serialize};
 
-use crate::derive::{ChildKind, Map, Model, Node, NodeState};
+use crate::derive::{ChildKind, Cut, Map, Model, Node, NodeState};
 
 /// How many entries one map's log keeps, for the session and no longer.
 ///
@@ -65,11 +65,14 @@ pub enum ClauseKind {
     /// A node that is no longer on the map.
     Removed,
     Resolved,
-    /// **No producer yet** — out-of-scope is #36, and nothing in the model
-    /// distinguishes a ticket cut from scope from one closed as done. It is
-    /// declared now so that the precedence does not shift when #36 lands; until
-    /// then those changes arrive as [`ClauseKind::Resolved`] or are carried by
-    /// the catch-all, which is exactly the catch-all's job.
+    /// A node the map document cut: closed on GitHub **and** named under
+    /// `## Out of scope`, which reaches this file as
+    /// [`crate::derive::Cut::FromScope`] on the node. Keyed on the decoration
+    /// and not on the state, so a ticket that closed as done still draws
+    /// [`ClauseKind::Resolved`].
+    ///
+    /// It is drawn **instead of** the resolution and never beside it — see the
+    /// branch in [`clauses_of`], which is where that argument is made.
     CutFromScope,
     Reopened,
     /// A node whose classification became [`ChildKind::Unclassified`] — a
@@ -445,7 +448,20 @@ fn clauses_of(previous: &Model, next: &Model) -> Vec<Clause> {
             continue;
         }
 
-        if let Some(kind) = state_clause(held.state, node.state) {
+        // **One clause and not two.** A ticket that closed as cut arrived as
+        // one fact — the document named it under `## Out of scope` and GitHub
+        // says `CLOSED` — and drawing both *resolved* and *cut from scope*
+        // would report progress that is the opposite of what happened. So the
+        // cut is the row, and the resolution it rode in on is not a second one.
+        //
+        // Keyed on the decoration arriving rather than on the state, and
+        // one-directional for the reason `map closed` is: a cut taken back is a
+        // change the vocabulary has no word for, so it falls past this branch
+        // and reaches the residual below.
+        let cut_named = matches!((&held.cut, &node.cut), (Cut::InScope, Cut::FromScope(_)));
+        if cut_named {
+            buckets.note(ClauseKind::CutFromScope, node.number);
+        } else if let Some(kind) = state_clause(held.state, node.state) {
             buckets.note(kind, node.number);
         }
 
@@ -467,11 +483,12 @@ fn clauses_of(previous: &Model, next: &Model) -> Vec<Clause> {
             };
 
         // **The residual, not a fallback.** The clauses above account for
-        // exactly two fields, so the node they fully explain is the held one
-        // wearing the new `state` and the new `kind`. Anything left over — a
-        // title, a URL, an edge, or a field added to [`Node`] after this file
-        // was written — makes that reconstruction differ from what actually
-        // arrived, and the catch-all carries it.
+        // exactly three fields, so the node they fully explain is the held one
+        // wearing the new `state`, the new `kind` and — where the branch above
+        // actually fired — the new `cut`. Anything left over — a title, a URL,
+        // an edge, or a field added to [`Node`] after this file was written —
+        // makes that reconstruction differ from what actually arrived, and the
+        // catch-all carries it.
         //
         // The `..` is what makes this field-exhaustive rather than a second
         // chosen field set: a new field arrives from `held` and any change to
@@ -479,9 +496,22 @@ fn clauses_of(previous: &Model, next: &Model) -> Vec<Clause> {
         // a residual rather than an `else`, a rename landing in the same poll
         // window as a close draws both `resolved` and the catch-all, instead of
         // the rename being swallowed by the named clause.
+        //
+        // `cut` takes the new value only where the clause above named it, the
+        // way `closed` does at the map level below. A cut taken back and a
+        // reason reworded in place are both changes with no word in the
+        // vocabulary, so they keep the held value here, differ from what
+        // arrived, and reach the catch-all — which is where a change nothing
+        // can name belongs.
+        let cut_accounted = if cut_named {
+            node.cut.clone()
+        } else {
+            held.cut.clone()
+        };
         let accounted = Node {
             state: node.state,
             kind: node.kind,
+            cut: cut_accounted,
             ..(*held).clone()
         };
         if unnameable_kind || accounted != *node {
@@ -646,7 +676,7 @@ fn clauses_of(previous: &Model, next: &Model) -> Vec<Clause> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::derive::{Fog, FogRegion, Frontier, Machine, Map, Phase, TicketType};
+    use crate::derive::{Cut, Fog, FogRegion, Frontier, Machine, Map, Phase, TicketType};
     use crate::read_response;
 
     const AWKWARD: &str = include_str!("../fixtures/awkward-children.json");
@@ -678,18 +708,21 @@ mod tests {
     /// nodes, and a hand-mutated clone that left them alone would be a model
     /// the derivation could never produce.
     fn settle(model: &mut Model) {
+        /// The one filter `tickets` and `open` share, spelled here because
+        /// `Node::is_counted` is private to [`crate::derive`] and a test helper
+        /// is not a reason to widen it. A cut ticket leaves **both**, so a
+        /// hand-mutated cut settles to the counts the derivation would have
+        /// produced rather than to a subtraction of two populations.
+        fn counted(node: &Node) -> bool {
+            matches!(node.kind, ChildKind::Ticket(_)) && matches!(node.cut, Cut::InScope)
+        }
+
         let map = map_of(model);
-        let tickets = map
-            .nodes
-            .iter()
-            .filter(|node| matches!(node.kind, ChildKind::Ticket(_)))
-            .count();
+        let tickets = map.nodes.iter().filter(|node| counted(node)).count();
         let open = map
             .nodes
             .iter()
-            .filter(|node| {
-                matches!(node.kind, ChildKind::Ticket(_)) && node.state != NodeState::Resolved
-            })
+            .filter(|node| counted(node) && node.state != NodeState::Resolved)
             .count();
         let specs = map
             .nodes
@@ -733,6 +766,17 @@ mod tests {
             .position(|node| node.number == other)
             .unwrap_or_else(|| panic!("no node {other} on this map"));
         nodes.swap(here, there);
+    }
+
+    /// A ticket closed **and** named under `## Out of scope`, which is the only
+    /// way a cut ever arrives: the document cuts it, the API calls it closed,
+    /// and [`Cut`] refuses the decoration to anything the API still calls open.
+    /// Written as one helper so no test can hand-build the half of that pair
+    /// the derivation would never produce.
+    fn cut_from_scope(model: &mut Model, number: u64, reason: &str) {
+        let node = node_of(model, number);
+        node.state = NodeState::Resolved;
+        node.cut = Cut::FromScope(reason.to_string());
     }
 
     fn kinds(entry: &Entry) -> Vec<ClauseKind> {
@@ -804,6 +848,11 @@ mod tests {
         node_of(&mut next, 75).state = NodeState::Resolved;
         node_of(&mut next, 76).state = NodeState::Blocked;
         node_of(&mut next, 70).state = NodeState::Claimed;
+        // The cut sits between the resolution it is not and the reopen it is
+        // not — the seat #36 reserved for it before it had a producer, and the
+        // reason landing that producer shifted nothing else on this row.
+        cut_from_scope(&mut next, 77, "- #77 covered by the adapter rewrite");
+        node_of(&mut next, 71).state = NodeState::Blocked;
         settle(&mut next);
 
         log.observed(&next, &[]);
@@ -814,6 +863,8 @@ mod tests {
             kinds(&only_entry(&log)),
             vec![
                 ClauseKind::Resolved,
+                ClauseKind::CutFromScope,
+                ClauseKind::Reopened,
                 ClauseKind::Blocked,
                 ClauseKind::Claimed,
                 ClauseKind::FrontierMoved,
@@ -833,6 +884,7 @@ mod tests {
             state: NodeState::Blocked,
             waits_on: vec![72],
             bound_elsewhere: false,
+            cut: Cut::InScope,
         };
         map_of(&mut next).nodes.push(arrival);
         map_of(&mut next).nodes.retain(|node| node.number != 74);
@@ -960,6 +1012,101 @@ mod tests {
         let mut log = ChangeLog::resuming(before);
         log.observed(&after, &[]);
         assert!(log.ledger().entries.is_empty());
+    }
+
+    /* ------------------------------------------------------ out of scope --- */
+
+    /// The word that had no producer until #36, producing — and producing
+    /// **instead of** the resolution rather than beside it. A ticket the
+    /// operator cut is not a decision made, and a row that said `resolved`
+    /// about one would report progress that is the opposite of what happened.
+    #[test]
+    fn a_ticket_cut_from_scope_draws_the_cut_rather_than_a_resolution() {
+        let mut log = watching();
+        let mut next = base();
+        // #77 is claimed and is not the frontier, so the cut is the whole of
+        // what moved and the row is exactly the fact under test.
+        cut_from_scope(&mut next, 77, "- #77 covered by the adapter rewrite");
+        settle(&mut next);
+
+        log.observed(&next, &[]);
+        let entry = only_entry(&log);
+
+        assert_eq!(kinds(&entry), vec![ClauseKind::CutFromScope]);
+        assert_eq!(clause(&entry, ClauseKind::CutFromScope).numbers, vec![77]);
+        assert_eq!(clause(&entry, ClauseKind::CutFromScope).count, 1);
+        // In the vocabulary, so it announces like everything else in it.
+        assert!(clause(&entry, ClauseKind::CutFromScope).announce);
+    }
+
+    /// A cut taken back is not a resolution, not a reopen and not anything else
+    /// this list names — the ticket was closed before and is closed still, and
+    /// all that moved is the document's mind. The catch-all is the honest row,
+    /// which is why the clause pre-accounts `cut` only where it actually fired.
+    #[test]
+    fn a_cut_taken_back_draws_the_catch_all_because_the_vocabulary_has_no_word_for_it() {
+        let mut before = base();
+        cut_from_scope(&mut before, 77, "- #77 covered by the adapter rewrite");
+        settle(&mut before);
+
+        // The same closed ticket, its bullet struck off the section.
+        let mut after = base();
+        node_of(&mut after, 77).state = NodeState::Resolved;
+        settle(&mut after);
+
+        let mut log = ChangeLog::resuming(before);
+        log.observed(&after, &[]);
+        let entry = only_entry(&log);
+
+        assert_eq!(kinds(&entry), vec![ClauseKind::Unnamed]);
+        assert_eq!(clause(&entry, ClauseKind::Unnamed).numbers, vec![77]);
+    }
+
+    /// And a reason reworded in place, for the same reason. The cut is the same
+    /// cut, so *cut from scope* would be a second announcement of a fact
+    /// already announced; the words changed, and that is a change with no name.
+    #[test]
+    fn a_reason_reworded_in_place_draws_the_catch_all_as_well() {
+        let mut before = base();
+        cut_from_scope(&mut before, 77, "- #77 covered by the adapter rewrite");
+        settle(&mut before);
+
+        let mut after = base();
+        cut_from_scope(
+            &mut after,
+            77,
+            "- #77 the adapter rewrite already covers this",
+        );
+        settle(&mut after);
+
+        let mut log = ChangeLog::resuming(before);
+        log.observed(&after, &[]);
+        let entry = only_entry(&log);
+
+        assert_eq!(kinds(&entry), vec![ClauseKind::Unnamed]);
+        assert_eq!(clause(&entry, ClauseKind::Unnamed).numbers, vec![77]);
+    }
+
+    /// The residual holds under the new clause too: a ticket renamed on its way
+    /// out of scope draws both the cut and the catch-all, exactly as it draws
+    /// both `resolved` and the catch-all on its way to done.
+    #[test]
+    fn a_cut_beside_a_rename_draws_both_the_cut_and_the_catch_all() {
+        let mut log = watching();
+        let mut next = base();
+        node_of(&mut next, 77).title = "Renamed on the way out of scope".to_string();
+        cut_from_scope(&mut next, 77, "- #77 covered by the adapter rewrite");
+        settle(&mut next);
+
+        log.observed(&next, &[]);
+        let entry = only_entry(&log);
+
+        assert_eq!(
+            kinds(&entry),
+            vec![ClauseKind::CutFromScope, ClauseKind::Unnamed]
+        );
+        assert_eq!(clause(&entry, ClauseKind::CutFromScope).numbers, vec![77]);
+        assert_eq!(clause(&entry, ClauseKind::Unnamed).numbers, vec![77]);
     }
 
     /* ------------------------------------------------------ the catch-all --- */
@@ -1142,6 +1289,7 @@ mod tests {
             state: NodeState::Blocked,
             waits_on: vec![72],
             bound_elsewhere: false,
+            cut: Cut::InScope,
         };
         map_of(&mut next).nodes.insert(2, arrival);
         settle(&mut next);

@@ -35,6 +35,15 @@
  * *nobody surveyed*, *surveyed and found nothing* and *surveyed and wrote four
  * lines* are three states that must be tellable apart on screen and not only in
  * the type.
+ *
+ * `out-of-scope` is there for both halves of that reason at once. A browser
+ * cannot edit a map document, and *closed as done* and *closed because it was
+ * cut* are the same `CLOSED` in the API — the difference lives in a section of
+ * the map's body, so there is no sequence of clicks that reaches this state. It
+ * carries a cut ticket beside a plainly resolved one, so the reason on screen
+ * and the resolved count that no longer includes it are both visible rather
+ * than asserted, and an out-of-scope line pointing at a still-open ticket that
+ * goes on being takeable with nothing said about it.
  */
 
 import type { Snapshot } from "./model.generated";
@@ -48,6 +57,7 @@ import fogUnsurveyed from "./fixtures/fog-unsurveyed.json";
 import mapClosed from "./fixtures/map-closed.json";
 import mapGone from "./fixtures/map-gone.json";
 import noMapOpen from "./fixtures/no-map-open.json";
+import outOfScope from "./fixtures/out-of-scope.json";
 import platformBoundMacos from "./fixtures/platform-bound-macos.json";
 import platformBoundWindows from "./fixtures/platform-bound-windows.json";
 import rateLimited from "./fixtures/rate-limited.json";
@@ -76,6 +86,7 @@ export const FIXTURES = {
   "map-closed": AS_GENERATED(mapClosed),
   "map-gone": AS_GENERATED(mapGone),
   "no-map-open": AS_GENERATED(noMapOpen),
+  "out-of-scope": AS_GENERATED(outOfScope),
   "platform-bound-macos": AS_GENERATED(platformBoundMacos),
   "platform-bound-windows": AS_GENERATED(platformBoundWindows),
   "rate-limited": AS_GENERATED(rateLimited),

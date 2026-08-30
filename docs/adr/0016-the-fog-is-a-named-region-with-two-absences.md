@@ -111,8 +111,10 @@ generated. The other sixteen regenerated in one keystroke.
 listed in `clauses_of`'s map-level residual. The residual line is the half that
 is easy to miss and does the work: without it every fog change would have drawn
 `Unnamed`, which is the state this ticket found the vocabulary in. ADR 0010's
-two "no producer" paragraphs are down to one, and `cutFromScope` (#36) is what
-is left.
+two "no producer" paragraphs are down to one, and `cutFromScope` was what was
+left — #36 has since given that one a producer too, keyed on `Node::cut` and
+drawn instead of the resolution it rides in on
+([ADR 0017](0017-out-of-scope-is-not-progress.md)).
 
 **A `#` at column zero inside a fenced code block ends the region.** Accepted,
 and stated rather than left implicit: fence tracking is the first step toward a

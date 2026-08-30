@@ -289,6 +289,18 @@ impl Frontier {
 /// would be this crate deciding what an operator meant.
 pub const FOG_HEADING: &str = "## Not yet specified";
 
+/// The literal heading the cuts are found under, and the whole of what is
+/// matched.
+///
+/// The argument [`FOG_HEADING`] makes, made once more: a string compared
+/// against a line, and never a pattern, a synonym list or a fuzzy match. The
+/// map document is written by an agent session against a convention, so *the
+/// heading is spelled this way or nothing was cut* is a fact rather than a
+/// guess — and a parser that also accepted `## Won't do` would be this crate
+/// deciding what an operator meant, on the one section whose meaning is that
+/// work stopped.
+pub const OUT_OF_SCOPE_HEADING: &str = "## Out of scope";
+
 /// The known unknowns, in the only two readings there are.
 ///
 /// **An enum and not `Option<usize>`**, for the reason [`Frontier`] is one:
@@ -358,44 +370,65 @@ fn opens_a_top_level_bullet(line: &str) -> bool {
     line.starts_with("- ") || line.starts_with("* ") || line.starts_with("+ ")
 }
 
+/// The lines written under one heading — **one boundary rule, and two readers
+/// of it.**
+///
+/// Two sections of the map document are read here: the fog and the cuts. Where
+/// a section *stops* is the same question for both, and two copies of the
+/// answer are two answers that disagree the day somebody edits one of them —
+/// at which point a bullet is in the fog and in the out-of-scope list at once,
+/// or in neither. So the scan lives here once and both readers call it.
+///
+/// Find the one line that is the heading, take the lines down to the next
+/// heading, and move the boundary past the blank lines at each end. `None` is
+/// *no such heading anywhere*, which is a different fact from a heading with
+/// nothing under it — the distinction [`Fog`] is an enum for.
+///
+/// It chooses boundaries and never edits content. `trim_end` reaches the
+/// heading line and nothing else: trailing spaces on a heading are invisible in
+/// every editor, and refusing a section over one would be a section that
+/// vanishes for a reason nobody can see. Everything else about the match is
+/// exact, case included.
+fn section_under<'a>(body: &'a str, heading: &str) -> Option<Vec<&'a str>> {
+    // `str::lines` strips a trailing `\r`, so a CRLF document and an LF one
+    // parse identically: a line terminator is a delimiter and not content.
+    let lines: Vec<&str> = body.lines().collect();
+
+    let start = lines.iter().position(|line| line.trim_end() == heading)?;
+
+    let after = &lines[start + 1..];
+    let end = after
+        .iter()
+        .position(|line| opens_a_heading(line))
+        .unwrap_or(after.len());
+    let section = &after[..end];
+
+    // The boundary, moved past the blank lines at each end. A section is always
+    // written with a blank line under its heading, and rendering it as an empty
+    // first row would be the document's punctuation on screen.
+    let section = match section.iter().position(|line| !line.trim().is_empty()) {
+        None => &section[..0],
+        Some(first) => {
+            let last = section
+                .iter()
+                .rposition(|line| !line.trim().is_empty())
+                .unwrap_or(first);
+            &section[first..=last]
+        }
+    };
+
+    Some(section.to_vec())
+}
+
 impl Fog {
     /// **The whole of the fog parse, and it is a line scan.**
     ///
-    /// Find the one line that is [`FOG_HEADING`], take the lines up to the next
-    /// heading, count the ones that start a top-level bullet, and carry the
-    /// rest of them across unchanged. Nothing here reads a word.
+    /// Take the section written under [`FOG_HEADING`], count the lines that
+    /// start a top-level bullet, and carry the rest of them across unchanged.
+    /// Nothing here reads a word.
     pub(crate) fn of(body: &str) -> Fog {
-        // `str::lines` strips a trailing `\r`, so a CRLF document and an LF one
-        // parse identically: a line terminator is a delimiter and not content.
-        let lines: Vec<&str> = body.lines().collect();
-
-        // `trim_end` and nothing more: trailing spaces on a heading line are
-        // invisible in every editor, and refusing a section over one would be a
-        // fog that vanishes for a reason nobody can see. Everything else about
-        // the match is exact, case included.
-        let Some(heading) = lines.iter().position(|line| line.trim_end() == FOG_HEADING) else {
+        let Some(region) = section_under(body, FOG_HEADING) else {
             return Fog::Unsurveyed;
-        };
-
-        let after = &lines[heading + 1..];
-        let end = after
-            .iter()
-            .position(|line| opens_a_heading(line))
-            .unwrap_or(after.len());
-        let region = &after[..end];
-
-        // The boundary, moved past the blank lines at each end. A section is
-        // always written with a blank line under its heading, and rendering it
-        // as an empty first row would be the document's punctuation on screen.
-        let region = match region.iter().position(|line| !line.trim().is_empty()) {
-            None => &region[..0],
-            Some(first) => {
-                let last = region
-                    .iter()
-                    .rposition(|line| !line.trim().is_empty())
-                    .unwrap_or(first);
-                &region[first..=last]
-            }
         };
 
         Fog::Surveyed(FogRegion {
@@ -406,6 +439,152 @@ impl Fog {
             text: region.join("\n"),
         })
     }
+}
+
+/// Whether the map document says this child was **cut** — a decoration on a
+/// resolved node, and not a fifth state.
+///
+/// `CLOSED` covers a decision *made* and a decision *cut*, and GitHub cannot
+/// tell the two apart. What can is the map document: `## Out of scope` is where
+/// the operator says what was dropped and why, so the cut is read from there
+/// and rides beside [`NodeState`] rather than joining it. The four states stay
+/// four, [`Counts`] stays three, and what changes is only that a cut ticket is
+/// no longer progress.
+///
+/// **[`Cut::FromScope`] is only ever assigned to a child GitHub already calls
+/// resolved.** A link in that section pointing at an *open* issue leaves the
+/// node in scope, silently: API state wins, there is no warning anywhere and no
+/// UI for one, and the model gets the invariant that a cut node is a resolved
+/// node. The refusal is deliberate rather than unhandled — a warning here would
+/// be this app arguing with an operator about a ticket whose state is on the
+/// same screen, and the operator's next edit settles it either way.
+///
+/// **`stateReason` was not the mechanism**, though the query already selects it
+/// (`crates/github/src/map-read.graphql`) and `wire::Child` already drops it on
+/// the floor. `NOT_PLANNED` says only that a ticket was not completed and
+/// carries no reason at all — and a cut whose reason nobody can read is the
+/// exact thing this decoration exists to make visible. The map document is
+/// where the operator writes the reason, so the map document is what is read.
+///
+/// Adjacently tagged, with a payload on one variant and none on the other,
+/// which is [`Fog`]'s and [`Frontier`]'s existing shape on the wire.
+#[cfg_attr(test, derive(ts_rs::TS), ts(export_to = "model.generated.ts"))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "cut", content = "reason", rename_all = "camelCase")]
+pub enum Cut {
+    /// On the map, and counted.
+    InScope,
+    /// Cut, carrying the line it was cut on — the operator's own words, exactly
+    /// as [`Cuts::of`] took them.
+    FromScope(String),
+}
+
+/// What one map document's `## Out of scope` section cuts, and the line each
+/// cut was written on.
+///
+/// **Keyed on issue links and never on prose.** A bullet reworded keeps its
+/// link, so the cut survives an edit that a sentence-matching parse would lose;
+/// and a number is the one thing in that section this crate can line up against
+/// a child of the map without deciding what an operator meant.
+///
+/// Built once, in [`Map::of`], and asked once per node.
+struct Cuts(Vec<(u64, String)>);
+
+impl Cuts {
+    /// Every issue the section names, in the order it names them, each beside
+    /// the bullet it was named on.
+    ///
+    /// **Top-level bullets, and nothing else.** A nested bullet and a
+    /// continuation line belong to the line above them and are not carried, for
+    /// the reason [`FogRegion::count`] counts only column zero: an indented line
+    /// is a detail of a cut rather than a second cut.
+    ///
+    /// The reason is the bullet line **verbatim**, with its marker and the one
+    /// space after it removed, then `trim_end`. That is the whole of the
+    /// editing — the parse chooses boundaries and never edits content, which is
+    /// exactly the claim [`FogRegion::text`] makes. Nothing here strips a link,
+    /// unwraps a sentence or reflows anything.
+    ///
+    /// First mention of a number wins, because a number cut twice was cut once
+    /// and the first line is the one the operator wrote first. A number that is
+    /// no child of this map cuts nothing, and that needs no code at all: the
+    /// lookup is per node.
+    fn of(body: &str) -> Cuts {
+        let Some(section) = section_under(body, OUT_OF_SCOPE_HEADING) else {
+            return Cuts(Vec::new());
+        };
+
+        let mut cuts: Vec<(u64, String)> = Vec::new();
+
+        for line in section.iter().filter(|line| opens_a_top_level_bullet(line)) {
+            // The marker and one space, by byte index: `opens_a_top_level_bullet`
+            // has already established that the first two bytes are exactly that,
+            // and both are ASCII.
+            let reason = line[2..].trim_end();
+            for number in issues_named(reason) {
+                if !cuts.iter().any(|(already, _)| *already == number) {
+                    cuts.push((number, reason.to_string()));
+                }
+            }
+        }
+
+        Cuts(cuts)
+    }
+
+    /// The line this number was cut on, or `None` for a number nobody cut.
+    fn reason(&self, number: u64) -> Option<&str> {
+        self.0
+            .iter()
+            .find(|(cut, _)| *cut == number)
+            .map(|(_, reason)| reason.as_str())
+    }
+}
+
+/// Every issue one bullet names, by number.
+///
+/// A `#` followed by one or more ASCII digits — and **refused when the
+/// character immediately before the `#` is alphanumeric, `_`, `-` or `/`**.
+/// That guard is what keeps a cross-repository `owner/other#107` from cutting
+/// this map's own #107, and it is the same fail-safe reading
+/// `wire::Blocker::belongs_to` already takes for edges: a reference this crate
+/// cannot be sure is local is not one. It fails towards *nothing was cut*,
+/// which leaves a ticket counted and on screen, where an operator can see it.
+///
+/// A number too large to be an issue number is skipped rather than saturated: a
+/// cut is a claim about one specific child, and `u64::MAX` is not the child
+/// anybody meant.
+fn issues_named(bullet: &str) -> Vec<u64> {
+    let bytes = bullet.as_bytes();
+    let mut named = Vec::new();
+
+    for (index, byte) in bytes.iter().enumerate() {
+        if *byte != b'#' {
+            continue;
+        }
+
+        // A multi-byte character in front is not alphanumeric ASCII and so is
+        // not a name this can recognise; the guard is deliberately about the
+        // spellings GitHub itself uses for a cross-repository reference.
+        if let Some(before) = index.checked_sub(1).map(|at| bytes[at]) {
+            if before.is_ascii_alphanumeric() || matches!(before, b'_' | b'-' | b'/') {
+                continue;
+            }
+        }
+
+        let digits = bytes[index + 1..]
+            .iter()
+            .take_while(|byte| byte.is_ascii_digit())
+            .count();
+        if digits == 0 {
+            continue;
+        }
+
+        if let Ok(number) = bullet[index + 1..index + 1 + digits].parse::<u64>() {
+            named.push(number);
+        }
+    }
+
+    named
 }
 
 /// One child of the map, derived.
@@ -452,18 +631,33 @@ pub struct Node {
     /// [`Frontier::of`] needs it per node to tell *nothing for this machine*
     /// from *nothing left at all*.
     pub bound_elsewhere: bool,
+    /// Whether the map document cut this one, and the words it was cut in.
+    ///
+    /// A decoration on a resolved node rather than a state of its own, and the
+    /// reason a cut ticket is neither open nor progress — see [`Cut`], which is
+    /// also where the silent refusal to decorate an open child is argued.
+    pub cut: Cut,
 }
 
 impl Node {
-    fn of(child: &ChildRead, machine: Machine) -> Node {
+    fn of(child: &ChildRead, machine: Machine, cuts: &Cuts) -> Node {
+        let state = NodeState::of(child);
+
         Node {
             number: child.number,
             title: child.title.clone(),
             url: child.url.clone(),
             kind: ChildKind::of(&child.labels),
-            state: NodeState::of(child),
+            state,
             waits_on: child.waits_on.clone(),
             bound_elsewhere: bound_elsewhere(&child.labels, machine),
+            // **Only ever on a child GitHub already calls resolved.** The
+            // document says what was cut; the API says what is closed, and
+            // where they disagree the API wins and nothing is said about it.
+            cut: match cuts.reason(child.number) {
+                Some(reason) if state == NodeState::Resolved => Cut::FromScope(reason.to_string()),
+                _ => Cut::InScope,
+            },
         }
     }
 
@@ -496,6 +690,21 @@ impl Node {
     fn is_startable_work(&self) -> bool {
         self.kind.is_ticket() && self.state == NodeState::Takeable
     }
+
+    /// Whether this node is one of the numbers the ladder is built from.
+    ///
+    /// Private, and sited beside [`Node::is_startable_work`] for the same
+    /// reason: [`Counts::tickets`] and [`Counts::open`] are two filters that
+    /// must not drift, and a cut counted out of one but not the other would put
+    /// a resolved count on screen that is a subtraction of two different
+    /// populations.
+    ///
+    /// A cut ticket leaves **both** of them, so it is neither open nor
+    /// progress: `tickets - open` goes on meaning *decisions made*, and a
+    /// decision cut is nowhere in the ratio at all.
+    fn is_counted(&self) -> bool {
+        self.kind.is_ticket() && matches!(self.cut, Cut::InScope)
+    }
 }
 
 /// The four states, and there is no fifth.
@@ -504,6 +713,13 @@ impl Node {
 /// claimed** — which is why a closed ticket with an open blocker reads as
 /// resolved rather than as blocked. Work that is finished is finished; that
 /// something still points at it is a fact about the blocker.
+///
+/// *Out of scope* did not become the fifth. A cut is a **decoration that rides
+/// beside the state** — [`Cut`], on the node — because a ticket the operator
+/// dropped is still a ticket GitHub calls closed: everything that reads a state
+/// would go on wanting *resolved* out of it, and a fifth variant would turn
+/// every match here into a question about which of the two closings this is.
+/// What the cut changes is the arithmetic, and that is [`Node::is_counted`].
 #[cfg_attr(test, derive(ts_rs::TS), ts(export_to = "model.generated.ts"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -623,6 +839,16 @@ pub enum TicketType {
 ///
 /// *Resolved* is not a fourth field: it is `tickets - open`, and a fourth
 /// number is a fourth thing that can disagree with the other three.
+///
+/// **Out of scope is not a fourth field either, and the arithmetic is the
+/// argument.** A cut ticket is *subtracted from the denominator* rather than
+/// added as a number beside it: [`Node::is_counted`] refuses it to `tickets`
+/// and to `open` in the same breath, so `tickets - open` goes on meaning
+/// decisions made. Counting a cut as resolved would report progress for work
+/// nobody did; counting it as open would leave a map that can never finish; and
+/// a fourth number naming it would be one more thing that can disagree with the
+/// three. What an operator sees instead is a section of its own on the Route,
+/// whose count is the rows it heads.
 #[cfg_attr(test, derive(ts_rs::TS), ts(export_to = "model.generated.ts"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -670,6 +896,13 @@ impl Phase {
     /// somebody charted more work after composing. So `specced` is not sticky.
     /// A ladder that made it sticky would show a map as finished while an
     /// operator was still working it.
+    ///
+    /// A map whose every ticket was cut, and which has composed no spec, reads
+    /// `Unstarted` — [`Node::is_counted`] leaves `tickets` at zero, and the
+    /// second rung is reached honestly. That is the correct reading rather than
+    /// an edge case somebody has to defend: nothing on that map was done, and
+    /// *nothing has been charted yet* is what nothing having been done looks
+    /// like from a ladder built out of the counts.
     fn of(map_closed: bool, counts: &Counts) -> Phase {
         if map_closed {
             Phase::Done
@@ -687,24 +920,33 @@ impl Phase {
 
 impl Map {
     fn of(graph: &MapGraph, machine: Machine) -> Map {
+        // Read once, from the map document, and asked once per child. The
+        // section is one operator statement about the whole map, so parsing it
+        // per node would be the same scan run as many times as there are rows.
+        let cuts = Cuts::of(&graph.body);
+
         // Every child, in the operator's own order. Nothing is filtered out of
         // the model here and nothing ever may be: a ticket this machine cannot
-        // start is a ticket that is on the map.
+        // start is a ticket that is on the map, and so is a ticket that was cut.
         let nodes: Vec<Node> = graph
             .children
             .iter()
-            .map(|child| Node::of(child, machine))
+            .map(|child| Node::of(child, machine, &cuts))
             .collect();
 
         // **The machine is deliberately absent from all three of these.** A
         // ticket bound elsewhere is still ticket-classified and still open, so
         // it is still counted — otherwise the map would look one ticket closer
         // to done on whichever machine happens to be reading it.
+        //
+        // A ticket the map document **cut** is the one thing that does leave,
+        // and it leaves `tickets` as well as `open`: see [`Node::is_counted`],
+        // which is the single filter both of the first two are written from.
         let counts = Counts {
-            tickets: nodes.iter().filter(|node| node.kind.is_ticket()).count(),
+            tickets: nodes.iter().filter(|node| node.is_counted()).count(),
             open: nodes
                 .iter()
-                .filter(|node| node.kind.is_ticket() && node.state != NodeState::Resolved)
+                .filter(|node| node.is_counted() && node.state != NodeState::Resolved)
                 .count(),
             specs: nodes
                 .iter()
@@ -1456,6 +1698,211 @@ mod tests {
         assert!(!json.contains("Charted on the second pass"));
         assert!(!json.contains("Decisions so far"));
         assert!(json.contains("Whether the ledger survives a restart"));
+    }
+
+    /* ------------------------------------------------------ out of scope --- */
+
+    /// The awkward map, read with a map document written here.
+    ///
+    /// A recorded answer supplies the children — #71 is the closed ticket, #75
+    /// and #76 the open ones, #73 and #74 the specs — and the body is the one
+    /// thing each case varies. Cutting is a statement the *document* makes
+    /// about children the API already described, so this is the honest shape:
+    /// one recorded set of children, many documents about them.
+    fn map_bodied(body: &str) -> Map {
+        let mut read = read_response(AWKWARD).expect("reads");
+        let graph = read.map.as_mut().expect("a map");
+        graph.body = body.to_string();
+        Map::of(graph, ANY_MACHINE)
+    }
+
+    #[test]
+    fn a_closed_ticket_the_document_cut_leaves_the_tickets_as_well_as_the_open() {
+        let map =
+            map_bodied("## Out of scope\n\n- #71 — the terminal split is somebody else's app\n");
+
+        // Five tickets and four open on this answer, of which #71 is the one
+        // closed. Cut, it leaves both: resolved is `tickets - open` and now
+        // reads zero, because nothing on this map was decided — one thing was
+        // dropped.
+        assert_eq!(
+            map.counts,
+            Counts {
+                tickets: 4,
+                open: 4,
+                specs: 2
+            }
+        );
+        assert_eq!(map_of(AWKWARD).counts.tickets, 5);
+    }
+
+    #[test]
+    fn a_cut_is_a_decoration_on_a_resolved_node_rather_than_a_fifth_state() {
+        let map =
+            map_bodied("## Out of scope\n\n- #71 — the terminal split is somebody else's app\n");
+        let cut = node(&map, 71);
+
+        // Still resolved, still a ticket, still a row on the map, still in map
+        // order. The only new thing about it is the word beside it.
+        assert_eq!(cut.state, NodeState::Resolved);
+        assert_eq!(cut.kind, ChildKind::Ticket(TicketType::Task));
+        assert_eq!(map.nodes.len(), 8);
+        assert_eq!(
+            cut.cut,
+            Cut::FromScope("#71 — the terminal split is somebody else's app".to_string())
+        );
+        // And every other row is untouched.
+        for number in [70, 72, 73, 74, 75, 76, 77] {
+            assert_eq!(node(&map, number).cut, Cut::InScope, "#{number}");
+        }
+    }
+
+    #[test]
+    fn a_link_at_an_open_ticket_decorates_nothing_and_warns_nobody() {
+        let map = map_bodied("## Out of scope\n\n- #75 — perhaps after the spec\n");
+
+        // API state wins. The document says cut and GitHub says open, so the
+        // node is in scope, counted, and still the ticket the frontier
+        // designates — with nothing anywhere to say the two disagreed.
+        assert_eq!(node(&map, 75).state, NodeState::Takeable);
+        assert_eq!(node(&map, 75).cut, Cut::InScope);
+        assert_eq!(map.counts, map_of(AWKWARD).counts);
+        assert_eq!(map.frontier, Frontier::Designated(75));
+    }
+
+    #[test]
+    fn a_cross_repository_reference_cuts_nothing_on_this_map() {
+        let map = map_bodied("## Out of scope\n\n- owner/other#71 — cut over there, not here\n");
+
+        // The fail-safe direction: unsure means uncut, which leaves a ticket
+        // counted and on screen where somebody can see it.
+        assert_eq!(node(&map, 71).cut, Cut::InScope);
+        assert_eq!(map.counts, map_of(AWKWARD).counts);
+    }
+
+    #[test]
+    fn a_number_that_is_no_child_of_this_map_cuts_nothing() {
+        let map = map_bodied("## Out of scope\n\n- #4102 — never charted here\n");
+
+        assert!(!map.nodes.iter().any(|node| node.number == 4102));
+        assert!(map.nodes.iter().all(|node| node.cut == Cut::InScope));
+        assert_eq!(map.counts, map_of(AWKWARD).counts);
+    }
+
+    #[test]
+    fn what_counts_as_an_issue_reference_is_a_hash_with_nothing_attached_in_front() {
+        // Every rule in one table, because the guard is a single expression and
+        // eight separate tests would be eight chances to check seven of them.
+        let cases: [(&str, &[u64]); 10] = [
+            ("- #71 and nothing else", &[71]),
+            // A name in front of the hash is another repository's issue. Cutting
+            // this map's #71 on the strength of it is exactly the failure
+            // `wire::Blocker::belongs_to` refuses for edges.
+            ("- owner/other#71", &[]),
+            ("- other#71", &[]),
+            ("- v2#71", &[]),
+            ("- rolled-#71", &[]),
+            ("- rolled_#71", &[]),
+            // Punctuation in front is not a name, and a line may cut two things.
+            ("- (#71) and #72 with it", &[71, 72]),
+            ("- superseded by #71", &[71]),
+            // A hash with no digits after it is a heading somebody indented, and
+            // a hash with a space is not a reference either.
+            ("- # 71", &[]),
+            ("- nothing here at all", &[]),
+        ];
+
+        for (line, expected) in cases {
+            let cuts = Cuts::of(&format!("{OUT_OF_SCOPE_HEADING}\n\n{line}\n"));
+            let named: Vec<u64> = cuts.0.iter().map(|(number, _)| *number).collect();
+            assert_eq!(named, expected, "{line}");
+        }
+    }
+
+    #[test]
+    fn the_reason_is_the_bullet_line_verbatim() {
+        let cuts = Cuts::of("## Out of scope\n\n* #71 — dropped when the split moved to #99  \n");
+
+        // The marker and one space go, and `trim_end` takes the trailing
+        // spaces nobody can see. Everything else — the em dash, the second
+        // reference, the operator's own wording — is carried untouched, which
+        // is the claim `FogRegion::text` makes about the other section.
+        assert_eq!(
+            cuts.reason(71),
+            Some("#71 — dropped when the split moved to #99")
+        );
+        // Both numbers on the line are cut, on the same words: one bullet is
+        // one statement about however many issues it names.
+        assert_eq!(cuts.reason(99), cuts.reason(71));
+    }
+
+    #[test]
+    fn a_nested_bullet_is_a_detail_of_the_cut_above_it_and_not_a_second_cut() {
+        let cuts = Cuts::of(
+            "## Out of scope\n\n- #71 — the terminal split\n  - and #75 went with it\n  a continuation of the line above\n",
+        );
+
+        assert_eq!(cuts.reason(71), Some("#71 — the terminal split"));
+        assert_eq!(cuts.reason(75), None);
+    }
+
+    #[test]
+    fn the_first_bullet_to_name_a_number_is_the_one_that_cuts_it() {
+        let cuts = Cuts::of("## Out of scope\n\n- #71 — the first word on it\n- #71 — and a second bullet about the same thing\n");
+
+        assert_eq!(cuts.reason(71), Some("#71 — the first word on it"));
+    }
+
+    #[test]
+    fn a_body_that_never_names_the_section_cuts_nothing() {
+        assert_eq!(
+            Cuts::of("## Notes\n\n- #71 came up in passing\n").reason(71),
+            None
+        );
+        assert_eq!(Cuts::of("").reason(71), None);
+
+        // And every recorded answer, none of which has the section at all.
+        for node in map_of(AWKWARD).nodes {
+            assert_eq!(node.cut, Cut::InScope, "#{}", node.number);
+        }
+    }
+
+    #[test]
+    fn the_out_of_scope_section_stops_at_the_next_heading() {
+        let cuts =
+            Cuts::of("## Out of scope\n\n- #71 — cut\n\n## Decisions so far\n\n- #75 is next\n");
+
+        assert_eq!(cuts.reason(71), Some("#71 — cut"));
+        assert_eq!(cuts.reason(75), None);
+    }
+
+    #[test]
+    fn the_fog_and_the_cut_read_one_boundary_rule_out_of_one_document() {
+        // The two readers, on the same body, in the same pass. A boundary rule
+        // written twice is what would put this bullet in both sections or in
+        // neither.
+        let map = map_bodied(
+            "## Not yet specified\n\n\
+             - Whether the ledger survives a restart\n\n\
+             ## Out of scope\n\n\
+             - #71 — the terminal split is somebody else's app\n\n\
+             ## Decisions so far\n\n\
+             - #75 is next\n",
+        );
+
+        let Fog::Surveyed(region) = map.fog.clone() else {
+            panic!("this document surveyed the fog");
+        };
+        assert_eq!(region.count, 1);
+        assert_eq!(region.text, "- Whether the ledger survives a restart");
+
+        assert_eq!(
+            node(&map, 71).cut,
+            Cut::FromScope("#71 — the terminal split is somebody else's app".to_string())
+        );
+        // Past the boundary, and so not a cut — the same line the fog above
+        // also refused.
+        assert_eq!(node(&map, 75).cut, Cut::InScope);
     }
 
     /* ------------------------------------------------------- no map open --- */

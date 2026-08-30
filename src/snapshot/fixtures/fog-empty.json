@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 3,
+  "schemaVersion": 4,
   "model": {
     "map": {
       "number": 102,
@@ -22,7 +22,10 @@
           },
           "state": "takeable",
           "waitsOn": [],
-          "boundElsewhere": false
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
         }
       ],
       "frontier": {

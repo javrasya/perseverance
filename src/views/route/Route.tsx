@@ -114,11 +114,6 @@ export function Route({ model, selected, onSelect }: ViewProps) {
         title and id. The guarantee that a resolved row stays focusable,
         locatable and countable through a retheme is #37's, rule and test both.
       */}
-      {/*
-        Out of scope sits here, between Resolved and Fog. #36 — it is a
-        decoration on resolved rather than a fifth state, and the counts stay at
-        three.
-      */}
       <FogRegion fog={route.fog} />
     </section>
   );
@@ -230,6 +225,15 @@ function FogRegion({ fog }: { fog: Fog }) {
  * which folds the designation in: a takeable node the map designates is marked
  * *designated* while its state stays *takeable*, and nothing has to look at two
  * attributes to know which ring to draw.
+ *
+ * A cut row is a third claim on top of those two and changes neither: the state
+ * stays *resolved* and so does the mark, because the ticket really is closed.
+ * What it gains is `data-cut`, a struck disc, and the operator's own words as a
+ * text node in the document — **never a `title`, and nothing behind a hover.** A
+ * branch that stops has to show why on screen, and a reason an operator has to
+ * find with a pointer is a reason a screenshot, a search and a reader do not
+ * have. That is what `data-plate` buys the room for: the row is drawn two plates
+ * wide so the words fit beside the tags rather than under them.
  */
 function Row({
   row,
@@ -257,6 +261,12 @@ function Row({
       /* The verdict Rust took, carried onto the row so *listed but not
          offered* is a thing on screen rather than an absence of one. */
       data-elsewhere={row.boundElsewhere ? "" : undefined}
+      data-cut={row.cut === null ? undefined : ""}
+      /* A size and not a position: the row is capped at one plate, and a row
+         carrying a reason is capped at two, because the reason takes a plate's
+         worth of room. Nothing is placed and nothing is drawn between two
+         rows. */
+      data-plate={row.cut === null ? undefined : "double"}
       data-selected={selected ? "" : undefined}
       /* The same word `FolderRow` uses for the row you picked, so the fill is
          not the only place the choice is said. */
@@ -271,7 +281,14 @@ function Row({
       }}
     >
       <span className={styles.glyph} aria-hidden="true">
-        <span className={GLYPHS[row.mark]} />
+        {/* The cut's own shape, composed onto the one the mark already chose
+            rather than replacing it: C5's `g-oos` decorating a resolved disc,
+            which is what a cut is — not a sixth mark. */}
+        <span
+          className={
+            row.cut === null ? GLYPHS[row.mark] : `${GLYPHS[row.mark]} ${styles.markCut}`
+          }
+        />
       </span>
       <span className={styles.id}>#{node.number}</span>
       {/* In full. The stylesheet ellipsises it, so the whole title is still in
@@ -312,6 +329,14 @@ function Row({
           </span>
         )}
       </span>
+      {/*
+        Why the branch stopped, in the operator's own bullet, last on the row and
+        read from `RouteRow.cut` without a character changed. A text node and
+        nothing else: no tooltip, no description hung off a hidden element,
+        nothing a pointer has to be held still to reveal — a cut with a reason
+        nobody can see is a cut that reads as a finished ticket.
+      */}
+      {row.cut === null ? null : <span className={styles.reason}>{row.cut}</span>}
     </li>
   );
 }

@@ -17,8 +17,9 @@
  *
  * The failure it exists to prevent is a section or a count the map cannot
  * justify. Three parts to that. **Every section comes from the model's own
- * words** — a node's state, or the number `map.frontier` names when it names
- * one — so a row's group is always *the model said so* and never a heuristic.
+ * words** — a node's state, the cut the map document took, or the number
+ * `map.frontier` names when it names one — so a row's group is always *the
+ * model said so* and never a heuristic.
  * That includes the machine: a ticket labelled for one this is not arrives with
  * the verdict already taken, is grouped and counted exactly like any other
  * takeable ticket, and says so in a word. **Every count is
@@ -111,11 +112,13 @@ export function blockersOf(nodes: readonly Node[]): ReadonlyMap<number, BlockerT
  * The five marks a row can carry, which are the model's four states plus the
  * one designation.
  *
- * Two of C5's seven glyphs are not here and neither is #34's. `g-oos` decorates
- * a resolved row rather than being a sixth state — #36. `g-done` is *resolved
- * by this session*, which needs a run lifecycle and a session identity the
- * derived model does not carry at all, so building it would mean inventing
- * state rather than reading it.
+ * Two of C5's seven glyphs are not marks, for two different reasons. `g-oos`
+ * never was one: a cut ticket is closed, so its row keeps `resolved` and the
+ * cut decorates it — [`RouteRow.cut`] carries the words and the *Out of scope*
+ * section carries the row, and neither of those is a sixth state. `g-done` is
+ * *resolved by this session*, which needs a run lifecycle and a session
+ * identity the derived model does not carry at all, so building it would mean
+ * inventing state rather than reading it.
  */
 export type Mark = "claimed" | "designated" | "takeable" | "blocked" | "resolved";
 
@@ -162,18 +165,20 @@ function attendanceOf(node: Node): Attendance | null {
 /**
  * The sections the pane can draw, in document order.
  *
- * Four, and the fifth belongs to a ticket that is not this one: out of scope is
- * #36, which owns the decoration and the argument that it is not progress. It
- * is not stubbed here, because a stubbed section would have to carry a count,
- * and a count nobody derived is the zero that `—` exists to keep apart from a
- * real one.
+ * Five, and the fifth is *out of scope*: the rows the map document itself cut,
+ * which are resolved to GitHub and are not progress. It can be a section here
+ * because it carries a real count — [`RouteSection.count`] is still
+ * `rows.length`, and these rows are counted under this heading and under no
+ * other. That is the whole of the arithmetic: *Resolved* heads the decisions
+ * made because the cut ones are somewhere else, not because anything was
+ * subtracted from it.
  *
- * **The fog is not on this list either, and for the opposite reason**: it is
- * real, it is drawn, and it is not a section — [`RouteSection.count`] is always
- * `rows.length` and the fog has no rows, so it rides beside the sections on
- * [`Route`] rather than being bent into one.
+ * **The fog is not on this list, and for the opposite reason**: it is real, it
+ * is drawn, and it is not a section — the count is always `rows.length` and the
+ * fog has no rows, so it rides beside the sections on [`Route`] rather than
+ * being bent into one.
  */
-export type SectionName = "now" | "frontier" | "blocked" | "resolved";
+export type SectionName = "now" | "frontier" | "blocked" | "resolved" | "outOfScope";
 
 export type RouteRow = {
   readonly node: Node;
@@ -195,6 +200,18 @@ export type RouteRow = {
    * is legible where an operator is already looking, rather than only true.
    */
   readonly boundElsewhere: boolean;
+  /**
+   * The words the map cut this ticket in, carried whole off `node.cut`, or null
+   * when it was not cut.
+   *
+   * Never empty when it is here: the reason is the operator's own bullet under
+   * `## Out of scope`, and the link naming this ticket is inside that text, so
+   * there is always something to read. A row is cut exactly when this is not
+   * null — nothing else on the row says so, and in particular `mark` stays
+   * `resolved`, because the ticket really is closed and the cut is a decoration
+   * on that rather than a sixth mark.
+   */
+  readonly cut: string | null;
 };
 
 export type RouteSection = {
@@ -232,7 +249,8 @@ function sectionOf(
  * The whole pane, derived from the model and from nothing else, every call.
  *
  * One walk of `map.nodes`, in array order, appending each node to the bucket
- * its state names. That single pass is the entirety of intra-section ordering:
+ * its state names — or, when the map document cut it, to the one its cut names
+ * instead. That single pass is the entirety of intra-section ordering:
  * no comparator, no second pass, nothing that could reorder rows the operator
  * arranged.
  *
@@ -270,6 +288,7 @@ export function routeOf(map: Map): Route {
   const takeable: RouteRow[] = [];
   const blocked: RouteRow[] = [];
   const resolved: RouteRow[] = [];
+  const outOfScope: RouteRow[] = [];
 
   for (const node of map.nodes) {
     const designated = node.number === designatedNumber;
@@ -280,7 +299,20 @@ export function routeOf(map: Map): Route {
       blockers: blockers.get(node.number) ?? NOTHING_IN_THE_WAY,
       attendance: attendanceOf(node),
       boundElsewhere: node.boundElsewhere,
+      cut: node.cut.cut === "fromScope" ? node.cut.reason : null,
     };
+
+    /*
+     * The cut was decided in Rust, off the map document, and by the model's own
+     * invariant a node carrying it is already resolved — so this is the same
+     * *read the word* rule the switch below follows, asked of the other field.
+     * A link in that section naming an open issue never gets here at all: the
+     * model leaves such a node in scope, silently, and API state wins.
+     */
+    if (node.cut.cut === "fromScope") {
+      outOfScope.push(row);
+      continue;
+    }
 
     switch (node.state) {
       case "claimed":
@@ -311,6 +343,7 @@ export function routeOf(map: Map): Route {
       sectionOf("frontier", SECTION_HEADINGS.frontier, frontier),
       sectionOf("blocked", SECTION_HEADINGS.blocked, blocked),
       sectionOf("resolved", SECTION_HEADINGS.resolved, resolved),
+      sectionOf("outOfScope", SECTION_HEADINGS.outOfScope, outOfScope),
     ].filter((section) => section.count > 0),
     fog: map.fog,
   };
@@ -371,6 +404,7 @@ export const SECTION_HEADINGS: Record<SectionName, string> = {
   frontier: "Frontier",
   blocked: "Blocked",
   resolved: "Resolved",
+  outOfScope: "Out of scope",
 };
 
 /**

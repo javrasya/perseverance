@@ -260,12 +260,40 @@ describe("a grouped list in one column", () => {
     }
 
     /*
-     * Four sections, and the one that would follow is a named hole rather than
-     * a stub. Out of scope is #36, and a stubbed heading here would have to
-     * carry a count — which is the zero `—` exists to be told apart from. The
-     * fog is no longer a hole; it is a region, and it is asserted below.
+     * Four and not five: nothing on this map was cut, and a group is a claim
+     * that there is something in it, so the fifth section is absent rather than
+     * drawn with the zero `—` exists to be told apart from. The map that did cut
+     * something is asserted below.
      */
     expect(host.textContent).not.toContain("Out of scope");
+  });
+
+  it("heads the cut rows fifth, after Resolved and before the fog", async () => {
+    const host = await paint(FIXTURES["out-of-scope"].model);
+    const sections = sectionsIn(host);
+
+    expect(sections.map((section) => section.heading)).toEqual([
+      "Next",
+      "Frontier",
+      "Resolved",
+      "Out of scope",
+    ]);
+    for (const section of sections) {
+      expect(section.count).toBe(section.rows.length);
+    }
+
+    /*
+     * Which is the whole of how the resolved count excludes a cut: #106 is
+     * counted under this heading and under no other, so *Resolved* heads the
+     * decisions made by holding fewer rows rather than by subtracting anything
+     * from a number it also prints.
+     */
+    expect(sections.at(-2)).toEqual({ heading: "Resolved", count: 1, rows: [107] });
+    expect(sections.at(-1)).toEqual({ heading: "Out of scope", count: 1, rows: [106] });
+
+    // Still the last thing on the pane: the fog is a region beside the sections
+    // and never the last of them.
+    expect(all(host, "h2").at(-1)?.textContent).toContain("Fog");
   });
 
   it("puts the sections in one column, each in the operator's own order", async () => {
@@ -320,6 +348,97 @@ describe("a grouped list in one column", () => {
     // lost to a monochrome screen and to the operator who cannot see the hue.
     expect(new Set(drawn.map((row) => row.shape)).size).toBe(5);
     expect(drawn.every((row) => row.shape.length > 0)).toBe(true);
+  });
+});
+
+describe("a cut shows why, and shows it without being asked", () => {
+  const cutMap = (): Map => {
+    const map = FIXTURES["out-of-scope"].model.map;
+    if (map === null) throw new Error("the out-of-scope fixture has no map");
+    return map;
+  };
+
+  /**
+   * The words the map document cut this ticket in, read off the model rather
+   * than restated here — which is the claim: what is on screen is the operator's
+   * own bullet, not a sentence this side wrote about it.
+   */
+  function reasonFor(number: number): string {
+    const node = cutMap().nodes.find((one) => one.number === number);
+    if (node?.cut.cut !== "fromScope") throw new Error(`#${number} was not cut`);
+    return node.cut.reason;
+  }
+
+  it("puts the reason on the row, whole, as text in the document", async () => {
+    const host = await paint(FIXTURES["out-of-scope"].model);
+    const reason = reasonFor(106);
+
+    expect(reason).not.toBe("");
+    expect(nodeFor(host, 106).textContent).toContain(reason);
+    // #107 is closed and was not cut, so it has nothing of the kind to say.
+    expect(nodeFor(host, 107).textContent).not.toContain(reason);
+  });
+
+  /**
+   * A branch that stops has to show why it stopped, and *show* is the word. A
+   * reason reachable only by hovering is a reason absent from a screenshot, from
+   * a page search and from a reader — so the pane carries none of the three
+   * mechanisms at all, and the source is asserted alongside the DOM because the
+   * DOM only proves nobody used one on this fixture.
+   */
+  it("hides it behind nothing: no title, no described-by, nowhere to hover", async () => {
+    const host = await paint(FIXTURES["out-of-scope"].model);
+    const view = collect([".tsx"]).find(
+      (file) => file.path === "src/views/route/Route.tsx",
+    );
+
+    expect(host.querySelector("[title]")).toBeNull();
+    expect(view).toBeDefined();
+    expect(view?.text).not.toContain("title=");
+    expect(view?.text).not.toContain("aria-describedby");
+  });
+
+  it("draws the plate double on the row that carries a reason, and only there", async () => {
+    const host = await paint(FIXTURES["out-of-scope"].model);
+    const numbered = (selector: string) =>
+      all(host, selector).map((row) => row.getAttribute("data-node"));
+
+    expect(numbered("[data-plate]")).toEqual(["106"]);
+    expect(numbered('[data-plate="double"]')).toEqual(["106"]);
+    expect(numbered("[data-cut]")).toEqual(["106"]);
+    // Four rows on this map and three of them are one plate wide: the doubling
+    // is what the reason costs, not what a cut is.
+    expect(all(host, "[data-node]")).toHaveLength(4);
+  });
+
+  it("measures the second plate against the first rather than beside it", () => {
+    const stylesheet = collect([".css"]).find(
+      (file) => file.path === "src/views/route/Route.module.css",
+    );
+
+    /*
+     * One number, twice. A literal second width could drift from the first, and
+     * *double-width* would then be a coincidence rather than a rule — the plate
+     * has to be a measured unit for the word to mean anything.
+     */
+    expect(stylesheet?.text).toContain("--c-node-plate: ");
+    expect(stylesheet?.text).toContain("max-width: var(--c-node-plate);");
+    expect(stylesheet?.text).toContain("max-width: calc(var(--c-node-plate) * 2);");
+  });
+
+  it("keeps the state and the mark the ticket already had", async () => {
+    const host = await paint(FIXTURES["out-of-scope"].model);
+    const cut = nodeFor(host, 106);
+    const plain = nodeFor(host, 107);
+
+    // A decoration on resolved and not a fifth state: GitHub closed it, and the
+    // pane's own encoding of that is unchanged.
+    expect(cut.getAttribute("data-state")).toBe("resolved");
+    expect(cut.getAttribute("data-mark")).toBe("resolved");
+    // Which is why the shape is the resolved disc with something added to it,
+    // rather than a sixth glyph standing in its place.
+    expect(shapeOn(cut).split(" ")).toContain(shapeOn(plain));
+    expect(shapeOn(cut)).not.toBe(shapeOn(plain));
   });
 });
 
