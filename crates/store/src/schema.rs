@@ -6,7 +6,7 @@ use crate::StoreError;
 /// version this binary does not know is refused rather than guessed at, because
 /// the alternative is a silent upgrade or a wipe, and both of those lose data
 /// that is not ours to lose.
-pub const STORE_SCHEMA_VERSION: u32 = 2;
+pub const STORE_SCHEMA_VERSION: u32 = 3;
 
 /// The version lives as a row in `app` rather than in `PRAGMA user_version`
 /// because the ticket's schema names it, and because a value you can read with
@@ -58,6 +58,22 @@ const MIGRATIONS: &[&str] = &[
      );
      CREATE UNIQUE INDEX graph_cache_one_row_per_map
          ON graph_cache (folder_id, IFNULL(map_number, 0));",
+    // 2 -> 3: which document produced the body in the row above.
+    //
+    // This is not the `fingerprint` #32 killed and the entry above explains.
+    // That one was a fingerprint *of the response*, and its only job was to
+    // gate a poll/refetch split that no longer exists. This is an identity of
+    // the *request document*, and it decides whether a stored body may be
+    // believed at all: every field of the read model tolerates absence, so a
+    // body recorded under a narrower query parses cleanly and quietly answers
+    // with less.
+    //
+    // Nullable because SQLite cannot `ADD COLUMN` a bare `NOT NULL`, and
+    // because NULL is already this schema's word for *this fact was not
+    // recorded* — as it is for `map_number`. A NULL stamp is a row written
+    // before any build stamped anything, and the reader treats it exactly as
+    // it treats a stamp from another document: as no cached row at all.
+    "ALTER TABLE graph_cache ADD COLUMN query_id TEXT;",
 ];
 
 // The two must agree or a fresh file would be stamped with a version whose
@@ -349,6 +365,57 @@ mod tests {
             store.cached_graph(folders[0].id, None).expect("reads"),
             None
         );
+    }
+
+    /// The same promise one version on: a body cached under version 2 is still
+    /// there under version 3, and the stamp that version could not write
+    /// arrives empty rather than arriving instead of it.
+    #[test]
+    fn a_cache_written_by_the_previous_version_keeps_its_body_and_gains_an_empty_stamp() {
+        let (_dir, path) = scratch();
+        {
+            let mut version_two = Connection::open(&path).expect("opens");
+            configure(&version_two).expect("configures");
+            let tx = version_two.transaction().expect("begins");
+            tx.execute_batch(MIGRATIONS[0]).expect("creates version 1");
+            tx.execute_batch(MIGRATIONS[1]).expect("creates version 2");
+            tx.execute(
+                "INSERT INTO app (key, value) VALUES (?1, '2')",
+                [SCHEMA_VERSION_KEY],
+            )
+            .expect("stamps version 2");
+            tx.execute(
+                "INSERT INTO folders (path, adapter, last_opened) VALUES ('/work/perseverance', 'claude', 42)",
+                [],
+            )
+            .expect("writes a folder the operator opened under version 2");
+            tx.execute(
+                "INSERT INTO graph_cache (folder_id, map_number, graph_json, fetched_at)
+                 VALUES ((SELECT id FROM folders), NULL, '{\"data\":{}}', 1785888000)",
+                [],
+            )
+            .expect("writes a body read under version 2");
+            tx.commit().expect("commits");
+        }
+
+        let store = Store::open(&path).expect("opens and upgrades");
+
+        assert_eq!(
+            store.get_app(SCHEMA_VERSION_KEY).expect("reads"),
+            Some(STORE_SCHEMA_VERSION.to_string())
+        );
+        let folders = store.folders().expect("lists");
+        assert_eq!(folders.len(), 1);
+        let cached = store
+            .cached_graph(folders[0].id, None)
+            .expect("reads")
+            .expect("survived the upgrade");
+        assert_eq!(cached.graph_json, "{\"data\":{}}");
+        assert_eq!(cached.fetched_at, 1_785_888_000);
+        // Nobody knows which document produced it, which is the same answer as
+        // a stamp this build does not recognise: the reader treats it as
+        // nothing having been read yet.
+        assert_eq!(cached.query_id, None);
     }
 
     #[test]

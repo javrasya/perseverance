@@ -49,7 +49,7 @@ pub use cadence::{
 pub use perseverance_model::Snapshot;
 pub use poller::{start, Ahead, Poke, Poker, RunHandle, Tick, Timings, Watched};
 pub use read::{
-    interpret_read, read_maps, request_body, Answer, FreshRead, ReadFailure, GRAPHQL_ENDPOINT,
-    MAP_READ_QUERY,
+    interpret_read, map_read_query_id, read_maps, request_body, Answer, FreshRead, ReadFailure,
+    GRAPHQL_ENDPOINT, MAP_READ_QUERY,
 };
 pub use token::{acquire_token, interpret, Token, TokenOutcome, TokenRefusal};

@@ -26,15 +26,15 @@ use perseverance_env::{
     Tally,
 };
 use perseverance_github::{
-    acquire_token, read_maps, Ahead, Attention, Fault, FreshRead, Held, Poke, Poker, ReadFailure,
-    Tick, Timings, TokenOutcome, Watched,
+    acquire_token, map_read_query_id, read_maps, Ahead, Attention, Fault, FreshRead, Held, Poke,
+    Poker, ReadFailure, Tick, Timings, TokenOutcome, Watched,
 };
 use perseverance_model::{
     read_response, ChangeLog, Degraded, Machine, MapRead, Model, Provenance, ReadOutcome, Snapshot,
     Source, TicketType,
 };
 use perseverance_pty::{Delivery, Geometry, RunId, Runs, GRACE};
-use perseverance_store::{Folder, RepoBindingError, Store, StoreError};
+use perseverance_store::{CachedGraph, Folder, RepoBindingError, Store, StoreError};
 use serde::Serialize;
 use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
@@ -251,18 +251,44 @@ impl MapsView {
     }
 }
 
+/// The cached row for a folder-and-map, but only if this build asked the
+/// question it answers.
+///
+/// The one place the mismatch rule lives. Every field of the read model
+/// tolerates absence, so a body recorded under a **narrower** document parses
+/// perfectly and simply answers with less — #61 widened both `labels` pages
+/// from ten to a hundred and added `pageInfo`, and a body cached before it
+/// reports a child with no eleventh label and a `labelsTruncated` that is
+/// falsely clean. Believed as a cold-start baseline, that body draws a *while
+/// you were away* row for a change that never happened.
+///
+/// So a stamp that is not byte-equal to this build's is **first open**, and so
+/// is a row written before anything was stamped at all. Not an error: there is
+/// nothing wrong with the row, we simply cannot say what it means. And not a
+/// deletion either — only a successful GitHub read may delete anything, and
+/// that rule has no exception for a row we happen to dislike. The condition
+/// heals itself: the next successful read overwrites the row, stamp included.
+fn cached_under_this_builds_query(
+    store: &Store,
+    folder_id: i64,
+    map: Option<u64>,
+) -> Option<CachedGraph> {
+    let cached = store.cached_graph(folder_id, map).ok().flatten()?;
+    (cached.query_id.as_deref() == Some(map_read_query_id().as_str())).then_some(cached)
+}
+
 /// The cached read for a folder, as a view — or the *nothing read yet* state.
 ///
 /// A cached body that cannot be parsed is reported as a failed read of the
 /// cache rather than deleted: **only a successful GitHub read may delete
 /// anything**, and that rule has no exception for a row we happen to dislike.
 fn from_cache(store: &Store, folder_id: i64) -> MapsView {
-    let cached = match store.cached_graph(folder_id, None) {
-        Ok(Some(cached)) => cached,
-        // A registry that cannot be read is not a map list that is empty, but
-        // there is nothing to paint either way and the launcher already carries
-        // the registry's own refusal.
-        Ok(None) | Err(_) => return MapsView::nothing_read_yet(folder_id),
+    // A registry that cannot be read is not a map list that is empty, but there
+    // is nothing to paint either way and the launcher already carries the
+    // registry's own refusal. A row from another document lands here too, for
+    // the reason [`cached_under_this_builds_query`] gives.
+    let Some(cached) = cached_under_this_builds_query(store, folder_id, None) else {
+        return MapsView::nothing_read_yet(folder_id);
     };
 
     match read_response(&cached.graph_json) {
@@ -296,13 +322,20 @@ fn from_cache(store: &Store, folder_id: i64) -> MapsView {
 /// The prune rides along for the same reason: the live list is the evidence
 /// that entitles a deletion, and it arrives in the same value.
 ///
-/// `map` is the map the answer was read *with*, and it is why this takes four
-/// arguments now. The same verbatim body goes under the folder's own key and
-/// under that map's, because the map's row is the **while you were away**
-/// baseline — the only thing a cold start has to compare against. One row per
-/// `(folder, map)`, replaced rather than appended: this is a cache, and #41
-/// refused a second history on the grounds that GitHub already keeps the real
-/// one. So there is no new table here, no migration and no schema bump.
+/// `map` is the map the answer was read *with*. The same verbatim body goes
+/// under the folder's own key and under that map's, because the map's row is
+/// the **while you were away** baseline — the only thing a cold start has to
+/// compare against. One row per `(folder, map)`, replaced rather than appended:
+/// this is a cache, and #41 refused a second history on the grounds that GitHub
+/// already keeps the real one. So there is still no new table.
+///
+/// There is a new **column**, and a schema bump to 3 with it: `query_id`, the
+/// identity of the document that produced the body, taken off the same
+/// [`FreshRead`] that proves the read was live. A baseline is only trustworthy
+/// if we know what question it answers — a body recorded under a narrower
+/// document parses cleanly and answers with less, which is a phantom *while you
+/// were away* row rather than an error. [`cached_under_this_builds_query`] is
+/// where that stamp is spent.
 ///
 /// The prune is last on purpose. A map the live list no longer names loses its
 /// row even if this call just wrote one, because the evidence entitling the
@@ -313,10 +346,22 @@ fn remember_read(
     map: Option<u64>,
     fresh: &FreshRead,
 ) -> Result<(), StoreError> {
-    store.cache_graph(folder_id, None, fresh.body(), fresh.fetched_at())?;
+    store.cache_graph(
+        folder_id,
+        None,
+        fresh.body(),
+        fresh.fetched_at(),
+        &fresh.query_id(),
+    )?;
 
     if let Some(number) = map {
-        store.cache_graph(folder_id, Some(number), fresh.body(), fresh.fetched_at())?;
+        store.cache_graph(
+            folder_id,
+            Some(number),
+            fresh.body(),
+            fresh.fetched_at(),
+            &fresh.query_id(),
+        )?;
     }
 
     let still_listed: Vec<u64> = fresh
@@ -498,23 +543,18 @@ impl Default for Ledgers {
 /// then the honest thing to say is that nothing has been compared yet. Nothing
 /// here deletes it either: only a successful GitHub read may delete anything.
 fn resuming_from(store: &Store, watched: &Watched) -> ChangeLog {
-    match store.cached_graph(watched.folder_id, watched.map) {
-        Ok(Some(cached)) => match read_response(&cached.graph_json) {
+    match cached_under_this_builds_query(store, watched.folder_id, watched.map) {
+        Some(cached) => match read_response(&cached.graph_json) {
             // The same machine the landed poll below derives for. If the
             // baseline and the poll could disagree about it, every cold start
             // would report a frontier move that never happened — so both call
             // the one argument-free `const fn` and there is nothing to keep in
-            // step. What cannot disagree is the machine, not the answer: this
-            // body was recorded under whichever document the build that cached
-            // it shipped, and a narrower one (a smaller `labels` page, no
-            // `pageInfo` on it) is drift on a copy in the sense above — the
-            // first cold start after a widening may compare against a child
-            // whose labels were cut short, and the next successful read
-            // replaces it.
+            // step. The document cannot disagree either, now: the row got here
+            // only because it was stamped with the query this build sends.
             Ok(read) => ChangeLog::resuming(Model::of(&read, Machine::host())),
             Err(_) => ChangeLog::first_open(),
         },
-        Ok(None) | Err(_) => ChangeLog::first_open(),
+        None => ChangeLog::first_open(),
     }
 }
 
@@ -3302,7 +3342,13 @@ mod tests {
         let (store, folder_id) = registry_with_a_folder();
         // A map that was cached under its own number by an earlier read.
         store
-            .cache_graph(folder_id, Some(99), "a map that has since gone", 10)
+            .cache_graph(
+                folder_id,
+                Some(99),
+                "a map that has since gone",
+                10,
+                &map_read_query_id(),
+            )
             .expect("caches");
 
         remember_read(&store, folder_id, None, &a_fresh_read(TWO_MAPS, 100)).expect("caches");
@@ -3318,7 +3364,13 @@ mod tests {
         let (store, folder_id) = registry_with_a_folder();
         remember_read(&store, folder_id, None, &a_fresh_read(TWO_MAPS, 100)).expect("caches");
         store
-            .cache_graph(folder_id, None, "<html>a proxy got at it</html>", 100)
+            .cache_graph(
+                folder_id,
+                None,
+                "<html>a proxy got at it</html>",
+                100,
+                &map_read_query_id(),
+            )
             .expect("overwrites with something unreadable");
 
         let json = serde_json::to_value(from_cache(&store, folder_id)).expect("serialises");
@@ -3433,7 +3485,13 @@ mod tests {
     fn a_cached_graph_is_the_baseline_the_while_you_were_away_row_is_drawn_from() {
         let (store, folder_id) = registry_with_a_folder();
         store
-            .cache_graph(folder_id, Some(AWKWARD_MAP), AWKWARD, 100)
+            .cache_graph(
+                folder_id,
+                Some(AWKWARD_MAP),
+                AWKWARD,
+                100,
+                &map_read_query_id(),
+            )
             .expect("caches");
 
         let ledgers = Ledgers::new();
@@ -3472,6 +3530,69 @@ mod tests {
         );
     }
 
+    /// **The phantom row, refused.** A body recorded under a different document
+    /// is not a baseline, and the ledger says so by having none.
+    ///
+    /// The failure this closes has no parse error in it: every field of the read
+    /// model tolerates absence, so a body cached under a narrower query comes
+    /// back clean and merely says less — a child whose eleventh label was never
+    /// asked for reads as a child that lost it, and the gap row reports a change
+    /// nobody made. A stamp that is not this build's is *first open*.
+    #[test]
+    fn a_cached_body_from_another_query_document_is_a_first_open_rather_than_a_baseline() {
+        let (store, folder_id) = registry_with_a_folder();
+        store
+            .cache_graph(
+                folder_id,
+                Some(AWKWARD_MAP),
+                AWKWARD,
+                100,
+                "the narrower document that shipped before #61",
+            )
+            .expect("caches");
+
+        let ledgers = Ledgers::new();
+        ledgers.attend(&store, &watching_map(folder_id, AWKWARD_MAP));
+        let snapshot = ledgers.observed(model_of(AWKWARD_LATER), 200, &[]);
+
+        assert_eq!(snapshot.ledger.since, Since::FirstOpen);
+        assert!(snapshot.ledger.entries.is_empty());
+        // Not deleted, either. The next successful read overwrites it, stamp
+        // and all, and only that read is entitled to remove anything.
+        assert!(store
+            .cached_graph(folder_id, Some(AWKWARD_MAP))
+            .expect("reads")
+            .is_some());
+    }
+
+    /// The same rule on the other reader: the first paint of a folder.
+    ///
+    /// A stamp this build does not send means the `pageInfo` behind
+    /// `labelsTruncated` may never have been asked for, and a flag that reports
+    /// clean because the question was not asked is worse than no flag. So the
+    /// view is *nobody has looked* rather than a cache-sourced answer.
+    #[test]
+    fn a_folders_cached_map_list_from_another_query_document_paints_as_nothing_read_yet() {
+        let (store, folder_id) = registry_with_a_folder();
+        store
+            .cache_graph(folder_id, None, TWO_MAPS, 1_785_888_000, "some older shape")
+            .expect("caches");
+
+        let json = serde_json::to_value(from_cache(&store, folder_id)).expect("serialises");
+
+        assert_eq!(json["provenance"]["source"], "none");
+        assert_eq!(json["provenance"]["outcome"]["kind"], "notAttempted");
+        assert_eq!(json["maps"].as_array().expect("an array").len(), 0);
+        // The unstamped row a version-2 file upgrades into lands in this same
+        // branch — `None` is not this build's id either. That one is held in
+        // `perseverance-store`, which is the only crate that can write a NULL
+        // stamp: nothing here can, because every write comes off a `FreshRead`.
+        assert!(store
+            .cached_graph(folder_id, None)
+            .expect("reads")
+            .is_some());
+    }
+
     /// **A failed poll draws no row**, and the copy on screen keeps the age it
     /// already had.
     ///
@@ -3482,7 +3603,13 @@ mod tests {
     fn a_failed_poll_ages_the_held_snapshot_and_draws_no_row() {
         let (store, folder_id) = registry_with_a_folder();
         store
-            .cache_graph(folder_id, Some(AWKWARD_MAP), AWKWARD, 100)
+            .cache_graph(
+                folder_id,
+                Some(AWKWARD_MAP),
+                AWKWARD,
+                100,
+                &map_read_query_id(),
+            )
             .expect("caches");
 
         let ledgers = Ledgers::new();
@@ -3537,6 +3664,7 @@ mod tests {
                 Some(AWKWARD_MAP),
                 "<html>a proxy got at it</html>",
                 100,
+                &map_read_query_id(),
             )
             .expect("caches");
 
@@ -3564,7 +3692,13 @@ mod tests {
     fn watching_a_different_map_starts_a_new_ledger() {
         let (store, folder_id) = registry_with_a_folder();
         store
-            .cache_graph(folder_id, Some(AWKWARD_MAP), AWKWARD, 100)
+            .cache_graph(
+                folder_id,
+                Some(AWKWARD_MAP),
+                AWKWARD,
+                100,
+                &map_read_query_id(),
+            )
             .expect("caches");
 
         let ledgers = Ledgers::new();
@@ -3603,7 +3737,13 @@ mod tests {
     fn a_claim_this_harness_originated_and_the_move_after_it_leave_the_numeral_alone() {
         let (store, folder_id) = registry_with_a_folder();
         store
-            .cache_graph(folder_id, Some(AWKWARD_MAP), AWKWARD_LATER, 100)
+            .cache_graph(
+                folder_id,
+                Some(AWKWARD_MAP),
+                AWKWARD_LATER,
+                100,
+                &map_read_query_id(),
+            )
             .expect("caches");
 
         // Somebody else took #72, which was the frontier.
@@ -5559,7 +5699,10 @@ mod tests {
             ("store.rs", include_str!("../../store/src/store.rs")),
         ];
 
-        assert_eq!(perseverance_store::STORE_SCHEMA_VERSION, 2);
+        // A column is not a table: #82 stamped `graph_cache` with the identity
+        // of the query document that filled it, which is version 3 and still
+        // the same three tables.
+        assert_eq!(perseverance_store::STORE_SCHEMA_VERSION, 3);
 
         // Down to the test module and no further: that crate's own tests write
         // a table nobody ships, to prove a foreign file is refused rather than

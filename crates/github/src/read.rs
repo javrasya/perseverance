@@ -25,6 +25,49 @@ use crate::{Budget, Token};
 /// ask GitHub the same question by hand.
 pub const MAP_READ_QUERY: &str = include_str!("map-read.graphql");
 
+/// An identity for the document above, taken from its own bytes.
+///
+/// The identity is the document, not a number beside it. A hand-maintained
+/// version constant is a constant somebody edits `map-read.graphql` without
+/// touching — and the whole point of stamping a cached body is that a body
+/// recorded under a *narrower* document must not be believed. Every field of
+/// the read model is `#[serde(default)]`-tolerant, so a narrower body parses
+/// cleanly and simply answers with less: #61 widened both `labels` pages from
+/// ten to a hundred and added `pageInfo`, and a body cached before it reads as
+/// a child with no eleventh label and a `labelsTruncated` that is falsely
+/// clean. Nothing has to be remembered here; the bytes cannot change without
+/// this changing.
+///
+/// FNV-1a rather than a real digest because nothing adversarial is being
+/// resisted — the only question ever asked of it is *are these the same bytes
+/// this build sends* — and because a hash crate would be this crate's first new
+/// dependency for a sixteen-character string.
+const fn fnv1a_64(bytes: &[u8]) -> u64 {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    let mut index = 0;
+    while index < bytes.len() {
+        hash ^= bytes[index] as u64;
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+        index += 1;
+    }
+    hash
+}
+
+/// The `u64` half, computed at compile time. Hex formatting is not `const` on
+/// the workspace's 1.82 floor — `str::from_utf8` is not a `const fn` there — so
+/// the rendering lives in [`map_read_query_id`] and only the arithmetic is
+/// const.
+const MAP_READ_QUERY_ID: u64 = fnv1a_64(MAP_READ_QUERY.as_bytes());
+
+/// What this build stamps a cached body with, as lowercase hex.
+///
+/// Public and free-standing so the reader side can ask what the current build
+/// sends without holding a [`FreshRead`]: a cached row is believed only while
+/// its stamp is byte-equal to this.
+pub fn map_read_query_id() -> String {
+    format!("{MAP_READ_QUERY_ID:016x}")
+}
+
 /// The only endpoint this app ever reaches.
 pub const GRAPHQL_ENDPOINT: &str = "https://api.github.com/graphql";
 
@@ -67,6 +110,15 @@ impl FreshRead {
     /// The response as GitHub sent it. This is what the cache stores.
     pub fn body(&self) -> &str {
         &self.body
+    }
+
+    /// The identity of the document that asked for this body.
+    ///
+    /// It rides on the value that already proves a read was live, so the stamp
+    /// and the body cannot be written from two different places and disagree.
+    /// See [`map_read_query_id`] for why the identity is the document's bytes.
+    pub fn query_id(&self) -> String {
+        map_read_query_id()
     }
 
     /// What that response says. Parsed once, here, so that a body which cannot
