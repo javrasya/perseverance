@@ -89,6 +89,7 @@ import { clearance, peekWidth } from "./panes/peek";
 import { readPosition, writePosition } from "./panes/position";
 import { useBodyBox } from "./panes/useBodyBox";
 import { usePeek } from "./panes/usePeek";
+import { Rack } from "./rack/Rack.jsx";
 import { ViewSwitcher } from "./views/ViewSwitcher.jsx";
 import { DEFAULT_VIEW, VIEWS, type ViewName, type ViewProps } from "./views/views";
 import { Pane } from "./terminal/Pane.jsx";
@@ -1471,7 +1472,17 @@ export function App() {
               <div className={styles.paneSlot}>
                 <Pane terminals={terminals} readouts={runs} />
               </div>
-              {/* #56 builds the rack around this. */}
+              {/*
+                The rack, at the address ticket/64 reserved for it: in the flow
+                on the dial's side of the pane, so a narrowing terminal takes the
+                pane's pixels and leaves the rack standing on its floor. At the
+                `map` detent what is left of this side is the rack in studs,
+                which is the width at which supervising N runs still works.
+
+                Which run the pane shows is #57's, so nothing in the rack is
+                pressable and the monitored binding is untouched by all of it.
+              */}
+              <Rack readouts={runs} />
               <Dock
                 dock="rack"
                 occupant={occupant}

@@ -236,7 +236,7 @@ describe("the press that ends a run", () => {
  * failures with different fixes.
  */
 describe("the silence reading crosses in the shape Rust writes", () => {
-  it("fifteen keys cross, and these fifteen", () => {
+  it("eighteen keys cross, and these eighteen", () => {
     expect(Object.keys(readout("live")).sort()).toEqual([
       "code",
       "desynced",
@@ -245,11 +245,14 @@ describe("the silence reading crosses in the shape Rust writes", () => {
       "ending",
       "folder",
       "held",
+      "kind",
       "monitored",
+      "opened",
       "over",
       "run",
       "signal",
       "silence",
+      "spoke",
       "through",
       "ticket",
       "truncated",
