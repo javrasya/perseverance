@@ -73,9 +73,11 @@ import {
   VIEW_FLOORS,
   clamp,
   columnsAt,
+  beyondMapCap,
   floorOf,
   fractionOf,
   honours,
+  mapCap,
   nextDetent,
   remembers,
   sides,
@@ -86,7 +88,6 @@ import {
 } from "./panes/dial";
 import { currentState, install, type ActionId, type Handlers, type KeyState } from "./keys/router";
 import { clearance, peekWidth } from "./panes/peek";
-import { RACK_RESERVE } from "./rack/rack";
 import { readPosition, writePosition } from "./panes/position";
 import { useBodyBox } from "./panes/useBodyBox";
 import { usePeek } from "./panes/usePeek";
@@ -1245,22 +1246,20 @@ export function App() {
               flexBasis: `${clamp(position) * 100}%`,
               /*
                 The dial's own column and the rack's floor, both kept out of the
-                map side's share — the same two corrections `sides()` makes to the
-                number it prints, made to the box that number is about. At the
-                `map` detent a basis of 100% puts the seam and the terminal's
-                padding past the body's clip edge, and the column that goes over it
-                is the dial's: the one control that brings back everything the
-                position shed.
+                map side's share — the same corrections `sides()` makes to the
+                number it prints, made to the box that number is about. A width the
+                shell prints and the flexbox does not produce is the failure every
+                comment in `panes/dial.ts` exists to prevent, so the cap is
+                authored *there*, degrade and all, rather than spelled a second
+                time here: on a body too narrow to afford the reservation the
+                arithmetic halves it away, and a cap that subtracted the whole of
+                it would put the terminal side ahead of the map side at the `map`
+                detent — the dial, inverted, by its own floor.
 
                 The reach is measured rather than named, because `--c-dial-reach`
-                is declared on the dial and this box is not one of its
-                descendants. The reserve is `RACK_RESERVE` for the opposite
-                reason: it is not a measurement at all but what the terminal side
-                owes the rack at every position, and at the `map` detent it is the
-                difference between a rack standing in studs and a region clipped
-                to nothing.
+                is declared on the dial and this box is not one of its descendants.
               */
-              maxWidth: `calc(100% - ${dialReach + RACK_RESERVE}px)`,
+              maxWidth: mapCap(dialReach),
             }}
           >
           {/*
@@ -1276,11 +1275,19 @@ export function App() {
             style={
               peeking.held === null
                 ? undefined
-                : // The promoted layer stops where the map side's own cap does:
-                  // the dial's column and the rack's floor. A glance sheds
-                  // exactly the columns the `map` detent sheds, and the rack
-                  // keeps saying what every run is doing while the peek is up.
-                  { right: `${dialReach + RACK_RESERVE}px`, bottom: `${clearance(promptShown)}px` }
+                : {
+                    /*
+                      The promoted layer stops where the map side's own cap does,
+                      and stops there by being the complement of that same cap:
+                      the dial's column and the rack's floor, the reservation
+                      given up on a body that cannot afford it exactly as the cap
+                      gives it up. A glance sheds exactly the columns the `map`
+                      detent sheds, and the rack keeps saying what every run is
+                      doing while the peek is up.
+                    */
+                    right: beyondMapCap(dialReach),
+                    bottom: `${clearance(promptShown)}px`,
+                  }
             }
           >
           {/*

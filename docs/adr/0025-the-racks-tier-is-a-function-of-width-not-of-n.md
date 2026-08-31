@@ -60,12 +60,51 @@ have become a function of what arrived.
 exported from the same module the dial reads, and `sides()` takes it — as
 `RACK_RESERVE`, the floor plus the terminal box's own padding — out of the map
 end at every position, so the terminal side never closes to zero and the map
-side's `max-width` is capped by the same one number rather than a second copy of
-it. It is authored again as `--c-rack-floor` in pixels — the unit the region is measured in. `studs` floors at zero width, which
+side's `max-width` is authored by that same arithmetic — `mapCap()` in the dial,
+degrade included — rather than by a second copy of it in the shell. It is authored again as `--c-rack-floor` in pixels — the unit the region is measured in. `studs` floors at zero width, which
 is deliberate: a box nobody has laid out yet, a first paint and every jsdom test
 all measure zero, and the answer to all three has to be *draw the narrow rack*.
 A fourth tier meaning *nothing* would be the one state in which the rack
 disappears, which is the thing this ADR exists to forbid.
+
+**Which tier each detent draws — and `glance` is not `studs`.** #56 names a tier
+per detent: "full bays at terminal and split, studs at glance, and at map studs
+are what is left of the terminal side". The `glance` clause is a drafting error
+and is not adopted. `glance` gives the *map* 0.3 of the window
+(`FRACTIONS` in `src/panes/dial.ts`), so the terminal side at `glance` is 70% —
+wider than at `split`, and the widest terminal side there is short of the
+`terminal` detent itself. `tierFor` is monotone in width and stays monotone: a
+wider region may never draw a narrower tier, because a tier that went narrow as
+the region grew would make *the tier is the width* unreadable at a glance, which
+is the only thing the three words are for. Under any monotone function, a
+detent that leaves the terminal side more pixels than `split` cannot draw a
+narrower tier than `split` draws.
+
+So the table, on a default 1280px window, with the dial's own column measured:
+
+| detent | map side | terminal side | region | tier |
+| --- | --- | --- | --- | --- |
+| `terminal` | 0 | everything | basis | `bays` |
+| `glance` | 0.3 | 0.7 | basis | `bays` |
+| `split` | 0.5 | 0.5 | basis | `bays` |
+| `map` | all but the reserve | `RACK_RESERVE` | floor | `studs` |
+
+`bays` at the first three because the region never grows past `RACK_BASIS` and
+all three leave more than that; `studs` at the last because what is left of the
+terminal side there is the reserve exactly, and the region is on its floor.
+`tests/rack.test.tsx` walks the four detents and pins each cell of that table.
+
+**`boards` is not reachable by a press on a default window, and that is
+accepted.** It is the tier of a free drag and of a small window: the region draws
+`boards` whenever it measures between the `boards` and `bays` floors, which a
+drag between `split` and `map` passes through, and which `split` itself produces
+on a window around 700px. The floors were not retuned to put a detent on it,
+because at a fixed basis they cannot be: `terminal`, `glance` and `split` all
+leave the region the same number — its basis — so no set of floors tells those
+three apart. The only lever that would is making the region a *share* of the
+terminal side, and a rack that were a share would be hundreds of pixels wide at
+the `terminal` detent, taking them from the pane, which is the thing being read.
+A fixed basis and three detents above it is the price of the region not moving.
 
 **Each narrow tier prints what it dropped.** `SHOWN` is the table the component
 renders from, and the sentence under the rack's heading is derived from that same
@@ -139,6 +178,11 @@ read as silent for a year.
   re-sorts by activity.
 - A second animated element in the rack's subtree at any time, or an animation
   that starts when a run lands rather than one that stops.
+- A detent that leaves the region more pixels than another detent and draws a
+  narrower tier than it — `tierFor` losing its monotonicity, in the arithmetic or
+  on the screen.
+- A change to `FRACTIONS`, `TIER_FLOORS` or `RACK_BASIS` that moves a cell of the
+  detent table above without this ADR moving with it.
 - A field a narrow tier drops that is not named in the sentence that tier prints,
   or a sentence naming a field the tier is in fact drawing.
 - Liveness readable only while something moves: with

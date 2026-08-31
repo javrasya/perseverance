@@ -8,12 +8,14 @@ import {
   DETENTS,
   NAME_FLOOR,
   VIEW_FLOORS,
+  beyondMapCap,
   clamp,
   columnsAt,
   detentAt,
   fractionOf,
   fittingViews,
   honours,
+  mapCap,
   namesFit,
   nextDetent,
   remembers,
@@ -47,6 +49,29 @@ import { REPO_ROOT } from "./support/sources";
 
 const PLATE = "plate" as ViewName;
 const WINDOW = 1024;
+
+/**
+ * A CSS length, in pixels, against a containing block this wide.
+ *
+ * The cap the shell puts on the map side is a stylesheet expression, and the
+ * only honest way to compare it with `sides()` is to read it the way a browser
+ * would: `100%` is the containing block, `max`/`min` are the CSS functions of
+ * those names, and `calc` is parentheses. Nothing here is clever — if it cannot
+ * read the expression it throws, which is the failure worth having.
+ */
+function resolve(expression: string, width: number): number {
+  const arithmetic = expression
+    .replace(/max\(/g, "Math.max(")
+    .replace(/min\(/g, "Math.min(")
+    .replace(/calc\(/g, "(")
+    .replace(/(\d+(?:\.\d+)?)px/g, "$1")
+    .replace(/(\d+(?:\.\d+)?)%/g, "($1 / 100 * W)");
+  if (/[^-+*/(),.\d\sWMathmaxin]/.test(arithmetic)) {
+    throw new Error(`unreadable as CSS: ${expression}`);
+  }
+  // The expression is authored two files away and guarded above.
+  return Number(new Function("W", `return ${arithmetic};`)(width));
+}
 
 describe("four detents, and free positions between them", () => {
   it("names four, terminal-most first, spanning the whole window", () => {
@@ -139,10 +164,41 @@ describe("four detents, and free positions between them", () => {
     const shell = readFileSync(join(REPO_ROOT, "src/App.tsx"), "utf8");
     expect(semantic).toContain("--s-space-base: var(--p-space-4)");
     expect(primitive).toContain(`--p-space-4: ${RACK_GUTTER}px`);
-    // And the cap on the map side is the same one number, not a second copy of
-    // it: a width `sides()` prints that the flexbox does not produce is the one
-    // failure this module's comments exist to prevent.
-    expect(shell).toContain("dialReach + RACK_RESERVE");
+    // And the cap on the map side is this same arithmetic rather than a second
+    // copy of it: a width `sides()` prints that the flexbox does not produce is
+    // the one failure this module's comments exist to prevent. The shell asks
+    // for the cap; it does not spell one.
+    expect(shell).toContain("maxWidth: mapCap(dialReach)");
+    expect(shell).toContain("right: beyondMapCap(dialReach)");
+    expect(shell).not.toContain("dialReach + RACK_RESERVE");
+  });
+
+  it("caps the map side at the width the arithmetic prints, degrade included", () => {
+    // The cap is CSS and `sides()` is pixels, so the test resolves the one
+    // against the other: `100%` is the body, and `max()`/`min()`/`calc()` mean
+    // what they mean in a stylesheet.
+    for (const reach of [0, 12, 44]) {
+      for (const width of [200, 300, 348, 360, 400, 560, 700, 1280, 2560]) {
+        const { map } = sides(fractionOf("map"), width, reach);
+        const capped = resolve(mapCap(reach), width);
+        const beyond = resolve(beyondMapCap(reach), width);
+        // Half a pixel, and only on an odd shared width: `sides()` rounds the
+        // degraded half towards the map side and CSS does not round at all.
+        expect(Math.abs(capped - map), `cap at ${width}/${reach}`).toBeLessThanOrEqual(0.5);
+        expect(Math.abs(beyond - (width - map)), `beyond at ${width}/${reach}`).toBeLessThanOrEqual(
+          0.5,
+        );
+        // The whole point of the degrade: the map detent stays map-most, on the
+        // screen and not only in the arithmetic.
+        expect(capped, `map-most at ${width}/${reach}`).toBeGreaterThanOrEqual(
+          (width - Math.min(width, reach)) / 2,
+        );
+      }
+    }
+    // The body that was the divergence: a flat `100% - (reach + RACK_RESERVE)`
+    // would lay the map side out at 120px against a 168px terminal side, which
+    // is the `map` detent inverted by the floor that exists to protect it.
+    expect(resolve(mapCap(12), 300)).toBeGreaterThan(300 - (12 + RACK_RESERVE));
   });
 
   it("gives the dial's own column to neither side", () => {
