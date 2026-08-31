@@ -28,6 +28,7 @@ function state(overrides: Partial<KeyState> = {}): KeyState {
     focusedNode: null,
     dialFocused: false,
     monitored: null,
+    warm: null,
     selection: null,
     inFront: null,
     ...overrides,
@@ -238,32 +239,41 @@ describe("the one chord table", () => {
 
 describe("the Esc readout is computed from that table", () => {
   it("names the CLI while the terminal holds the keys", () => {
-    expect(escDestination(state({ monitored: 4 }))).toBe("reaches the agent CLI");
+    expect(escDestination(state({ monitored: 4, warm: 4 }))).toBe("reaches the agent CLI");
   });
 
   it("says so plainly when there is no run to reach", () => {
     expect(escDestination(state())).toContain("nothing is bound to this window");
   });
 
+  it("does not promise the CLI a key it will never see, on a run nobody is typing at", () => {
+    /* Watching without typing is one press away, and `Esc` is the interrupt of
+       every agent CLI: saying *reaches the agent CLI* over a cold run would be
+       promising an interrupt that lands nowhere. */
+    expect(escDestination(state({ monitored: 4 }))).toBe(
+      "reaches nothing — the keys are on the map",
+    );
+  });
+
   it("names the palette while the palette is in front", () => {
-    expect(escDestination(state({ inFront: "palette", monitored: 4 }))).toBe(
+    expect(escDestination(state({ inFront: "palette", monitored: 4, warm: 4 }))).toBe(
       "dismisses the command palette",
     );
     // And the run has the key back the moment it is gone.
-    expect(escDestination(state({ monitored: 4 }))).toBe("reaches the agent CLI");
+    expect(escDestination(state({ monitored: 4, warm: 4 }))).toBe("reaches the agent CLI");
   });
 
   it("names the keys page while the keys page is in front", () => {
     /* The second surface, and the proof the mechanism is a mechanism: the row
        declares `dismisses` and this sentence changes, with `escDestination`
        untouched since the palette landed. */
-    expect(escDestination(state({ inFront: "keys", monitored: 4 }))).toBe(
+    expect(escDestination(state({ inFront: "keys", monitored: 4, warm: 4 }))).toBe(
       "dismisses the keys page",
     );
-    expect(escDestination(state({ inFront: "palette", monitored: 4 }))).toBe(
+    expect(escDestination(state({ inFront: "palette", monitored: 4, warm: 4 }))).toBe(
       "dismisses the command palette",
     );
-    expect(escDestination(state({ monitored: 4 }))).toBe("reaches the agent CLI");
+    expect(escDestination(state({ monitored: 4, warm: 4 }))).toBe("reaches the agent CLI");
   });
 
   it("prints whatever a dismissible row declares, without being edited", () => {
@@ -282,7 +292,9 @@ describe("the Esc readout is computed from that table", () => {
     };
     const table = [...ENTRIES, palette];
 
-    expect(escDestination(state({ monitored: 4 }), table)).toBe("dismisses the command palette");
+    expect(escDestination(state({ monitored: 4, warm: 4 }), table)).toBe(
+      "dismisses the command palette",
+    );
     // And the moment that surface is not up, the CLI has the key back.
     expect(escDestination(state(), table)).toContain("nothing is bound to this window");
   });

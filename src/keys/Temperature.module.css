@@ -1,0 +1,41 @@
+/*
+ * The temperature readout.
+ *
+ * One line, fixed height, and it never wraps — the Esc readout's constraint for
+ * the Esc readout's reason: a strip beside the terminal that grew a second line
+ * would take a row off the terminal's box and the character-cell count with it,
+ * every time the sentence changed length. So the sentence is clipped rather
+ * than allowed to reflow.
+ *
+ * Nothing here moves. Motion in this app is rationed to liveness, and a line
+ * that blinked when the keys changed hands would be animating beside a
+ * scrolling terminal to say something the words already say.
+ */
+
+.readout {
+  --c-temperature-line: var(--s-line-quiet);
+
+  display: flex;
+  flex: 0 0 auto;
+  gap: var(--s-space-snug);
+  align-items: baseline;
+  height: var(--s-space-room);
+  margin: 0;
+  padding: 0 var(--s-space-snug);
+  overflow: hidden;
+  border-bottom: var(--s-border-hairline) solid var(--c-temperature-line);
+  color: var(--s-ink-secondary);
+  font-size: var(--s-text-micro);
+  white-space: nowrap;
+}
+
+.label {
+  flex: 0 0 auto;
+  color: var(--s-ink-secondary);
+}
+
+.destination {
+  overflow: hidden;
+  color: var(--s-ink-primary);
+  text-overflow: ellipsis;
+}

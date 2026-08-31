@@ -1,8 +1,9 @@
 import { useEffect, useRef } from "react";
 import { briefSpan } from "../chrome/age";
 import { EscReadout } from "../keys/EscReadout.jsx";
+import { Temperature } from "../keys/Temperature.jsx";
 import { collapsed, gesture, type Occasion } from "../panes/geometry";
-import { monitor, useUi } from "../stores/ui";
+import { keyedRun, monitor, readUi, setKeyed, useUi } from "../stores/ui";
 import { promptFor } from "./prompts";
 import { PromptBlock } from "./PromptBlock";
 import { endRun, type RunReadout, type RunSignal } from "./runs";
@@ -164,7 +165,12 @@ export function Pane({
   terminals: Terminals;
   readouts: readonly RunReadout[];
 }) {
-  const { monitored } = useUi();
+  const ui = useUi();
+  const { monitored, inFront } = ui;
+  /* The temperature, read through the store's own derivation and never
+     assembled here: there is one answer to *where do the keys go*, and this
+     component is not entitled to a second one. */
+  const warm = keyedRun(ui);
   const host = useRef<HTMLDivElement | null>(null);
   const gestures = useRef<ReturnType<typeof gesture> | null>(null);
 
@@ -180,6 +186,92 @@ export function Pane({
   useEffect(() => {
     terminals.bind(monitored, host.current);
   }, [terminals, monitored]);
+
+  /*
+   * The keyboard follows the temperature, and never the other way around.
+   *
+   * The store is the fact; where the browser happens to have put the caret is
+   * its consequence. Before this, the only way to type at a run was that
+   * xterm's helper textarea happened to hold focus, which made *which run has
+   * the keys* a question only the DOM could answer — unprintable, untestable,
+   * and impossible to hold to the rule that the keyed run is on the monitor.
+   *
+   * Declared after the bind above so it runs after it: focusing a terminal that
+   * is still in the stow would put the keyboard inside a node that is not on
+   * screen. And it depends on `inFront` as well as on `warm`, because a surface
+   * standing in front holds the keys for as long as it is up — which is why
+   * dismissing one gives them back from *here* rather than from the shell's
+   * dismiss handler, and why there is no second opinion about where they land.
+   */
+  useEffect(() => {
+    if (inFront !== null) return;
+    if (warm !== null) {
+      terminals.for(warm).focus();
+      return;
+    }
+    /* Nothing warm means the terminal may not keep the keys — but only the
+       terminal's. Blurring whatever happens to be focused would take the
+       keyboard off a route row or a picker on the map side, which is exactly
+       where cold says the keys are. */
+    const active = document.activeElement as HTMLElement | null;
+    if (active !== null && host.current?.contains(active) === true) active.blur();
+  }, [terminals, warm, inFront]);
+
+  /*
+   * The other direction, so that the store and the browser can never disagree
+   * about who has the keys.
+   *
+   * A click lands the caret in xterm's helper textarea with nothing in this app
+   * having been pressed, and a store still saying *cold* would be printing a
+   * readout the keyboard contradicts; a click on the map takes it away again
+   * and the same is true in reverse. So the terminal's own focus is watched and
+   * written back as temperature.
+   *
+   * `addEventListener` on the host node rather than React's `onFocus`/`onBlur`:
+   * the terminal is **not a child React knows about** — it is appended by
+   * `Terminals.bind` — and React's delegated focus events never reach a handler
+   * on this element for a node it did not render. That is a landmine, not a
+   * style choice; the JSX form silently does nothing. Focus events and never
+   * key events: the one key listener in this window is the router's.
+   *
+   * The state is read at the moment of the event rather than closed over, which
+   * is what lets this be installed once for the pane's life. `inFront` matters:
+   * a surface standing in front is *expected* to hold the keys, and the run
+   * underneath stays warm so dismissing it hands them back rather than putting
+   * them down.
+   */
+  useEffect(() => {
+    const held = host.current;
+    if (held === null) return;
+
+    const warmed = () => setKeyed(true);
+    const cooled = (event: FocusEvent) => {
+      // Focus moving *within* the terminal is not the keyboard leaving it.
+      const into = event.relatedTarget;
+      if (into instanceof Node && held.contains(into)) return;
+      /*
+       * Answered after the focus has landed, not during it. Mid-`focusout` the
+       * document has no focused element at all, so every reading that could
+       * tell *the keyboard went to the map* from *the whole window lost focus*
+       * says the same thing — and cooling on the second one would put the keys
+       * down every time the operator alt-tabbed away, so that coming back left
+       * them typing at nobody. A window losing focus moves nobody's keys.
+       */
+      queueMicrotask(() => {
+        if (readUi().inFront !== null) return;
+        if (!document.hasFocus()) return;
+        if (document.activeElement !== null && held.contains(document.activeElement)) return;
+        setKeyed(false);
+      });
+    };
+
+    held.addEventListener("focusin", warmed);
+    held.addEventListener("focusout", cooled);
+    return () => {
+      held.removeEventListener("focusin", warmed);
+      held.removeEventListener("focusout", cooled);
+    };
+  }, []);
 
   /*
    * The pane's size, watched, and turned into at most one resize per completed
@@ -351,6 +443,15 @@ export function Pane({
         this pane.
       */}
       <EscReadout />
+
+      {/*
+        And where the keystrokes go, which `Esc` alone stopped being able to
+        answer the moment watching and typing became two paths. Beside the Esc
+        line and built the same way — one pure function over the router's own
+        state — so the two sentences and the key that acts are one reading of
+        one fact.
+      */}
+      <Temperature readouts={readouts} />
 
       {prompt === null ? null : <PromptBlock prompt={prompt} />}
 

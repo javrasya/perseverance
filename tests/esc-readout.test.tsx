@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it } from "vitest";
  */
 import { EscReadout } from "../src/keys/EscReadout.jsx";
 import { install } from "../src/keys/router";
-import { dismiss, monitor, raise } from "../src/stores/ui";
+import { dismiss, monitor, raise, setKeyed } from "../src/stores/ui";
 
 /**
  * The one key an operator cannot work out by looking, written down.
@@ -51,8 +51,11 @@ describe("the Esc readout", () => {
     const host = await paint();
     expect(host.textContent).toContain("nothing is bound to this window");
 
+    /* Warm and not merely bound: `Esc` is the CLI's only while the CLI has the
+       keys, and a run can be on the pane with the keyboard on the map. */
     await act(async () => {
       monitor(9);
+      setKeyed(true);
     });
     expect(host.textContent).toContain("reaches the agent CLI");
 
@@ -71,6 +74,7 @@ describe("the Esc readout", () => {
     const host = await paint();
     await act(async () => {
       monitor(9);
+      setKeyed(true);
       raise("palette");
     });
     expect(host.textContent).toContain("dismisses the command palette");
@@ -109,6 +113,7 @@ describe("the Esc readout", () => {
     for (const run of [null, 9]) {
       await act(async () => {
         monitor(run);
+        setKeyed(run !== null);
       });
       const escape = new KeyboardEvent("keydown", { key: "Escape", cancelable: true });
       await act(async () => {

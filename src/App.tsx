@@ -58,6 +58,7 @@ import {
   raise,
   readUi,
   select,
+  setKeyed,
   useUi,
 } from "./stores/ui";
 /* `Dial.jsx` and `StandDown.jsx` for the same reason `Route.jsx` is spelled
@@ -805,28 +806,26 @@ export function App() {
    * key the terminal is refused the key the app acted on.
    */
   /*
-   * Putting the palette away, and giving the keyboard back with it.
+   * Putting the surface in front away.
    *
-   * Beside the crossing's own focus decision and answering it the same way: a
-   * warm run takes the keys back, and with nothing warm the keyboard is put down
-   * rather than left inside a surface that is no longer on screen. The palette
-   * does not do this itself — a surface that both took the keys and decided
-   * where they go afterwards would be deciding it twice, and the shell is the
-   * one that knows whether there is a terminal to hand them to.
+   * It used to give the keyboard back too, with an opinion of its own: warm run
+   * takes it, otherwise blur whatever holds it. That was a second answer to
+   * *where do the keys go* living beside the store's, and #57 made the store's
+   * the only one — the temperature says where they belong and the pane's focus
+   * effect puts them there, including on the frame where `inFront` goes back to
+   * `null`. So this dismisses, and stops.
+   *
+   * The guard stays, and it is load-bearing: `home` calls this before doing its
+   * own work, and an unguarded dismissal re-runs that focus effect on a window
+   * where nothing was in front — which, with nothing warm, would blur whatever
+   * the map side was holding, the focused route row included, taking the `open`
+   * row that reads `focusedNode` down with it. Read from the store rather than
+   * from this render's `inFront` so the fact is the one true at the moment of
+   * the press.
    */
   const away = () => {
-    /* Nothing in front is nothing to put away, and the guard is the focus half's
-       as much as the dismissal's. `home` calls this before doing its own work,
-       and an unguarded `away` made a layout reset move the keyboard: with a warm
-       run it dropped the keys into a running agent CLI nobody had asked to type
-       at, and with none it blurred whatever held them — the focused route row
-       included, taking the `open` row that reads `focusedNode` down with it.
-       Read from the store rather than from this render's `inFront` so the fact
-       is the one true at the moment of the press. */
     if (readUi().inFront === null) return;
     dismiss();
-    if (monitored !== null) terminals.for(monitored).focus();
-    else (document.activeElement as HTMLElement | null)?.blur();
   };
 
   /*
@@ -895,10 +894,19 @@ export function App() {
           /*
            * The room change `Esc` used to make, given its own chord.
            *
-           * Focus crosses with the dial, in both directions: arriving at the
-           * terminal puts the keyboard in it, and leaving takes the keyboard
-           * off it — a window showing the map while every keystroke went to the
-           * run underneath would be the worst of both rooms.
+           * The keys cross with the dial, in both directions: arriving at the
+           * terminal warms the run on it, and leaving cools — a window showing
+           * the map while every keystroke went to the run underneath would be
+           * the worst of both rooms. This is the one press that *joins* the two
+           * paths, and it is the whole reason temperature and room look like a
+           * single thing most of the time. They are not: the temperature is
+           * where the keystrokes go, never which room this window is in.
+           *
+           * It writes the temperature and nothing else. Where the keyboard
+           * physically ends up is the pane focus effect, off that same field —
+           * so a crossing that warms a run the store refuses to warm (nothing
+           * on the monitor) leaves the keys down, rather than this line and the
+           * store disagreeing about whether anybody is being typed at.
            *
            * And the surface in front goes before either happens. Crossing to
            * the terminal with the palette still up would put the keyboard in a
@@ -909,8 +917,7 @@ export function App() {
           away();
           const toTerminal = position > fractionOf("terminal");
           moveTo(fractionOf(toTerminal ? "terminal" : "map"));
-          if (toTerminal && monitored !== null) terminals.for(monitored).focus();
-          else (document.activeElement as HTMLElement | null)?.blur();
+          setKeyed(toTerminal);
           return;
         }
         case "open":
@@ -1729,10 +1736,17 @@ export function App() {
              palette cannot reach a picker that is behind it without the element
              carrying the mark taking it off first. */
           onPickAgent={reachPicker}
-          /* The row that has already sent the keyboard somewhere: the surface
-             goes, and nothing here touches focus. `away` would take the keys
-             straight back off the picker the row exists to reach. */
-          onHandOff={dismiss}
+          /* The row that has already sent the keyboard somewhere. The surface
+             goes and the temperature goes cold in the same breath, because the
+             keys really did land on the map side: leaving a run warm here would
+             have the pane's focus effect pull them straight back off the picker
+             this row exists to reach, and would print a readout naming a run
+             nobody is typing at. Both writes are in one handler, so the window
+             never renders the frame in between. */
+          onHandOff={() => {
+            dismiss();
+            setKeyed(false);
+          }}
         />
       ) : null}
 

@@ -62,6 +62,11 @@ export function Palette({
    * already sent the keyboard somewhere itself, so a dismiss that placed it
    * again would take it straight back off the control the row exists to reach.
    * Every other row goes out through `onRun`, and the shell's dismiss with it.
+   *
+   * The shell answers this by going cold as it dismisses, which is the same
+   * statement in the model's own words: the keys are on the map side now, and
+   * the temperature beside the terminal says so rather than naming a run
+   * nobody is typing at.
    */
   onHandOff: () => void;
   /** The table to print. A parameter so a test can prove it is not hard-coded. */

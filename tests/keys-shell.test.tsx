@@ -221,6 +221,11 @@ describe("the palette, raised and dismissed at the window", () => {
 
   it("goes away on Esc and hands the keyboard back to the warm run", async () => {
     await boot();
+    /* Warmed first, and by the press that warms: a run on the pane is a run
+       being *watched*, and only the crossing puts the keys on it. What is
+       asserted below is that the surface gives back what it borrowed — it can
+       only give back keys the run had. */
+    await press("cross");
     await press("palette");
     await escape();
 
@@ -270,6 +275,8 @@ describe("the palette, raised and dismissed at the window", () => {
 describe("the keys page, raised and dismissed at the window", () => {
   it("comes up on its chord and goes away on Esc, keyboard back in the run", async () => {
     await boot();
+    // The crossing is what warms the run; the keys page borrows from there.
+    await press("cross");
 
     await press("keys");
 

@@ -7,7 +7,7 @@ import {
   type KeyboardLike,
 } from "../panes/peek";
 import type { Surface } from "../stores/ui";
-import { readUi } from "../stores/ui";
+import { keyedRun, readUi } from "../stores/ui";
 
 /**
  * The one key router: a single chord→action table, at the window, in the
@@ -16,7 +16,7 @@ import { readUi } from "../stores/ui";
  * **Why the window, and why capture.** xterm.js binds its own listeners to a
  * helper `<textarea>` inside the pane, and it takes every key that reaches it.
  * A listener anywhere below the window would therefore never fire while a run
- * is warm, and a *bubble*-phase listener at the window only fires when xterm
+ * has the keys, and a *bubble*-phase listener at the window only fires when xterm
  * decided not to call `preventDefault` — which is to say, on the keys the app
  * least needs. Capture at the window is the only placement that can reserve a
  * chord at all.
@@ -88,6 +88,17 @@ export interface KeyState {
   dialFocused: boolean;
   /** Which run's bytes are on the pane, or none. */
   monitored: number | null;
+  /**
+   * Which run has the keys, or none — the whole of the temperature, read
+   * through `keyedRun` and never assembled here.
+   *
+   * Separate from `monitored` because they answer different questions: that one
+   * is *what am I watching*, this one is *where does what I type go*. They are
+   * joined most of the time and the store is what joins them — a warm run is by
+   * construction the monitored one — so a reader of this field never has to
+   * check the pair for agreement.
+   */
+  warm: number | null;
   /** Which node is selected, so a second press on it puts it back. */
   selection: number | null;
   /**
@@ -394,7 +405,16 @@ export function escDestination(state: KeyState, table: readonly Entry[] = ENTRIE
       entry.chords(state).some((pressed) => pressed.key === "Escape"),
   );
   if (dismissing !== undefined) return `dismisses ${dismissing.dismisses}`;
-  if (state.monitored !== null) return "reaches the agent CLI";
+  /*
+   * `warm` and not `monitored`, because those two came apart in #57 and the old
+   * reading is now a lie in a state the operator can reach in one press:
+   * watching a run without typing at it. `Esc` is only the CLI's while the CLI
+   * has the keys — a cold run is on screen and is not being typed at, so the
+   * key reaches nothing at all, and saying *the agent CLI* there would promise
+   * an interrupt that never arrives.
+   */
+  if (state.warm !== null) return "reaches the agent CLI";
+  if (state.monitored !== null) return "reaches nothing — the keys are on the map";
   return "reaches nothing yet — nothing is bound to this window";
 }
 
@@ -463,6 +483,7 @@ export function currentState(target: EventTarget | null = null): KeyState {
     focusedNode: nodeUnder(element),
     dialFocused: element !== null && element.closest("[data-dial]") !== null,
     monitored: ui.monitored,
+    warm: keyedRun(ui),
     selection: ui.selection,
     inFront: ui.inFront,
   };
