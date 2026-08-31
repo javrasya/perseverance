@@ -2,12 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   findMotionViolations,
   findReducedMotionViolations,
+  findStrayMotion,
   format,
   readMotion,
   transitionedProperties,
   type LicensedMotion,
 } from "./support/checks";
-import { collectStylesheets } from "./support/sources";
+import { collectMarkupAndStyles, collectStylesheets } from "./support/sources";
 
 /** The one file allowed to say what reduced motion means here. */
 const GUARD_PATH = "src/styles/global.css";
@@ -126,6 +127,56 @@ describe("motion is rationed, and the ration is enumerable over the stylesheets"
   it("every animation under src/ is one this list licenses", () => {
     const offences = collectStylesheets()
       .map((file) => format(file.path, findMotionViolations(file, LICENSED_MOTION)))
+      .filter((report) => report.length > 0);
+
+    expect(offences.join("\n")).toBe("");
+  });
+
+  /*
+   * The ration is enumerable over the stylesheets only if the stylesheets are
+   * where the motion is. These two say so, over the same net `no-smil.test.ts`
+   * walks — every `.ts`, `.tsx`, `.css`, `.svg` and `.html` under `src/` plus
+   * the root `index.html` — because an `animation` in a JSX `style={{…}}`, a
+   * `<style>` block in an `.svg`, or a `@keyframes` in `index.html` is motion
+   * spent where `collectStylesheets` cannot look, and rule 12's still-form
+   * obligation is derived from that same walk.
+   */
+  it("the check catches each way motion leaves the stylesheets", () => {
+    const stray = (path: string, text: string) => findStrayMotion({ path, text });
+
+    expect(stray("src/views/route/Route.tsx", `<li style={{ animation: "ping 2s linear" }} />`)).toHaveLength(1);
+    expect(stray("src/views/route/Route.tsx", `<li style={{ animationName: "ping" }} />`)).toHaveLength(1);
+    expect(
+      stray("src/icons/mark.svg", `<style>@keyframes spin { to { rotate: 360deg; } }</style>`),
+    ).toHaveLength(1);
+    expect(stray("index.html", `<style>@keyframes fade { to { opacity: 0; } }</style>`)).toHaveLength(1);
+    expect(stray("src/views/route/route.ts", `element.style.animation = "ping 2s linear";`)).toHaveLength(1);
+    expect(
+      stray("src/views/route/route.ts", `element.style.setProperty("animation-name", "ping");`),
+    ).toHaveLength(1);
+  });
+
+  it("the check leaves the rationed stylesheets and ordinary source alone", () => {
+    expect(findStrayMotion({ path: ROUTE_PATH, text: ROUTE_MOTION })).toEqual([]);
+    expect(findStrayMotion({ path: GUARD_PATH, text: GUARD })).toEqual([]);
+    expect(
+      findStrayMotion({ path: "src/views/route/Route.tsx", text: `const animated = rows.filter(isMoving);` }),
+    ).toEqual([]);
+    /* Prose that names the constructs is not one of them: the registry entry
+       for rule 9 says exactly this about itself, in a `.ts` file this walk
+       reads. A check that went red on its own description would be edited
+       until it stopped saying anything. */
+    expect(
+      findStrayMotion({
+        path: "src/contract/rules.ts",
+        text: "goes red on an `@keyframes` or an `animation` declaration written anywhere but a rationed stylesheet",
+      }),
+    ).toEqual([]);
+  });
+
+  it("no file outside the rationed stylesheets spends motion at all", () => {
+    const offences = collectMarkupAndStyles()
+      .map((file) => format(file.path, findStrayMotion(file)))
       .filter((report) => report.length > 0);
 
     expect(offences.join("\n")).toBe("");

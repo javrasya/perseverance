@@ -153,7 +153,7 @@ export const RULES: readonly Rule[] = [
     tier: "asserted",
     renderBound: true,
     check:
-      "Collapse every semantic token to one value at `:root`, render, and assert unclassified is still told apart from a ticket and still carries no action. The three token tiers (`tests/token-tiers.test.ts`) are the *precondition* for that test — they are what makes one reassignment reach everything — not the test itself.",
+      "Collapse every semantic token to one value at `:root`, render, and assert first that the two rows now resolve one ink between them — colour is gone as a channel — and then that unclassified is still told apart from a ticket and still carries no action. The three token tiers (`tests/token-tiers.test.ts`) are the *precondition* for that test — they are what makes one reassignment reach everything — not the test itself.",
   },
   {
     id: 4,
@@ -226,7 +226,7 @@ export const RULES: readonly Rule[] = [
        separate facts, and this is the rule where they come apart. */
     renderBound: false,
     check:
-      "SMIL is banned stack-wide (`tests/no-smil.test.ts`), so every animation in this app is a CSS animation and the ration is *enumerable over the stylesheets*: `tests/motion-ration.test.ts` collects every `animation` declaration and every keyframes block under `src/` and holds each animated selector against a licensed list that names, per selector and per keyframes name, the liveness claim the motion is spent on. Transitions on colour, border and opacity are not motion spent and are not counted. A second animation anywhere, or the licensed one moving to a selector that carries no claim, is red without an allow-list edit.",
+      "SMIL is banned stack-wide (`tests/no-smil.test.ts`), so every animation in this app is a CSS animation and the ration is *enumerable over the stylesheets*: `tests/motion-ration.test.ts` collects every `animation` declaration and every keyframes block under `src/` and holds each animated selector against a licensed list that names, per selector and per keyframes name, the liveness claim the motion is spent on. Transitions on colour, border and opacity are not motion spent and are not counted. That the stylesheets are the *whole* motion surface is checked rather than assumed: a companion guard in the same file walks the wider net `no-smil.test.ts` uses — every `.ts`, `.tsx`, `.svg` and `.html` under `src/` plus the root `index.html` — and goes red on an `@keyframes` or an `animation` declaration written anywhere but a rationed stylesheet, so an inline style or a `<style>` block in markup cannot spend motion the ration never sees. A second animation anywhere, or the licensed one moving to a selector that carries no claim, is red without an allow-list edit.",
     tension:
       "The one animation in `src/` — `ping`, on `.markClaimed::after` in `src/views/route/Route.module.css` — rides on *someone holds this ticket*, and `NodeState` is `resolved | blocked | claimed | takeable`, so running-vs-stale is not representable on this side of the seam at all. Asserted has no deviation route, so #43 settled it rather than filing it: `claimed` is the liveness this half of the app can carry — of the four states it is the only one in progress rather than a settled fact about the graph — and the ration is spent telling that apart from the three that are not moving. The licensed list is one entry, and growing it costs an argument, not a line.",
   },

@@ -225,7 +225,14 @@ than a settled fact about the graph, and that is the liveness this half of the
 app can carry. The list is one entry — the claimed mark's halo — and
 growing it costs an argument in the test rather than a line in an allow-list: a
 second animation anywhere, or that one moving to a selector carrying no claim,
-is red. The same walk reads the `prefers-reduced-motion` guard, which is global
+is red. *Anywhere* is checked rather than assumed: a companion guard in the same
+file walks the wider net `tests/no-smil.test.ts` uses — every `.ts`, `.tsx`,
+`.svg` and `.html` under `src/` plus the root `index.html` — and goes red on an
+`@keyframes` or an `animation` declaration written anywhere but a rationed
+stylesheet, so an inline style, a `<style>` block in an `.svg` or a keyframes
+block in `index.html` cannot spend motion the ration never sees. The fix for
+that red is to move the motion into a stylesheet and argue for its licence
+there. The same walk reads the `prefers-reduced-motion` guard, which is global
 and is the only one allowed to exist: what it kills is looping animation and
 travel — transform, translate, rotate, scale, any geometric length — and what
 it keeps is opacity, colour and stroke, because the trigger is movement and a

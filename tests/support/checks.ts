@@ -424,6 +424,58 @@ export function findMotionViolations(
   return violations;
 }
 
+/* ------------------------------------------ motion outside the ration --- */
+
+/**
+ * Motion spent where the ration's enumeration cannot see it.
+ *
+ * `findMotionViolations` reads CSS text, and the ration is only ever as wide
+ * as the walk that feeds it: the `.css` files under `src/`. Nothing in this
+ * repo forbids an inline style, a `<style>` block inside an `.svg`, or a
+ * `@keyframes` in the root `index.html`, so motion authored any of those ways
+ * would be licensed by nobody and caught by nothing — and rule 12's still-form
+ * obligation, which is derived from the same walk, would not reach it either.
+ *
+ * This is the companion guard that closes the gap, over the same wider net
+ * `tests/no-smil.test.ts` already establishes as this repo's motion surface
+ * (`collectMarkupAndStyles`). Outside a rationed stylesheet an animation is not
+ * licensable at all, so this is a flat prohibition rather than a list: the fix
+ * for a red is to move the motion into a stylesheet and argue for its licence
+ * there, which is where an argument about spending the ration belongs.
+ */
+const RATIONED_STYLESHEET = /^src\/.*\.css$/;
+
+const STRAY_MOTION: readonly { readonly pattern: RegExp; readonly detail: string }[] = [
+  {
+    /* The name is required, not decoration: `@keyframes` with nothing after it
+       is not a keyframes block, and demanding the name is what keeps the check
+       off the registry's own prose, which names the construct in backticks. */
+    pattern: /@(?:-[a-z]+-)?keyframes\s+[A-Za-z_-][\w-]*/gi,
+    detail: "a keyframes block outside a rationed stylesheet — motion the ration cannot enumerate",
+  },
+  {
+    pattern: /\banimation(?:-name|Name)?\s*:/g,
+    detail: "an `animation` declaration outside a rationed stylesheet — motion no licence covers",
+  },
+  {
+    pattern: /\.style\s*\.\s*animation(?:Name)?\b|setProperty\(\s*["']animation(?:-name)?["']/g,
+    detail: "an `animation` assigned from script — motion written past the stylesheets entirely",
+  },
+];
+
+export function findStrayMotion(file: { path: string; text: string }): Violation[] {
+  if (RATIONED_STYLESHEET.test(file.path)) return [];
+
+  const violations: Violation[] = [];
+  for (const [index, line] of file.text.split("\n").entries()) {
+    for (const { pattern, detail } of STRAY_MOTION) {
+      pattern.lastIndex = 0;
+      if (pattern.test(line)) violations.push({ line: index + 1, detail });
+    }
+  }
+  return violations;
+}
+
 /*
  * Travel is displacement and size, never colour. The roots are matched as
  * prefixes so `margin-top` and `inset-inline-start` need no listing, and

@@ -138,6 +138,45 @@ async function stillFormOf(glyph: Locator): Promise<Record<string, string>> {
 }
 
 /**
+ * The properties a row can carry an ink on, and the inks it actually resolves.
+ *
+ * This is what makes the collapse above load-bearing rather than decorative.
+ * Everything else rule 3 asserts is colour-blind — `toContainText` reads
+ * `textContent` and `toHaveCount` counts elements — so with nothing colour-
+ * sensitive asserted while the tokens are collapsed, the collapse could be
+ * deleted and every state would come back with the same verdict. It cannot:
+ * `--c-node-glyph` is `--s-ink-primary` on an unclassified row and
+ * `--s-ink-faint` on a ticket's, so the two rows differ in ink until the
+ * collapse lands and cannot differ afterwards. Asserting that first is what
+ * proves colour is not the channel the assertions below are riding on.
+ *
+ * Alpha-zero values are dropped: a background nobody painted is not an ink,
+ * and the two rows draw deliberately different shapes.
+ */
+const INK_PROPERTIES = ["color", "border-top-color", "background-color"] as const;
+
+async function inksOf(row: Locator, glyph: string): Promise<string[]> {
+  return row.evaluate(
+    (element: Element, read: { glyph: string; properties: readonly string[] }) => {
+      const inks = new Set<string>();
+      const gather = (target: Element, properties: readonly string[]): void => {
+        const style = getComputedStyle(target);
+        for (const property of properties) {
+          const value = style.getPropertyValue(property);
+          if (value !== "transparent" && !/,\s*0\)$/.test(value)) inks.add(value);
+        }
+      };
+
+      gather(element, ["color"]);
+      const mark = element.querySelector(read.glyph);
+      if (mark !== null) gather(mark, read.properties);
+      return [...inks];
+    },
+    { glyph, properties: INK_PROPERTIES },
+  );
+}
+
+/**
  * Every selector the stylesheet walk finds an animation on.
  *
  * Rule 12's floor used to name `ping` and `.markClaimed::after` outright, so a
@@ -148,6 +187,14 @@ async function stillFormOf(glyph: Locator): Promise<Record<string, string>> {
  * the rendering is deliberate — the CSS is where the motion surface is
  * complete, and a fixture that happens not to render the moving element would
  * otherwise be a hole in the coverage rather than a skip.
+ *
+ * The stylesheets are the whole motion surface, and that is a checked fact
+ * rather than an assumption: `findStrayMotion` (`tests/motion-ration.test.ts`)
+ * walks the wider net — every `.ts`, `.tsx`, `.svg` and `.html` under `src/`
+ * plus the root `index.html` — and goes red on an `@keyframes` or an
+ * `animation` written anywhere but a rationed stylesheet. So this walk needs no
+ * widening: outside it the set is provably empty, and a second enumeration
+ * here would be a second thing to keep true.
  */
 function animatedSelectors(): string[] {
   const selectors = collectStylesheets().flatMap((file) =>
@@ -211,7 +258,7 @@ export const RULE_CHECKS: Partial<Record<RuleId, RuleEntry>> = {
   },
 
   3: {
-    why: "Asserted, over the view root, after every `--s-*` token at `:root` has been collapsed to one value — the retheme the rule names, taken to its limit. What is asserted afterwards is that unclassified is still *told apart* and still carries *no action*: the word is still on the row and is still not on a ticket's, and the row holds no control and no offer. The channel asserted is text, deliberately: with every ink and every surface the same colour, text and structure are the only channels left, and the shape a view draws is view identity the contract may not standardise.",
+    why: "Asserted, over the view root, after every `--s-*` token at `:root` has been collapsed to one value — the retheme the rule names, taken to its limit. That the collapse landed is itself asserted first, and colour-sensitively: the unclassified row and the ticket row resolve one ink between them, so the channel this view normally tells kinds apart on is demonstrably gone before anything else is read. What is asserted afterwards is that unclassified is still *told apart* and still carries *no action*: the word is still on the row and is still not on a ticket's, and the row holds no control and no offer. The channel asserted is text, deliberately: with every ink and every surface the same colour, text and structure are the only channels left, and the shape a view draws is view identity the contract may not standardise.",
     check: async ({ page, root, surface, snapshot }) => {
       const map = snapshot.model.map;
       if (root === null || map === null) return skipped(NO_MAP);
@@ -229,6 +276,21 @@ export const RULE_CHECKS: Partial<Record<RuleId, RuleEntry>> = {
 
       const restore = await collapseSemanticTokens(page);
       try {
+        /* First, that the collapse landed: with every `--s-*` token reassigned
+           to one value, the two rows resolve one ink between them — the row's
+           own text colour and its glyph's fill and edge, which is where this
+           view puts the difference between a kind and another kind. Colour is
+           gone as a channel before a word of the distinction below is read,
+           which is the whole experiment rule 3 names. */
+        const inks = new Set([
+          ...(await inksOf(unclassified, surface.glyph)),
+          ...(await inksOf(ticket, surface.glyph)),
+        ]);
+        expect(
+          [...inks].sort(),
+          "colour survived the collapse, so the distinction below could still be riding on it",
+        ).toHaveLength(1);
+
         await expect(unclassified).toContainText(surface.unclassifiedWord);
         await expect(ticket).not.toContainText(surface.unclassifiedWord);
 
