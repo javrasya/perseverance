@@ -1,3 +1,4 @@
+import { RACK_RESERVE } from "../rack/rack";
 import { widthNeededFor } from "../views/deep-field/deepField";
 import type { ViewName } from "../views/views";
 
@@ -150,6 +151,23 @@ export function nextDetent(position: number, direction: 1 | -1): Detent {
  * detent included. That is what the cap below is for: the seam has to come out
  * of one of the two sides, and at the far end there is no terminal side left to
  * take it out of.
+ *
+ * The terminal side is never worth nothing. [`RACK_RESERVE`] pixels of it are
+ * owed to the rack — the region that says what every run in the window is doing
+ * — and they are taken out of the map end at *every* position rather than at
+ * the `map` detent alone, so the rack never changes width for anything but a
+ * dial move the operator made. A rack clipped to zero at the far detent would
+ * be the one position where supervising N runs stops working, which is the
+ * whole reason the rack sits on the dial's side of the pane: a narrowing
+ * terminal takes the pane's pixels and leaves the rack standing.
+ *
+ * On a body too narrow to afford both, the reservation gives way rather than
+ * inverting the dial: it never takes more than half of what the two sides
+ * share, so the `map` detent stays map-most at every width and a map side that
+ * had pixels before still has them. A floor that could turn the map detent into
+ * a terminal detent would be a floor that broke the control it was floored for.
+ *
+ * [`RACK_RESERVE`]: ../rack/rack.ts
  */
 export function sides(
   position: number,
@@ -158,17 +176,23 @@ export function sides(
 ): { map: number; terminal: number } {
   const usable = Math.max(0, Math.floor(width));
   const between = Math.min(usable, Math.max(0, Math.round(reach)));
+  const shared = usable - between;
+  // What the terminal side owes the rack, halved away on a body that cannot
+  // afford it. `Math.floor` of half is what keeps the map side the larger of
+  // the two at the far detent even when the reservation is biting hardest.
+  const owed = Math.min(RACK_RESERVE, Math.floor(shared / 2));
   // The map side is the flex-basis, literally: a percentage of the body box,
-  // capped at the body less the dial's own column. The cap only ever bites at
-  // the `map` end, and it is not arithmetic tidiness: a map side worth the whole
-  // body *plus* a seam is a flex line wider than the box it sits in, and that
-  // box is `overflow: hidden`. What gets pushed past the clip edge is the dial's
-  // own column — the one control the shed columns, the stand-down's `Widen to
-  // map` and the switcher's caps all rely on being on screen at every position.
-  // The terminal side is what is left once the dial's column is taken out, and
-  // never less than nothing.
-  const map = Math.min(Math.round(usable * clamp(position)), usable - between);
-  return { map, terminal: usable - between - map };
+  // capped at the body less the dial's own column and less what the rack is
+  // owed. The cap only ever bites at the `map` end, and it is not arithmetic
+  // tidiness: a map side worth the whole body *plus* a seam is a flex line wider
+  // than the box it sits in, and that box is `overflow: hidden`. What gets
+  // pushed past the clip edge is the dial's own column — the one control the
+  // shed columns, the stand-down's `Widen to map` and the switcher's caps all
+  // rely on being on screen at every position. `src/App.tsx` takes the same two
+  // numbers out of the map side's `max-width`, which is what makes this a
+  // description of the layout rather than a claim about it.
+  const map = Math.min(Math.round(usable * clamp(position)), shared - owed);
+  return { map, terminal: shared - map };
 }
 
 /**

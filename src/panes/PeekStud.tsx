@@ -12,9 +12,10 @@ import styles from "./PeekStud.module.css";
  * so **cutting either is cutting the gesture**, and the stud is not decoration.
  *
  * It sits over the terminal side of the window, hung on the *body* rather than
- * on the terminal's own box: the terminal is the one box the dial can collapse
- * to nothing, and a stud clipped away at the `map` detent takes the refusal
- * with it — the one place the refusal is the only feedback there is. It names
+ * on the terminal's own box: the dial narrows that box to the rack's floor and
+ * every pixel of it is the rack's, and a stud clipped to that strip at the `map`
+ * detent takes the refusal with it — the one place the refusal is the only
+ * feedback there is. It names
  * the chord it teaches — the live one, including a rebound one, so an operator
  * who changed the chord is never taught the wrong keys.
  *

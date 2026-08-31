@@ -16,10 +16,11 @@
   /* Positioned against the *body* — the shell hangs this off that box and not
      off the terminal. It may take no width in any flow, since a strip that did
      would narrow the pane and reflow a live agent; and it may not hang off the
-     terminal, because at the `map` detent that box is worth no pixels and clips
-     its own overflow, which would clip this stud — chord, rebind and refusal
-     alike — to nothing at precisely the position where the refusal is the only
-     feedback there is. The body is the one box the dial cannot collapse. */
+     terminal, because at the `map` detent that box is worth the rack's floor and
+     nothing more and clips its own overflow, which would clip this stud — chord,
+     rebind and refusal alike — into a strip the rack already fills, at precisely
+     the position where the refusal is the only feedback there is. The body is the
+     one box the dial cannot narrow. */
   position: absolute;
   top: var(--s-space-snug);
   right: 0;

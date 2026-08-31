@@ -198,7 +198,9 @@ its age, the bytes its terminal has not been handed yet, and how long it has bee
 quiet. It draws at one of three widths — bays, boards, studs — chosen by
 measuring its own region and by nothing else, and each narrow tier prints in
 visible text what it dropped. Nothing the world does moves the window: the region
-is a fixed basis over an exported floor rather than sized to its content, rows
+is a fixed basis over an exported floor — the same floor the dial reserves out
+of the map end at every position, so the region never closes to zero even at the
+`map` detent, where what gives way is the pane — rows
 are a fixed height in the order the runs were opened, and a landed run keeps its
 row until a press takes it away. There is exactly one animated element in it
 however many runs are live — one lamp for the whole rack — so a landing is

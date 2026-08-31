@@ -22,6 +22,7 @@ import {
   standDown,
   surfaces,
 } from "../src/panes/dial";
+import { RACK_FLOOR, RACK_GUTTER, RACK_RESERVE, tierFor } from "../src/rack/rack";
 import { collapsed, gesture, habitable, resizes } from "../src/panes/geometry";
 import { readPosition, writePosition } from "../src/panes/position";
 import { replaceSnapshot } from "../src/stores/snapshots";
@@ -86,8 +87,62 @@ describe("four detents, and free positions between them", () => {
       expect(map + terminal).toBe(WINDOW);
     }
     expect(sides(fractionOf("split"), WINDOW).map).toBe(512);
-    expect(sides(fractionOf("map"), WINDOW).terminal).toBe(0);
     expect(sides(fractionOf("terminal"), WINDOW).map).toBe(0);
+    // The far detent is the map's, and it is still not the whole window: what
+    // the terminal side keeps is what it owes the rack, and no more.
+    expect(sides(fractionOf("map"), WINDOW).terminal).toBe(RACK_RESERVE);
+    expect(sides(fractionOf("map"), WINDOW).map).toBe(WINDOW - RACK_RESERVE);
+  });
+
+  it("never closes the terminal side below what it owes the rack", () => {
+    // The criterion, at every position and not only at the detent: the region
+    // that says what every run in the window is doing is never clipped away, so
+    // supervising N runs keeps working at the one position where the map has
+    // everything else.
+    const REACH = 12;
+    for (const position of [0, 0.3, 0.5, 0.83, 0.97, 1]) {
+      const { terminal } = sides(position, WINDOW, REACH);
+      expect(terminal).toBeGreaterThanOrEqual(RACK_RESERVE);
+    }
+    // What is left for the region itself, once the terminal box's own padding is
+    // taken off it, is the rack's floor — and a region that wide draws.
+    const region = sides(fractionOf("map"), WINDOW, REACH).terminal - RACK_GUTTER;
+    expect(region).toBe(RACK_FLOOR);
+    expect(tierFor(region)).toBe("studs");
+    expect(RACK_RESERVE).toBe(RACK_FLOOR + RACK_GUTTER);
+  });
+
+  it("gives the reservation up rather than inverting the dial in a small body", () => {
+    // A body that cannot afford both: the rack is owed more than half of it. The
+    // floor gives way instead of turning the `map` detent into a terminal one —
+    // a floor that broke the control it was floored for would be worse than no
+    // floor at all.
+    const SMALL = 200;
+    const { map, terminal } = sides(fractionOf("map"), SMALL);
+    expect(map + terminal).toBe(SMALL);
+    expect(terminal).toBeLessThan(RACK_RESERVE);
+    expect(map).toBeGreaterThanOrEqual(terminal);
+    // And a map side that had pixels before the floor existed still has them, at
+    // every width down to one.
+    for (const width of [1, 2, 40, 150, 200, 336, 1024]) {
+      expect(sides(fractionOf("map"), width).map).toBeGreaterThan(0);
+      expect(sides(fractionOf("terminal"), width).map).toBe(0);
+    }
+  });
+
+  it("floors the terminal side with the same pixels the stylesheets author", () => {
+    // The gutter is `--s-space-base`, and it is a number here because the dial
+    // measures nothing and reads no stylesheet. Pinned against the token so the
+    // arithmetic and the layout cannot drift apart.
+    const primitive = readFileSync(join(REPO_ROOT, "src/styles/tokens/primitive.css"), "utf8");
+    const semantic = readFileSync(join(REPO_ROOT, "src/styles/tokens/semantic.css"), "utf8");
+    const shell = readFileSync(join(REPO_ROOT, "src/App.tsx"), "utf8");
+    expect(semantic).toContain("--s-space-base: var(--p-space-4)");
+    expect(primitive).toContain(`--p-space-4: ${RACK_GUTTER}px`);
+    // And the cap on the map side is the same one number, not a second copy of
+    // it: a width `sides()` prints that the flexbox does not produce is the one
+    // failure this module's comments exist to prevent.
+    expect(shell).toContain("dialReach + RACK_RESERVE");
   });
 
   it("gives the dial's own column to neither side", () => {
@@ -111,11 +166,14 @@ describe("four detents, and free positions between them", () => {
     }
     expect(sides(fractionOf("split"), WINDOW, REACH)).toEqual({ map: 512, terminal: 500 });
     expect(sides(fractionOf("terminal"), WINDOW, REACH)).toEqual({ map: 0, terminal: 1012 });
-    // At `map` there is no terminal side left to take the seam out of, so the
-    // map side gives it up rather than the line overflowing: the dial stays on
-    // screen at the one detent whose whole justification is that you can leave
-    // it.
-    expect(sides(fractionOf("map"), WINDOW, REACH)).toEqual({ map: 1012, terminal: 0 });
+    // At `map` the terminal side has only the rack's reserve left, so the seam
+    // comes out of the map side rather than the line overflowing: the dial stays
+    // on screen at the one detent whose whole justification is that you can
+    // leave it, and the rack stays standing beside it.
+    expect(sides(fractionOf("map"), WINDOW, REACH)).toEqual({
+      map: WINDOW - REACH - RACK_RESERVE,
+      terminal: RACK_RESERVE,
+    });
   });
 });
 
@@ -207,18 +265,20 @@ describe("a view below its floor stands down, and nothing switches by itself", (
   });
 
   it("stands the view down in the band the dial's own column takes", () => {
-    // A body only just wider than the Route's floor, and the dial's column eats
-    // the difference: at the `map` detent the map side is 418px, not 430. The
-    // reach-blind answer here is `null` — the view drawn below its floor with
-    // nothing on screen saying so — which is the one thing that never happens.
-    const body = VIEW_FLOORS.route + 10;
+    // A body only just wider than the Route's floor and the rack's reserve, and
+    // the dial's column eats the difference: at the `map` detent the map side is
+    // 418px, not 430. The reach-blind answer here is `null` — the view drawn
+    // below its floor with nothing on screen saying so — which is the one thing
+    // that never happens.
+    const body = VIEW_FLOORS.route + RACK_RESERVE + 10;
     const reach = 12;
     expect(sides(fractionOf("map"), body, reach).map).toBeLessThan(VIEW_FLOORS.route);
 
     const standing = standDown("route", fractionOf("map"), body, VIEWS, VIEW_FLOORS, reach);
     expect(standing).not.toBeNull();
-    // `has` is the pixels the map side actually gets, dial column excluded.
-    expect(standing?.has).toBe(body - reach);
+    // `has` is the pixels the map side actually gets, dial column and rack's
+    // reserve excluded.
+    expect(standing?.has).toBe(body - reach - RACK_RESERVE);
     // No detent honours the floor, so the widen exit is offered and says so
     // rather than sending the operator to a `map` detent that cannot help.
     expect(surfaces(VIEW_FLOORS.route, body, reach)).toBeNull();

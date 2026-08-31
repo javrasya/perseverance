@@ -47,7 +47,11 @@ still there, still pressable, shaped differently rather than merely tinted, and
 pressing it *surfaces and opens* — one press, two consequences, both asked for.
 
 **One resize per gesture, and a collapse is not a size.** The dial's `map`
-detent gives the terminal side no pixels at all. The pane stays mounted — the
+detent gives the *pane* no pixels at all: the terminal side keeps what it owes
+the rack — `RACK_RESERVE`, the rack's floor plus its own padding, reserved out of
+the map end by `sides()` at every position and not only at the detent, so the
+rack stands in studs rather than closing to zero (ADR 0025) — and the pane is
+what the collapse takes. The pane stays mounted — the
 node is never unmounted, remounted or reparented by a dial move, because an
 xterm instance *is* the terminal and the harness holds bytes rather than screens
 — but a box with no width still measures, as zero or as `NaN`. A settled

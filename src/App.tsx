@@ -86,6 +86,7 @@ import {
 } from "./panes/dial";
 import { currentState, install, type ActionId, type Handlers, type KeyState } from "./keys/router";
 import { clearance, peekWidth } from "./panes/peek";
+import { RACK_RESERVE } from "./rack/rack";
 import { readPosition, writePosition } from "./panes/position";
 import { useBodyBox } from "./panes/useBodyBox";
 import { usePeek } from "./panes/usePeek";
@@ -1243,16 +1244,23 @@ export function App() {
             style={{
               flexBasis: `${clamp(position) * 100}%`,
               /*
-                The dial's own column, kept out of the map side's share — the same
-                correction `sides()` makes to the number it prints, made to the box
-                that number is about. At the `map` detent a basis of 100% puts the
-                seam and the terminal's padding past the body's clip edge, and the
-                column that goes over it is the dial's: the one control that brings
-                back everything the position shed. Measured rather than named,
-                because `--c-dial-reach` is declared on the dial and this box is
-                not one of its descendants.
+                The dial's own column and the rack's floor, both kept out of the
+                map side's share — the same two corrections `sides()` makes to the
+                number it prints, made to the box that number is about. At the
+                `map` detent a basis of 100% puts the seam and the terminal's
+                padding past the body's clip edge, and the column that goes over it
+                is the dial's: the one control that brings back everything the
+                position shed.
+
+                The reach is measured rather than named, because `--c-dial-reach`
+                is declared on the dial and this box is not one of its
+                descendants. The reserve is `RACK_RESERVE` for the opposite
+                reason: it is not a measurement at all but what the terminal side
+                owes the rack at every position, and at the `map` detent it is the
+                difference between a rack standing in studs and a region clipped
+                to nothing.
               */
-              maxWidth: `calc(100% - ${dialReach}px)`,
+              maxWidth: `calc(100% - ${dialReach + RACK_RESERVE}px)`,
             }}
           >
           {/*
@@ -1268,7 +1276,11 @@ export function App() {
             style={
               peeking.held === null
                 ? undefined
-                : { right: `${dialReach}px`, bottom: `${clearance(promptShown)}px` }
+                : // The promoted layer stops where the map side's own cap does:
+                  // the dial's column and the rack's floor. A glance sheds
+                  // exactly the columns the `map` detent sheds, and the rack
+                  // keeps saying what every run is doing while the peek is up.
+                  { right: `${dialReach + RACK_RESERVE}px`, bottom: `${clearance(promptShown)}px` }
             }
           >
           {columns.includes("launcher") ? (
@@ -1421,9 +1433,10 @@ export function App() {
           {/*
             The terminal, on the far side of the dial.
 
-            Mounted at every position, including `map`, where it is worth no pixels
-            at all: a dial move collapses this box by width and never unmounts,
-            remounts or reparents the node inside it. A terminal taken out of the
+            Mounted at every position, including `map`, where this box is worth
+            the rack's floor and the pane inside it is worth no pixels at all: a
+            dial move collapses the pane by width and never unmounts, remounts or
+            reparents the node inside it. A terminal taken out of the
             tree is a screen the harness has no way to put back, so *collapsed* and
             *gone* have to be different things.
 
@@ -1493,10 +1506,11 @@ export function App() {
             pane, and a terminal narrowed by a piece of chrome is a live agent
             reflowed by a decoration — so it has to be absolutely positioned
             against something. The terminal is the wrong something: at the `map`
-            detent the terminal's box is worth no pixels and clips its own
-            overflow, so a stud hung there is clipped to nothing at exactly the
-            position where the refusal it prints is the only feedback there is.
-            The body is the box the dial cannot collapse, and it is already the
+            detent that box is worth the rack's floor and nothing more and clips
+            its own overflow, so a stud hung there is clipped into a strip the rack
+            already fills, at exactly the position where the refusal it prints is
+            the only feedback there is.
+            The body is the box the dial cannot narrow, and it is already the
             peek overlay's containing block, so the stud and the overlay are
             measured against the same edges.
           */}

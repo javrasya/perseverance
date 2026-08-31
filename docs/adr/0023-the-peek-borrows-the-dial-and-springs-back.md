@@ -26,7 +26,9 @@ Four decisions were not obvious.
 **A peek borrows the real view rather than drawing a glance plate of its own.**
 The map side that snaps down is the same DOM, the same view instance and the
 same model as the one the dial divides — promoted out of flow, over the terminal,
-at the width the `map` detent would give. A purpose-built plate — a compact
+at the width the `map` detent gives — the body less the dial's column and less
+what the terminal side owes the rack, so a glance sheds exactly the columns the
+detent sheds and the rack keeps standing beside it. A purpose-built plate — a compact
 summary of the frontier, drawn only for glances — was the tempting alternative
 and was rejected: at map width **no view stands down**, so the borrowed view is
 the *biggest* map the window can give, and a resolved ticket recedes in salience

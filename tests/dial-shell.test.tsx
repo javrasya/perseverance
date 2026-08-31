@@ -258,7 +258,7 @@ describe("the spine survives every position of the dial", () => {
     }
   });
 
-  it("leaves the terminal mounted even where it is worth no pixels", async () => {
+  it("leaves the terminal mounted even where the pane is worth no pixels", async () => {
     await boot();
     const terminal = document.querySelector('[aria-label="Terminal"]');
 
