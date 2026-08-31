@@ -6,6 +6,8 @@
    * the layout, so that ticket has one declaration to find.
    */
   --c-app-terminal-width: 34rem;
+  /* The crossing's own strip, and the same story: a width #52's dial replaces. */
+  --c-app-rail-width: 13rem;
 
   display: flex;
   height: 100%;
@@ -70,6 +72,26 @@
   min-height: 0;
   padding: var(--s-space-base);
   overflow: auto;
+}
+
+/*
+ * The crossing: the four verbs, at the seam between what the map says and what
+ * a run is doing about it. A fixed strip and never a conditional one — the rail
+ * is on screen with no map open, saying so in each socket, because a rail able
+ * to vanish is a rail nobody can look to for what is startable.
+ *
+ * It scrolls its own box for the same reason the view and the drop region do: a
+ * strip stretched past the window would push the readout off the bottom, and a
+ * stamp may never go there.
+ */
+.rail {
+  display: flex;
+  flex: 0 0 var(--c-app-rail-width);
+  min-width: 0;
+  min-height: 0;
+  padding: var(--s-space-base) var(--s-space-snug);
+  overflow: auto;
+  border-left: var(--s-border-hairline) solid var(--s-line-quiet);
 }
 
 /*

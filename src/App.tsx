@@ -71,6 +71,9 @@ import { Route } from "./views/route/Route.jsx";
    arithmetic, `chrome/Ledger.tsx` is the component, and an extensionless
    specifier finds the first of the two. */
 import { Ledger } from "./chrome/Ledger.jsx";
+/* `Sockets.jsx` for the third time and the same reason: `chrome/sockets.ts` is
+   the derivation and `chrome/Sockets.tsx` is the rendering. */
+import { Sockets } from "./chrome/Sockets.jsx";
 import { useDefaultView } from "./views/useDefaultView";
 import styles from "./App.module.css";
 
@@ -678,6 +681,25 @@ export function App() {
             />
           </div>
         )}
+
+        {/*
+          The crossing, between what the map says and the run that answers it.
+
+          Chrome at a fixed address, exactly like the ledger and for the same
+          reason: the four verbs are true of every view, and no view is handed
+          the folder's environment or a command to invoke. The rail reads the
+          frontier off `model.map` — the one resolver's answer — and never off a
+          row of whatever is on screen beside it.
+        */}
+        <div className={styles.rail}>
+          <Sockets
+            frontier={snapshot.model.map?.frontier ?? null}
+            selection={selectedNode}
+            adapters={folderEnvironment?.adapters ?? []}
+            folder={selectedPath ?? null}
+            onSelect={select}
+          />
+        </div>
 
         {/*
           The terminal, in a fixed split beside the view.

@@ -1,0 +1,145 @@
+/*
+ * Tier 3 — component tokens, defined from semantic tokens only.
+ *
+ * There is no `transition`, no `animation` and no `@keyframes` in this file.
+ * `checking…` is a word and not a movement: motion in this app is rationed to
+ * liveness, and a button that pulses while it waits is a button an operator has
+ * to watch instead of read. Nothing here carries a distinction by motion, so
+ * the reduced-motion guard has nothing of this rail to switch off.
+ */
+
+/*
+ * The rail is the layout, and it does not move.
+ *
+ * Four boxes stacked in one order, always all four, each as wide as the rail. A
+ * recessed socket keeps its box, so filling or recessing one moves nothing else
+ * on screen — which is the whole reason a socket is a box of the rail's width
+ * rather than a box the size of its own words.
+ */
+.rail {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: var(--s-space-snug);
+  align-content: start;
+}
+
+.socket {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--s-space-hair);
+}
+
+/*
+ * The button is the ink. Filled and recessed are the same box in different ink:
+ * the border stays, the padding stays, and what changes is the colour and the
+ * cursor — never the size, and never whether the control is there at all.
+ */
+.button {
+  --c-socket-line: var(--s-line-strong);
+  --c-socket-fill: var(--s-surface-raised);
+  --c-socket-ink: var(--s-ink-primary);
+
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: var(--s-space-tight);
+  padding: var(--s-space-tight) var(--s-space-snug);
+  border: var(--s-border-hairline) solid var(--c-socket-line);
+  border-radius: var(--s-radius-control);
+  background: var(--c-socket-fill);
+  color: var(--c-socket-ink);
+  font: inherit;
+  font-size: var(--s-text-small);
+  cursor: pointer;
+}
+
+.button:hover {
+  --c-socket-fill: var(--s-surface-hover);
+}
+
+.button:focus-visible {
+  outline: var(--s-border-emphasis) solid var(--s-focus-ring);
+  outline-offset: -2px;
+}
+
+/*
+ * Recessed: sunk into the rail, still legible, still focusable. The ink is the
+ * faint one rather than a lower opacity, so the condition printed under it
+ * stays at full contrast — the sentence is the point of the state.
+ */
+.button[aria-disabled="true"] {
+  --c-socket-line: var(--s-line-absent);
+  --c-socket-fill: var(--s-surface-sunken);
+  --c-socket-ink: var(--s-ink-faint);
+
+  cursor: default;
+}
+
+/*
+ * `checking…` is neither filled nor recessed, and it says so in ink: the box
+ * keeps its edge — the condition to press it is met — and only the word and the
+ * cursor change.
+ */
+.socket[data-fill="checking"] .button {
+  --c-socket-line: var(--s-line-strong);
+  --c-socket-ink: var(--s-ink-secondary);
+}
+
+.verb {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The number the socket is armed on, in the mono face every machine fact wears. */
+.target {
+  color: var(--s-ink-secondary);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-micro);
+}
+
+/*
+ * The condition that would fill the socket, and the harness's own sentence.
+ * Both are visible text under the button and neither is ever a `title`: a
+ * reason only a hover can reach is a reason a keyboard and a screen reader do
+ * not have.
+ */
+.condition {
+  margin: 0;
+  color: var(--s-ink-faint);
+  font-size: var(--s-text-micro);
+}
+
+.note {
+  margin: 0;
+  color: var(--s-ink-secondary);
+  font-size: var(--s-text-micro);
+}
+
+/* Which agent this press starts. A choice at the crossing, not a setting. */
+.adapter {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-space-hair);
+  margin: 0;
+  color: var(--s-ink-faint);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-micro);
+}
+
+.adapterLabel {
+  font-family: var(--s-font-ui);
+  letter-spacing: var(--s-tracking-label);
+}
+
+.picker {
+  min-width: 0;
+  border: var(--s-border-hairline) solid var(--s-line-quiet);
+  border-radius: var(--s-radius-chip);
+  background: var(--s-surface-raised);
+  color: var(--s-ink-secondary);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-micro);
+}
