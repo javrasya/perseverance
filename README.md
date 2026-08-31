@@ -346,6 +346,20 @@ operator's own shell resolves. It puts known-bad and known-good input through it
 own verdict function, so it catches both a check that has stopped detecting
 anything and one that would reject the prose arguing its own case.
 
+**The operator's repository is written in two places and nowhere else** —
+`npm run check:repo-writes` reads the non-test Rust of every crate and fails on a
+mutating `git` subcommand outside `worktree add` in `crates/worktree/`, on a
+forcing flag (`--force`, `-f`, `-B`, `--hard`, `-D`) in any `git` argv including
+that one, on a file opened for rewriting rather than appending in that crate, and
+on any mention of the tracked `.gitignore`. `docs/adr/0022` traded the old *the
+harness writes nothing inside the operator's repository* for a narrower bound —
+one directory this app created, one line appended to `.git/info/exclude` — and a
+bound decays one convenient `git fetch` at a time. It puts known-bad and
+known-good input through its own verdict function. Two things it cannot see, and
+its doc block says so: what the child session does to the checkout it was
+spawned in, which is the point of a work run, and a bare `fs::write` whose path
+came from the picked folder, which no scan of source text can honestly trace.
+
 **SMIL is prohibited** — `tests/no-smil.test.ts`. `prefers-reduced-motion` does
 not touch SMIL, so a liveness pulse authored that way survives the media query
 silently and breaks the still-state rule in the one state that matters. CSS

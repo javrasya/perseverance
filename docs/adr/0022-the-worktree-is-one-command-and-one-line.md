@@ -160,9 +160,17 @@ The invariant *the harness writes nothing inside the operator's repository* is
 gone, and it did not decay — it was spent, once, on the one thing that cannot be
 done from outside. What replaces it is narrower and checkable by reading one
 crate: **one directory this app created, and one line in a file git already
-treats as local-only**. If that bound ever needs enforcing rather than asserting,
-the idiom is there — a fourth `scripts/check-*.mjs` with a file allowlist, in the
-shape of `check-no-install-probing.mjs`.
+treats as local-only**. That bound is enforced rather than asserted:
+`npm run check:repo-writes` reads the non-test Rust of the whole workspace and
+refuses a mutating `git` subcommand outside `worktree add` in
+`crates/worktree/`, a forcing flag in any `git` argv including that one, a file
+opened for rewriting rather than appending in that crate, and any mention of the
+tracked `.gitignore`. It is honest about its edges, and its own doc block says so
+in full: the child session editing the operator's checkout is the point of a work
+run and no scan of this workspace bounds it, and a bare `fs::write` into the
+picked folder would need the path traced from `where_it_runs` to a call site,
+which is more than source text can say. What it does bound is every route the
+harness itself has ever taken into that repository.
 
 `perseverance-store` grew a public function that has nothing to do with the
 registry. That is the price of not writing git's directory layout down twice, and

@@ -102,6 +102,12 @@ jobs:
       - name: No install-location probing
         run: npm run check:no-install-probing
 
+      # The bound ADR 0022 traded the old invariant for: inside the operator's
+      # repository this app runs `git worktree add` and appends one line, and
+      # nothing it runs there is forced.
+      - name: Writes inside the operator's repository
+        run: npm run check:repo-writes
+
       - name: Frontend build
         run: npm run build
 
