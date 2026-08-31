@@ -10173,6 +10173,9 @@ mod tests {
         assert_eq!(ours["probed"]["publication"]["kind"], "unpushed");
         // Dirty, so no offer — and the boolean is the whole of what crosses.
         assert_eq!(ours["removable"], false);
+        // The other half of the count `tests/worktrees.test.ts` makes: a field
+        // added to `WorktreeEntry` and not to `entryFrom` fails here.
+        assert_eq!(ours.as_object().expect("an object").len(), 7);
 
         let main = wire
             .as_array()
