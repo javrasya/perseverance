@@ -3,6 +3,7 @@ import { DETENTS, type Detent } from "../../src/panes/dial";
 import {
   RACK_FLOOR,
   RACK_RESERVE,
+  SHOWN,
   TIER_FLOORS,
   regionFor,
   tierFor,
@@ -243,4 +244,123 @@ test.describe("the rack's width, at every detent", () => {
     expect(after.region).toBe(before.region);
     expect(after.tier).toBe(before.tier);
   });
+});
+
+/**
+ * The narrowest width each narrow tier is ever drawn at.
+ *
+ * `boards` starts at its own floor; `studs` is drawn from zero up, but the
+ * narrowest the *region* is ever laid out at is `RACK_FLOOR`, which is the width
+ * the `map` detent leaves it. So these are the two hardest rows in the app.
+ */
+const NARROW = [
+  { tier: "boards", floor: TIER_FLOORS.boards },
+  { tier: "studs", floor: RACK_FLOOR },
+] as const;
+
+/**
+ * Narrower than any glyph worth drawing, and wider than an ellipsis.
+ *
+ * A field shrunk until only `…` is left still has a box and still has text in
+ * it, so a spec that asked *is it there* would pass on one. This asks how wide
+ * it came out; the clipping check beside it is the sharper of the two, and this
+ * is the one that catches a field reduced to two characters of a word.
+ */
+const LEGIBLE = 12;
+
+/** One field of one row, as the browser drew it. */
+interface Said {
+  readonly field: string;
+  readonly width: number;
+  /**
+   * Its text is wider than its box — an ellipsis, or a word cut in half.
+   *
+   * A pixel of slack, because `scrollWidth` and `clientWidth` are integers
+   * rounded off a fractional layout in opposite directions; an ellipsis costs
+   * tens of pixels, so nothing this is looking for hides inside the rounding.
+   */
+  readonly clipped: boolean;
+  /** How far past the row's bottom edge it ended up. */
+  readonly below: number;
+  /** How far past the row's right edge it ended up. */
+  readonly beyond: number;
+}
+
+/**
+ * The region held at exactly one tier's floor.
+ *
+ * The flex basis is overridden rather than a viewport width hunted for, and the
+ * distinction matters: *how the region comes to be this wide* is what every
+ * other test in this file measures, walking the dial and checking the number
+ * against `regionFor`. This one is about what a row does once it is that wide,
+ * and a floor reached by binary-searching a window size would be the same
+ * question asked less exactly. The component measures its own box, so the tier
+ * still comes from a measurement and the row still comes from the tier.
+ */
+async function pinTo(page: Page, floor: number): Promise<void> {
+  await page.locator(RACK).evaluate((rack, width) => {
+    rack.style.flex = `0 0 ${width}px`;
+  }, floor);
+  await settled(page);
+}
+
+/** Every field of every row, measured — the row's own box is the frame. */
+async function fieldsOn(page: Page): Promise<Said[][]> {
+  return await page.locator(RACK).evaluate((rack) => {
+    const rows = [...rack.querySelectorAll("ol > li")];
+    if (rows.length === 0) throw new Error("the rack drew no rows");
+    return rows.map((row) => {
+      const frame = row.getBoundingClientRect();
+      return [...row.querySelectorAll("[data-field]")].map((span) => {
+        const box = span.getBoundingClientRect();
+        return {
+          field: span.getAttribute("data-field") ?? "",
+          width: box.width,
+          clipped: span.scrollWidth > span.clientWidth + 1,
+          below: box.bottom - frame.bottom,
+          beyond: box.right - frame.right,
+        };
+      });
+    });
+  });
+}
+
+test.describe("what a tier claims, at that tier's floor", () => {
+  for (const narrow of NARROW) {
+    test(`draws every field it kept, whole, at the ${narrow.tier} floor`, async ({ page }) => {
+      /*
+       * The other half of *each narrow tier prints what it dropped*. The
+       * sentence is derived from `SHOWN` and cannot name a field the tier draws
+       * — `tests/rack.test.tsx` pins that — but nothing there can see that a
+       * field the tier *kept* came out as an ellipsis or landed on a fourth flex
+       * line under the row's `overflow: hidden`. jsdom lays nothing out, so both
+       * read as present in `textContent` and neither is on the screen. A tier
+       * that keeps a field it cannot draw is ADR 0025's falsifier from the other
+       * end: the rack claiming something the operator cannot read.
+       */
+      await page.setViewportSize({ width: 1280, height: 720 });
+      await load(page, DEFAULT_VIEW, LIT);
+      await turnTo(page, "split");
+      await pinTo(page, narrow.floor);
+
+      await expect(page.locator(RACK)).toHaveAttribute("data-tier", narrow.tier);
+
+      const rows = await fieldsOn(page);
+      const drawn = [...new Set(rows.flat().map((said) => said.field))].sort();
+
+      /* Everything the tier promises is on a row somewhere. `ticket` is on the
+         rows that have one — a run staked on nothing draws no empty span, which
+         is why this is the union across rows rather than one row's list. */
+      expect(drawn).toEqual([...SHOWN[narrow.tier]].sort());
+
+      for (const said of rows.flat()) {
+        expect(said.clipped, `${said.field} came out clipped`).toBe(false);
+        expect(said.width, `${said.field} is too narrow to read`).toBeGreaterThanOrEqual(
+          LEGIBLE,
+        );
+        expect(said.below, `${said.field} is below the row`).toBeLessThanOrEqual(0.5);
+        expect(said.beyond, `${said.field} is past the row's edge`).toBeLessThanOrEqual(0.5);
+      }
+    });
+  }
 });
