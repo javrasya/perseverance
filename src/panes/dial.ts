@@ -101,11 +101,36 @@ export function nextDetent(position: number, direction: 1 | -1): Detent {
   return direction === 1 ? "map" : "terminal";
 }
 
-/** What each side is worth, in pixels, at this position of this window. */
-export function sides(position: number, width: number): { map: number; terminal: number } {
+/**
+ * What each side is worth, in pixels, at this position of this body box.
+ *
+ * `width` is the **body** — the box the dial divides, measured — and never the
+ * window: the map side is applied as a flex-basis percentage of that box, so
+ * `position × width` is not an estimate of the map side, it is the map side.
+ *
+ * `reach` is the dial's own column, which lives between the two sides and
+ * belongs to neither. It is a parameter here rather than a subtraction left to
+ * the callers because this is the one function that answers *what each side is
+ * worth*: a caller that forgot the correction would print a terminal side a
+ * dozen pixels wider than the pixels the terminal has, and the whole point of
+ * measuring the body was to stop the shell printing arithmetic. It defaults to
+ * `0` for the callers that only ever read `.map` — [`surfaces`], [`standDown`]
+ * — where the dial's column is on the other side of the number entirely.
+ *
+ * Map + reach + terminal is the body, exactly.
+ */
+export function sides(
+  position: number,
+  width: number,
+  reach = 0,
+): { map: number; terminal: number } {
   const usable = Math.max(0, Math.floor(width));
+  const between = Math.min(usable, Math.max(0, Math.round(reach)));
+  // The map side is the flex-basis, literally: a percentage of the body box.
+  // The terminal side is what is left once the dial's own column is taken out,
+  // and never less than nothing.
   const map = Math.round(usable * clamp(position));
-  return { map, terminal: usable - map };
+  return { map, terminal: Math.max(0, usable - between - map) };
 }
 
 /**
@@ -127,6 +152,16 @@ export type Column = (typeof COLUMNS)[number];
  * rail's four verbs are about the run that is already on the other side of the
  * dial, the launcher is how you get to a different map, and the view is the
  * reason the map side exists at all.
+ *
+ * The launcher's floor is the contested one, and it stands. #48 argues that the
+ * folder launcher may never disappear, and that is true of every reason a shell
+ * could have for hiding it — a map being open, a run being live, a view being
+ * up. None of those is this. This is width and nothing else: below 420px of
+ * *measured* map side the launcher's rows cannot be read, and the dial that
+ * brings them back is on screen at every position, one move away. A column shed
+ * by measurement and restored by one control is not a column that disappeared,
+ * so #48's claim is discharged rather than overridden, and the number is left
+ * where it is. `tests/dial.test.ts` pins both halves.
  */
 export const COLUMN_FLOORS: Record<Column, number> = {
   view: 260,
@@ -136,6 +171,20 @@ export const COLUMN_FLOORS: Record<Column, number> = {
 
 export function columnsAt(mapWidth: number): readonly Column[] {
   return COLUMNS.filter((column) => mapWidth >= COLUMN_FLOORS[column]);
+}
+
+/**
+ * How wide the body has to be before the detents are drawn with their names.
+ *
+ * The seam is a hairline in a 0.75rem column, so names on it cost the two sides
+ * a few pixels each; below this the ticks are drawn bare and the names stay
+ * where they already are, on the switcher and on the stand-down.
+ */
+export const NAME_FLOOR = 900;
+
+/** Whether the detent ticks can afford to be labelled in a body this wide. */
+export function namesFit(width: number): boolean {
+  return width >= NAME_FLOOR;
 }
 
 /**

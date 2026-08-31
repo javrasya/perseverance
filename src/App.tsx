@@ -68,7 +68,7 @@ import {
   type Detent,
 } from "./panes/dial";
 import { readPosition, writePosition } from "./panes/position";
-import { useWindowWidth } from "./panes/useWindowWidth";
+import { useBodyBox } from "./panes/useBodyBox";
 import { ViewSwitcher } from "./views/ViewSwitcher.jsx";
 import { VIEWS, type ViewName } from "./views/views";
 import { Pane } from "./terminal/Pane.jsx";
@@ -119,12 +119,16 @@ export function App() {
   const [preference, chooseTheme] = useTheme();
   const [view, chooseView] = useDefaultView();
   /*
-   * The window, measured, because the dial's every answer is *position × width*
-   * — what each side is worth, which columns are there for, and whether the open
-   * view can be drawn at all. Nothing here observes a box: the app's one
-   * `ResizeObserver` is the pane's, and it stays the only one.
+   * The body, measured, because the dial's every answer is *position × width* —
+   * what each side is worth, which columns are there for, and whether the open
+   * view can be drawn at all. The box measured is the one the position is a
+   * percentage *of*, so every pixel the shell prints is a pixel that is there.
+   * Nothing here observes a box: the app's one `ResizeObserver` is the pane's,
+   * and it stays the only one.
    */
-  const windowWidth = useWindowWidth();
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const dialRef = useRef<HTMLDivElement>(null);
+  const { width: bodyWidth, reach: dialReach } = useBodyBox(bodyRef, dialRef);
   /*
    * The two stores, read here and written in two different places.
    *
@@ -570,23 +574,23 @@ export function App() {
   const onChooseView = useCallback(
     (wanted: ViewName) => {
       const floor = floorOf(wanted);
-      if (!honours(floor, sides(position, windowWidth).map)) {
-        const detent: Detent = surfaces(floor, windowWidth) ?? "map";
+      if (!honours(floor, sides(position, bodyWidth, dialReach).map)) {
+        const detent: Detent = surfaces(floor, bodyWidth) ?? "map";
         moveTo(fractionOf(detent));
       }
       chooseView(wanted);
     },
-    [position, windowWidth, moveTo, chooseView],
+    [position, bodyWidth, dialReach, moveTo, chooseView],
   );
 
-  const mapWidth = sides(position, windowWidth).map;
+  const mapWidth = sides(position, bodyWidth, dialReach).map;
   const columns = columnsAt(mapWidth);
   /*
    * `null` means the open view can be drawn here. Anything else is the four
    * things the stand-down has to say, decided in the pure module and rendered
    * verbatim.
    */
-  const standing = standDown(view, position, windowWidth, VIEWS);
+  const standing = standDown(view, position, bodyWidth, VIEWS);
   /* The run whose bytes are on the pane, as the map side knows it — so a map
      rendered during a run and the run bar cannot disagree about which run. */
   const monitoredRun = runs.find((run) => run.run === monitored) ?? null;
@@ -732,7 +736,7 @@ export function App() {
         <ThemeSwitch preference={preference} onChoose={chooseTheme} />
       </header>
 
-      <div className={styles.body}>
+      <div className={styles.body} ref={bodyRef}>
         {/*
           Both at once, and neither is a mode. A map being open is not a reason
           to take the launcher off the screen: the map list is the only way to
@@ -918,7 +922,7 @@ export function App() {
           and putting it inside either would make it disappear whenever that one
           did.
         */}
-        <Dial position={position} onMove={moveTo} />
+        <Dial position={position} width={bodyWidth} elementRef={dialRef} onMove={moveTo} />
 
         <div className={styles.terminal}>
           <Pane terminals={terminals} readouts={runs} />

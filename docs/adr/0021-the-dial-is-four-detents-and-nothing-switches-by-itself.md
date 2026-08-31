@@ -74,6 +74,36 @@ back finds its terminal the size it left it.
 - The three integers, the frontier, the view switcher, the change ledger and the
   cache stamps live on the spine — the header and footer, outside the body the
   dial divides — so no position of the dial can take any of them off screen.
+- **The width every answer is a share of is the measured body box**, not the
+  window. The position is applied as a flex-basis percentage of the `.body`
+  element, so `position × body` *is* the map side rather than an estimate of it,
+  and the stand-down's *needs 420, has 307* is a measurement rather than
+  arithmetic about a box that is not on screen. It is measured with a ref and
+  `getBoundingClientRect()`, on a window resize and after every render — never
+  with a `ResizeObserver`, because the one observer in the app is the pane's and
+  it is the single path to a PTY resize. A box measuring under a pixel is a box
+  nobody has laid out yet (first paint, and jsdom), and there the window is the
+  fallback.
+- The dial's own column belongs to neither side. `sides(position, width, reach)`
+  takes it as an argument rather than leaving the subtraction to the callers,
+  because this is the one function that answers *what each side is worth*: a
+  caller that forgot would print a terminal a dozen pixels wider than the
+  terminal is. It defaults to `0` for the callers that only read the map side.
+- **The launcher sheds at 420px of map side, and that stands.** #48 argues that
+  the folder launcher may never disappear, and that is true of every *mode*
+  reason a shell could have — a map being open, a run being live, a view being
+  up. This is not one of those: it is measured width and nothing else, and the
+  dial is on screen at every position, so everything shed comes back with one
+  move of one control. A column shed by measurement and restored by one press is
+  not a column that disappeared, so #48's claim is discharged rather than
+  overridden and the number is left where it is.
+- **The four detents are drawn on the dial**, as ticks with their names where
+  the body is wide enough to afford them, marking the one the dial is at. They
+  run *down the seam* rather than across the body: a horizontal figure spanning
+  the window and growing as the dial moved would be a bar filling up, and
+  progress in this app is exactly three integers. Ticks are places, the hand is a
+  dot among them, and neither is focusable — the detent is already announced by
+  `aria-valuetext` on the separator itself.
 - The position is remembered **per map**, behind the two functions in
   `src/panes/position.ts`. A stored value that does not parse reads as absence
   and falls back to the default detent. With no map open there is no key and no
@@ -90,7 +120,14 @@ entry in each.
 Column shedding is by measured width and by nothing else, which means the
 launcher can be off screen at a narrow map side. That is a real loss — it is the
 only way to a different folder — and it is bounded by the dial being on screen at
-every position: everything shed comes back by moving one control.
+every position: everything shed comes back by moving one control. Both halves of
+that bargain are pinned in `tests/dial.test.ts`, so a later change that sheds the
+launcher without giving it back fails rather than argues.
+
+Measuring the body makes the shell's pixel numbers checkable against the screen
+instead of against `window.innerWidth`, and it costs one layout read per render.
+It buys the honesty the stand-down is for: the number beside *has* is the number
+the view would have been drawn into.
 
 The per-map memory is `localStorage` today. The later slice of #52 that moves it
 into the Rust `map_view` table changes `src/panes/position.ts` and nothing else.

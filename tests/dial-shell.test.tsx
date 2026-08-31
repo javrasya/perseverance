@@ -129,6 +129,36 @@ describe("the spine survives every position of the dial", () => {
   });
 });
 
+describe("the four detents are drawn on the dial, and none of them is a fill", () => {
+  const seam = () => document.querySelector('[role="separator"]');
+
+  it("draws a tick for every detent and marks the one the dial is at", async () => {
+    await boot();
+
+    for (const detent of DETENTS) {
+      await put(detent);
+      const ticks = seam()?.querySelectorAll("[data-here]") ?? [];
+      expect(ticks, `no ticks at ${detent}`).toHaveLength(DETENTS.length);
+      const here = [...ticks].filter((tick) => tick.getAttribute("data-here") === "true");
+      expect(here, `nothing marked at ${detent}`).toHaveLength(1);
+      // Named where the body can afford it, which jsdom's 1024 can.
+      expect(here[0]?.textContent).toBe(detent);
+    }
+  });
+
+  it("marks no tick at a free position, and adds no stops to the tab order", async () => {
+    await boot();
+    await put(0.71);
+
+    const ticks = seam()?.querySelectorAll("[data-here]") ?? [];
+    expect([...ticks].some((tick) => tick.getAttribute("data-here") === "true")).toBe(false);
+    // The detent is announced on the separator itself; the drawing is for the
+    // eye, and a tick that were focusable would be a control nobody asked for.
+    expect(seam()?.querySelectorAll("[tabindex], button, a")).toHaveLength(0);
+    expect(seam()?.getAttribute("aria-valuetext")).toBe("71% to the map");
+  });
+});
+
 describe("a view below its floor stands down, in words", () => {
   it("names the view, the reason, what it needs and what it has", async () => {
     await boot();

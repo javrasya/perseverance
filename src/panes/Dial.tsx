@@ -1,5 +1,15 @@
-import { useRef, type KeyboardEvent, type PointerEvent } from "react";
-import { STEP, clamp, detentAt, fractionOf, nextDetent, snap, type Detent } from "./dial";
+import { useRef, type KeyboardEvent, type PointerEvent, type RefObject } from "react";
+import {
+  DETENTS,
+  STEP,
+  clamp,
+  detentAt,
+  fractionOf,
+  namesFit,
+  nextDetent,
+  snap,
+  type Detent,
+} from "./dial";
 import styles from "./Dial.module.css";
 
 /**
@@ -14,15 +24,27 @@ import styles from "./Dial.module.css";
  * and this is the seam itself. The value is announced as the detent it is at,
  * so a screen reader hears *split* rather than *fifty*.
  *
+ * The four detents are drawn on it as ticks, because a place a sighted operator
+ * cannot see is a place only the screen reader knows about. The ladder runs down
+ * the seam rather than across the body on purpose: a horizontal picture of the
+ * split, spanning the window and growing as the dial moves, is a bar filling up,
+ * and this app accounts for progress in exactly three integers. Ticks are places.
+ *
  * The spring-loaded peek is not here. It is the next slice of #52, and the seam
  * it will need is this component's one gesture-owning ref plus a position the
  * store already holds; nothing here has to move for it to arrive.
  */
 export function Dial({
   position,
+  width,
+  elementRef,
   onMove,
 }: {
   position: number;
+  /** The measured body, so the ticks know whether their names fit. */
+  width: number;
+  /** The seam itself, for the shell that measures how wide its column is. */
+  elementRef?: RefObject<HTMLDivElement | null>;
   /** Where the operator has put it. Called on every frame of a drag. */
   onMove: (position: number) => void;
 }) {
@@ -30,6 +52,7 @@ export function Dial({
 
   const at = detentAt(position);
   const percent = Math.round(clamp(position) * 100);
+  const named = namesFit(width);
 
   const move = (event: PointerEvent<HTMLDivElement>) => {
     const box = event.currentTarget.parentElement?.getBoundingClientRect();
@@ -70,7 +93,9 @@ export function Dial({
 
   return (
     <div
+      ref={elementRef}
       className={styles.dial}
+      data-named={named ? "true" : "false"}
       role="separator"
       tabIndex={0}
       aria-label="Dial: how much of the window the map has"
@@ -109,6 +134,25 @@ export function Dial({
         even about the map.
       */}
       <span className={styles.grip} aria-hidden="true" />
+      {/*
+        The four places, and where the hand is among them. For the eye only: the
+        detent is already announced on the separator itself by `aria-valuetext`,
+        and a tick that were focusable would put four more stops in the tab order
+        of a control that already reaches every one of them from the keyboard.
+      */}
+      <span className={styles.ladder} aria-hidden="true">
+        {DETENTS.map((detent) => (
+          <span
+            key={detent}
+            className={styles.tick}
+            data-here={at === detent ? "true" : "false"}
+            style={{ top: `${fractionOf(detent) * 100}%` }}
+          >
+            {named ? <span className={styles.name}>{detent}</span> : null}
+          </span>
+        ))}
+        <span className={styles.hand} style={{ top: `${percent}%` }} />
+      </span>
     </div>
   );
 }

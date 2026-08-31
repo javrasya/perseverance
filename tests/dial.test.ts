@@ -4,6 +4,7 @@ import {
   COLUMN_FLOORS,
   DEFAULT_DETENT,
   DETENTS,
+  NAME_FLOOR,
   VIEW_FLOORS,
   clamp,
   columnsAt,
@@ -11,6 +12,7 @@ import {
   fractionOf,
   fittingViews,
   honours,
+  namesFit,
   nextDetent,
   sides,
   snap,
@@ -83,6 +85,30 @@ describe("four detents, and free positions between them", () => {
     expect(sides(fractionOf("map"), WINDOW).terminal).toBe(0);
     expect(sides(fractionOf("terminal"), WINDOW).map).toBe(0);
   });
+
+  it("gives the dial's own column to neither side", () => {
+    const REACH = 12;
+    for (const detent of DETENTS) {
+      const bare = sides(fractionOf(detent), WINDOW);
+      const { map, terminal } = sides(fractionOf(detent), WINDOW, REACH);
+      // The map side is the flex-basis and the reach does not touch it.
+      expect(map).toBe(bare.map);
+      expect(terminal).toBeGreaterThanOrEqual(0);
+    }
+    // Map + seam + terminal is the body, exactly — except at the end detent,
+    // where one side is worth the whole body and there is nothing left to take
+    // the seam out of.
+    expect(sides(fractionOf("split"), WINDOW, REACH)).toEqual({ map: 512, terminal: 500 });
+    expect(sides(fractionOf("terminal"), WINDOW, REACH)).toEqual({ map: 0, terminal: 1012 });
+    expect(sides(fractionOf("map"), WINDOW, REACH).terminal).toBe(0);
+  });
+});
+
+describe("the detent ticks are named only where the body can afford it", () => {
+  it("names them in a wide body and draws them bare in a narrow one", () => {
+    expect(namesFit(NAME_FLOOR)).toBe(true);
+    expect(namesFit(NAME_FLOOR - 1)).toBe(false);
+  });
 });
 
 describe("columns are shed by measured width and by nothing else", () => {
@@ -98,6 +124,22 @@ describe("columns are shed by measured width and by nothing else", () => {
 
   it("sheds nothing at the floor itself", () => {
     expect(columnsAt(COLUMN_FLOORS.rail)).toContain("rail");
+  });
+
+  /*
+   * The launcher's floor is the one #48 argues against, and it stands: the
+   * shedding is by width alone and one dial move undoes it. Both halves are the
+   * decision — a test that only pinned the shedding would be pinning half of an
+   * argument.
+   */
+  it("sheds the launcher below its floor and has it back at the next detent up", () => {
+    const glance = sides(fractionOf("glance"), WINDOW).map;
+    const split = sides(fractionOf("split"), WINDOW).map;
+    expect(glance).toBeLessThan(COLUMN_FLOORS.launcher);
+    expect(columnsAt(glance)).not.toContain("launcher");
+
+    expect(split).toBeGreaterThanOrEqual(COLUMN_FLOORS.launcher);
+    expect(columnsAt(split)).toContain("launcher");
   });
 });
 
