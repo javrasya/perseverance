@@ -46,7 +46,19 @@
  * the list carries on past it. Owning the scrollport is what keeps the frame a
  * frame: the content moves inside the border rather than across it.
  */
+/*
+ * `position: relative` is the peek's whole geometry, and it is here rather than
+ * on the map side on purpose: the promoted map side is positioned against *the
+ * body*, so `left: 0` and a right offset of the dial's own column give it the
+ * full map width — the width the `map` detent gives — without a pixel of
+ * arithmetic in the shell, and without the map side's own box moving.
+ *
+ * It also means the map side's `overflow: hidden` does not clip the promoted
+ * layer: an absolutely positioned box is only clipped by an ancestor in its own
+ * containing-block chain, and an unpositioned map side is not in it.
+ */
 .body {
+  position: relative;
   display: flex;
   flex: 1;
   min-height: 0;
@@ -95,6 +107,44 @@
   overflow: hidden;
 }
 
+/*
+ * The columns of the map side, in the box that is promoted for a peek.
+ *
+ * It exists so that *the same subtree* can be drawn somewhere else without the
+ * map side's own box moving: in rest it is the map side, filled; while the
+ * spring is held it is lifted out of flow and spans the body at map width, and
+ * the flex line underneath — map side, dial, terminal — is untouched, so the
+ * terminal's box keeps its geometry, the pane's `ResizeObserver` has nothing to
+ * report, and no PTY is resized. Zero pixels reflow.
+ */
+.inside {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/*
+ * The peek: an occlusion, never a displacement.
+ *
+ * The right offset (the dial's measured column) and the bottom offset (the
+ * cleared rows, from `src/panes/peek.ts`) are inline, because both are measured
+ * numbers rather than constants — and the bottom one is the reason the operator
+ * can still see the row they are typing into.
+ */
+.peeking {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 3;
+  border-right: var(--s-border-emphasis) solid var(--s-accent);
+  border-bottom: var(--s-border-hairline) solid var(--s-line-quiet);
+  /* Opaque: a glance you can read the terminal through is two screens at once
+     and neither of them legible. */
+  background: var(--s-surface-app);
+}
+
 /* Which run is on the pane, said on the map side. Quiet: it is a fact about
    the window, not a fifth number about the map. */
 .run {
@@ -133,6 +183,9 @@
  * to measure a box with no width, so a collapse reflows no live agent.
  */
 .terminal {
+  /* The stud is hung on this edge and takes no space in the flow: a strip that
+     narrowed the pane would be a decoration that resized a live agent. */
+  position: relative;
   display: flex;
   flex: 1 1 0;
   min-width: 0;

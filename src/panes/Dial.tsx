@@ -30,19 +30,24 @@ import styles from "./Dial.module.css";
  * split, spanning the window and growing as the dial moves, is a bar filling up,
  * and this app accounts for progress in exactly three integers. Ticks are places.
  *
- * The spring-loaded peek is not here. It is the next slice of #52, and the seam
- * it will need is this component's one gesture-owning ref plus a position the
- * store already holds; nothing here has to move for it to arrive.
+ * The spring-loaded peek **borrows** this control rather than moving it: while
+ * the spring is held the dial reads as `map`, because that is what is on screen,
+ * and the position it is drawn from is untouched. A dial that announced the
+ * remembered position while the map covered the window would be the one lie a
+ * `role="separator"` with a value exists to prevent.
  */
 export function Dial({
   position,
   width,
+  peeking = false,
   elementRef,
   onMove,
 }: {
   position: number;
   /** The measured body, so the ticks know whether their names fit. */
   width: number;
+  /** Whether a peek has it at map width. Borrowed, never stored. */
+  peeking?: boolean;
   /** The seam itself, for the shell that measures how wide its column is. */
   elementRef?: RefObject<HTMLDivElement | null>;
   /** Where the operator has put it. Called on every frame of a drag. */
@@ -50,8 +55,10 @@ export function Dial({
 }) {
   const held = useRef(false);
 
-  const at = detentAt(position);
-  const percent = Math.round(clamp(position) * 100);
+  // What is on screen, which during a peek is not where the dial is remembered.
+  const shown = peeking ? fractionOf("map") : position;
+  const at = detentAt(shown);
+  const percent = Math.round(clamp(shown) * 100);
   const named = namesFit(width);
 
   const move = (event: PointerEvent<HTMLDivElement>) => {

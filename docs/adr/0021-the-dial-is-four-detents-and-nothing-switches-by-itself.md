@@ -132,6 +132,8 @@ the view would have been drawn into.
 The per-map memory is `localStorage` today. The later slice of #52 that moves it
 into the Rust `map_view` table changes `src/panes/position.ts` and nothing else.
 
-The spring-loaded peek is deliberately not here. It is the next slice, and what
-this one leaves it is a position the store already holds and one component that
-owns the gesture.
+The spring-loaded peek is not here. It was the next slice, and what this one left
+it — a position the store already holds and one component that owns the gesture —
+is exactly what it took:
+[ADR 0022](0022-the-peek-borrows-the-dial-and-springs-back.md) is the glance that
+borrows this dial without moving it.

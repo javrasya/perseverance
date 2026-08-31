@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react";
 import { DEFAULT_DETENT, clamp, fractionOf } from "../panes/dial";
+import type { PeekSource } from "../panes/peek";
 import { readDefaultView, writeDefaultView, type ViewName } from "../views/views";
 import { readable } from "./readable";
 
@@ -20,11 +21,12 @@ import { readable } from "./readable";
  *
  * The fields are the ones this slice actually has. The dial arrived as
  * `position` — one number, because a detent is a named position rather than a
- * mode — and **the peek, the warm surface and the rack binding are still not
- * declared here**: they are #52's next slice, #55's and #56's, and a field with
- * one legal value invented now would be making those tickets' decisions early.
- * What the shape settles is only that when they arrive, they arrive *here*
- * rather than beside a snapshot.
+ * mode — and the peek arrived beside it as `peeking`, a *separate* field for the
+ * reason the whole gesture exists: a glance borrows the dial and may not move
+ * it. The warm surface and the rack binding are still not declared here — they
+ * are #55's and #56's, and a field with one legal value invented now would be
+ * making those tickets' decisions early. What the shape settles is only that
+ * when they arrive, they arrive *here* rather than beside a snapshot.
  */
 export interface Ui {
   /** Which view is on screen. App-global and remembered across launches. */
@@ -42,6 +44,14 @@ export interface Ui {
    * may not move it, and this is the store a poll cannot write.
    */
   position: number;
+  /**
+   * The spring-loaded glance, while it is held.
+   *
+   * Beside `position` and never inside it: the peek reads as `map` on screen
+   * while the dial's remembered position is untouched, so a glance rearranges
+   * nothing and springs back to exactly the room it borrowed.
+   */
+  peeking: Peeking;
   /** The pane, in characters. One geometry for every live run. */
   geometry: Geometry;
   /**
@@ -52,6 +62,25 @@ export interface Ui {
    */
   dragging: boolean;
 }
+
+/**
+ * What a peek is on screen, and the whole of what this store keeps about one.
+ *
+ * The spring's own machine — the beat of the auto-repeat, why it last released
+ * — lives in `src/panes/peek.ts` and is stepped in a ref, because a store write
+ * per repeat keydown would re-render the window thirty times a second for a
+ * number nothing draws. These three are the drawn facts and nothing else.
+ */
+export interface Peeking {
+  /** What is holding the spring, or nothing. */
+  held: PeekSource | null;
+  /** The app claimed the chord, and the run underneath never saw it. */
+  swallowed: boolean;
+  /** Why a hold gave nothing, in words. Never silence. */
+  refused: string | null;
+}
+
+export const NOT_PEEKING: Peeking = { held: null, swallowed: false, refused: null };
 
 /** A pane size, in characters. The same pair Rust holds, and the only pair. */
 export interface Geometry {
@@ -72,6 +101,7 @@ const [store, replace] = readable<Ui>({
    * when a map is opened — a store initialiser has no map to ask about.
    */
   position: fractionOf(DEFAULT_DETENT),
+  peeking: NOT_PEEKING,
   geometry: OPENING,
   dragging: false,
 });
@@ -118,6 +148,24 @@ export function chooseView(view: ViewName): void {
 export function moveDial(position: number): void {
   const wanted = clamp(position);
   change((current) => (current.position === wanted ? current : { ...current, position: wanted }));
+}
+
+/**
+ * What the spring is doing, drawn.
+ *
+ * Deliberately not a call to [`moveDial`]: a peek shows the map side at map
+ * width without the dial having moved, and nothing here reaches
+ * `src/panes/position.ts`. A glance that wrote the per-map memory would leave
+ * the room rearranged after the operator let go.
+ */
+export function showPeek(peeking: Peeking): void {
+  change((current) => {
+    const same =
+      current.peeking.held === peeking.held &&
+      current.peeking.swallowed === peeking.swallowed &&
+      current.peeking.refused === peeking.refused;
+    return same ? current : { ...current, peeking };
+  });
 }
 
 export function select(selection: number | null): void {

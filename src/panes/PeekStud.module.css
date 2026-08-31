@@ -1,0 +1,95 @@
+/*
+ * Tier 3 — component tokens, defined from semantic tokens only.
+ *
+ * No motion at all. Whether a peek is up is carried by what is on screen and by
+ * the readout beside this stud, never by a movement: motion is rationed to
+ * liveness, and a reduced-motion window would otherwise be a window with no way
+ * to tell a held spring from a released one.
+ */
+
+.stud {
+  --c-stud-fill: var(--s-surface-raised);
+  --c-stud-line: var(--s-line-quiet);
+  --c-stud-line-live: var(--s-accent);
+  --c-stud-ink: var(--s-ink-secondary);
+
+  position: absolute;
+  top: var(--s-space-snug);
+  left: 0;
+  /* Above the promoted map side, and deliberately so: the peek's overlay covers
+     the terminal, and a stud hidden under it would be a button the pointer is
+     still holding but the browser has just left — which releases the very
+     spring the operator is holding down. */
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: var(--s-space-snug);
+  max-width: 100%;
+  padding: var(--s-space-hair) var(--s-space-snug);
+  border: var(--s-border-hairline) solid var(--c-stud-line);
+  border-radius: var(--s-radius-chip);
+  background: var(--c-stud-fill);
+  color: var(--c-stud-ink);
+  font-size: var(--s-text-micro);
+}
+
+.stud[data-peeking="true"] {
+  border-color: var(--c-stud-line-live);
+}
+
+.grip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--s-space-hair);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.grip:focus-visible {
+  outline: var(--s-focus-ring);
+  outline-offset: var(--s-space-hair);
+}
+
+.chord {
+  color: var(--s-ink-primary);
+  font-family: var(--s-font-mono);
+  font-weight: var(--s-weight-emphasis);
+}
+
+.hint {
+  color: var(--s-ink-faint);
+}
+
+.rebind {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-space-hair);
+}
+
+.rebindLabel {
+  color: var(--s-ink-faint);
+}
+
+.choices {
+  border: var(--s-border-hairline) solid var(--c-stud-line);
+  border-radius: var(--s-radius-control);
+  background: var(--s-surface-app);
+  color: inherit;
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-micro);
+}
+
+/*
+ * The refusal and the swallow mark, in one line that is always present. An
+ * empty box rather than an absent one, so a screen reader's live region is
+ * there before it has anything to say.
+ */
+.readout {
+  margin: 0;
+  color: var(--s-ink-faint);
+  font-family: var(--s-font-mono);
+}

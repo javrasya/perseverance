@@ -55,6 +55,7 @@ import { moveDial, readUi, select, useUi } from "./stores/ui";
    it, and on a case-insensitive filesystem an extensionless specifier finds the
    first of the two. */
 import { Dial } from "./panes/Dial.jsx";
+import { PeekStud } from "./panes/PeekStud.jsx";
 import { StandDown } from "./panes/StandDown.jsx";
 import {
   clamp,
@@ -67,11 +68,14 @@ import {
   surfaces,
   type Detent,
 } from "./panes/dial";
+import { clearance } from "./panes/peek";
 import { readPosition, writePosition } from "./panes/position";
 import { useBodyBox } from "./panes/useBodyBox";
+import { usePeek } from "./panes/usePeek";
 import { ViewSwitcher } from "./views/ViewSwitcher.jsx";
 import { VIEWS, type ViewName } from "./views/views";
 import { Pane } from "./terminal/Pane.jsx";
+import { promptFor } from "./terminal/prompts";
 import {
   loadRunReadouts,
   openTerminalChannel,
@@ -138,7 +142,13 @@ export function App() {
    * a hand was in the middle of — `tests/stores.test.ts` is the assertion.
    */
   const snapshot = useSnapshot();
-  const { selection: selectedNode, monitored, position } = useUi();
+  const { selection: selectedNode, monitored, position, peeking } = useUi();
+  /*
+   * The spring, bound at the window. It writes `peeking` and nothing else — not
+   * the position, not the per-map memory, not a geometry — which is the whole
+   * of *a glance may not rearrange the room*.
+   */
+  const peek = usePeek();
   const [outcome, setOutcome] = useState<LauncherOutcome>(nothingListedYet);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [runs, setRuns] = useState<readonly RunReadout[]>([]);
@@ -594,6 +604,9 @@ export function App() {
   /* The run whose bytes are on the pane, as the map side knows it — so a map
      rendered during a run and the run bar cannot disagree about which run. */
   const monitoredRun = runs.find((run) => run.run === monitored) ?? null;
+  /* Whether the pane is drawing a prompt block, which is the second thing the
+     peek has to stop short of — the first being the cursor's own rows. */
+  const promptShown = monitored !== null && promptFor(monitored) !== null;
 
   const onAskAgain = useCallback(() => {
     if (selectedPath === undefined) return;
@@ -762,6 +775,22 @@ export function App() {
           className={styles.mapSide}
           style={{ flexBasis: `${clamp(position) * 100}%` }}
         >
+        {/*
+          The peek promotes *this* box — the same element, the same children,
+          the same view instance and the same model — over the terminal. There
+          is no second rendering of the map anywhere in this file, because two
+          renderings are two things that can disagree, and the one an operator
+          glances at would be the one nobody is maintaining.
+        */}
+        <div
+          className={peeking.held === null ? styles.inside : `${styles.inside} ${styles.peeking}`}
+          data-peeking={peeking.held === null ? "false" : "true"}
+          style={
+            peeking.held === null
+              ? undefined
+              : { right: `${dialReach}px`, bottom: `${clearance(promptShown)}px` }
+          }
+        >
         {columns.includes("launcher") ? (
         <DropRegion onFoldersDropped={onFoldersDropped}>
           <FolderList
@@ -907,6 +936,7 @@ export function App() {
           </div>
         ) : null}
         </div>
+        </div>
 
         {/*
           The terminal, on the far side of the dial.
@@ -922,9 +952,30 @@ export function App() {
           and putting it inside either would make it disappear whenever that one
           did.
         */}
-        <Dial position={position} width={bodyWidth} elementRef={dialRef} onMove={moveTo} />
+        <Dial
+          position={position}
+          width={bodyWidth}
+          peeking={peeking.held !== null}
+          elementRef={dialRef}
+          onMove={moveTo}
+        />
 
         <div className={styles.terminal}>
+          {/*
+            The stud is hung on this edge and hangs *over* the pane rather than
+            beside it: a strip in the flow would narrow the terminal, and a
+            terminal narrowed by a piece of chrome is a live agent reflowed by a
+            decoration.
+          */}
+          <PeekStud
+            label={peek.label}
+            chord={peek.chord}
+            os={peek.os}
+            peeking={peeking}
+            onHold={peek.hold}
+            onLetGo={peek.letGo}
+            onRebind={peek.rebind}
+          />
           <Pane terminals={terminals} readouts={runs} />
         </div>
       </div>
