@@ -60,10 +60,14 @@ it is `.node[data-selected]`, which is the row you picked; and `.node` carries a
 `transition: background-color`, which today fires on that selection change and
 on nothing else. So the row tint that exists is a selection tint.
 
-The designation mark does not scale, on hover or otherwise. No mark carries a
-`transform` in any interaction state; the two transforms in the stylesheet are
-the destination waypoint's fixed 45° rotation and the cut strike's centring
-`translateY`, and neither is keyed to a pointer. The claim in older contract
+The designation mark does not scale, on hover or otherwise. The stylesheet
+carries four `transform` declarations and no interaction state selects any of
+them. Two are static shape: the destination waypoint's fixed 45° rotation on
+`.markDestination`, and the cut strike's centring `translateY` on
+`.markCut::after`. The other two are the `scale(0.7)` and `scale(1.25)` steps of
+the `ping` keyframes, which a claimed row's halo (`.markClaimed::after`) runs on
+a clock of its own — see rule 12. So a mark's pseudo-element does scale; what
+nothing here does is scale because of a pointer. The claim in older contract
 prose that this view scales the designation on hover is not true of the shipped
 view.
 
