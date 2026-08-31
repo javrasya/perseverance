@@ -139,3 +139,40 @@ export async function composeSpec(folder: string, adapter: string): Promise<Comp
   const { invoke } = await import("@tauri-apps/api/core");
   return await invoke<Composed>("compose_spec", { folder, adapter });
 }
+
+/**
+ * What an Ask press comes back with.
+ *
+ * `Composed`'s shape and hand-mirrored the same way, including the field it
+ * does not have: an Ask press is aimed at the node the operator selected, so
+ * there is no frontier for a refusal to re-arm on and no null here for this
+ * side to read as one. The Rust assertion that pins the shape, field count
+ * included, is `what_ask_answers_crosses_in_the_shape_the_frontend_declares`.
+ *
+ * **And nothing about a claim.** An Ask run takes none — it may not comment,
+ * close, edit, label, assign or claim — so there is nothing written down for
+ * this press to be told about.
+ */
+export type Asked =
+  | { kind: "spawned"; run: number; prompt: Rendered }
+  | { kind: "refused"; detail: string };
+
+/**
+ * Press Ask, once, on one node of the open map.
+ *
+ * The node is an argument where the map is not: which map is open is the
+ * ledger's answer, but which node the question is about is the selection, and
+ * that is a fact about *this press*. So is the adapter, for `startWorking`'s
+ * reason.
+ *
+ * The question itself is not an argument and never becomes one: the operator
+ * types it into the live session, which is the whole of what makes this run
+ * human-in-the-loop.
+ */
+export async function ask(folder: string, node: number, adapter: string): Promise<Asked> {
+  if (!hasRustBehindIt()) {
+    return { kind: "refused", detail: NO_HARNESS };
+  }
+  const { invoke } = await import("@tauri-apps/api/core");
+  return await invoke<Asked>("ask", { folder, node, adapter });
+}

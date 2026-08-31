@@ -34,9 +34,10 @@ use serde::Serialize;
 /// Bump it when the *conventions* change, not when the wording does.
 pub const WAYFINDER_REVISION: &str = "2026.1";
 
-/// The template a session working one ticket is spawned from. Others
-/// (`compose-spec`, `ask`) are their own tickets; the shape here takes a
-/// template as an argument so a second one costs a `const` and a function.
+/// The template a session working one ticket is spawned from. The shape here
+/// takes a template as an argument, so each further brief this harness learns
+/// to speak costs a `const`, a coordinates struct and a function and nothing
+/// else.
 const WORK_TICKET: &str = include_str!("prompts/work-ticket.md");
 
 /// The template a charting session is spawned from.
@@ -52,6 +53,15 @@ const CHART: &str = include_str!("prompts/chart.md");
 /// The brief for a map whose tickets are all closed, which composes the map's
 /// one specification document.
 const COMPOSE_SPEC: &str = include_str!("prompts/compose-spec.md");
+
+/// The brief for a side session that answers questions about one node of an
+/// open map and writes nothing anywhere.
+///
+/// **Its own template and not a mode of the three above**, for the reason
+/// `chart` is: every one of them exists to make a write land somewhere, and
+/// this one exists to make sure none does. The prohibitions are the whole
+/// substance of it, and a conditional that switched them off would be the bug.
+const ASK: &str = include_str!("prompts/ask.md");
 
 /// The override's file name, resolved against `app_data_dir()`.
 ///
@@ -73,6 +83,9 @@ pub const CHART_OVERRIDE_FILE: &str = "chart.md";
 /// wording is wrong for their repository is usually wrong about *one* job, and
 /// a single blob would make them restate the other briefs to change this one.
 pub const COMPOSE_SPEC_OVERRIDE_FILE: &str = "compose-spec.md";
+
+/// The `ask` override, beside the other three and read on the same terms.
+pub const ASK_OVERRIDE_FILE: &str = "ask.md";
 
 /// Where the work is. Every field is a coordinate the agent can read its own
 /// way in from, plus the ticket's question, which is the one piece of map
@@ -127,6 +140,27 @@ pub struct MapCoordinates {
     pub map_url: String,
     /// The operator's GitHub login, which is who the seam sketch goes to before
     /// the document is written.
+    pub operator: String,
+}
+
+/// Where the work is when the work is a *question about one node*.
+///
+/// A fourth struct rather than a [`Coordinates`] with the question left empty,
+/// and the missing field is the point: an Ask session is handed no question,
+/// because the operator types the real one into the live session. It carries no
+/// ticket type either — the node it names may be a ticket, the map's spec, or a
+/// child carrying no `wayfinder:` label at all, and all three are askable.
+#[derive(Debug, Clone)]
+pub struct NodeCoordinates {
+    /// `owner/name`.
+    pub repo: String,
+    pub map_number: u64,
+    pub map_url: String,
+    pub node_number: u64,
+    pub node_url: String,
+    pub node_title: String,
+    /// The operator's GitHub login, which is who the answer goes to and who the
+    /// escape valve hands a finding back to.
     pub operator: String,
 }
 
@@ -209,6 +243,11 @@ pub fn compose_spec_override(app_data_dir: &Path) -> Option<String> {
     written_beside(app_data_dir, COMPOSE_SPEC_OVERRIDE_FILE)
 }
 
+/// The `ask` override, on the same terms as its neighbours.
+pub fn ask_override(app_data_dir: &Path) -> Option<String> {
+    written_beside(app_data_dir, ASK_OVERRIDE_FILE)
+}
+
 fn written_beside(app_data_dir: &Path, file: &str) -> Option<String> {
     let written = std::fs::read_to_string(app_data_dir.join(file)).ok()?;
     (!written.trim().is_empty()).then_some(written)
@@ -264,6 +303,27 @@ pub fn compose_spec(overriding: Option<&str>, at: &MapCoordinates) -> Rendered {
             ("{{repo}}", at.repo.as_str()),
             ("{{map_number}}", map_number.as_str()),
             ("{{map_url}}", at.map_url.as_str()),
+            ("{{operator}}", at.operator.as_str()),
+        ],
+    )
+}
+
+/// The `ask` prompt, on the same terms, from one node's coordinates and no
+/// question — the operator asks that themselves, once the session is up.
+pub fn ask(overriding: Option<&str>, at: &NodeCoordinates) -> Rendered {
+    let map_number = at.map_number.to_string();
+    let node_number = at.node_number.to_string();
+
+    rendered(
+        overriding,
+        ASK,
+        &[
+            ("{{repo}}", at.repo.as_str()),
+            ("{{map_number}}", map_number.as_str()),
+            ("{{map_url}}", at.map_url.as_str()),
+            ("{{node_number}}", node_number.as_str()),
+            ("{{node_url}}", at.node_url.as_str()),
+            ("{{node_title}}", at.node_title.as_str()),
             ("{{operator}}", at.operator.as_str()),
         ],
     )
@@ -909,5 +969,164 @@ mod tests {
             WORK_TICKET.contains("existing comments"),
             "a resumed session has nothing to continue from"
         );
+    }
+    /* -------------------------------------------------------------- ask --- */
+
+    fn a_node() -> NodeCoordinates {
+        NodeCoordinates {
+            repo: "javrasya/perseverance".to_string(),
+            map_number: 28,
+            map_url: "https://github.com/javrasya/perseverance/issues/28".to_string(),
+            node_number: 55,
+            node_url: "https://github.com/javrasya/perseverance/issues/55".to_string(),
+            node_title: "Ask, on any node".to_string(),
+            operator: "javrasya".to_string(),
+        }
+    }
+
+    /// The template is hard-wrapped, so a sentence spanning two lines is not a
+    /// substring of the text it sits in. Flowing it back to single spaces is
+    /// what lets these assertions be about the wording rather than about the
+    /// column the wording happens to break at.
+    fn flowed(text: &str) -> String {
+        text.split_whitespace().collect::<Vec<_>>().join(" ")
+    }
+
+    /// **The conformance check for `ask`.**
+    ///
+    /// Ask's whole substance is what it forbids, and none of it fails loudly:
+    /// drop a verb from the list and the session writes with it, drop the
+    /// escape valve and a finding becomes a resolution with no claim behind it.
+    /// So the six verbs and the valve are asserted word for word, and every
+    /// sentence around them may be reworded freely.
+    #[test]
+    fn the_ask_template_still_forbids_the_six_writes_and_keeps_the_escape_valve() {
+        let text = flowed(&ask(None, &a_node()).text);
+
+        assert!(
+            text.contains("may not comment, close, edit, label, assign or claim"),
+            "the template no longer forbids all six writes, so a session may take one of them"
+        );
+
+        // The valve, verbatim: a finding is handed over rather than recorded,
+        // because recorded from here it is a resolution nobody claimed.
+        assert!(
+            text.contains(
+                "If answering reveals something the map should record, state it in your reply \
+                 and stop; do not write it."
+            ),
+            "the escape valve is gone, so a session that finds something has nowhere to put it \
+             but the map"
+        );
+
+        // Ask is HITL and the question arrives by keyboard, so a template that
+        // stopped saying so would have the session inventing one.
+        assert!(
+            text.contains("human-in-the-loop"),
+            "the template no longer says the run is HITL, and the question is typed into it"
+        );
+    }
+
+    /// One node's coordinates and no question: the operator types that into the
+    /// live session, and nothing the harness derived travels with it.
+    #[test]
+    fn the_ask_prompt_carries_one_node_and_none_of_the_harness_reading() {
+        let rendered = ask(None, &a_node());
+
+        for coordinate in [
+            "javrasya/perseverance",
+            "#28",
+            "https://github.com/javrasya/perseverance/issues/28",
+            "#55",
+            "https://github.com/javrasya/perseverance/issues/55",
+            "Ask, on any node",
+            "@javrasya",
+        ] {
+            assert!(
+                rendered.text.contains(coordinate),
+                "{coordinate} is missing"
+            );
+        }
+
+        assert!(
+            rendered
+                .text
+                .lines()
+                .next()
+                .expect("a header line")
+                .contains(WAYFINDER_REVISION),
+            "the header no longer declares the wayfinder revision it derives from"
+        );
+        assert!(
+            !rendered.text.contains("{{"),
+            "a placeholder went unsubstituted"
+        );
+
+        // Not a list of every word the graph could be described with — the rule
+        // is upstream, in what [`NodeCoordinates`] is allowed to hold — but
+        // these are the harness's own vocabulary, and each of them names a
+        // reading that stopped being true the moment it was written.
+        for derived in ["frontier", "blocker", "route", "counts", "unclassified"] {
+            assert!(
+                !rendered.text.to_lowercase().contains(derived),
+                "the ask prompt names {derived}, which is the harness's reading and not a \
+                 coordinate"
+            );
+        }
+        assert!(
+            rendered
+                .text
+                .contains("Read the live issues with `gh` yourself."),
+            "the template no longer says the harness's own reading of the map is withheld"
+        );
+
+        // The node may be any of the three kinds a child can be, and a template
+        // that assumed *ticket* would send a session looking for a question no
+        // spec node has.
+        assert!(
+            flowed(&rendered.text).contains("may be the map's specification document"),
+            "the template no longer admits the node may not be a ticket"
+        );
+
+        assert_eq!(rendered.origin, Origin::Stock);
+        assert_eq!(rendered.characters, rendered.text.chars().count());
+    }
+
+    #[test]
+    fn an_ask_override_is_the_whole_prompt_and_an_unreadable_one_is_absent() {
+        let dir = tempfile::tempdir().expect("a temporary directory");
+
+        assert!(ask_override(dir.path()).is_none());
+
+        let file = dir.path().join(ASK_OVERRIDE_FILE);
+        std::fs::write(&file, "   \n\t\n").expect("writes");
+        assert!(
+            ask_override(dir.path()).is_none(),
+            "a blank override is absent, not an empty prompt"
+        );
+
+        // The question is left in deliberately: Ask substitutes from one node's
+        // coordinates only, and a name it cannot supply stays visible rather
+        // than resolving to a blank that reads as a real, empty answer.
+        std::fs::write(
+            &file,
+            "Ask about #{{node_number}} in {{repo}}, not {{question}}.",
+        )
+        .expect("writes");
+        let custom = ask_override(dir.path()).expect("an override");
+        let rendered = ask(Some(&custom), &a_node());
+
+        assert_eq!(
+            rendered.text,
+            "Ask about #55 in javrasya/perseverance, not {{question}}."
+        );
+        assert_eq!(rendered.origin, Origin::Custom);
+        assert_eq!(rendered.characters, rendered.text.chars().count());
+
+        // Four files and not one blob: overriding this brief leaves the other
+        // three on the compiled-in text.
+        assert!(work_ticket_override(dir.path()).is_none());
+        assert!(chart_override(dir.path()).is_none());
+        assert!(compose_spec_override(dir.path()).is_none());
     }
 }
