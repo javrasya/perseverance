@@ -15,6 +15,7 @@ import {
   offerable,
   pressable,
   railAt,
+  sameFrontier,
   type Crossing,
   type Press,
   type Socket,
@@ -165,6 +166,17 @@ describe("Start Working", () => {
     expect(rail.target).toBeNull();
     expect(rail.sockets[0]?.condition).toBe(NOTHING_TAKEABLE);
     expect(rail.sockets[0]?.note).toBe("moved");
+  });
+
+  it("holds a refusal against a snapshot that still agrees, and not one that does not", () => {
+    /* The retirement in `Sockets.tsx` is this comparison: same reading, same
+       arm; different reading, and the refusal has been contradicted. */
+    expect(sameFrontier({ frontier: "designated", number: 76 }, { frontier: "designated", number: 76 })).toBe(true);
+    expect(sameFrontier({ frontier: "designated", number: 76 }, { frontier: "designated", number: 75 })).toBe(false);
+    expect(sameFrontier({ frontier: "nothingToStart" }, { frontier: "nothingToStart" })).toBe(true);
+    expect(sameFrontier({ frontier: "nothingToStart" }, { frontier: "notOnThisMachine" })).toBe(false);
+    expect(sameFrontier(null, null)).toBe(true);
+    expect(sameFrontier(null, { frontier: "nothingToStart" })).toBe(false);
   });
 
   it("re-arms on nothing when the refusal learned nothing, and only prints the sentence", () => {

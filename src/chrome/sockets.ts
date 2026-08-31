@@ -145,12 +145,33 @@ export function adapterAtPress(
 }
 
 /**
+ * Whether two frontier readings say the same thing.
+ *
+ * Structural and not by identity, because every poll hands this side a freshly
+ * decoded snapshot: an identity test would call each tick a move and retire a
+ * refusal the map still agrees with.
+ */
+export function sameFrontier(a: Frontier | null, b: Frontier | null): boolean {
+  if (a === null || b === null) return a === b;
+  if (a.frontier !== b.frontier) return false;
+  return a.frontier === "designated" && b.frontier === "designated"
+    ? a.number === b.number
+    : true;
+}
+
+/**
  * The frontier this rail is standing on.
  *
- * A refusal that named one wins over the snapshot, because it is the newer
- * read: the pass that press bought is what produced it. A refusal that named
- * none re-arms on nothing — it names no target, so the socket keeps the one it
- * already had and prints the sentence beside it.
+ * A refusal that named one wins over the snapshot **while it is the newer
+ * read** — the pass that press bought is what produced it, and the prop beside
+ * it was read before the press. It stops being the newer read the moment a
+ * snapshot lands that disagrees with it, and at that moment `Sockets.tsx`
+ * retires the refusal back to `idle`; a refusal that is still here has not been
+ * contradicted by anything since. So this preference is bounded by that
+ * retirement rather than by the session: the arm never outlives its evidence.
+ *
+ * A refusal that named none re-arms on nothing — it names no target, so the
+ * socket keeps the one it already had and prints the sentence beside it.
  */
 function standing(crossing: Crossing): Frontier | null {
   const { press, frontier } = crossing;

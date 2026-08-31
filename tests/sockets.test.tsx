@@ -247,4 +247,34 @@ describe("a press", () => {
       adapter: "claude",
     });
   });
+
+  it("lets the next snapshot retire a refusal that the map has moved past", async () => {
+    invoke.mockResolvedValueOnce({
+      kind: "refused",
+      detail: "#75 is not what this map offers to start any more",
+      frontier: { frontier: "designated", number: 76 },
+    } satisfies Started);
+    const host = paint();
+
+    await act(async () => {
+      button(host, "start").click();
+    });
+
+    expect(socket(host, "start").textContent).toContain("#76");
+
+    /* A tick that says the same thing changes nothing: the refusal is still
+       what the map says, and its sentence is still the answer to the press. */
+    paint({ frontier: { frontier: "designated", number: 76 } });
+    expect(socket(host, "start").textContent).toContain("#76");
+    expect(socket(host, "start").textContent).toContain("not what this map offers");
+
+    /* A tick that disagrees is the newer read, and the rail follows it rather
+       than staying armed on a number nobody can start any more. */
+    paint({ frontier: { frontier: "nothingToStart" } });
+    expect(socket(host, "start").textContent).not.toContain("#76");
+    expect(socket(host, "start").textContent).toContain(NOTHING_TAKEABLE);
+    // The sentence goes with the arm it explained.
+    expect(socket(host, "start").textContent).not.toContain("not what this map offers");
+    expect(button(host, "start").getAttribute("aria-disabled")).toBe("true");
+  });
 });

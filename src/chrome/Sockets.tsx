@@ -7,6 +7,7 @@ import {
   adapterAtPress,
   pressable,
   railAt,
+  sameFrontier,
   type Press,
   type Socket,
 } from "./sockets";
@@ -45,6 +46,12 @@ interface SocketsProps {
  * **A press is never silently retargeted.** A refusal prints its sentence and,
  * when it named a frontier, re-arms the button on that number — and then waits.
  * Nothing here retries, and nothing here spawns off the back of a refusal.
+ *
+ * **And a refusal is retired by the next snapshot that disagrees with it.** The
+ * re-arm holds only for as long as the refusal is the newer read; once the
+ * poller brings a frontier saying something else, the newer read is the
+ * snapshot, and a rail still printing the old number and the old sentence is a
+ * screen lying about what is startable. So the incoming prop clears the press.
  */
 export function Sockets({ frontier, selection, adapters, folder, onSelect }: SocketsProps) {
   const [press, setPress] = useState<Press>({ kind: "idle" });
@@ -58,6 +65,22 @@ export function Sockets({ frontier, selection, adapters, folder, onSelect }: Soc
       live.current = false;
     };
   }, []);
+
+  /* The retirement. Structural rather than by identity: every poll decodes a
+     fresh snapshot, so comparing objects would call every tick a move and drop
+     a refusal the map still agrees with — and the immediate re-arm, which lands
+     while the prop beside it is still the pre-press read, would not survive its
+     own render. A refusal that named no frontier learned nothing to contradict,
+     and its sentence stays until the next press answers it. */
+  useEffect(() => {
+    setPress((current) =>
+      current.kind === "refused" &&
+      current.frontier !== null &&
+      !sameFrontier(current.frontier, frontier)
+        ? { kind: "idle" }
+        : current,
+    );
+  }, [frontier]);
 
   const rail = railAt({ frontier, selection, adapters, folder, press });
   const adapter = adapterAtPress(rail.adapters, chosen);
