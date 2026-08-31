@@ -48,6 +48,7 @@ import { readMotion } from "../../support/checks";
 import { collectStylesheets } from "../../support/sources";
 import { VIEWS, type ViewName } from "../../../src/views/views";
 import type { Prospect, Rendering } from "./drive";
+import type { ViewSurface } from "./views";
 
 /**
  * Whether an assertion has a subject at one point of the space, and the
@@ -210,7 +211,7 @@ async function stillFormOf(glyph: Locator): Promise<Record<string, string>> {
 }
 
 /**
- * The properties a row can carry an ink on, and the inks it actually resolves.
+ * The inks a row actually resolves, over the properties its own view paints in.
  *
  * This is what makes the collapse above load-bearing rather than decorative.
  * Everything else rule 3 asserts is colour-blind — `toContainText` reads
@@ -222,29 +223,51 @@ async function stillFormOf(glyph: Locator): Promise<Record<string, string>> {
  * collapse lands and cannot differ afterwards. Asserting that first is what
  * proves colour is not the channel the assertions below are riding on.
  *
- * Alpha-zero values are dropped: a background nobody painted is not an ink,
- * and the two rows draw deliberately different shapes.
+ * The properties come from the surface (`ViewSurface.inks`) rather than from a
+ * list here, because a fixed list is a probe that reads one view's channel and
+ * pronounces every other view clean. The Route paints its glyph in `color`, a
+ * border and a background; the Plate paints its mark in SVG `fill` and
+ * `stroke`, and a probe reading only the first three would find one ink on a
+ * plate whose every kind distinction was pure hue.
+ *
+ * The glyph's descendants are read as well as the glyph itself: an SVG mark is
+ * a group, and the paint is on the shapes inside it rather than on the group.
+ * The containers themselves are not read — `fill` on a `<g>` is whatever it
+ * inherited, initially black, which is a colour nobody chose and would be an
+ * ink this view never draws.
+ *
+ * Values nobody painted are dropped — `transparent`, an alpha-zero colour and
+ * SVG's `none` — because an unfilled shape is not an ink, and the two rows draw
+ * deliberately different shapes.
  */
-const INK_PROPERTIES = ["color", "border-top-color", "background-color"] as const;
-
-async function inksOf(row: Locator, glyph: string): Promise<string[]> {
+async function inksOf(row: Locator, surface: ViewSurface): Promise<string[]> {
   return row.evaluate(
     (element: Element, read: { glyph: string; properties: readonly string[] }) => {
       const inks = new Set<string>();
+      /* An SVG container paints nothing; its `fill` is only what it inherited. */
+      const containers = new Set(["g", "svg", "defs", "symbol", "clippath", "title", "desc"]);
       const gather = (target: Element, properties: readonly string[]): void => {
+        if (containers.has(target.tagName.toLowerCase())) return;
         const style = getComputedStyle(target);
         for (const property of properties) {
           const value = style.getPropertyValue(property);
-          if (value !== "transparent" && !/,\s*0\)$/.test(value)) inks.add(value);
+          if (value === "" || value === "none" || value === "transparent") continue;
+          if (/,\s*0\)$/.test(value)) continue;
+          inks.add(value);
         }
       };
 
       gather(element, ["color"]);
       const mark = element.querySelector(read.glyph);
-      if (mark !== null) gather(mark, read.properties);
+      if (mark !== null) {
+        gather(mark, read.properties);
+        for (const inside of Array.from(mark.querySelectorAll("*"))) {
+          gather(inside, read.properties);
+        }
+      }
       return [...inks];
     },
-    { glyph, properties: INK_PROPERTIES },
+    { glyph: surface.glyph, properties: surface.inks },
   );
 }
 
@@ -439,8 +462,8 @@ export const RULE_CHECKS: Partial<Record<RuleId, RuleEntry>> = {
            gone as a channel before a word of the distinction below is read,
            which is the whole experiment rule 3 names. */
         const inks = new Set([
-          ...(await inksOf(unclassified, surface.glyph)),
-          ...(await inksOf(ticket, surface.glyph)),
+          ...(await inksOf(unclassified, surface)),
+          ...(await inksOf(ticket, surface)),
         ]);
         expect(
           [...inks].sort(),

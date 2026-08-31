@@ -71,9 +71,10 @@ function keyFor(folder: number | null, map: number | null): string | null {
  *
  * The one place *what a pin is* is decided, so the browser's cell and the
  * store's envelope cannot disagree about which values are nonsense. A pin that
- * is not sane is dropped rather than taking the arrangement with it: the
- * drawing that results is partly authored and partly generated, which `plateOf`
- * already has a word for — it stamps such a plate *provisional*.
+ * is not sane is dropped rather than taking the arrangement with it: what
+ * survives is a shorter arrangement, honoured for the stations it does name,
+ * and the stations it does not are placed where the plate would have placed
+ * them anyway.
  */
 function usable(value: unknown): Pins | null {
   const written = typeof value === "string" ? parse(value) : value;

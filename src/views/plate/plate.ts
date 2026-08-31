@@ -165,7 +165,7 @@ const LEFT_MARGIN = 4;
 const PADDING = 4;
 
 /**
- * Extra cells around a plate whose pins no longer match the graph.
+ * Extra cells around a plate the drawing could not use every pin of.
  *
  * The survival kit for a hand-made layout is exactly two things — room to be
  * wrong in, and a stamp saying it might be. This is the first; [`Provisional`]
@@ -375,7 +375,7 @@ export type LegendEntry = {
 export const LEGEND_MEANINGS: Record<LegendKey, string> = {
   siding: "On a siding: nothing here waits on it and it waits on nothing here.",
   fan: "A fan: finishing the station at the stem frees every branch off it.",
-  provisional: "Provisional: the placed stations no longer match the graph.",
+  provisional: "Provisional: part of this arrangement no longer fits the map.",
   beyondTheMap: "Waits on an issue with no station here, so no track is drawn.",
   /* An edge that is on the map and not in the picture. Said out loud for the
      same reason the fog is: a link nobody can see is a dependency the drawing
@@ -396,18 +396,28 @@ export const LEGEND_MEANINGS: Record<LegendKey, string> = {
 };
 
 /**
- * The stamp a hand-authored layout wears once the graph has moved under it.
+ * The stamp a hand-authored layout wears once part of it has stopped fitting
+ * the map.
  *
  * Pins are authored positions and are never moved — so the day a pinned ticket
- * leaves the map, or a new one arrives with nowhere authored to go, the drawing
- * is partly generated and partly somebody's hand, and the honest thing is to
- * say so. `null` means the layout and the graph agree, which includes the plain
- * case of no pins at all: a plate nobody has arranged by hand is not a plate
- * whose arrangement has gone stale.
+ * leaves the map, or a pin turns up so far outside the drawing that this plate
+ * will not read it, that pin is an authored position with nothing to hold, and
+ * the honest thing is to say so. Both directions are about a pin the drawing
+ * could not use; neither is about a station that simply has no pin. Half a
+ * plate arranged by hand is the ordinary state after one drag — every other
+ * station is still generated, which is what generated stations are for — and
+ * calling that stale would make the stamp mean nothing.
+ *
+ * `null` means every pin still landed somewhere, which includes the plain case
+ * of no pins at all: a plate nobody has arranged by hand is not a plate whose
+ * arrangement has gone stale.
  */
 export type Provisional = {
+  /** Pins naming a ticket that is not on this map. */
   readonly pinsWithoutStation: readonly number[];
-  readonly stationsWithoutPin: readonly number[];
+  /** Stations here whose pin sat outside this drawing's reach, so it was
+   *  dropped and the station went back to its generated cell. */
+  readonly pinsOffThePlate: readonly number[];
   /** Cells of slack added round the drawing, so a stale layout has room to be
    *  wrong in rather than running off its own edge. */
   readonly margin: number;
@@ -817,12 +827,18 @@ export function plateOf(map: Map | null, stored: ReadonlyMap<number, Cell> = NO_
      nobody chose, and the generated cell is a position the plate can defend. */
   const pins = withinReach(stored, reachOf(rows.length, deepest, sidings.length, sidingRow));
 
-  const pinsWithoutStation = [...pins.keys()].filter((number) => !here.has(number)).sort((a, b) => a - b);
-  const stationsWithoutPin =
-    pins.size === 0 ? [] : nodes.filter((node) => !pins.has(node.number)).map((node) => node.number);
+  /* Provisional is a claim about the *pins*, not about how much of the plate
+     is generated: a stored pin with nothing to hold — its ticket gone, or its
+     cell outside what this drawing will read — is an arrangement that has come
+     apart, and a station that was simply never dragged is not. Read off
+     `stored` rather than the filtered pins, so a pin dropped for being out of
+     reach is counted rather than forgotten. */
+  const authored = [...stored.keys()].sort((a, b) => a - b);
+  const pinsWithoutStation = authored.filter((number) => !here.has(number));
+  const pinsOffThePlate = authored.filter((number) => here.has(number) && !pins.has(number));
   const provisional: Provisional | null =
-    pins.size > 0 && (pinsWithoutStation.length > 0 || stationsWithoutPin.length > 0)
-      ? { pinsWithoutStation, stationsWithoutPin, margin: CONSTRUCTION_MARGIN }
+    pinsWithoutStation.length > 0 || pinsOffThePlate.length > 0
+      ? { pinsWithoutStation, pinsOffThePlate, margin: CONSTRUCTION_MARGIN }
       : null;
 
   /* Pinned first, all of them, before a single generated station takes a cell:

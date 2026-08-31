@@ -60,11 +60,15 @@ generated station out around it, so a pinned station is routed to, labelled by
 the same eight-anchor solver, and counted in the same extent as any other. Rule
 11's reserved label boxes stay reserved because the solver still reserves them —
 a pin that moved a station *after* layout would leave the router routing around
-a box nothing is in. A pin for a child the map no longer has, or a map that grew
-a child no pin names, stamps the plate **provisional** and buys it a
-construction margin: the drawing is then partly somebody's hand and partly
-generated, and the legend says so rather than the picture pretending it was
-authored whole.
+a box nothing is in. A pin the drawing cannot use — one naming a child the
+map no longer has, or one parked so far outside the picture that this plate will
+not read it — stamps the plate **provisional** and buys it a construction
+margin: part of the arrangement has come apart, and the legend says so rather
+than the picture pretending it was authored whole. A station that simply has no
+pin is *not* that: one dragged station on a fifteen-station map leaves fourteen
+generated, which is the ordinary state after the first gesture and the state
+generated stations exist for. Stamping it would spend the word on the common
+case and leave nothing to say about the stale one.
 
 **One write per settled gesture, and none per frame.** The drag is two pointer
 events — down on the station, up wherever the hand let go — and the difference is

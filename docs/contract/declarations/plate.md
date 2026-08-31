@@ -154,11 +154,13 @@ pinned station in the authored cell and lays every generated station out around
 it — so a pinned station is routed to, reserved a label box by the same
 eight-anchor solver, and counted in the same extent as any other. Nothing moves
 a station after the boxes are reserved, which is what keeps the router from
-routing around a box no plate is in. Where the pins and the graph have come
-apart — a pin for a child the map no longer has, or a child no pin names — the
-plate is stamped provisional, given a construction margin, and the legend says
-so, because a drawing that is partly somebody's hand and partly generated should
-not present itself as authored whole.
+routing around a box no plate is in. Where a pin has come apart from the drawing — one
+naming a child the map no longer has, or one outside the cells this plate will
+read a pin in — the plate is stamped provisional, given a construction margin,
+and the legend says so, because an arrangement that has lost part of itself
+should not present itself as authored whole. A station with no pin is not that:
+after one drag every other station is still generated, and the stamp says
+nothing about it.
 
 The legend is what keeps the field from having to explain itself: a siding is
 the one convention on the drawing an operator cannot read off the picture, so it

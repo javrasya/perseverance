@@ -148,8 +148,8 @@ describe("an arrangement is remembered per map, under the Plate's own key", () =
       expect((await readPins(FOLDER, MAP)).size, written).toBe(0);
     }
 
-    /* One bad pin costs that pin and not the arrangement: what is left is an
-       authored plate the graph has moved under, which is provisional and drawn. */
+    /* One bad pin costs that pin and not the arrangement: what is left is a
+       readable arrangement, honoured for the stations it names. */
     window.localStorage.setItem(
       `perseverance.plate.${FOLDER}#${MAP}`,
       '[{"node":2,"column":2,"row":2},{"node":3,"column":-4,"row":2}]',
@@ -222,7 +222,7 @@ describe("a plate the graph has moved under says so", () => {
     const view = await paint(MODEL);
     const entry = view.querySelector('[data-legend-key="provisional"]');
     expect(entry).not.toBeNull();
-    expect(entry?.textContent).toContain("no longer match the graph");
+    expect(entry?.textContent).toContain("no longer fits the map");
   });
 });
 

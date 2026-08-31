@@ -299,14 +299,18 @@ describe("pins", () => {
     ]);
     const plate = plateOf(branching(), pins);
     expect(plate.provisional?.pinsWithoutStation).toEqual([99]);
-    expect(plate.provisional?.stationsWithoutPin).toEqual([]);
+    expect(plate.provisional?.pinsOffThePlate).toEqual([]);
     expect(plate.provisional?.margin ?? 0).toBeGreaterThan(0);
     expect(plate.legend.map((entry) => entry.key)).toContain("provisional");
   });
 
-  it("stamps it provisional when a ticket arrived with nowhere authored to go", () => {
+  it("leaves a half-arranged plate alone: one dragged station is not a stale layout", () => {
+    /* The ordinary state after the first drag — one pin, three stations still
+       generated. Nothing has come apart, so nothing is stamped and nothing in
+       the legend claims the graph has moved. */
     const plate = plateOf(branching(), new globalThis.Map([[1, { column: 4, row: 3 }]]));
-    expect(plate.provisional?.stationsWithoutPin).toEqual([2, 3, 4]);
+    expect(plate.provisional).toBeNull();
+    expect(plate.legend.map((entry) => entry.key)).not.toContain("provisional");
   });
 
   it("calls a plate nobody arranged by hand provisional in neither direction", () => {
@@ -369,13 +373,19 @@ describe("a pin outside the drawing is not a pin on it", () => {
    * the answer: a station dragged that far is not somewhere on this drawing, so
    * the pin is not read and the station keeps the cell the plate generated.
    */
-  it("draws the plate it would have drawn, over a field that stayed small", () => {
+  it("places the stations it would have placed, over a field that stayed small", () => {
     const map = branching();
     const far = new globalThis.Map<number, Cell>([
       [1, { column: FURTHEST_CELL, row: FURTHEST_CELL }],
     ]);
     const plate = plateOf(map, far);
-    expect(plate).toEqual(plateOf(map));
+    const generated = plateOf(map);
+    expect(plate.stations.map((one) => one.at)).toEqual(generated.stations.map((one) => one.at));
+    expect(plate.stations.some((one) => one.pinned)).toBe(false);
+    /* Said out loud rather than silently: an authored position this drawing
+       will not read is an arrangement that has come apart, which is what
+       `provisional` is for. */
+    expect(plate.provisional?.pinsOffThePlate).toEqual([1]);
     /* The number that matters is the field's, because the router allocates over
        it: unbounded, this is `FURTHEST_CELL` squared. */
     expect(plate.extent.columns * plate.extent.rows).toBeLessThan(10_000);
@@ -395,7 +405,7 @@ describe("a pin outside the drawing is not a pin on it", () => {
     expect(stationOf(2)?.at.column).toBeLessThan(FURTHEST_CELL);
     /* And it is said out loud rather than quietly: an arrangement that no longer
        matches the graph is what `provisional` is for. */
-    expect(plate.provisional?.stationsWithoutPin).toContain(2);
+    expect(plate.provisional?.pinsOffThePlate).toContain(2);
     expect(plate.extent.columns * plate.extent.rows).toBeLessThan(10_000);
   });
 
