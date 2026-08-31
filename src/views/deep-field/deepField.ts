@@ -331,6 +331,14 @@ export type StandDown = {
   readonly has: number;
   readonly counts: Counts;
   readonly frontier: Frontier;
+  /**
+   * The fog region, carried into the stand-down for the same reason the counts
+   * are: it is words rather than picture, it costs no width, and a region that
+   * vanished with the graph would report *nobody has been here* as *nothing to
+   * report*. Rule 4's floor is asserted over the whole fixture space, and this
+   * is the half of that space where nothing is drawn.
+   */
+  readonly fog: FieldFog;
 };
 
 /* ------------------------------------------------------------- the view --- */
@@ -498,6 +506,7 @@ export function deepFieldOf(map: Map | null, width: number): DeepField {
         has,
         counts: map.counts,
         frontier: map.frontier,
+        fog: fogOf(map.fog),
       },
     };
   }

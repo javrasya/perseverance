@@ -292,6 +292,28 @@ describe("the stand-down keeps the answer alive and offers no way out", () => {
     expect(notice?.querySelector("[data-frontier-reading]")?.textContent).toBe("#1");
   });
 
+  it("keeps the fog region too, so nobody-surveyed is still said", async () => {
+    /*
+     * Rule 4's floor is asserted over the whole fixture space, and most of that
+     * space is a stand-down at the widths the harness measures. The fog is
+     * words: it costs no width, so the state that cannot afford the picture can
+     * still afford the region — and a region that vanished with the graph would
+     * turn *nobody has been here* into silence.
+     */
+    widthIs(320);
+    const host = await paint(
+      modelOf([node(1), node(2, { waitsOn: [1] })], { fog: { fog: "unsurveyed" } }),
+    );
+    const notice = view(host).querySelector<HTMLElement>("[data-stand-down]");
+    const fog = notice?.querySelector<HTMLElement>("[data-fog]");
+
+    expect(fog?.getAttribute("data-fog")).toBe("unsurveyed");
+    expect(fog?.querySelector("[data-unsurveyed]")?.textContent).toBe(NOBODY_SURVEYED);
+    expect(fog?.querySelector("[data-count]")).toBeNull();
+    expect(fog?.textContent).toContain(FOG_HEADING);
+    expect(fog?.textContent).not.toMatch(/\d/);
+  });
+
   it("offers no exit, because widening and switching are the shell's", async () => {
     widthIs(320);
     const host = await paint(modelOf([node(1), node(2, { waitsOn: [1] })]));
