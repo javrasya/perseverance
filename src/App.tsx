@@ -106,6 +106,8 @@ import { Ledger } from "./chrome/Ledger.jsx";
 import { Sockets } from "./chrome/Sockets.jsx";
 /* `IdeaBox.jsx` for the fourth: `chrome/idea.ts` is the derivation. */
 import { IdeaBox } from "./chrome/IdeaBox.jsx";
+/* `Detail.jsx` for the fifth: `detail/detail.ts` is the join and the words. */
+import { Detail } from "./detail/Detail.jsx";
 import { useDefaultView } from "./views/useDefaultView";
 import styles from "./App.module.css";
 
@@ -1158,6 +1160,32 @@ export function App() {
           onLetGo={peek.letGo}
           onRebind={peek.rebind}
         />
+      </div>
+
+      {/*
+        The node panel, at one fixed address on the spine.
+
+        Chrome, exactly like the ledger and the rail: it describes the selection
+        the UI store holds, no view is handed the job, and it survives every
+        dial position because it is drawn outside the body the dial divides.
+        Below the body rather than inside it, so it takes no share of the split
+        — the dial's arithmetic is entirely about widths, and a column added to
+        the map side would shed the view at widths the stand-down still calls
+        fine.
+
+        It is passed the same `selectedNode` the Route, the rail and the ledger
+        are, and it writes nothing: selection lives in the store, and a panel
+        with an opinion of its own about what is selected is a second answer to
+        a question that has one.
+
+        What this slice settles is *what the panel says* — nine fields, five
+        never-empty states, and markdown rendered and sanitised on this side.
+        Where it lives is the next slice's: #52's spine and #57's rack turn this
+        one element into the boarding pass that re-docks, and moving it is
+        moving this element.
+      */}
+      <div className={styles.detail}>
+        <Detail model={snapshot.model} selection={selectedNode} />
       </div>
 
       <EnvironmentReadout readout={environment} shown={environmentShown} />

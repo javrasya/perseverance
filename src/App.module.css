@@ -243,3 +243,30 @@
   font-family: var(--s-font-mono);
   font-size: var(--s-text-micro);
 }
+
+/*
+ * The node panel's address: a strip along the spine, under the body and over
+ * the readout.
+ *
+ * Under the body rather than inside it, and that is the whole of why it is
+ * here. The dial's every answer is about *width* — what each side is worth,
+ * which columns the map side can afford — so a panel given a column of the map
+ * side would take pixels the stand-down has already promised to the view. A
+ * strip below the split takes height from both sides equally and leaves every
+ * number the dial prints exactly as true as it was.
+ *
+ * It is capped and scrolls its own box, for the same reason the view and the
+ * drop region do: a cut reason is somebody's prose and has no length limit,
+ * and a panel that grew with it would push the readout off the window — where
+ * a stamp may never go.
+ *
+ * #52 and #57 relocate this. What stays true wherever it lands is that it is
+ * one element with one model and one selection in it.
+ */
+.detail {
+  max-height: 40%;
+  padding: var(--s-space-snug) var(--s-space-base);
+  overflow: auto;
+  border-top: var(--s-border-hairline) solid var(--s-line-quiet);
+  background: var(--s-surface-raised);
+}

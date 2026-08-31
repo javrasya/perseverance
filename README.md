@@ -79,6 +79,34 @@ belongs to the detail panel.
 [ADR 0006](docs/adr/0006-the-route-is-a-grouped-list-not-a-graph.md) records the
 decision, the readings on both sides of it, and the test that falsifies it.
 
+The node panel is where a number becomes a name. It is chrome at a fixed
+address rather than a view — the Route draws the map, this describes the one row
+you picked — and it prints nine fields about it: the question, the type, the
+state with the map's own designation beside it, the blockers and what waits on
+this one *named* rather than counted, the claim, the dates, the resolution and
+the link out. **It never renders empty.** No map open, a map with no children,
+nothing picked, a selection whose row went away under a re-poll, and a node are
+five states with five different sentences, because a panel that can go blank
+looks the same whether the click missed or the app broke.
+
+What is deliberately not in it is the more interesting half. There is **no issue
+body**: the graph query never asks for one, so the title is the whole question
+and nothing on screen implies otherwise. There is **no claimant**: how many
+people are on a ticket crosses the seam and their names do not, so the panel
+says a claim is held and says, in the open, that it is not told by whom. There
+are **no timestamps**: the model reads none, and the field says so with its
+reason rather than showing a blank or a zero — a fact the harness was never told
+is form-level distinct from a count that is genuinely nought, everywhere on this
+panel. The URL is **text you select and copy** and not an anchor, because this
+WebView has no opener and a live link would navigate the app away from itself.
+And the markdown that arrives from a map document — a cut's reason, the fog's
+region — is rendered **here**, by a subset renderer that emits React elements and
+never an HTML string: no GitHub render endpoint spending a rationed request per
+paint, nothing pre-painted in Rust, and raw HTML in an issue body landing on
+screen as its own characters because no parser in the path could have made an
+element of it. `tests/no-raw-html.test.ts` holds that absence to the whole of
+`src/`.
+
 `perseverance-agent` is a trait with four members and one value. An adapter
 names itself, says what to look for, plans a launch, and optionally classifies
 bytes — it does not spawn, wait, inject a prompt or decide it is done, because
