@@ -560,3 +560,58 @@ export function waitingSentence(waiting: number): string | null {
 export function refusalLine(entry: PendingRun): string {
   return `#${entry.ticket} in ${entry.folder} was going to start and did not: ${entry.refused}`;
 }
+
+/**
+ * How many refused sentences the shell holds at once.
+ *
+ * A labelled guess with a stated basis, in the queue ceiling's manner, and it
+ * is a *reading* bound rather than a capacity one. Nothing on this side knows
+ * how many refusals a tick can produce — one navigation away can fail every
+ * deferred spawn in the queue at once, and the ceiling that bounds *that*
+ * number lives in Rust and is deliberately not spelled a second time here (see
+ * `pending.ts`). What this number is about is the operator: refusals arrive
+ * newest-last in a box a few lines tall, and a list longer than a screenful of
+ * folder paths is one whose far end nobody scrolls back to. Eight is about that
+ * screenful at the rack's narrowest tier — and it is a guess with a basis, not
+ * a settled number.
+ *
+ * **The oldest go and never the newest, and the drop is named rather than
+ * quiet.** An unbounded list is not the safe reading of *nothing may be dropped
+ * silently*: it ends with the live rows squeezed to nothing and the dock
+ * clipped out of a region that hides its overflow, which loses the sentences
+ * as surely as deleting them would. What leaves here has been on screen and
+ * unread for as long as it took eight further spawns to fail, and the operator
+ * can take any of them off the list by hand before then.
+ */
+export const REFUSALS_HELD = 8;
+
+/**
+ * The refusals to hold, given what is already held and what just spoke.
+ *
+ * Held rather than shown once, because this is the only delivery there will
+ * ever be: `Pending::announced` drains a refusal as it reads it and the command
+ * carries none, so an emission that is not kept is a failure nobody will hear
+ * about again.
+ *
+ * De-duplicated by the entry's own id — a re-emission cannot happen today and
+ * would be a Rust-side defect if it did, and printing the same failure twice is
+ * a worse answer to it than printing it once — and bounded by
+ * [`REFUSALS_HELD`], oldest first. The array is returned unchanged when nothing
+ * is new, so a tick that only moved the queue does not re-render the list.
+ */
+export function heldRefusals(
+  held: readonly PendingRun[],
+  spoken: readonly PendingRun[],
+): readonly PendingRun[] {
+  const fresh = spoken.filter((one) => !held.some((was) => was.id === one.id));
+  if (fresh.length === 0) return held;
+  return [...held, ...fresh].slice(-REFUSALS_HELD);
+}
+
+/** One held refusal taken off the list by hand, which is the only way one goes. */
+export function withoutRefusal(
+  held: readonly PendingRun[],
+  id: number,
+): readonly PendingRun[] {
+  return held.filter((one) => one.id !== id);
+}

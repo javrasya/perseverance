@@ -71,6 +71,7 @@ export function Rack({
   readouts,
   pending,
   refusals,
+  onDismissRefusal,
   spentElsewhere,
   dock,
 }: {
@@ -97,6 +98,20 @@ export function Rack({
    * that never drains.
    */
   refusals: readonly PendingRun[];
+  /**
+   * Take one held refusal off the list, by the entry's own id.
+   *
+   * The only way one leaves the screen short of the shell's bound, and the
+   * operator's rather than the clock's: a sentence that expired on its own would
+   * be the silent drop this whole channel exists to avoid, dressed as
+   * housekeeping. The rack holds none of this itself — the list is the shell's,
+   * for the lifetime reason `refusals` gives — so this component asks and never
+   * edits.
+   *
+   * Required rather than defaulted, like `refusals` itself: a call site that
+   * forgot it would draw a dismissal control that dismisses nothing.
+   */
+  onDismissRefusal: (id: number) => void;
   /**
    * The map side is drawn, so the screen's one animation is its to spend.
    *
@@ -330,9 +345,29 @@ export function Rack({
         long ago, and the sentence crosses on exactly one emission.
       */}
       {refusals.length === 0 ? null : (
-        <ul className={styles.refusals}>
+        <ul className={styles.refusals} aria-label="Refused presses">
           {refusals.map((entry) => (
-            <li key={`refused-${entry.id}`}>{refusalLine(entry)}</li>
+            <li key={`refused-${entry.id}`} className={styles.refusal}>
+              <span className={styles.refusalSaid} data-refused={entry.id}>
+                {refusalLine(entry)}
+              </span>
+              {/*
+                The word and not a glyph, and in the flow rather than behind a
+                hover: a control revealed by pointing at the sentence is a
+                control a keyboard and a touch screen do not have, and an `x`
+                beside a failure reads as *the failure was cancelled* rather
+                than *I have read this*.
+              */}
+              <button
+                type="button"
+                className={styles.dismiss}
+                data-dismiss={entry.id}
+                aria-label={`Dismiss the refusal for #${entry.ticket}`}
+                onClick={() => onDismissRefusal(entry.id)}
+              >
+                dismiss
+              </button>
+            </li>
           ))}
         </ul>
       )}

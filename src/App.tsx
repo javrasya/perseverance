@@ -94,6 +94,7 @@ import { openPinsAt } from "./views/plate/pins";
 import { useBodyBox } from "./panes/useBodyBox";
 import { usePeek } from "./panes/usePeek";
 import { Rack } from "./rack/Rack.jsx";
+import { heldRefusals, withoutRefusal } from "./rack/rack";
 import {
   loadPendingRuns,
   refusalsOf,
@@ -472,16 +473,12 @@ export function App() {
       if (!live) return;
       arrived = true;
       setQueuedRuns(waitingOf(announced));
-      /* Kept rather than shown once: this is the only delivery. The id is the
-         entry's own, so a re-emission — which cannot happen today, and would be
-         a Rust-side defect if it did — cannot print the same failure twice. */
+      /* Kept rather than shown once: this is the only delivery. De-duplication
+         and the bound are `heldRefusals`', which is where the choice of bound is
+         argued — the list is held for the rest of the session and the rack's
+         region clips what it cannot fit. */
       const spoken = refusalsOf(announced);
-      if (spoken.length > 0) {
-        setRefusedRuns((held) => [
-          ...held,
-          ...spoken.filter((one) => !held.some((was) => was.id === one.id)),
-        ]);
-      }
+      if (spoken.length > 0) setRefusedRuns((held) => heldRefusals(held, spoken));
     }).then((off) => {
       if (!live) {
         off();
@@ -542,6 +539,19 @@ export function App() {
     return () => {
       live = false;
     };
+  }, []);
+
+  /*
+   * One held refusal off the list, by hand and by nothing else.
+   *
+   * No timer and no *clear all*: a sentence that aged out on its own would be
+   * the silent drop this channel exists to avoid wearing a clock, and a single
+   * control that swept the list would let one press lose a failure the operator
+   * had not read yet. The bound in `heldRefusals` is the only other way one
+   * leaves, and it is argued there.
+   */
+  const dismissRefusal = useCallback((id: number) => {
+    setRefusedRuns((held) => withoutRefusal(held, id));
   }, []);
 
   /* A refusal is not a list, so nothing edits one. */
@@ -1645,6 +1655,7 @@ export function App() {
               readouts={runs}
               pending={queuedRuns}
               refusals={refusedRuns}
+              onDismissRefusal={dismissRefusal}
               spentElsewhere={rationHeldByMapSide}
               /*
                 The rack's dock travels with the rack, and that is the whole of

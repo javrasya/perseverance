@@ -415,16 +415,75 @@
  * what it is about — an entry that was in that list and has left it.
  */
 .refusals {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-space-hair);
+  /* The box that gives, and never the box that pushes. `.rows` is `flex: 1;
+     min-height: 0` and the region clips its overflow, so a list that took its
+     full content height would squeeze the live rows to nothing and clip the
+     dock out of the rack entirely — a flush can print a sentence per queued
+     entry at once, each carrying a folder path and a crate's error string.
+     `flex: 0 1 auto` with `min-height: 0` lets it shrink instead, and the
+     scroll is this list's own so what it cannot show is still reachable. The
+     count is bounded as well, in `heldRefusals`: a scrollbar is not an answer
+     to a list that grows forever. */
+  flex: 0 1 auto;
+  min-height: 0;
   margin: 0;
   padding: var(--s-space-tight) 0 var(--s-space-tight) var(--s-space-snug);
   border-left: var(--s-border-emphasis) solid var(--s-line-absent);
   color: var(--s-ink-primary);
   font-size: var(--s-text-micro);
   list-style: none;
+  overflow-y: auto;
   /* A folder path has no spaces to break at, and the region's width is not
      content-driven — so a path that could not wrap would be drawn past an edge
      it cannot widen. */
   overflow-wrap: anywhere;
+}
+
+/* The sentence and its dismissal on one line: the sentence takes the width it
+   needs to wrap in, the control keeps its own and never shrinks into an
+   ellipsis. */
+.refusal {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-space-snug);
+  min-width: 0;
+}
+
+.refusalSaid {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/*
+ * *I have read this*, as a word.
+ *
+ * The user agent's button is stripped back to text in the flow, like `.row`:
+ * a filled control beside a failure sentence would read as louder than the
+ * failure. Underlined rather than tinted, so it reads as pressable with the
+ * palette taken away (rule 3), and nothing moves on press — the window's one
+ * animation is the lamp.
+ */
+.dismiss {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0;
+  appearance: none;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--s-ink-secondary);
+  font: inherit;
+  font-size: var(--s-text-micro);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.dismiss:focus-visible {
+  outline: var(--s-border-emphasis) solid var(--s-focus-ring);
+  outline-offset: 2px;
 }
 
 .empty {

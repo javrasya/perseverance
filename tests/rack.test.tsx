@@ -19,8 +19,11 @@ import {
   phraseAt,
   queuedPhraseAt,
   queuedRowsFor,
+  REFUSALS_HELD,
+  heldRefusals,
   refusalLine,
   waitingSentence,
+  withoutRefusal,
   regionFor,
   rowsFor,
   shows,
@@ -86,6 +89,7 @@ async function draw(
   elsewhere = false,
   pending: readonly PendingRun[] = [],
   refusals: readonly PendingRun[] = [],
+  onDismissRefusal: (id: number) => void = () => {},
 ): Promise<Element> {
   teardown();
   const host = document.createElement("div");
@@ -99,6 +103,7 @@ async function draw(
         readouts={readouts}
         pending={pending}
         refusals={refusals}
+        onDismissRefusal={onDismissRefusal}
         spentElsewhere={elsewhere}
       />,
     );
@@ -818,6 +823,94 @@ describe("the rack draws what has not started, and a queue entry is not a run", 
     expect(queueRows(rack)).toHaveLength(1);
     expect(queueRows(rack)[0]!.getAttribute("data-pending")).toBe(String(waitingOf(announced)[0]!.id));
     expect(rack.textContent).toContain("1 press is waiting to start.");
+  });
+
+  /*
+   * The refusal list, as the one thing on this surface that is *held* rather
+   * than redrawn from a tick.
+   *
+   * Two failure modes and they pull opposite ways: dropped silently, and the
+   * operator never hears about a spawn that failed after its press was
+   * answered; held forever, and a flush of a full queue takes the whole region
+   * — `.rows` is the flex child that gives and the rack clips its overflow, so
+   * the live rows are squeezed to nothing and the dock is clipped out. So it is
+   * bounded, dismissable by hand, and drawn in a box that shrinks and scrolls.
+   */
+  const refusal = (id: number): PendingRun => ({
+    id,
+    ticket: 100 + id,
+    kind: "research",
+    folder: "/work/perseverance",
+    queued: nowSeconds() - 60,
+    refused: "no token is stored for this host",
+  });
+
+  it("holds the newest refusals up to its bound, and never grows past it", () => {
+    const many = Array.from({ length: REFUSALS_HELD + 3 }, (_, at) => refusal(at + 1));
+
+    /* One at a time, which is how they actually arrive: a tick announces what
+       refused on that tick and the shell adds it to what it is holding. */
+    let held: readonly PendingRun[] = [];
+    for (const one of many) held = heldRefusals(held, [one]);
+
+    expect(held).toHaveLength(REFUSALS_HELD);
+    /* The oldest go, and the newest — the ones nobody has read yet — stay. */
+    expect(held.map((one) => one.id)).toEqual(many.slice(-REFUSALS_HELD).map((one) => one.id));
+
+    // And a single flush bigger than the bound is bounded the same way.
+    expect(heldRefusals([], many).map((one) => one.id)).toEqual(
+      many.slice(-REFUSALS_HELD).map((one) => one.id),
+    );
+  });
+
+  it("prints the same failure once, and re-renders nothing when a tick says nothing new", () => {
+    const held = heldRefusals([], [refusal(1), refusal(2)]);
+    expect(heldRefusals(held, [refusal(2)])).toBe(held);
+    expect(heldRefusals(held, [refusal(2), refusal(3)]).map((one) => one.id)).toEqual([1, 2, 3]);
+  });
+
+  it("offers a dismissal on each held refusal, and it takes away that one alone", async () => {
+    regionIs(500);
+    const held = [refusal(1), refusal(2)];
+    const dismissed: number[] = [];
+    const rack = await draw([], false, [], held, (id) => dismissed.push(id));
+
+    const controls = [...rack.querySelectorAll("[data-dismiss]")] as HTMLElement[];
+    expect(controls).toHaveLength(held.length);
+    /* A word in the flow rather than a glyph behind hover: rule 10 keeps a
+       control an operator needs off a pointer-only affordance. */
+    expect(controls[0]!.textContent).toBe("dismiss");
+
+    await act(async () => {
+      controls[1]!.click();
+      await Promise.resolve();
+    });
+    expect(dismissed).toEqual([held[1]!.id]);
+
+    /* The list is the shell's, so the rack asked and edited nothing — and what
+       the shell does with the id takes away that entry and no other. */
+    expect([...rack.querySelectorAll("[data-dismiss]")]).toHaveLength(held.length);
+    expect(withoutRefusal(held, held[1]!.id).map((one) => one.id)).toEqual([held[0]!.id]);
+  });
+
+  it("draws the refusals in a box that shrinks and scrolls rather than one that pushes", () => {
+    const css = stylesheet(RACK_CSS);
+    const refusals = /\.refusals \{([^}]*)\}/.exec(css)?.[1] ?? "";
+
+    /* `.rows` is `flex: 1; min-height: 0` and `.rack` is `overflow: hidden`, so
+       a refusal list without a shrink and a scroll of its own takes its full
+       content height out of the rows and the dock. */
+    expect(refusals).toContain("flex: 0 1 auto;");
+    expect(refusals).toContain("min-height: 0;");
+    expect(refusals).toContain("overflow-y: auto;");
+    // A folder path still has nowhere to break, and still has to wrap.
+    expect(refusals).toContain("overflow-wrap: anywhere;");
+
+    // And the dismissal moves nothing: the window's one animation is the lamp.
+    const dismiss = /\.dismiss \{([^}]*)\}/.exec(css)?.[1] ?? "";
+    expect(dismiss).not.toContain("animation");
+    expect(dismiss).not.toContain("transition");
+    expect(readMotion(css).animations.map((one) => one.selector)).toEqual([".lampPing::after"]);
   });
 
   it("spends no motion and no colour of its own on the queue", async () => {
