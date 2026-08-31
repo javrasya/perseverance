@@ -136,6 +136,11 @@ export const SIGNAL_READINGS: Record<RunSignal, string> = {
  * operator's own words; and never written into the terminal buffer, where it
  * would be indistinguishable afterwards from something the agent printed.
  *
+ * The register is bounded, so this line is too: past `KEPT_CHARACTERS` the words
+ * are the recent tail and the sentence says as much, rather than letting a
+ * trimmed register read as a whole one. That bound is also what keeps the chrome
+ * from growing until it squeezes the terminal underneath it.
+ *
  * Nothing moves. The count changes as more is typed, and a changing number is a
  * still state at every value it takes — rule 12 asks for a still-state
  * equivalent of anything motion carries, and a reading that never animates
@@ -146,7 +151,9 @@ export const SPILL_READING = "typed after this run ended, and held rather than s
 export function spillSentence(spill: Spill | null): string | null {
   if (spill === null) return null;
   const counted = `${spill.characters} character${spill.characters === 1 ? "" : "s"}`;
-  return `${SPILL_READING} · ${counted} — “${spill.text}”`;
+  const held = spill.elided ? `${counted} kept, the most recent` : counted;
+  const words = spill.elided ? `…${spill.text}` : spill.text;
+  return `${SPILL_READING} · ${held} — “${words}”`;
 }
 
 export function Pane({

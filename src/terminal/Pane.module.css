@@ -136,6 +136,16 @@
   --c-spill-ink: var(--s-ink-primary);
 
   color: var(--c-spill-ink);
+
+  /*
+   * The register is bounded already; this is the second half of the same
+   * decision, in the one place that knows how wide the pane happens to be. The
+   * chrome's height is content-driven and the host below it is what gives way,
+   * so a spill in a narrow pane is clipped rather than allowed to push the last
+   * output of the dead run out of sight.
+   */
+  max-height: 3lh;
+  overflow: hidden;
 }
 
 /*

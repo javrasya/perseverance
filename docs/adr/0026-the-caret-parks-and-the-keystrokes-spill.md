@@ -69,7 +69,7 @@ here.
 
 **The keystrokes spill.** `src/terminal/spill.ts` keeps what was typed at a run
 whose readout says `over`, one register per aimed-at run, and the pane prints
-what it holds as a line beside the terminal. Two restrictions are part of the
+what it holds as a line beside the terminal. Three restrictions are part of the
 decision rather than of the implementation:
 
 - **Wholly-printable chunks only, and a chunk with any control byte is dropped
@@ -80,6 +80,17 @@ decision rather than of the implementation:
 - **Per run, not one global register.** The pane is parked on the dead run and
   what it prints must be true of that run. One register would print run 3's
   half-typed sentence beside run 5's output and attribute it there.
+- **Bounded at the last 240 characters, and the tail is what survives.** Only
+  the End press empties a register, so an operator who keeps typing at a parked
+  run — or pastes one long printable line — would otherwise grow a string with
+  no ceiling, and the pane prints that string into chrome whose height is
+  content-driven above a terminal that gives way. An unbounded register is
+  therefore a register that hides the dead run's last output, which is the one
+  thing the parking rule exists to keep readable. What is lost is the head of a
+  long sentence, and the register recovers words, not sessions: the part
+  somebody is still typing is the recent end of it. A trimmed register prints
+  the count of what it *kept* and says the words are the most recent, so the
+  reading never passes a tail off as the whole.
 
 **The reading is an observation.** *Typed after this run ended, and held rather
 than sent*, a count, and the words themselves. Not a modal — nothing has happened

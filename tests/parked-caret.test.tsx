@@ -6,7 +6,7 @@ import { App } from "../src/App";
 import { monitor, readUi } from "../src/stores/ui";
 import { SPILL_READING, spillSentence } from "../src/terminal/Pane";
 import type { RunReadout } from "../src/terminal/runs";
-import { forgetSpills, spillAtRun, spilledAtRun } from "../src/terminal/spill";
+import { KEPT_CHARACTERS, forgetSpills, spillAtRun, spilledAtRun } from "../src/terminal/spill";
 
 /**
  * The caret parks when the run it is on dies.
@@ -273,7 +273,43 @@ describe("the spill register", () => {
     spillAtRun(7, "git ");
     spillAtRun(7, "status");
 
-    expect(spilledAtRun(7)).toEqual({ text: "git status", characters: 10 });
+    expect(spilledAtRun(7)).toEqual({ text: "git status", characters: 10, elided: false });
+  });
+
+  it("keeps the most recent characters and no more, however long the typing runs", () => {
+    for (let press = 0; press < KEPT_CHARACTERS; press += 1) spillAtRun(7, "old ");
+    spillAtRun(7, "the recent end");
+
+    const spill = spilledAtRun(7);
+    expect(spill?.characters).toBe(KEPT_CHARACTERS);
+    expect(spill?.text).toHaveLength(KEPT_CHARACTERS);
+    expect(spill?.text.endsWith("the recent end")).toBe(true);
+    expect(spill?.elided).toBe(true);
+  });
+
+  it("bounds a single long paste, which arrives whole because it has no newline in it", () => {
+    const pasted = "x".repeat(KEPT_CHARACTERS * 4);
+    spillAtRun(7, pasted);
+
+    expect(spilledAtRun(7)?.characters).toBe(KEPT_CHARACTERS);
+    expect(spilledAtRun(7)?.elided).toBe(true);
+  });
+
+  it("stays elided once it has been, even if nothing further is dropped", () => {
+    spillAtRun(7, "y".repeat(KEPT_CHARACTERS + 1));
+    spillAtRun(7, "z");
+
+    expect(spilledAtRun(7)?.elided).toBe(true);
+    expect(spilledAtRun(7)?.characters).toBe(KEPT_CHARACTERS);
+  });
+
+  it("prints a bounded sentence, and says the words are the most recent rather than all of them", () => {
+    spillAtRun(7, "q".repeat(KEPT_CHARACTERS * 2));
+
+    const sentence = spillSentence(spilledAtRun(7));
+    expect(sentence).toContain(`${KEPT_CHARACTERS} characters kept, the most recent`);
+    expect(sentence).toContain("…");
+    expect(sentence?.length).toBeLessThan(SPILL_READING.length + KEPT_CHARACTERS + 64);
   });
 
   it("keeps a chunk with no control byte in it, and drops one with any", () => {
