@@ -60,6 +60,7 @@
 .wedged,
 .signal,
 .ready,
+.unoffered,
 .spill {
   display: inline-flex;
   align-items: baseline;
@@ -164,15 +165,23 @@
 }
 
 /*
- * The press that ends a run. A control in a row of statements, so it carries a
- * hairline to say it is one — the sentences beside it are facts and this is the
- * only thing on the chrome that does anything.
+ * The two presses on the chrome — ending the run, and sending what it caught to
+ * the work run beside it. Controls in a row of statements, so they carry a
+ * hairline to say so: the sentences beside them are facts and these are the only
+ * things on the chrome that do anything.
+ *
+ * One box for both, because they are the same kind of thing and a second shape
+ * would read as a second importance. Neither grows, slides or fades in when it
+ * appears: the chrome sits above the terminal and a strip that reflowed would
+ * resize a PTY nobody asked to resize, which is a stronger reason than the
+ * motion ration and independently sufficient.
  */
-.end {
-  --c-end-line: var(--s-line-strong);
+.end,
+.offer {
+  --c-press-line: var(--s-line-strong);
 
   padding: 0 var(--s-space-tight);
-  border: var(--s-border-hairline) solid var(--c-end-line);
+  border: var(--s-border-hairline) solid var(--c-press-line);
   border-radius: var(--s-radius-chip);
   background: transparent;
   color: var(--s-ink-secondary);
@@ -181,13 +190,27 @@
   cursor: pointer;
 }
 
-.end:hover {
+.end:hover,
+.offer:hover {
   color: var(--s-ink-primary);
 }
 
-.end:focus-visible {
+.end:focus-visible,
+.offer:focus-visible {
   outline: var(--s-border-emphasis) solid var(--s-focus-ring);
   outline-offset: -1px;
+}
+
+/*
+ * Why there is no press, in the same faint ink `truncation` takes: it is a fact
+ * about this window's runs rather than about the words, and the words beside it
+ * are the loud thing here. Text and never a `title`, for the reason the rail's
+ * conditions are.
+ */
+.unoffered {
+  --c-unoffered-ink: var(--s-ink-faint);
+
+  color: var(--c-unoffered-ink);
 }
 
 /*

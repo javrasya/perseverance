@@ -44,8 +44,18 @@ export interface WarmRun {
   over: boolean;
 }
 
-/** How the operator picks this run out of a rack: its ticket, else its number. */
-function nameOf(warm: WarmRun): string {
+/**
+ * How the operator picks this run out of a rack: its ticket, else its number.
+ *
+ * Exported because a second place now has to name a run to the operator — the
+ * pane's press that offers a parked run's spill register to the work run beside
+ * it, which prints where the words are going. Two spellings of a run's name
+ * would be two vocabularies for one thing: a readout saying `#123 work` over a
+ * button saying `run 9` names the same run twice and lets the operator believe
+ * they are two. The parameter stays [`WarmRun`] — a structural subset that any
+ * readout satisfies — so naming a run costs no import of how readouts arrive.
+ */
+export function nameOf(warm: WarmRun): string {
   const named = warm.ticket === null ? `run ${warm.run}` : `#${warm.ticket}`;
   return warm.kind === null ? named : `${named} ${warm.kind}`;
 }

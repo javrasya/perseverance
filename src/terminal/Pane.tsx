@@ -3,11 +3,12 @@ import { briefSpan } from "../chrome/age";
 import { EscReadout } from "../keys/EscReadout.jsx";
 import { Temperature } from "../keys/Temperature.jsx";
 import { collapsed, gesture, type Occasion } from "../panes/geometry";
+import { nameOf } from "../keys/temperature";
 import { keyedRun, monitor, readUi, setKeyed, useUi } from "../stores/ui";
 import { promptFor } from "./prompts";
 import { PromptBlock } from "./PromptBlock";
-import { endRun, type RunReadout, type RunSignal } from "./runs";
-import { forgetSpill, useSpill, type Spill } from "./spill";
+import { endRun, typedAtRun, type RunReadout, type RunSignal } from "./runs";
+import { forgetSpill, offeredTo, useSpill, type Spill } from "./spill";
 import type { Terminals } from "./terminals";
 import styles from "./Pane.module.css";
 
@@ -147,6 +148,12 @@ export const SIGNAL_READINGS: Record<RunSignal, string> = {
  * still state at every value it takes — rule 12 asks for a still-state
  * equivalent of anything motion carries, and a reading that never animates
  * never incurs one.
+ *
+ * *Held rather than sent* stays exactly true beside the press that offers them:
+ * the words are held, and they go nowhere until a hand sends them. The sentence
+ * describes the register at the moment it is printed, and never the register's
+ * future — a reading that said *these will be sent* would be the chrome making a
+ * promise on the operator's behalf.
  */
 export const SPILL_READING = "typed after this run ended, and held rather than sent";
 
@@ -157,6 +164,34 @@ export function spillSentence(spill: Spill | null): string | null {
   const words = spill.elided ? `…${spill.text}` : spill.text;
   return `${SPILL_READING} · ${held} — “${words}”`;
 }
+
+/**
+ * Where the words can go, named the way the rest of the app names a run.
+ *
+ * The destination is printed on the button rather than left to *Send*: this
+ * window holds several folders' runs and the operator cannot see, from a pane
+ * showing a stopped run, which live agent is about to be spoken to. `nameOf` in
+ * `src/keys/temperature.ts` is that naming already written down — the same
+ * spelling the temperature line above uses — so the button and the readout name
+ * one run one way.
+ */
+export function offerLabel(work: RunReadout): string {
+  return `Send to ${nameOf(work)}`;
+}
+
+/**
+ * Why there is no press beside the words, as visible text.
+ *
+ * Printed rather than left blank, and never as a disabled button: a control that
+ * cannot be pressed with the reason behind a hover is a reason a keyboard and a
+ * screen reader do not have, which is the rule `src/chrome/sockets.ts` states for
+ * the rail and this chrome keeps. It says the offer is missing and deliberately
+ * says nothing about the words themselves — they are still held, still counted
+ * and still printed beside this, and a sentence hinting they were lost would be
+ * the pane contradicting the register an inch to its left.
+ */
+export const NOWHERE_TO_OFFER =
+  "no work run is going in this folder, so there is nowhere to send these yet";
 
 export function Pane({
   terminals,
@@ -341,7 +376,15 @@ export function Pane({
   const sentence = readout === null ? null : endingSentence(readout);
   const silence = readout === null ? null : silenceSentence(readout);
   const signal = readout === null || readout.signal === null ? null : readout.signal;
-  const spill = spillSentence(useSpill(monitored));
+  const held = useSpill(monitored);
+  const spill = spillSentence(held);
+  /*
+   * Who the words could go to, derived every frame from the readouts this pane
+   * already has rather than remembered: the work run beside a parked one can end
+   * while its neighbour's chrome is on screen, and a destination kept in state
+   * would leave a button offering a run that stopped answering.
+   */
+  const work = held === null || readout === null ? null : offeredTo(readouts, readout.run);
 
   /*
    * The press, and the only thing in this app that ends a run.
@@ -368,6 +411,27 @@ export function Pane({
     terminals.forget(run);
     forgetSpill(run);
     monitor(null);
+  };
+
+  /*
+   * The other press, and the one that moves nothing but the words.
+   *
+   * It does not re-patch the monitor, does not warm anything and does not end
+   * the parked run: the caret is where the operator put it and a hand-off of
+   * text is not a decision about where to type next. `typed_at_run` takes any
+   * run id, so the sentence lands in the work run's child without the caret ever
+   * leaving the run it is parked on — which is the whole reason this can be
+   * offered at all under the parking rule.
+   *
+   * The order is load-bearing in the opposite direction to `end`'s. The register
+   * is dropped only after the send has come back, because a register forgotten
+   * on a send that threw would be the app losing the sentence it printed a
+   * promise about — and the words are unrecoverable at that point, since the
+   * child that would have echoed them never got them.
+   */
+  const offer = async (parked: number, work: number, text: string) => {
+    await typedAtRun(work, text);
+    forgetSpill(parked);
   };
 
   return (
@@ -413,6 +477,31 @@ export function Pane({
             </span>
           )}
           {spill === null ? null : <span className={styles.spill}>{spill}</span>}
+          {/*
+            And where they can go, beside the words themselves. A real button
+            for the same reason `End this run` is one — this is a decision and
+            the keyboard has to reach it — and in the chrome rather than in the
+            host node, which is xterm's. With no work run in this folder there is
+            a sentence here instead: never a disabled button, whose reason is
+            reachable only by a hover, and never a word about the words being
+            gone, which the register beside it would contradict.
+          */}
+          {held === null ? null : work === null ? (
+            <span className={styles.unoffered}>{NOWHERE_TO_OFFER}</span>
+          ) : (
+            <button
+              type="button"
+              className={styles.offer}
+              onClick={() => {
+                /* A send that comes back refused leaves the register exactly as
+                   it was, and this button beside it: the words are still here to
+                   press again, which is the difference between held and lost. */
+                offer(readout.run, work.run, held.text).catch(() => {});
+              }}
+            >
+              {offerLabel(work)}
+            </button>
+          )}
           {/*
             Offered on every ending but `live`, and it is a real button rather
             than a click handler on the sentence: the ending is a fact and this

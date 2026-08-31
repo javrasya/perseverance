@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react";
 import { readable } from "../stores/readable";
+import type { RunReadout } from "./runs";
 
 /**
  * What was typed at a run whose child has stopped.
@@ -43,12 +44,14 @@ import { readable } from "../stores/readable";
  * so a register lasts exactly as long as the run it belongs to, and the press
  * that ends a run drops it with everything else that run held.
  *
- * **What is deliberately not here.** #57 owns the patchbay: offering this text to
- * the work run, the warm and cold surfaces it would be offered across, and the
- * read-only pane in general. This half captures and holds, and stops. Building
- * the offer here would mean deciding ahead of that ticket which run a spill is
- * worth moving to, and this slice has no way to answer that — there is no
- * temperature model yet to ask.
+ * **The offer is the second half, and it is [`offeredTo`].** Capturing without
+ * offering would be a register that promises a sentence is recoverable and gives
+ * the operator no way to recover it — retyping from a box they can read is not
+ * recovery, it is transcription. What the register still refuses to do is decide
+ * on its own: nothing here moves text anywhere, and the only thing that empties
+ * a register is a press. A poll that drained a register into a live agent would
+ * be putting words into somebody's conversation that nobody pressed anything to
+ * send.
  */
 export interface Spill {
   /**
@@ -133,6 +136,45 @@ export function spillAtRun(run: number, text: string): void {
     elided: (previous?.elided ?? false) || kept.length < grown.length,
   });
   replace(next);
+}
+
+/**
+ * The run a parked register's words would be offered to, or `null` for none.
+ *
+ * **The join is the folder, and never the run number alone.** This window holds
+ * every folder's runs at once, so *some other run is still going* is a question
+ * that has to be asked inside one repository or it is not the question anybody
+ * meant: an offer matched on liveness alone would hand a half-typed sentence to
+ * an agent working in a different checkout, on a ticket the operator has never
+ * read, and the text would be gone from here by the time they saw where it went.
+ * `liveRunOn` and `runningIn` in `src/chrome/sockets.ts` match on the same pair
+ * for the same reason, and Rust's `live_run_on` is where the convention starts.
+ *
+ * A parked run whose `folder` is `null` — a run this window was never told the
+ * folder of — can be joined to nothing, and so is offered nothing. The absence
+ * is the honest answer: an offer that fell back to *any live work run* would be
+ * exactly the cross-repository hand-off the join exists to prevent.
+ *
+ * **`work` and still going, and not the parked run itself.** A compose or a
+ * research run is not what a sentence typed at a stopped work run was meant for,
+ * a run that is over is the same dead descriptor this register exists because of,
+ * and a run cannot be offered its own spill. The spec's one-foreground-HITL-run
+ * invariant means at most one run survives all three, so this picks nothing: the
+ * first match is the only match, and a rule that chose among several would be a
+ * rule deciding which agent hears the operator without being asked.
+ */
+export function offeredTo(
+  readouts: readonly RunReadout[],
+  parked: number,
+): RunReadout | null {
+  const held = readouts.find((run) => run.run === parked) ?? null;
+  if (held === null || held.folder === null) return null;
+  return (
+    readouts.find(
+      (run) =>
+        run.run !== parked && run.kind === "work" && !run.over && run.folder === held.folder,
+    ) ?? null
+  );
 }
 
 /** What this run has caught, or `null` for a run that has caught nothing. */
