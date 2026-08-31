@@ -1,5 +1,6 @@
 /**
- * The two stack-level prohibitions, as pure functions over text.
+ * The stack-level prohibitions and the contract registry's structural probe, as
+ * pure functions over text.
  *
  * They are separated from the tests that call them so the checks themselves
  * can be tested against known-bad input. A check nobody has ever seen fail is
@@ -165,6 +166,31 @@ export function findTierViolations(
   }
 
   return violations;
+}
+
+/* ------------------------------------------------------- View prop type --- */
+
+/**
+ * The fields of the one `ViewProps` declaration, or `null` where there is none.
+ *
+ * Rule 7 of the encoding contract is structural *because of this declaration*:
+ * a registry entry that names a mechanism nobody re-reads is a claim about the
+ * day it was written. `tests/views.test.ts` asserts the same shape from the
+ * other side — it is the rule's own test — and this is the registry checking
+ * that the mechanism it points at is still there.
+ *
+ * The declaration only, never the file: the file has to import the type it
+ * names and that import path spells `snapshot`, so a scan of the file would
+ * fail on the import and pass on a `snapshot: Snapshot` field, which is the
+ * whole of the distance between a structural exclusion and a rule.
+ */
+export function viewPropsFields(text: string): string[] | null {
+  const body = /export interface ViewProps \{([^}]*)\}/.exec(text)?.[1];
+  if (body === undefined) return null;
+  return body
+    .split(";")
+    .map((field) => field.trim())
+    .filter((field) => field.length > 0);
 }
 
 export function format(path: string, violations: readonly Violation[]): string {

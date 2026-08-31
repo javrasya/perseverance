@@ -231,6 +231,18 @@ record* is then a property of a type rather than a rule every view added later
 has to keep — the same mechanism that keeps `blockedBy` and `assignees` out of
 the WebView.
 
+**Thirteen contract rules, each with one tier** — `src/contract/rules.ts` and
+`tests/contract-registry.test.ts`. The encoding contract is one sentence per
+rule and one tier per rule, and the tier is the load-bearing half: *structural*
+means a violation is unexpressible — there is no prop, no column to write it
+into; *asserted* means a test decides and a red test is the failure, with no
+appeal; *judged* means part of the obligation is about what a person reads, so a
+person decides and a deviation must be declared. A tier is a fact about today's
+design rather than a rank among the rules — widen `ViewProps` and rule 7 stops
+being structural with its sentence unchanged — so the registry names the file
+each structural mechanism lives in and the test reads it back out of the tree.
+[ADR 0020](docs/adr/0020-the-contract-is-thirteen-rules-in-three-tiers.md).
+
 **macOS is the CSS floor, not Windows** — `npm run check:css-floor`. Windows
 ships an evergreen WebView; macOS ships one pinned to the OS version. macOS 13
 / Safari 16.4 is declared once in `package.json`'s `browserslist` and read from
