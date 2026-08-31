@@ -14,14 +14,16 @@
 //!   Nothing this app stored can therefore disagree with the disk: a worktree
 //!   the operator deleted is missing, a worktree they kept is found again by a
 //!   process that never made it, and neither is a row to reconcile.
-//! - **Nothing is ever deleted, moved or forced.** A path holding something else
-//!   refuses; a branch checked out elsewhere refuses; `git worktree add` exiting
-//!   non-zero refuses. Removal is a separate verb with its own ticket, and
-//!   `--force` appears in this crate exactly nowhere. That includes the record
-//!   git keeps of a worktree whose directory was deleted by hand: clearing it is
-//!   `git worktree prune`, which is repository-wide and would drop
-//!   registrations this app never made, so the press refuses with git's own
-//!   hint in it and the operator runs the word themselves.
+//! - **Nothing is ever moved, forced, or removed without a slip.** A path
+//!   holding something else refuses; a branch checked out elsewhere refuses;
+//!   `git worktree add` exiting non-zero refuses; and `--force` appears in this
+//!   crate exactly nowhere. Removal is a second verb, added by #60 and confined
+//!   to the inventory: `git worktree remove` on a directory this app made, that
+//!   has nothing uncommitted in it, and whose commits are already on a remote —
+//!   and it deletes no branch, so the run's work outlives its working copy. What
+//!   is still not run is `git worktree prune`: it is repository-wide and would
+//!   drop registrations this app never made, and the narrow command turns out to
+//!   clear a hand-deleted directory's registration by itself.
 //! - **The operator's own files are appended to, never rewritten.** The exclude
 //!   line goes on the end of `.git/info/exclude` if it is not already in it, and
 //!   the tracked `.gitignore` is never touched — hiding the harness's scratch
@@ -29,6 +31,14 @@
 //!
 //! Filled in by:
 //! - #58 the worktree before the spawn
+//! - #60 the inventory, its classification and its removal
+
+mod inventory;
+
+pub use inventory::{
+    classify, inventory, parse, remove, InventoryError, Listed, Origin, Probed, Publication,
+    Record, Removal, Working,
+};
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -158,10 +168,17 @@ pub fn branch_for(ticket: u64, title: &str) -> String {
 /// Derived rather than remembered, which is what lets a worktree be found again
 /// by a process that never created it.
 pub fn worktree_path(folder: &Path, ticket: u64) -> PathBuf {
-    folder
-        .join(".perseverance")
-        .join("worktrees")
-        .join(ticket.to_string())
+    worktrees_root(folder).join(ticket.to_string())
+}
+
+/// The directory every worktree this app makes lives directly under.
+///
+/// Exported because it is what *ours* means: the inventory classifies an entry
+/// by whether git's path for it is under this one, and a second spelling of the
+/// same three components is how that question quietly starts answering *foreign*
+/// about our own directories.
+pub fn worktrees_root(folder: &Path) -> PathBuf {
+    folder.join(".perseverance").join("worktrees")
 }
 
 /// The worktree this research run gets: reused if it is already there, created
@@ -277,7 +294,7 @@ fn checked_out_branch(path: &Path) -> Option<String> {
 
 /// Two paths naming one directory, canonicalised where the filesystem will say
 /// so and compared as written where it will not.
-fn same_directory(left: &Path, right: &Path) -> bool {
+pub(crate) fn same_directory(left: &Path, right: &Path) -> bool {
     let canonical =
         |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     canonical(left) == canonical(right)
@@ -340,7 +357,7 @@ fn add(
 /// Read off disk rather than asked of `git rev-parse`, for the reason every
 /// other read here is: one process is started per press, and it is the one that
 /// changes something.
-fn branch_exists(common: &Path, branch: &str) -> bool {
+pub(crate) fn branch_exists(common: &Path, branch: &str) -> bool {
     let loose = branch
         .split('/')
         .fold(common.join("refs").join("heads"), |path, part| {
@@ -403,7 +420,7 @@ fn hide(common: &Path, ticket: u64) -> Result<(), WorktreeError> {
 /// are the half that names the command the operator would run next — *use
 /// `prune`*, for a worktree whose directory they deleted by hand — and this
 /// crate is deliberately not the thing that runs it for them.
-fn refusal_from(stderr: &[u8]) -> String {
+pub(crate) fn refusal_from(stderr: &[u8]) -> String {
     let said = String::from_utf8_lossy(stderr);
     let said: Vec<&str> = said
         .lines()
@@ -418,7 +435,7 @@ fn refusal_from(stderr: &[u8]) -> String {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use tempfile::TempDir;
 
@@ -426,7 +443,7 @@ mod tests {
     ///
     /// CI is a Windows and macOS matrix and both have git, but a contributor's
     /// container may not, and a test that cannot run is not a test that failed.
-    fn a_repository() -> Option<TempDir> {
+    pub(crate) fn a_repository() -> Option<TempDir> {
         let folder = TempDir::new().expect("a temporary directory");
         let run = |arguments: &[&str]| -> Option<bool> {
             Command::new("git")
@@ -447,6 +464,22 @@ mod tests {
         run(&["commit", "-m", "first"])?;
 
         Some(folder)
+    }
+
+    /// Where a branch points, asked of git rather than of this crate's own
+    /// reading, so a test about a branch surviving is not checked by the code it
+    /// is checking.
+    pub(crate) fn tip_of(folder: &Path, branch: &str) -> Option<String> {
+        let finished = Command::new("git")
+            .arg("-C")
+            .arg(folder)
+            .args(["rev-parse", &format!("refs/heads/{branch}")])
+            .output()
+            .ok()?;
+        finished
+            .status
+            .success()
+            .then(|| String::from_utf8_lossy(&finished.stdout).trim().to_string())
     }
 
     fn excludes(folder: &Path) -> String {
