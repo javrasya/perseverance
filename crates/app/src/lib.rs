@@ -13,6 +13,8 @@
 //!
 //! [`perseverance_store`]: https://github.com/javrasya/perseverance
 
+pub mod prompt;
+
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
