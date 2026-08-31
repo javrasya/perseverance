@@ -49,7 +49,28 @@ import {
 import { describeModel } from "./snapshot/readout";
 import { loadSnapshot, watchSnapshot } from "./snapshot/snapshot";
 import { replaceSnapshot, useSnapshot } from "./stores/snapshots";
-import { readUi, select, useUi } from "./stores/ui";
+import { moveDial, readUi, select, useUi } from "./stores/ui";
+/* `Dial.jsx` and `StandDown.jsx` for the same reason `Route.jsx` is spelled
+   below: `panes/dial.ts` is the arithmetic and `panes/Dial.tsx` is the hand on
+   it, and on a case-insensitive filesystem an extensionless specifier finds the
+   first of the two. */
+import { Dial } from "./panes/Dial.jsx";
+import { StandDown } from "./panes/StandDown.jsx";
+import {
+  clamp,
+  columnsAt,
+  floorOf,
+  fractionOf,
+  honours,
+  sides,
+  standDown,
+  surfaces,
+  type Detent,
+} from "./panes/dial";
+import { readPosition, writePosition } from "./panes/position";
+import { useWindowWidth } from "./panes/useWindowWidth";
+import { ViewSwitcher } from "./views/ViewSwitcher.jsx";
+import { VIEWS, type ViewName } from "./views/views";
 import { Pane } from "./terminal/Pane.jsx";
 import {
   loadRunReadouts,
@@ -96,7 +117,14 @@ export function App() {
    */
   const now = useNow();
   const [preference, chooseTheme] = useTheme();
-  const [view] = useDefaultView();
+  const [view, chooseView] = useDefaultView();
+  /*
+   * The window, measured, because the dial's every answer is *position × width*
+   * — what each side is worth, which columns are there for, and whether the open
+   * view can be drawn at all. Nothing here observes a box: the app's one
+   * `ResizeObserver` is the pane's, and it stays the only one.
+   */
+  const windowWidth = useWindowWidth();
   /*
    * The two stores, read here and written in two different places.
    *
@@ -106,7 +134,7 @@ export function App() {
    * a hand was in the middle of — `tests/stores.test.ts` is the assertion.
    */
   const snapshot = useSnapshot();
-  const { selection: selectedNode, monitored } = useUi();
+  const { selection: selectedNode, monitored, position } = useUi();
   const [outcome, setOutcome] = useState<LauncherOutcome>(nothingListedYet);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [runs, setRuns] = useState<readonly RunReadout[]>([]);
@@ -502,6 +530,67 @@ export function App() {
   const selectedChild =
     snapshot.model.map?.nodes.find((node) => node.number === selectedNode) ?? null;
 
+  /*
+   * Where the dial is, and where the map that is open will find it next time.
+   *
+   * The store holds the position and the storage holds it per map, and this is
+   * the one line that joins them — which is what keeps `src/panes/position.ts`
+   * a two-function seam the later slice can swap for a `map_view` row.
+   */
+  /*
+   * How much window the map that is open was worth last time it was open.
+   *
+   * An effect on *which map*, rather than a line in `onOpenMap`, because a map
+   * can become the open one without anybody clicking a row — a window restored,
+   * a folder re-read — and the position belongs to the map either way. A map
+   * with nothing remembered, and every map on a machine whose storage is
+   * denied, comes back at the default detent rather than at whatever the last
+   * map happened to get.
+   */
+  useEffect(() => {
+    moveDial(readPosition(selectedPath ?? null, openMap));
+  }, [selectedPath, openMap]);
+
+  const moveTo = useCallback(
+    (next: number) => {
+      moveDial(next);
+      writePosition(selectedPath ?? null, openMap, next);
+    },
+    [selectedPath, openMap],
+  );
+
+  /*
+   * A cap on the switcher: surface *and* open, in that order, as one press.
+   *
+   * The move is the operator's doing — they pressed the cap that says it widens
+   * the dial. Nothing anywhere else in this file changes which view is open,
+   * because a shell that swapped a view for one that happened to fit would make
+   * the picture on screen something nobody chose.
+   */
+  const onChooseView = useCallback(
+    (wanted: ViewName) => {
+      const floor = floorOf(wanted);
+      if (!honours(floor, sides(position, windowWidth).map)) {
+        const detent: Detent = surfaces(floor, windowWidth) ?? "map";
+        moveTo(fractionOf(detent));
+      }
+      chooseView(wanted);
+    },
+    [position, windowWidth, moveTo, chooseView],
+  );
+
+  const mapWidth = sides(position, windowWidth).map;
+  const columns = columnsAt(mapWidth);
+  /*
+   * `null` means the open view can be drawn here. Anything else is the four
+   * things the stand-down has to say, decided in the pure module and rendered
+   * verbatim.
+   */
+  const standing = standDown(view, position, windowWidth, VIEWS);
+  /* The run whose bytes are on the pane, as the map side knows it — so a map
+     rendered during a run and the run bar cannot disagree about which run. */
+  const monitoredRun = runs.find((run) => run.run === monitored) ?? null;
+
   const onAskAgain = useCallback(() => {
     if (selectedPath === undefined) return;
     resolveFolder(() => retryFolderEnvironment(selectedPath));
@@ -628,6 +717,18 @@ export function App() {
           onRead={setReadThrough}
           onSelectNode={select}
         />
+        {/*
+          The view switcher, on the spine and never inside a pane.
+
+          It survives every position of the dial because it is drawn here, above
+          the body the dial divides — and every registered view has a cap here at
+          every detent, including the ones that cannot be drawn at this width.
+          Those say so on the cap and are shaped differently, and pressing one
+          both widens the dial to where it fits and opens it. What may never
+          happen is the other order of events: this app does not swap a view for
+          one that happens to fit.
+        */}
+        <ViewSwitcher view={view} mapWidth={mapWidth} onChoose={onChooseView} />
         <ThemeSwitch preference={preference} onChoose={chooseTheme} />
       </header>
 
@@ -641,12 +742,23 @@ export function App() {
           other map in this repository somewhere unreachable for the life of
           the process, and the view has no way back to any of them.
 
-          How much window each of the two is worth is emphatically not settled
-          here. The dial with its four detents, the view switcher and the chrome
-          that survives every detent are #52's, and deciding any of that in this
-          file would be making a later ticket's call early. What this file
-          settles is only that neither surface can disappear while #52 is open.
+          How much window each of the two is worth is the dial's answer, and it
+          is a share rather than a mode: the launcher and the view are columns of
+          the map side, shed by measured width alone, and everything shed comes
+          back by moving the one control that is on screen at every position.
         */}
+        {/*
+          The map side: everything the dial's position is a share *of*. Its
+          columns are shed by measured width and by nothing else — never by
+          which map is open and never by which view is up — and every shed
+          column comes back by moving the dial, which is on screen at every
+          position.
+        */}
+        <div
+          className={styles.mapSide}
+          style={{ flexBasis: `${clamp(position) * 100}%` }}
+        >
+        {columns.includes("launcher") ? (
         <DropRegion onFoldersDropped={onFoldersDropped}>
           <FolderList
             outcome={outcome}
@@ -713,14 +825,38 @@ export function App() {
             />
           )}
         </DropRegion>
+        ) : null}
 
-        {snapshot.model.map === null || view !== "route" ? null : (
+        {snapshot.model.map === null || !columns.includes("view") ? null : (
           <div className={styles.view}>
-            <Route
-              model={snapshot.model}
-              selected={selectedNode}
-              onSelect={select}
-            />
+            {/*
+              Which run's bytes are on the pane, said on the map side too. A map
+              drawn while a run is going has the run's presence on it, so the
+              picture and the bar under the terminal cannot disagree about which
+              run this window is watching. Nothing about *running* is derived
+              here — the model has no such bit — it is read off what is bound.
+            */}
+            {monitored === null ? null : (
+              <p className={styles.run}>
+                run #{monitored} is on the pane
+                {monitoredRun?.over === true ? ", and it has ended" : ""}
+              </p>
+            )}
+            {standing !== null ? (
+              <StandDown
+                standing={standing}
+                model={snapshot.model}
+                onWiden={(detent) => moveTo(fractionOf(detent))}
+                onOpen={onChooseView}
+                onTerminal={() => moveTo(fractionOf("terminal"))}
+              />
+            ) : view === "route" ? (
+              <Route
+                model={snapshot.model}
+                selected={selectedNode}
+                onSelect={select}
+              />
+            ) : null}
           </div>
         )}
 
@@ -745,8 +881,9 @@ export function App() {
           the same breath — it is invisible to the state, and the frontier's
           resolver asks it only for the node it designates.
         */}
-        <div className={styles.rail}>
-          <Sockets
+        {columns.includes("rail") ? (
+          <div className={styles.rail}>
+            <Sockets
             frontier={snapshot.model.map?.frontier ?? null}
             selection={selectedNode}
             selectionReads={selectedChild?.state ?? null}
@@ -762,22 +899,27 @@ export function App() {
             liveRuns={runs.filter((readout) => !readout.over).map((readout) => readout.run)}
             runs={runs}
             onSelect={select}
-          />
+            />
+          </div>
+        ) : null}
         </div>
 
         {/*
-          The terminal, in a fixed split beside the view.
+          The terminal, on the far side of the dial.
 
-          Fixed on purpose: the dial with its four detents is #52's, and deciding
-          here how much window a run is worth would be making that ticket's call
-          early. What this slice settles is only that the pane has an address, and
-          that a terminal put there is moved into it rather than mounted in it.
+          Mounted at every position, including `map`, where it is worth no pixels
+          at all: a dial move collapses this box by width and never unmounts,
+          remounts or reparents the node inside it. A terminal taken out of the
+          tree is a screen the harness has no way to put back, so *collapsed* and
+          *gone* have to be different things.
 
           It is outside `DropRegion` and outside the view slot because it belongs
           to neither: a run is not a folder and it is not a rendering of the map,
           and putting it inside either would make it disappear whenever that one
           did.
         */}
+        <Dial position={position} onMove={moveTo} />
+
         <div className={styles.terminal}>
           <Pane terminals={terminals} readouts={runs} />
         </div>

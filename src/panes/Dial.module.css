@@ -1,0 +1,44 @@
+/*
+ * The seam, made grabbable.
+ *
+ * A hit area wider than the line it draws, because a two-pixel target is a
+ * target nobody hits; the line itself stays hairline so the seam reads as a
+ * seam rather than as a third column.
+ */
+.dial {
+  --c-dial-reach: 0.75rem;
+  --c-dial-line: var(--s-line-quiet);
+  --c-dial-line-live: var(--s-accent);
+  --c-dial-grip-width: var(--s-border-hairline);
+
+  display: flex;
+  flex: 0 0 var(--c-dial-reach);
+  align-items: center;
+  justify-content: center;
+  /* No `touch-action` here: the CSS floor this repository builds against does
+     not have it, and the drag is held by pointer capture and a prevented
+     default rather than by a property the target WebView would ignore. */
+  cursor: col-resize;
+}
+
+.dial:focus-visible {
+  outline: var(--s-focus-ring);
+  outline-offset: calc(-1 * var(--s-space-hair));
+}
+
+.grip {
+  width: var(--c-dial-grip-width);
+  height: 100%;
+  background: var(--c-dial-line);
+  transition: background-color var(--s-motion-fast) var(--s-motion-ease);
+}
+
+/*
+ * Hover and focus are the only motion here, and both are carried by a colour
+ * the reduced-motion guard still allows to transition. The dial's *position* is
+ * carried by where it is, which is a still state and needs no motion at all.
+ */
+.dial:hover .grip,
+.dial:focus-visible .grip {
+  background: var(--c-dial-line-live);
+}

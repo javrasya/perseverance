@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { gesture, type Occasion } from "../panes/geometry";
+import { collapsed, gesture, type Occasion } from "../panes/geometry";
 import { monitor, useUi } from "../stores/ui";
 import { promptFor } from "./prompts";
 import { PromptBlock } from "./PromptBlock";
@@ -17,9 +17,10 @@ import styles from "./Pane.module.css";
  * one key change away from being thrown out, and the harness has no way to put a
  * lost screen back.
  *
- * The split it sits in is fixed. The dial with its detents is #52's, and
- * choosing how much window a pane is worth in this file would be making that
- * ticket's call early.
+ * How much window it is worth is the dial's, and this file has no opinion about
+ * it beyond one: a box the dial has collapsed is measured as *no size* rather
+ * than as a small one, so a detent that hands the whole window to the map
+ * reflows no live agent.
  */
 /**
  * How a run ended, as a sentence.
@@ -91,6 +92,17 @@ export function Pane({
 
     const measure = (occasion: Occasion) => {
       if (monitored === null) return;
+      /*
+       * The dial's `map` detent gives this box no width at all. The node stays
+       * where it is — never unmounted, never reparented by a dial move — and a
+       * collapse is answered by *forgetting the gesture* rather than by settling
+       * whatever the last few frames of the collapse measured: a run handed the
+       * window back should find its terminal the size it left it.
+       */
+      if (collapsed(held.getBoundingClientRect())) {
+        gestured.cancel();
+        return;
+      }
       // Measured by the terminal that is on the pane, because how many
       // characters fit depends on the font the emulator resolved.
       const fits = terminals.for(monitored).measure();

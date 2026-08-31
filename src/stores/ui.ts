@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { DEFAULT_DETENT, clamp, fractionOf } from "../panes/dial";
 import { readDefaultView, writeDefaultView, type ViewName } from "../views/views";
 import { readable } from "./readable";
 
@@ -17,12 +18,13 @@ import { readable } from "./readable";
  * together, every landing would be a chance to reset a drag that was still in
  * progress. Here there is no such chance, because a poll cannot write this.
  *
- * The fields are the ones this slice actually has. **The dial's detents, the
- * peek, the warm surface and the rack binding are not declared here yet** — they
- * are #52's, #55's and #56's, and a field with one legal value invented now
- * would be making those tickets' decisions early. This slice ships a fixed
- * split. What the shape settles is only that when they arrive, they arrive
- * *here* rather than beside a snapshot.
+ * The fields are the ones this slice actually has. The dial arrived as
+ * `position` — one number, because a detent is a named position rather than a
+ * mode — and **the peek, the warm surface and the rack binding are still not
+ * declared here**: they are #52's next slice, #55's and #56's, and a field with
+ * one legal value invented now would be making those tickets' decisions early.
+ * What the shape settles is only that when they arrive, they arrive *here*
+ * rather than beside a snapshot.
  */
 export interface Ui {
   /** Which view is on screen. App-global and remembered across launches. */
@@ -31,6 +33,15 @@ export interface Ui {
   selection: number | null;
   /** Which run's bytes cross to this window, or none. */
   monitored: number | null;
+  /**
+   * Where the dial is: the share of the window the map side has, `0` … `1`.
+   *
+   * A number rather than a detent, because free positions between detents are
+   * legal — `src/panes/dial.ts` is what says which numbers are named places.
+   * It lives here for the same reason `dragging` does: a poll landing mid-drag
+   * may not move it, and this is the store a poll cannot write.
+   */
+  position: number;
   /** The pane, in characters. One geometry for every live run. */
   geometry: Geometry;
   /**
@@ -55,6 +66,12 @@ const [store, replace] = readable<Ui>({
   view: readDefaultView(),
   selection: null,
   monitored: null,
+  /*
+   * The default detent, not a remembered one. What a *map* is worth is
+   * remembered per map by `src/panes/position.ts`, and the shell restores it
+   * when a map is opened — a store initialiser has no map to ask about.
+   */
+  position: fractionOf(DEFAULT_DETENT),
   geometry: OPENING,
   dragging: false,
 });
@@ -88,6 +105,19 @@ export function watchUi(listener: () => void): () => void {
 export function chooseView(view: ViewName): void {
   writeDefaultView(view);
   change((current) => (current.view === view ? current : { ...current, view }));
+}
+
+/**
+ * Move the dial.
+ *
+ * Remembering it is the caller's next line and not this function's business:
+ * the position is remembered *per map*, and this store has no idea which map is
+ * open. Same division as `monitor` — the declaration is here, the consequence is
+ * the caller's.
+ */
+export function moveDial(position: number): void {
+  const wanted = clamp(position);
+  change((current) => (current.position === wanted ? current : { ...current, position: wanted }));
 }
 
 export function select(selection: number | null): void {

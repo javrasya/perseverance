@@ -52,6 +52,19 @@ export interface ViewProps {
 export const VIEWS: readonly ViewName[] = ["route"];
 
 /**
+ * What each view is called on screen, and the only place it is spelled.
+ *
+ * A `Record` over `ViewName`, so a view added to `VIEWS` without a name is a
+ * type error rather than a switcher cap reading `route`. The switcher, the
+ * stand-down and anything else that has to say which view it means all read
+ * from here; the width each one needs is the same shape one file over, in
+ * `src/panes/dial.ts`.
+ */
+export const LABELS: Record<ViewName, string> = {
+  route: "The Route",
+};
+
+/**
  * The Route, unanimously: it serves any n, it is indifferent to a map whose
  * takeable half is enormous, and it is the one view that answers the question
  * the operator actually opens the app with.

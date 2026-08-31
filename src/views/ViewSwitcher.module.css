@@ -1,0 +1,55 @@
+/*
+ * Caps on the spine. The difference between a view that fits here and one that
+ * does not is carried by the edge's *style* and by words on the cap — never by
+ * hue, which half the difference would be lost with.
+ */
+.switcher {
+  --c-switcher-ink: var(--s-ink-secondary);
+  --c-switcher-ink-open: var(--s-ink-primary);
+  --c-switcher-line: var(--s-line-quiet);
+  --c-switcher-line-open: var(--s-line-strong);
+  --c-switcher-hover: var(--s-surface-hover);
+
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-space-tight);
+}
+
+.cap {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-space-tight);
+  padding: var(--s-space-hair) var(--s-space-snug);
+  border: var(--s-border-hairline) solid var(--c-switcher-line);
+  border-radius: var(--s-radius-chip);
+  background: transparent;
+  color: var(--c-switcher-ink);
+  font: inherit;
+  font-size: var(--s-text-micro);
+  cursor: pointer;
+}
+
+.cap:hover {
+  background: var(--c-switcher-hover);
+}
+
+.cap:focus-visible {
+  outline: var(--s-focus-ring);
+  outline-offset: var(--s-space-hair);
+}
+
+/* The open view, marked by weight as well as by `aria-pressed`. */
+.cap[aria-pressed="true"] {
+  border-color: var(--c-switcher-line-open);
+  color: var(--c-switcher-ink-open);
+  font-weight: var(--s-weight-emphasis);
+}
+
+/*
+ * Cannot be drawn at this width: a dashed edge, which is a form and not a
+ * colour, plus the words on the cap saying what it is short of. The cap stays
+ * pressable — pressing it is how the dial is moved to where it fits.
+ */
+.tight {
+  border-style: dashed;
+}

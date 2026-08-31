@@ -12,8 +12,9 @@ import type { ViewName } from "./views";
  *
  * The persistence is unchanged — `readDefaultView` and `writeDefaultView`, the
  * same two functions, still the only ones — so the eventual swap to the `app`
- * key/value table is still one file. Nothing calls the setter yet; the view dial
- * is #52's.
+ * key/value table is still one file. The setter's caller is the view switcher on
+ * the spine (#52), and it is the *only* caller: no width, no dial position and
+ * no arrival of a snapshot may change which view is open.
  */
 export function useDefaultView(): [ViewName, (view: ViewName) => void] {
   return [useUi().view, chooseView];

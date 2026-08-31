@@ -1,12 +1,13 @@
 .app {
   /*
-   * Tier 3 — one component token, and it is a length rather than a colour, so
-   * it is defined from a number rather than from a semantic token. The fixed
-   * split #52's dial will replace lives here, at the top of the file that owns
-   * the layout, so that ticket has one declaration to find.
+   * Tier 3 — component tokens, and lengths rather than colours, so they are
+   * defined from numbers rather than from semantic tokens.
+   *
+   * There is no terminal width here any more. The split is the dial's, it is a
+   * *share* rather than a length, and it is applied as a flex basis from the
+   * position the UI store holds — a number that changes between frames of a
+   * drag has no business being a stylesheet's constant.
    */
-  --c-app-terminal-width: 34rem;
-  /* The crossing's own strip, and the same story: a width #52's dial replaces. */
   --c-app-rail-width: 13rem;
 
   display: flex;
@@ -55,8 +56,8 @@
 /*
  * The view stands beside the launcher rather than in place of it, because a
  * surface that cannot be got back to is a surface that has been deleted. How
- * the two share the window once the dial exists is #52's, not this file's, so
- * they share it evenly and nothing here claims that is the answer.
+ * much of the map side each gets is the dial's, and which of them is drawn at
+ * all is the map side's measured width — never which map is open.
  *
  * The scrollport is here rather than inside the view, for the same reason the
  * drop region owns its own: a map is routinely taller than the window, and a
@@ -69,9 +70,38 @@
 .view {
   display: flex;
   flex: 1;
+  flex-direction: column;
+  gap: var(--s-space-snug);
+  min-width: 0;
   min-height: 0;
   padding: var(--s-space-base);
   overflow: auto;
+}
+
+/*
+ * The map side: the share of the window the dial has given the map, and the box
+ * whose measured width sheds the columns inside it.
+ *
+ * The basis is inline, from the store, because it moves between frames of a
+ * drag. No grow and no shrink: a side that grew as its neighbours came and went
+ * would move the seam without a hand on it.
+ */
+.mapSide {
+  display: flex;
+  flex-grow: 0;
+  flex-shrink: 0;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Which run is on the pane, said on the map side. Quiet: it is a fact about
+   the window, not a fifth number about the map. */
+.run {
+  margin: 0;
+  color: var(--s-ink-faint);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-micro);
 }
 
 /*
@@ -95,22 +125,21 @@
 }
 
 /*
- * The terminal's share of the window: a fixed split, and the whole of what this
- * slice decides about layout.
+ * The terminal's share: whatever the dial has not given the map.
  *
- * A basis with no grow and no shrink rather than a fraction, because a pane that
- * resized itself as its neighbours came and went would be resizing every live
- * PTY as a side effect of a folder being opened — which is precisely the
- * arrival-time reflow the never-resize-on-bind rule exists to prevent. #52's
- * dial is what makes this movable, deliberately.
+ * It takes the remainder rather than a basis of its own, so the two sides always
+ * add up to the window and the seam is one number. At the `map` detent that
+ * remainder is zero — the pane is collapsed, still mounted, and `Pane` refuses
+ * to measure a box with no width, so a collapse reflows no live agent.
  */
 .terminal {
   display: flex;
-  flex: 0 0 var(--c-app-terminal-width);
+  flex: 1 1 0;
   min-width: 0;
   min-height: 0;
   padding: var(--s-space-base);
   padding-left: 0;
+  overflow: hidden;
 }
 
 /*
