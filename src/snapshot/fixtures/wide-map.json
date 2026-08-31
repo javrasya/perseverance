@@ -1,0 +1,486 @@
+{
+  "schemaVersion": 4,
+  "model": {
+    "map": {
+      "number": 200,
+      "title": "Spec: the wide map",
+      "closed": false,
+      "phase": "wayfinding",
+      "counts": {
+        "tickets": 25,
+        "open": 21,
+        "specs": 1
+      },
+      "nodes": [
+        {
+          "number": 204,
+          "title": "Measure a plate against a real title",
+          "url": "https://github.com/o/r/issues/204",
+          "kind": {
+            "kind": "ticket",
+            "type": "task"
+          },
+          "state": "takeable",
+          "waitsOn": [],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
+        },
+        {
+          "number": 201,
+          "title": "Read the recorded answer off disk",
+          "url": "https://github.com/o/r/issues/201",
+          "kind": {
+            "kind": "ticket",
+            "type": "task"
+          },
+          "state": "resolved",
+          "waitsOn": [],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
+        },
+        {
+          "number": 221,
+          "title": "Lay the plates out along one rank",
+          "url": "https://github.com/o/r/issues/221",
+          "kind": {
+            "kind": "ticket",
+            "type": "task"
+          },
+          "state": "takeable",
+          "waitsOn": [
+            201,
+            202
+          ],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
+        },
+        {
+          "number": 212,
+          "title": "Ship a tray icon of our own",
+          "url": "https://github.com/o/r/issues/212",
+          "kind": {
+            "kind": "ticket",
+            "type": "prototype"
+          },
+          "state": "resolved",
+          "waitsOn": [],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "fromScope",
+            "reason": "#212 - the desktop shell already ships a tray icon on every platform this project supports, so a second one here would have meant maintaining both of them for the rest of the run and answering to whichever one the operator happened to be looking at"
+          }
+        },
+        {
+          "number": 203,
+          "title": "Decide what a gutter lane is worth",
+          "url": "https://github.com/o/r/issues/203",
+          "kind": {
+            "kind": "ticket",
+            "type": "grilling"
+          },
+          "state": "claimed",
+          "waitsOn": [],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
+        },
+        {
+          "number": 202,
+          "title": "Name the four states in one place",
+          "url": "https://github.com/o/r/issues/202",
+          "kind": {
+            "kind": "ticket",
+            "type": "research"
+          },
+          "state": "resolved",
+          "waitsOn": [],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
+        },
+        {
+          "number": 215,
+          "title": "Someone dragged a bug report onto the wide map",
+          "url": "https://github.com/o/r/issues/215",
+          "kind": {
+            "kind": "unclassified"
+          },
+          "state": "takeable",
+          "waitsOn": [],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
+        },
+        {
+          "number": 205,
+          "title": "Sketch the band a wrapped rank makes",
+          "url": "https://github.com/o/r/issues/205",
+          "kind": {
+            "kind": "ticket",
+            "type": "prototype"
+          },
+          "state": "takeable",
+          "waitsOn": [],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
+        },
+        {
+          "number": 206,
+          "title": "Pick the hop-gap the crossings get",
+          "url": "https://github.com/o/r/issues/206",
+          "kind": {
+            "kind": "ticket",
+            "type": "task"
+          },
+          "state": "claimed",
+          "waitsOn": [],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
+        },
+        {
+          "number": 217,
+          "title": "Spec: the wide map, composed",
+          "url": "https://github.com/o/r/issues/217",
+          "kind": {
+            "kind": "spec"
+          },
+          "state": "takeable",
+          "waitsOn": [],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
+        },
+        {
+          "number": 207,
+          "title": "Chart the edges the answer already names",
+          "url": "https://github.com/o/r/issues/207",
+          "kind": {
+            "kind": "ticket",
+            "type": "research"
+          },
+          "state": "takeable",
+          "waitsOn": [],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
+        },
+        {
+          "number": 208,
+          "title": "Settle the stamp every fixture shares",
+          "url": "https://github.com/o/r/issues/208",
+          "kind": {
+            "kind": "ticket",
+            "type": "task"
+          },
+          "state": "resolved",
+          "waitsOn": [],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
+        },
+        {
+          "number": 209,
+          "title": "Write down what a source is",
+          "url": "https://github.com/o/r/issues/209",
+          "kind": {
+            "kind": "ticket",
+            "type": "task"
+          },
+          "state": "takeable",
+          "waitsOn": [],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
+        },
+        {
+          "number": 222,
+          "title": "Route an edge around a plate",
+          "url": "https://github.com/o/r/issues/222",
+          "kind": {
+            "kind": "ticket",
+            "type": "prototype"
+          },
+          "state": "blocked",
+          "waitsOn": [
+            203,
+            204,
+            205
+          ],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
+        },
+        {
+          "number": 210,
+          "title": "Count the ranks a normal map has",
+          "url": "https://github.com/o/r/issues/210",
+          "kind": {
+            "kind": "ticket",
+            "type": "research"
+          },
+          "state": "takeable",
+          "waitsOn": [],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
+        },
+        {
+          "number": 211,
+          "title": "Agree the width one plate takes",
+          "url": "https://github.com/o/r/issues/211",
+          "kind": {
+            "kind": "ticket",
+            "type": "task"
+          },
+          "state": "takeable",
+          "waitsOn": [],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
+        },
+        {
+          "number": 213,
+          "title": "Give the frontier a badge of its own",
+          "url": "https://github.com/o/r/issues/213",
+          "kind": {
+            "kind": "ticket",
+            "type": "task"
+          },
+          "state": "takeable",
+          "waitsOn": [],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
+        },
+        {
+          "number": 214,
+          "title": "Draw the fog under the last rank",
+          "url": "https://github.com/o/r/issues/214",
+          "kind": {
+            "kind": "ticket",
+            "type": "prototype"
+          },
+          "state": "claimed",
+          "waitsOn": [],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
+        },
+        {
+          "number": 216,
+          "title": "Hold the drag order through a wrap",
+          "url": "https://github.com/o/r/issues/216",
+          "kind": {
+            "kind": "ticket",
+            "type": "task"
+          },
+          "state": "takeable",
+          "waitsOn": [],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
+        },
+        {
+          "number": 218,
+          "title": "Record the answer this fixture is derived from",
+          "url": "https://github.com/o/r/issues/218",
+          "kind": {
+            "kind": "ticket",
+            "type": "research"
+          },
+          "state": "resolved",
+          "waitsOn": [],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
+        },
+        {
+          "number": 219,
+          "title": "Keep a beyond-the-map blocker off the canvas",
+          "url": "https://github.com/o/r/issues/219",
+          "kind": {
+            "kind": "ticket",
+            "type": "task"
+          },
+          "state": "takeable",
+          "waitsOn": [],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
+        },
+        {
+          "number": 220,
+          "title": "Leave the leaves where the operator put them",
+          "url": "https://github.com/o/r/issues/220",
+          "kind": {
+            "kind": "ticket",
+            "type": "grilling"
+          },
+          "state": "takeable",
+          "waitsOn": [],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
+        },
+        {
+          "number": 223,
+          "title": "Break the lower line at a crossing",
+          "url": "https://github.com/o/r/issues/223",
+          "kind": {
+            "kind": "ticket",
+            "type": "task"
+          },
+          "state": "blocked",
+          "waitsOn": [
+            206,
+            207
+          ],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
+        },
+        {
+          "number": 224,
+          "title": "Fan a node out to its dependents",
+          "url": "https://github.com/o/r/issues/224",
+          "kind": {
+            "kind": "ticket",
+            "type": "research"
+          },
+          "state": "blocked",
+          "waitsOn": [
+            208,
+            209,
+            210,
+            211,
+            499
+          ],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
+        },
+        {
+          "number": 225,
+          "title": "Stand the whole band down under the floor",
+          "url": "https://github.com/o/r/issues/225",
+          "kind": {
+            "kind": "ticket",
+            "type": "task"
+          },
+          "state": "blocked",
+          "waitsOn": [
+            221,
+            222
+          ],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
+        },
+        {
+          "number": 226,
+          "title": "Draw the map an operator tangled",
+          "url": "https://github.com/o/r/issues/226",
+          "kind": {
+            "kind": "ticket",
+            "type": "task"
+          },
+          "state": "blocked",
+          "waitsOn": [
+            223,
+            224
+          ],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
+        },
+        {
+          "number": 227,
+          "title": "Fit the canvas to the window it has",
+          "url": "https://github.com/o/r/issues/227",
+          "kind": {
+            "kind": "ticket",
+            "type": "grilling"
+          },
+          "state": "blocked",
+          "waitsOn": [
+            225,
+            226
+          ],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
+        },
+        {
+          "number": 228,
+          "title": "Read the wide map back at arm's length",
+          "url": "https://github.com/o/r/issues/228",
+          "kind": {
+            "kind": "ticket",
+            "type": "task"
+          },
+          "state": "blocked",
+          "waitsOn": [
+            227
+          ],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
+        }
+      ],
+      "frontier": {
+        "frontier": "designated",
+        "number": 204
+      },
+      "fog": {
+        "fog": "surveyed",
+        "region": {
+          "count": 3,
+          "text": "- How a rank wider than the window is read on a small screen\n- Whether the rank a node sits on is worth a number beside it\n  - and whether that number survives a cycle\n- What a fan-out of eleven looks like when nine of the eleven feed nothing"
+        }
+      }
+    }
+  },
+  "provenance": {
+    "source": "fixture",
+    "outcome": {
+      "kind": "ok"
+    },
+    "fetchedAt": "2026-08-05T08:00:00Z"
+  },
+  "ledger": {
+    "since": "firstOpen",
+    "entries": []
+  }
+}

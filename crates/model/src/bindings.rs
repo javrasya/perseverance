@@ -97,6 +97,20 @@ const CASES: &[Case] = &[
               true one.",
     },
     Case {
+        slug: "wide-map",
+        answer: Some("wide-map.json"),
+        why: "A charted map at the width a view has to survive. Twenty-eight \
+              children on five ranks — eleven sources with dependents behind \
+              them and nine with none, then four, two, one and one — where \
+              every other fixture here is small enough that one row holds it. \
+              Without it nothing in the tree asks what a rank wider than the \
+              window does. #224 waits on #499, which is not a child of this \
+              map and so is a fact about that ticket rather than an edge; #212 \
+              is cut in a sentence far longer than a plate the width of the \
+              others can hold; #215 is unclassified, #217 is a spec child that \
+              would otherwise be takeable, and the fog was surveyed.",
+    },
+    Case {
         slug: "two-maps-one-open",
         answer: Some("two-maps-one-open.json"),
         why: "The ordinary case, and the one every other fixture is awkward \

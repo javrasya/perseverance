@@ -1,0 +1,1091 @@
+{
+  "_why": "A charted map at the width a view has to survive: twenty-eight children, eleven sources with dependents behind them and nine with none, against later ranks of four, two, one and one. Every other fixture here is small enough that one row holds it, so nothing in the tree asked what happens when a single rank is wider than the window. #224 waits on #499, which is not a child of this map and so is a fact about that ticket rather than an edge on the canvas. #212 is closed and cut, in a sentence far too long for a plate the width of the others; #215 is unclassified, #217 is a spec child that would otherwise be takeable, and the fog was surveyed.",
+  "data": {
+    "repository": {
+      "nameWithOwner": "o/r",
+      "maps": {
+        "pageInfo": {
+          "hasNextPage": false
+        },
+        "nodes": [
+          {
+            "number": 200,
+            "title": "Spec: the wide map",
+            "state": "OPEN",
+            "url": "https://github.com/o/r/issues/200",
+            "updatedAt": "2026-08-05T09:12:44Z"
+          }
+        ]
+      },
+      "issue": {
+        "number": 200,
+        "title": "Spec: the wide map",
+        "state": "OPEN",
+        "body": "## Notes\n\nTwenty-eight tickets charted in one pass, and the width is the point: eleven of\nthe sources feed the four ranks behind them, and nine of them feed nothing.\n\n## Out of scope\n\n- #212 - the desktop shell already ships a tray icon on every platform this project supports, so a second one here would have meant maintaining both of them for the rest of the run and answering to whichever one the operator happened to be looking at\n\n## Not yet specified\n\n- How a rank wider than the window is read on a small screen\n- Whether the rank a node sits on is worth a number beside it\n  - and whether that number survives a cycle\n- What a fan-out of eleven looks like when nine of the eleven feed nothing\n\n## Decisions so far\n\n- The map draws in the operator's own drag order, never in a ranking of its own.\n",
+        "url": "https://github.com/o/r/issues/200",
+        "updatedAt": "2026-08-05T09:12:44Z",
+        "labels": {
+          "nodes": [
+            {
+              "name": "wayfinder:map"
+            }
+          ]
+        },
+        "subIssues": {
+          "pageInfo": {
+            "hasNextPage": false
+          },
+          "nodes": [
+            {
+              "number": 204,
+              "title": "Measure a plate against a real title",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/204",
+              "updatedAt": "2026-08-04T09:00:00Z",
+              "labels": {
+                "nodes": [
+                  {
+                    "name": "wayfinder:task",
+                    "color": "1d76db"
+                  }
+                ]
+              },
+              "assignees": {
+                "nodes": []
+              },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 0,
+                "blocking": 1,
+                "totalBlocking": 1
+              },
+              "blockedBy": {
+                "pageInfo": {
+                  "hasNextPage": false
+                },
+                "nodes": []
+              }
+            },
+            {
+              "number": 201,
+              "title": "Read the recorded answer off disk",
+              "state": "CLOSED",
+              "stateReason": "COMPLETED",
+              "url": "https://github.com/o/r/issues/201",
+              "updatedAt": "2026-08-04T09:15:00Z",
+              "labels": {
+                "nodes": [
+                  {
+                    "name": "wayfinder:task",
+                    "color": "1d76db"
+                  }
+                ]
+              },
+              "assignees": {
+                "nodes": []
+              },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 0,
+                "blocking": 1,
+                "totalBlocking": 1
+              },
+              "blockedBy": {
+                "pageInfo": {
+                  "hasNextPage": false
+                },
+                "nodes": []
+              }
+            },
+            {
+              "number": 221,
+              "title": "Lay the plates out along one rank",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/221",
+              "updatedAt": "2026-08-04T09:30:00Z",
+              "labels": {
+                "nodes": [
+                  {
+                    "name": "wayfinder:task",
+                    "color": "1d76db"
+                  }
+                ]
+              },
+              "assignees": {
+                "nodes": []
+              },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 2,
+                "blocking": 1,
+                "totalBlocking": 1
+              },
+              "blockedBy": {
+                "pageInfo": {
+                  "hasNextPage": false
+                },
+                "nodes": [
+                  {
+                    "number": 201,
+                    "title": "Read the recorded answer off disk",
+                    "state": "CLOSED",
+                    "repository": {
+                      "nameWithOwner": "o/r"
+                    }
+                  },
+                  {
+                    "number": 202,
+                    "title": "Name the four states in one place",
+                    "state": "CLOSED",
+                    "repository": {
+                      "nameWithOwner": "o/r"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "number": 212,
+              "title": "Ship a tray icon of our own",
+              "state": "CLOSED",
+              "stateReason": "COMPLETED",
+              "url": "https://github.com/o/r/issues/212",
+              "updatedAt": "2026-08-04T09:45:00Z",
+              "labels": {
+                "nodes": [
+                  {
+                    "name": "wayfinder:prototype",
+                    "color": "fbca04"
+                  }
+                ]
+              },
+              "assignees": {
+                "nodes": []
+              },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 0,
+                "blocking": 0,
+                "totalBlocking": 0
+              },
+              "blockedBy": {
+                "pageInfo": {
+                  "hasNextPage": false
+                },
+                "nodes": []
+              }
+            },
+            {
+              "number": 203,
+              "title": "Decide what a gutter lane is worth",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/203",
+              "updatedAt": "2026-08-04T10:00:00Z",
+              "labels": {
+                "nodes": [
+                  {
+                    "name": "wayfinder:grilling",
+                    "color": "b60205"
+                  }
+                ]
+              },
+              "assignees": {
+                "nodes": [
+                  {
+                    "login": "javrasya"
+                  }
+                ]
+              },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 0,
+                "blocking": 1,
+                "totalBlocking": 1
+              },
+              "blockedBy": {
+                "pageInfo": {
+                  "hasNextPage": false
+                },
+                "nodes": []
+              }
+            },
+            {
+              "number": 202,
+              "title": "Name the four states in one place",
+              "state": "CLOSED",
+              "stateReason": "COMPLETED",
+              "url": "https://github.com/o/r/issues/202",
+              "updatedAt": "2026-08-04T10:15:00Z",
+              "labels": {
+                "nodes": [
+                  {
+                    "name": "wayfinder:research",
+                    "color": "0e8a16"
+                  }
+                ]
+              },
+              "assignees": {
+                "nodes": []
+              },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 0,
+                "blocking": 1,
+                "totalBlocking": 1
+              },
+              "blockedBy": {
+                "pageInfo": {
+                  "hasNextPage": false
+                },
+                "nodes": []
+              }
+            },
+            {
+              "number": 215,
+              "title": "Someone dragged a bug report onto the wide map",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/215",
+              "updatedAt": "2026-08-04T10:30:00Z",
+              "labels": {
+                "nodes": [
+                  {
+                    "name": "bug",
+                    "color": "d73a4a"
+                  }
+                ]
+              },
+              "assignees": {
+                "nodes": []
+              },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 0,
+                "blocking": 0,
+                "totalBlocking": 0
+              },
+              "blockedBy": {
+                "pageInfo": {
+                  "hasNextPage": false
+                },
+                "nodes": []
+              }
+            },
+            {
+              "number": 205,
+              "title": "Sketch the band a wrapped rank makes",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/205",
+              "updatedAt": "2026-08-04T10:45:00Z",
+              "labels": {
+                "nodes": [
+                  {
+                    "name": "wayfinder:prototype",
+                    "color": "fbca04"
+                  }
+                ]
+              },
+              "assignees": {
+                "nodes": []
+              },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 0,
+                "blocking": 1,
+                "totalBlocking": 1
+              },
+              "blockedBy": {
+                "pageInfo": {
+                  "hasNextPage": false
+                },
+                "nodes": []
+              }
+            },
+            {
+              "number": 206,
+              "title": "Pick the hop-gap the crossings get",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/206",
+              "updatedAt": "2026-08-04T11:00:00Z",
+              "labels": {
+                "nodes": [
+                  {
+                    "name": "wayfinder:task",
+                    "color": "1d76db"
+                  }
+                ]
+              },
+              "assignees": {
+                "nodes": [
+                  {
+                    "login": "javrasya"
+                  }
+                ]
+              },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 0,
+                "blocking": 1,
+                "totalBlocking": 1
+              },
+              "blockedBy": {
+                "pageInfo": {
+                  "hasNextPage": false
+                },
+                "nodes": []
+              }
+            },
+            {
+              "number": 217,
+              "title": "Spec: the wide map, composed",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/217",
+              "updatedAt": "2026-08-04T11:15:00Z",
+              "labels": {
+                "nodes": [
+                  {
+                    "name": "wayfinder:spec",
+                    "color": "5319e7"
+                  }
+                ]
+              },
+              "assignees": {
+                "nodes": []
+              },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 0,
+                "blocking": 0,
+                "totalBlocking": 0
+              },
+              "blockedBy": {
+                "pageInfo": {
+                  "hasNextPage": false
+                },
+                "nodes": []
+              }
+            },
+            {
+              "number": 207,
+              "title": "Chart the edges the answer already names",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/207",
+              "updatedAt": "2026-08-04T11:30:00Z",
+              "labels": {
+                "nodes": [
+                  {
+                    "name": "wayfinder:research",
+                    "color": "0e8a16"
+                  }
+                ]
+              },
+              "assignees": {
+                "nodes": []
+              },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 0,
+                "blocking": 1,
+                "totalBlocking": 1
+              },
+              "blockedBy": {
+                "pageInfo": {
+                  "hasNextPage": false
+                },
+                "nodes": []
+              }
+            },
+            {
+              "number": 208,
+              "title": "Settle the stamp every fixture shares",
+              "state": "CLOSED",
+              "stateReason": "COMPLETED",
+              "url": "https://github.com/o/r/issues/208",
+              "updatedAt": "2026-08-04T11:45:00Z",
+              "labels": {
+                "nodes": [
+                  {
+                    "name": "wayfinder:task",
+                    "color": "1d76db"
+                  }
+                ]
+              },
+              "assignees": {
+                "nodes": []
+              },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 0,
+                "blocking": 1,
+                "totalBlocking": 1
+              },
+              "blockedBy": {
+                "pageInfo": {
+                  "hasNextPage": false
+                },
+                "nodes": []
+              }
+            },
+            {
+              "number": 209,
+              "title": "Write down what a source is",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/209",
+              "updatedAt": "2026-08-04T12:00:00Z",
+              "labels": {
+                "nodes": [
+                  {
+                    "name": "wayfinder:task",
+                    "color": "1d76db"
+                  }
+                ]
+              },
+              "assignees": {
+                "nodes": []
+              },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 0,
+                "blocking": 1,
+                "totalBlocking": 1
+              },
+              "blockedBy": {
+                "pageInfo": {
+                  "hasNextPage": false
+                },
+                "nodes": []
+              }
+            },
+            {
+              "number": 222,
+              "title": "Route an edge around a plate",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/222",
+              "updatedAt": "2026-08-04T12:15:00Z",
+              "labels": {
+                "nodes": [
+                  {
+                    "name": "wayfinder:prototype",
+                    "color": "fbca04"
+                  }
+                ]
+              },
+              "assignees": {
+                "nodes": []
+              },
+              "issueDependenciesSummary": {
+                "blockedBy": 3,
+                "totalBlockedBy": 3,
+                "blocking": 1,
+                "totalBlocking": 1
+              },
+              "blockedBy": {
+                "pageInfo": {
+                  "hasNextPage": false
+                },
+                "nodes": [
+                  {
+                    "number": 203,
+                    "title": "Decide what a gutter lane is worth",
+                    "state": "OPEN",
+                    "repository": {
+                      "nameWithOwner": "o/r"
+                    }
+                  },
+                  {
+                    "number": 204,
+                    "title": "Measure a plate against a real title",
+                    "state": "OPEN",
+                    "repository": {
+                      "nameWithOwner": "o/r"
+                    }
+                  },
+                  {
+                    "number": 205,
+                    "title": "Sketch the band a wrapped rank makes",
+                    "state": "OPEN",
+                    "repository": {
+                      "nameWithOwner": "o/r"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "number": 210,
+              "title": "Count the ranks a normal map has",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/210",
+              "updatedAt": "2026-08-04T12:30:00Z",
+              "labels": {
+                "nodes": [
+                  {
+                    "name": "wayfinder:research",
+                    "color": "0e8a16"
+                  }
+                ]
+              },
+              "assignees": {
+                "nodes": []
+              },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 0,
+                "blocking": 1,
+                "totalBlocking": 1
+              },
+              "blockedBy": {
+                "pageInfo": {
+                  "hasNextPage": false
+                },
+                "nodes": []
+              }
+            },
+            {
+              "number": 211,
+              "title": "Agree the width one plate takes",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/211",
+              "updatedAt": "2026-08-04T12:45:00Z",
+              "labels": {
+                "nodes": [
+                  {
+                    "name": "wayfinder:task",
+                    "color": "1d76db"
+                  }
+                ]
+              },
+              "assignees": {
+                "nodes": []
+              },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 0,
+                "blocking": 1,
+                "totalBlocking": 1
+              },
+              "blockedBy": {
+                "pageInfo": {
+                  "hasNextPage": false
+                },
+                "nodes": []
+              }
+            },
+            {
+              "number": 213,
+              "title": "Give the frontier a badge of its own",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/213",
+              "updatedAt": "2026-08-04T13:00:00Z",
+              "labels": {
+                "nodes": [
+                  {
+                    "name": "wayfinder:task",
+                    "color": "1d76db"
+                  }
+                ]
+              },
+              "assignees": {
+                "nodes": []
+              },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 0,
+                "blocking": 0,
+                "totalBlocking": 0
+              },
+              "blockedBy": {
+                "pageInfo": {
+                  "hasNextPage": false
+                },
+                "nodes": []
+              }
+            },
+            {
+              "number": 214,
+              "title": "Draw the fog under the last rank",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/214",
+              "updatedAt": "2026-08-04T13:15:00Z",
+              "labels": {
+                "nodes": [
+                  {
+                    "name": "wayfinder:prototype",
+                    "color": "fbca04"
+                  }
+                ]
+              },
+              "assignees": {
+                "nodes": [
+                  {
+                    "login": "javrasya"
+                  }
+                ]
+              },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 0,
+                "blocking": 0,
+                "totalBlocking": 0
+              },
+              "blockedBy": {
+                "pageInfo": {
+                  "hasNextPage": false
+                },
+                "nodes": []
+              }
+            },
+            {
+              "number": 216,
+              "title": "Hold the drag order through a wrap",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/216",
+              "updatedAt": "2026-08-04T13:30:00Z",
+              "labels": {
+                "nodes": [
+                  {
+                    "name": "wayfinder:task",
+                    "color": "1d76db"
+                  }
+                ]
+              },
+              "assignees": {
+                "nodes": []
+              },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 0,
+                "blocking": 0,
+                "totalBlocking": 0
+              },
+              "blockedBy": {
+                "pageInfo": {
+                  "hasNextPage": false
+                },
+                "nodes": []
+              }
+            },
+            {
+              "number": 218,
+              "title": "Record the answer this fixture is derived from",
+              "state": "CLOSED",
+              "stateReason": "COMPLETED",
+              "url": "https://github.com/o/r/issues/218",
+              "updatedAt": "2026-08-04T13:45:00Z",
+              "labels": {
+                "nodes": [
+                  {
+                    "name": "wayfinder:research",
+                    "color": "0e8a16"
+                  }
+                ]
+              },
+              "assignees": {
+                "nodes": []
+              },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 0,
+                "blocking": 0,
+                "totalBlocking": 0
+              },
+              "blockedBy": {
+                "pageInfo": {
+                  "hasNextPage": false
+                },
+                "nodes": []
+              }
+            },
+            {
+              "number": 219,
+              "title": "Keep a beyond-the-map blocker off the canvas",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/219",
+              "updatedAt": "2026-08-04T14:00:00Z",
+              "labels": {
+                "nodes": [
+                  {
+                    "name": "wayfinder:task",
+                    "color": "1d76db"
+                  }
+                ]
+              },
+              "assignees": {
+                "nodes": []
+              },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 0,
+                "blocking": 0,
+                "totalBlocking": 0
+              },
+              "blockedBy": {
+                "pageInfo": {
+                  "hasNextPage": false
+                },
+                "nodes": []
+              }
+            },
+            {
+              "number": 220,
+              "title": "Leave the leaves where the operator put them",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/220",
+              "updatedAt": "2026-08-04T14:15:00Z",
+              "labels": {
+                "nodes": [
+                  {
+                    "name": "wayfinder:grilling",
+                    "color": "b60205"
+                  }
+                ]
+              },
+              "assignees": {
+                "nodes": []
+              },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 0,
+                "blocking": 0,
+                "totalBlocking": 0
+              },
+              "blockedBy": {
+                "pageInfo": {
+                  "hasNextPage": false
+                },
+                "nodes": []
+              }
+            },
+            {
+              "number": 223,
+              "title": "Break the lower line at a crossing",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/223",
+              "updatedAt": "2026-08-04T14:30:00Z",
+              "labels": {
+                "nodes": [
+                  {
+                    "name": "wayfinder:task",
+                    "color": "1d76db"
+                  }
+                ]
+              },
+              "assignees": {
+                "nodes": []
+              },
+              "issueDependenciesSummary": {
+                "blockedBy": 2,
+                "totalBlockedBy": 2,
+                "blocking": 1,
+                "totalBlocking": 1
+              },
+              "blockedBy": {
+                "pageInfo": {
+                  "hasNextPage": false
+                },
+                "nodes": [
+                  {
+                    "number": 206,
+                    "title": "Pick the hop-gap the crossings get",
+                    "state": "OPEN",
+                    "repository": {
+                      "nameWithOwner": "o/r"
+                    }
+                  },
+                  {
+                    "number": 207,
+                    "title": "Chart the edges the answer already names",
+                    "state": "OPEN",
+                    "repository": {
+                      "nameWithOwner": "o/r"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "number": 224,
+              "title": "Fan a node out to its dependents",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/224",
+              "updatedAt": "2026-08-04T14:45:00Z",
+              "labels": {
+                "nodes": [
+                  {
+                    "name": "wayfinder:research",
+                    "color": "0e8a16"
+                  }
+                ]
+              },
+              "assignees": {
+                "nodes": []
+              },
+              "issueDependenciesSummary": {
+                "blockedBy": 4,
+                "totalBlockedBy": 5,
+                "blocking": 1,
+                "totalBlocking": 1
+              },
+              "blockedBy": {
+                "pageInfo": {
+                  "hasNextPage": false
+                },
+                "nodes": [
+                  {
+                    "number": 208,
+                    "title": "Settle the stamp every fixture shares",
+                    "state": "CLOSED",
+                    "repository": {
+                      "nameWithOwner": "o/r"
+                    }
+                  },
+                  {
+                    "number": 209,
+                    "title": "Write down what a source is",
+                    "state": "OPEN",
+                    "repository": {
+                      "nameWithOwner": "o/r"
+                    }
+                  },
+                  {
+                    "number": 210,
+                    "title": "Count the ranks a normal map has",
+                    "state": "OPEN",
+                    "repository": {
+                      "nameWithOwner": "o/r"
+                    }
+                  },
+                  {
+                    "number": 211,
+                    "title": "Agree the width one plate takes",
+                    "state": "OPEN",
+                    "repository": {
+                      "nameWithOwner": "o/r"
+                    }
+                  },
+                  {
+                    "number": 499,
+                    "title": "An issue that is not on this map",
+                    "state": "OPEN",
+                    "repository": {
+                      "nameWithOwner": "o/r"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "number": 225,
+              "title": "Stand the whole band down under the floor",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/225",
+              "updatedAt": "2026-08-04T15:00:00Z",
+              "labels": {
+                "nodes": [
+                  {
+                    "name": "wayfinder:task",
+                    "color": "1d76db"
+                  }
+                ]
+              },
+              "assignees": {
+                "nodes": []
+              },
+              "issueDependenciesSummary": {
+                "blockedBy": 2,
+                "totalBlockedBy": 2,
+                "blocking": 1,
+                "totalBlocking": 1
+              },
+              "blockedBy": {
+                "pageInfo": {
+                  "hasNextPage": false
+                },
+                "nodes": [
+                  {
+                    "number": 221,
+                    "title": "Lay the plates out along one rank",
+                    "state": "OPEN",
+                    "repository": {
+                      "nameWithOwner": "o/r"
+                    }
+                  },
+                  {
+                    "number": 222,
+                    "title": "Route an edge around a plate",
+                    "state": "OPEN",
+                    "repository": {
+                      "nameWithOwner": "o/r"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "number": 226,
+              "title": "Draw the map an operator tangled",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/226",
+              "updatedAt": "2026-08-04T15:15:00Z",
+              "labels": {
+                "nodes": [
+                  {
+                    "name": "wayfinder:task",
+                    "color": "1d76db"
+                  }
+                ]
+              },
+              "assignees": {
+                "nodes": []
+              },
+              "issueDependenciesSummary": {
+                "blockedBy": 2,
+                "totalBlockedBy": 2,
+                "blocking": 1,
+                "totalBlocking": 1
+              },
+              "blockedBy": {
+                "pageInfo": {
+                  "hasNextPage": false
+                },
+                "nodes": [
+                  {
+                    "number": 223,
+                    "title": "Break the lower line at a crossing",
+                    "state": "OPEN",
+                    "repository": {
+                      "nameWithOwner": "o/r"
+                    }
+                  },
+                  {
+                    "number": 224,
+                    "title": "Fan a node out to its dependents",
+                    "state": "OPEN",
+                    "repository": {
+                      "nameWithOwner": "o/r"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "number": 227,
+              "title": "Fit the canvas to the window it has",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/227",
+              "updatedAt": "2026-08-04T15:30:00Z",
+              "labels": {
+                "nodes": [
+                  {
+                    "name": "wayfinder:grilling",
+                    "color": "b60205"
+                  }
+                ]
+              },
+              "assignees": {
+                "nodes": []
+              },
+              "issueDependenciesSummary": {
+                "blockedBy": 2,
+                "totalBlockedBy": 2,
+                "blocking": 1,
+                "totalBlocking": 1
+              },
+              "blockedBy": {
+                "pageInfo": {
+                  "hasNextPage": false
+                },
+                "nodes": [
+                  {
+                    "number": 225,
+                    "title": "Stand the whole band down under the floor",
+                    "state": "OPEN",
+                    "repository": {
+                      "nameWithOwner": "o/r"
+                    }
+                  },
+                  {
+                    "number": 226,
+                    "title": "Draw the map an operator tangled",
+                    "state": "OPEN",
+                    "repository": {
+                      "nameWithOwner": "o/r"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "number": 228,
+              "title": "Read the wide map back at arm's length",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/228",
+              "updatedAt": "2026-08-04T15:45:00Z",
+              "labels": {
+                "nodes": [
+                  {
+                    "name": "wayfinder:task",
+                    "color": "1d76db"
+                  }
+                ]
+              },
+              "assignees": {
+                "nodes": []
+              },
+              "issueDependenciesSummary": {
+                "blockedBy": 1,
+                "totalBlockedBy": 1,
+                "blocking": 0,
+                "totalBlocking": 0
+              },
+              "blockedBy": {
+                "pageInfo": {
+                  "hasNextPage": false
+                },
+                "nodes": [
+                  {
+                    "number": 227,
+                    "title": "Fit the canvas to the window it has",
+                    "state": "OPEN",
+                    "repository": {
+                      "nameWithOwner": "o/r"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    "rateLimit": {
+      "cost": 3,
+      "nodeCount": 412,
+      "limit": 5000,
+      "remaining": 4288,
+      "resetAt": "2026-08-05T11:02:14Z"
+    }
+  }
+}
