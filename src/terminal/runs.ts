@@ -230,18 +230,6 @@ export interface RunReadout {
    */
   signal: RunSignal | null;
   /**
-   * What kind of run this is, or `null` for a run the harness was never told
-   * about.
-   *
-   * The same one-bit split of a ticket `attendanceOf` draws in `route.ts`, plus
-   * the two kinds that have no ticket at all: `chart` reaches a repository
-   * before any ticket exists, and `compose` is writing a spec for one.
-   *
-   * `null` rather than a default, because a run nobody staked is still a run and
-   * a rack row that guessed *work* would be naming something nobody said.
-   */
-  kind: RunKind | null;
-  /**
    * When this run was opened, in seconds since the epoch.
    *
    * **A stamp and not an age**, which is what lets a row hold still: readouts

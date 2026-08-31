@@ -247,6 +247,7 @@ const KIND_WORDS: Record<NonNullable<RunReadout["kind"]>, string> = {
   research: "research",
   chart: "charting",
   compose: "composing",
+  ask: "asking",
 };
 
 export const NO_STAKES = "no stakes recorded";

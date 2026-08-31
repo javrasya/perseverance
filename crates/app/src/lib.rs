@@ -2664,18 +2664,6 @@ struct RunReadout {
     /// right — it means *poll GitHub sooner* — so nothing downstream may treat
     /// this as an answer about a ticket.
     signal: Option<RunSignal>,
-    /// What kind of run this is, or nothing for a run this app was never told
-    /// the stakes of.
-    ///
-    /// Joined here from the stakes for the reason `ticket` and `folder` are:
-    /// *work*, *research*, *chart* and *compose* are product vocabulary, and the
-    /// crate that owns the PTY is not allowed to hold any of it.
-    ///
-    /// Optional rather than defaulted to `work`, and that is the same posture
-    /// [`what_it_loses`] takes at a quit: a run nobody staked is still a run, and
-    /// it crosses saying it does not know what it is rather than being counted as
-    /// something it might not be.
-    kind: Option<RunKind>,
     /// When this run was opened, as seconds since the epoch.
     ///
     /// A stamp rather than an age **because of what reads it**: the rack prints
@@ -2751,7 +2739,6 @@ impl RunReadout {
             kind: stakes.map(|stakes| stakes.kind),
             silence,
             signal: telemetry.signal.map(RunSignal::from),
-            kind: stakes.map(|stakes| stakes.kind),
             opened: telemetry.opened,
             spoke: telemetry.spoke,
         }
@@ -5761,7 +5748,6 @@ mod tests {
             // A run nothing has ever classified says so by having no signal,
             // rather than by naming a state nobody observed.
             signal: None,
-            kind: None,
             ..readout.clone()
         };
         let crossed = serde_json::to_value(unstaked).expect("serialises");
@@ -8982,7 +8968,6 @@ mod tests {
                 kind: Some(RunKind::Work),
                 silence: Silence::Quiet { silent_for_ms: 0 },
                 signal,
-                kind: Some(RunKind::Work),
                 opened: 1_785_888_000,
                 spoke: 1_785_888_000,
             }]

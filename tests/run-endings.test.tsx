@@ -76,7 +76,6 @@ function readout(ending: RunEnding, code: number | null = null): RunReadout {
     folder: "/work/repo",
     kind: "work",
     ending,
-    kind: "work",
     // Stamps rather than ages, which is what lets the words a row prints hold
     // still while readouts land three times a second.
     opened: 1_785_888_000,
