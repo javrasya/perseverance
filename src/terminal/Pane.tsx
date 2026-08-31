@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { briefSpan } from "../chrome/age";
+import { EscReadout } from "../keys/EscReadout.jsx";
 import { collapsed, gesture, type Occasion } from "../panes/geometry";
 import { monitor, useUi } from "../stores/ui";
 import { promptFor } from "./prompts";
@@ -340,6 +341,16 @@ export function Pane({
           )}
         </div>
       )}
+
+      {/*
+        Where `Esc` goes, beside the terminal and never inside it. One fixed
+        line: the sentence changes length as the screen changes, and a strip
+        that could wrap would take a row off the terminal's box — a resize
+        nobody asked for. #52's ledge at the terminal's edge is where this ends
+        up, which is why it is a component of its own and knows nothing about
+        this pane.
+      */}
+      <EscReadout />
 
       {prompt === null ? null : <PromptBlock prompt={prompt} />}
 

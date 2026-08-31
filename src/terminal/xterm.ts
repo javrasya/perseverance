@@ -1,5 +1,6 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal as Xterm } from "@xterm/xterm";
+import { claims } from "../keys/router";
 import type { Geometry } from "../stores/ui";
 import type { Factory, Terminal } from "./terminals";
 
@@ -58,6 +59,24 @@ export const xterm: Factory = (geometry: Geometry): Terminal => {
   element.style.height = "100%";
 
   const terminal = new Xterm({ ...OPTIONS, rows: geometry.rows, cols: geometry.cols });
+  /*
+   * The router's half of the seam, and the only place in this app xterm's key
+   * handling is touched.
+   *
+   * Returning `false` is what stops a keystroke being encoded and sent to the
+   * PTY, and it is returned for **claimed chords only** — the same
+   * `route(event, state)` the window listener asks, so the key the terminal is
+   * refused is by construction the key the app took. Everything else returns
+   * `true` and goes to the run untouched, `Esc` first among them: it is the
+   * interrupt of every agent CLI and this app never claims it.
+   *
+   * Mostly this handler never sees a claimed chord at all — the capture-phase
+   * listener at the window calls `stopPropagation` long before the helper
+   * textarea hears anything. It is here so that the refusal is a property of
+   * the terminal rather than of the listener being installed: a terminal opened
+   * with no router at the window still does not eat a chord the app owns.
+   */
+  terminal.attachCustomKeyEventHandler((event) => event.type !== "keydown" || !claims(event));
   const fit = new FitAddon();
   terminal.loadAddon(fit);
   terminal.open(element);
@@ -86,6 +105,7 @@ export const xterm: Factory = (geometry: Geometry): Terminal => {
       const listening = terminal.onData(handler);
       return () => listening.dispose();
     },
+    focus: () => terminal.focus(),
     dispose: () => terminal.dispose(),
   };
 };

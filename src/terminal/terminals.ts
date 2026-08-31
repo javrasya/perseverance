@@ -30,6 +30,14 @@ export interface Terminal {
   measure(): Geometry | null;
   /** Keystrokes out. Returns the way to stop listening. */
   onData(handler: (text: string) => void): () => void;
+  /**
+   * Put the keyboard in this terminal.
+   *
+   * Here rather than on the element, because what takes the keys is a helper
+   * `<textarea>` xterm plants inside it and nothing outside the factory is
+   * allowed to know that. It is what the crossing chord arrives at.
+   */
+  focus(): void;
   dispose(): void;
 }
 

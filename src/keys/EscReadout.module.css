@@ -1,0 +1,44 @@
+/*
+ * The Esc readout.
+ *
+ * One line, fixed height, and it never wraps. Beside the terminal is a place
+ * where the length of a sentence would otherwise be a resize: a strip that grew
+ * a second line would take a row off the terminal's box, and the character-cell
+ * count with it. So the sentence is clipped rather than allowed to reflow.
+ *
+ * Nothing here moves. The destination changes when the screen does, and motion
+ * on a line that sits next to a scrolling terminal would be competing with the
+ * thing the operator is actually reading.
+ */
+
+.readout {
+  --c-esc-line: var(--s-line-quiet);
+
+  display: flex;
+  flex: 0 0 auto;
+  gap: var(--s-space-snug);
+  align-items: baseline;
+  height: var(--s-space-room);
+  margin: 0;
+  padding: 0 var(--s-space-snug);
+  overflow: hidden;
+  border-bottom: var(--s-border-hairline) solid var(--c-esc-line);
+  color: var(--s-ink-secondary);
+  font-size: var(--s-text-micro);
+  white-space: nowrap;
+}
+
+.key {
+  flex: 0 0 auto;
+  padding: 0 var(--s-space-hair);
+  border: var(--s-border-hairline) solid var(--c-esc-line);
+  border-radius: var(--s-radius-chip);
+  color: var(--s-ink-primary);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-micro);
+}
+
+.destination {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

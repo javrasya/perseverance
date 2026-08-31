@@ -59,12 +59,15 @@ import { Dial } from "./panes/Dial.jsx";
 import { PeekStud } from "./panes/PeekStud.jsx";
 import { StandDown } from "./panes/StandDown.jsx";
 import {
+  DEFAULT_DETENT,
+  STEP,
   VIEW_FLOORS,
   clamp,
   columnsAt,
   floorOf,
   fractionOf,
   honours,
+  nextDetent,
   remembers,
   sides,
   standDown,
@@ -72,12 +75,13 @@ import {
   type Detent,
   type Move,
 } from "./panes/dial";
+import { install, type ActionId, type Handlers, type KeyState } from "./keys/router";
 import { clearance, peekWidth } from "./panes/peek";
 import { readPosition, writePosition } from "./panes/position";
 import { useBodyBox } from "./panes/useBodyBox";
 import { usePeek } from "./panes/usePeek";
 import { ViewSwitcher } from "./views/ViewSwitcher.jsx";
-import { VIEWS, type ViewName } from "./views/views";
+import { DEFAULT_VIEW, VIEWS, type ViewName } from "./views/views";
 import { Pane } from "./terminal/Pane.jsx";
 import { promptFor } from "./terminal/prompts";
 import {
@@ -715,6 +719,94 @@ export function App() {
       chooseView(wanted);
     },
     [position, bodyWidth, dialReach, moveTo, chooseView],
+  );
+
+  /*
+   * What the one key router does when a row of its table is claimed.
+   *
+   * Held in a ref and refreshed every render rather than closed over by the
+   * effect below, so the listener is installed **once, for the life of the
+   * window** and still acts on the position, the view and the peek as they are
+   * at the moment of the press. An effect that depended on these would tear the
+   * window's only key listener down and put it back on every render.
+   *
+   * Nothing in here decides *whether* a key was the app's — that is the table's,
+   * and it is the same table xterm's key handler asks, which is what makes the
+   * key the terminal is refused the key the app acted on.
+   */
+  const pressed = useRef<Handlers>({ press: () => {}, release: () => {} });
+  pressed.current = {
+    press: (id: ActionId, state: KeyState) => {
+      switch (id) {
+        case "home": {
+          // Home is the default view at the default detent — and the detent is
+          // only restored where it can actually hold that view, so *home* never
+          // lands on a stand-down.
+          const wanted = fractionOf(DEFAULT_DETENT);
+          if (honours(floorOf(DEFAULT_VIEW), sides(wanted, bodyWidth, dialReach).map)) {
+            moveTo(wanted);
+          }
+          onChooseView(DEFAULT_VIEW);
+          return;
+        }
+        case "cross": {
+          /*
+           * The room change `Esc` used to make, given its own chord.
+           *
+           * Focus crosses with the dial, in both directions: arriving at the
+           * terminal puts the keyboard in it, and leaving takes the keyboard
+           * off it — a window showing the map while every keystroke went to the
+           * run underneath would be the worst of both rooms.
+           */
+          const toTerminal = position > fractionOf("terminal");
+          moveTo(fractionOf(toTerminal ? "terminal" : "map"));
+          if (toTerminal && monitored !== null) terminals.for(monitored).focus();
+          else (document.activeElement as HTMLElement | null)?.blur();
+          return;
+        }
+        case "open":
+          // The same toggle the click makes: picking the node you already
+          // picked puts it back.
+          if (state.focusedNode !== null) {
+            select(state.selection === state.focusedNode ? null : state.focusedNode);
+          }
+          return;
+        case "peek":
+          peek.summoned();
+          return;
+        case "dial-wider":
+          moveTo(clamp(position + STEP));
+          return;
+        case "dial-narrower":
+          moveTo(clamp(position - STEP));
+          return;
+        case "dial-next-detent":
+          moveTo(fractionOf(nextDetent(position, 1)));
+          return;
+        case "dial-previous-detent":
+          moveTo(fractionOf(nextDetent(position, -1)));
+          return;
+        case "dial-terminal":
+          moveTo(fractionOf("terminal"));
+          return;
+        case "dial-map":
+          moveTo(fractionOf("map"));
+          return;
+      }
+    },
+    release: (id: ActionId) => {
+      if (id === "peek") peek.letGoOfChord();
+    },
+  };
+
+  /* The one installation site in the app, and the whole of its lifetime. */
+  useEffect(
+    () =>
+      install({
+        press: (id, state) => pressed.current.press(id, state),
+        release: (id) => pressed.current.release(id),
+      }),
+    [],
   );
 
   /*

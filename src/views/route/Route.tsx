@@ -379,14 +379,17 @@ function Row({
       /* The same word `FolderRow` uses for the row you picked, so the fill is
          not the only place the choice is said. */
       aria-current={selected ? "true" : undefined}
+      /*
+       * Reachable by keyboard, and bound by nobody here. `Enter` and `Space`
+       * are a row of the one key table in `src/keys/router.ts`, which resolves
+       * the row from `data-node` above and toggles the same selection this
+       * click does — including `preventDefault`, so `Space` does not scroll the
+       * pane out from under what is being picked. A second handler here would
+       * be a key this app binds outside the router, which
+       * `tests/no-loose-keys.test.ts` refuses.
+       */
       tabIndex={0}
       onClick={choose}
-      onKeyDown={(event) => {
-        if (event.key !== "Enter" && event.key !== " ") return;
-        // Space scrolls the pane otherwise, which moves the thing being picked.
-        event.preventDefault();
-        choose();
-      }}
     >
       <span className={styles.glyph} aria-hidden="true">
         {/* The cut's own shape, composed onto the one the mark already chose

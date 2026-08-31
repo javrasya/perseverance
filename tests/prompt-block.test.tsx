@@ -30,6 +30,7 @@ function aTerminal(): Terminal {
     resize: () => {},
     measure: () => null,
     onData: () => () => {},
+    focus: () => {},
     dispose: () => {},
   };
 }
