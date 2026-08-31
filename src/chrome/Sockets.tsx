@@ -191,12 +191,21 @@ export function Sockets({
      refusal names no frontier — it was aimed at the selection, which no
      resolver has been through — so the comparison above finds nothing to
      contradict it and leaves it standing. What contradicts it is the selection
-     moving: the sentence answers a press made at one node, and under the next
-     node it is a sentence about a press nobody made. The selection is a number,
-     so a tick that reselects the same node is not a move and retires nothing. */
+     moving off the node the press was about: the sentence answers a press made
+     at one node, and under another node it is a sentence about a press nobody
+     made. The node the refusal names and not the socket that wears it, because
+     an effect can only retire what is already in state: a press still in flight
+     when the selection moves writes its refusal after this has run for the last
+     time, and no further change is coming to run it again. That one is never
+     printed either — `sentenceOn` makes the same comparison at render — and
+     this is the half that hands the socket back once the operator moves again.
+     The selection is a number, so a tick that reselects the same node is not a
+     move and retires nothing. */
   useEffect(() => {
     setPress((current) =>
-      current.kind === "refused" && current.socket === "ask" ? { kind: "idle" } : current,
+      current.kind === "refused" && current.node !== null && current.node !== selection
+        ? { kind: "idle" }
+        : current,
     );
   }, [selection]);
 
@@ -225,10 +234,17 @@ export function Sockets({
      is a spawn whichever button bought it, and a second copy of these lines is
      a second place for the prompt or the pane binding to go missing from. What
      differs is only the command, what it was aimed at, and which socket wears
-     the answer. */
+     the answer.
+
+     `about` is the node a refusal from this press would be a sentence about,
+     read at press time because the selection can move while the command is out
+     and the answer belongs to the node the question was asked over. Only the
+     verb the selection alone arms names one; the two that re-arm on a fresh
+     read pass `null`, because a frontier is what retires those. */
   const spawning = async (
     id: SocketId,
     aim: StartTarget | null,
+    about: number | null,
     spawn: () => Promise<Started | Composed | Asked>,
   ) => {
     setPress({ kind: "checking", socket: id });
@@ -248,13 +264,19 @@ export function Sockets({
       setPress({ kind: "idle" });
       return;
     }
-    setPress({ kind: "refused", socket: id, detail: answer.detail, frontier: reArmsOn(answer) });
+    setPress({
+      kind: "refused",
+      socket: id,
+      detail: answer.detail,
+      frontier: reArmsOn(answer),
+      node: about,
+    });
   };
 
   /* Which of the two commands the primary socket is was decided by the
      derivation; this presses what it was handed. */
   const start = (aim: StartTarget, at: string, agent: string) => {
-    void spawning("start", aim, () =>
+    void spawning("start", aim, null, () =>
       aim.kind === "compose" ? composeSpec(at, agent) : startWorking(at, aim.ticket, agent),
     );
   };
@@ -282,7 +304,7 @@ export function Sockets({
       void monitorRun(already).then(() => monitor(already));
       return;
     }
-    void spawning("resume", null, () => resumeWorking(at, claim, agent));
+    void spawning("resume", null, null, () => resumeWorking(at, claim, agent));
   };
 
   const onPress = (socket: Socket) => {
@@ -307,7 +329,7 @@ export function Sockets({
        may hold the keys*: Rust bound its own monitored run inside the command,
        so this is the declaration and not a second one. */
     if (socket.id === "ask" && selection !== null) {
-      void spawning("ask", null, () => ask(folder, selection, adapter));
+      void spawning("ask", null, selection, () => ask(folder, selection, adapter));
     }
   };
 

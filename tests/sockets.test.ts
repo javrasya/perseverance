@@ -152,7 +152,9 @@ describe("the rail", () => {
       crossing({ frontier: { frontier: "nothingToStart" } }),
       crossing({ frontier: { frontier: "notOnThisMachine" } }),
       crossing({ press: { kind: "checking", socket: "start" } }),
-      crossing({ press: { kind: "refused", socket: "start", detail: "no", frontier: null } }),
+      crossing({
+        press: { kind: "refused", socket: "start", detail: "no", frontier: null, node: null },
+      }),
       crossing({ selection: 75 }),
       crossing(CLAIMED),
     ];
@@ -320,6 +322,7 @@ describe("Ask", () => {
       socket: "ask",
       detail: "#41 is not on map #28, so there is nothing here to ask about",
       frontier: null,
+      node: 41,
     };
     const rail = railAt(crossing({ ...ASKABLE, press: refused }));
 
@@ -331,6 +334,44 @@ describe("Ask", () => {
        the sentence stays until the next press answers it. */
     expect(rail.target).toBe(75);
     expect(rail.sockets[2]?.fill).toBe("filled");
+  });
+
+  it("prints a refusal only under the node it was aimed at", () => {
+    /* The answer that lands late. The press went out on #41, the operator
+       clicked #42 in the Route while the command was still out, and the refusal
+       was written to state after the move — so no selection change follows it
+       and the retirement effect never sees it. The comparison is made here
+       instead: a sentence about #41 is not this rail's to print while #42 is
+       the node under the hand. */
+    const refused: Press = {
+      kind: "refused",
+      socket: "ask",
+      detail: "#41 is not on map #28, so there is nothing here to ask about",
+      frontier: null,
+      node: 41,
+    };
+
+    expect(socketOf("ask", { ...ASKABLE, press: refused }).note).toBe(refused.detail);
+    expect(socketOf("ask", { ...ASKABLE, selection: 42, press: refused }).note).toBeNull();
+    /* And the socket is armed on #42 rather than recessed by a sentence about
+       somewhere else: a press nobody made costs the next press nothing. */
+    expect(socketOf("ask", { ...ASKABLE, selection: 42, press: refused }).fill).toBe("filled");
+  });
+
+  it("holds a refusal that names no node against the selection, because the frontier retires that one", () => {
+    /* Start Working and Resume are aimed at a read of the map rather than at
+       the selection, so their refusals carry `node: null` and moving the
+       selection is not an answer to them. */
+    const refused: Press = {
+      kind: "refused",
+      socket: "start",
+      detail: "#75 is not what this map offers to start any more",
+      frontier: null,
+      node: null,
+    };
+
+    expect(socketOf("start", { selection: 42, press: refused }).note).toBe(refused.detail);
+    expect(socketOf("start", { selection: 99, press: refused }).note).toBe(refused.detail);
   });
 });
 
@@ -438,6 +479,7 @@ describe("Resume", () => {
       socket: "resume",
       detail: "#41 already has a run in this window and it is still live",
       frontier: null,
+      node: null,
     };
 
     expect(socketOf("resume", { ...CLAIMED, press: checking }).label).toBe(CHECKING_LABEL);
@@ -577,6 +619,7 @@ describe("Start Working", () => {
       socket: "start",
       detail: "#75 is not what this map offers to start any more",
       frontier: { frontier: "designated", number: 76 },
+      node: null,
     };
     const rail = railAt(crossing({ press: moved }));
     const start = rail.sockets[0];
@@ -596,6 +639,7 @@ describe("Start Working", () => {
           socket: "start",
           detail: "moved",
           frontier: { frontier: "nothingToStart" },
+          node: null,
         },
       }),
     );
@@ -624,6 +668,7 @@ describe("Start Working", () => {
           socket: "start",
           detail: "the check did not land in time",
           frontier: null,
+          node: null,
         },
       }),
     );

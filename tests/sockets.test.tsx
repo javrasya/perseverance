@@ -745,6 +745,45 @@ describe("an Ask press", () => {
     expect(button(host, "ask").textContent).toContain(ASK_LABEL);
   });
 
+  it("never prints a refusal that landed after the selection had already moved", async () => {
+    /* The same move, made while the command is still out. Nothing retires this
+       one: the refusal reaches state after the last selection change, so the
+       effect that watches the selection has already run for the last time and
+       there is no further change coming to run it again. The sentence is read
+       against the node the press was about instead, and #41's answer is not a
+       sentence a socket armed on #42 has any business printing. */
+    let answer: (asked: Asked) => void = () => {};
+    invoke.mockReturnValue(
+      new Promise<Asked>((resolve) => {
+        answer = resolve;
+      }),
+    );
+    const host = paint(ASKING);
+
+    await act(async () => {
+      button(host, "ask").click();
+    });
+    expect(button(host, "ask").textContent).toContain(CHECKING_LABEL);
+
+    // The Route moves under the command in flight.
+    paint({ ...ASKING, selection: 42 });
+
+    await act(async () => {
+      answer({
+        kind: "refused",
+        detail: "#41 is not on map #28, so there is nothing here to ask about",
+      } satisfies Asked);
+    });
+
+    expect(socket(host, "ask").textContent).not.toContain("nothing here to ask about");
+    // Armed on the node under the hand, and pressable: nothing was spawned, and
+    // the answer to a press about #41 costs the next press about #42 nothing.
+    expect(socket(host, "ask").textContent).toContain("#42");
+    expect(button(host, "ask").textContent).toContain(ASK_LABEL);
+    expect(button(host, "ask").getAttribute("aria-disabled")).toBe("false");
+    expect(readUi().monitored).toBeNull();
+  });
+
   it("says `checking…` while its press is out, and a second press buys nothing", async () => {
     let answer: (asked: Asked) => void = () => {};
     invoke.mockReturnValue(
