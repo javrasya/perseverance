@@ -1053,6 +1053,30 @@ export function App() {
   /* Whether the pane is drawing a prompt block, which is the second thing the
      peek has to stop short of — the first being the cursor's own rows. */
   const promptShown = monitored !== null && promptFor(monitored) !== null;
+  /*
+   * Whether the window's motion ration is already being spent on the map side.
+   *
+   * #56 rations motion by the *screen*: at most one animated element, however
+   * many runs are live. Two surfaces are licensed to move — the Route's ping on
+   * a `claimed` node and the rack's lamp — and only this file can see both, so
+   * the arbitration is made here and handed down. The rack is the surface that
+   * yields; the Route's ping is that view's own encoding and re-rationing it
+   * belongs to the contract tickets rather than to this one.
+   *
+   * Every term is a fact about what is *drawn*, and each of them moves on a
+   * press or a resize and never on an arrival: which view is open, whether the
+   * map side is worth the column, whether the view stood down — and whether the
+   * graph holds a claimed node at all, which is what decides whether that
+   * licence is being spent rather than merely available. A run landing cannot
+   * appear in this, which is what keeps a landing from ever *starting* the lamp:
+   * see `lampPings` in `src/rack/rack.ts`.
+   */
+  const claimedPingDrawn =
+    view === "route" &&
+    mapSideDraws &&
+    viewColumn &&
+    standing === null &&
+    (snapshot.model.map?.nodes.some((node) => node.state === "claimed") ?? false);
 
   const onAskAgain = useCallback(() => {
     if (selectedPath === undefined) return;
@@ -1502,7 +1526,7 @@ export function App() {
                 Which run the pane shows is #57's, so nothing in the rack is
                 pressable and the monitored binding is untouched by all of it.
               */}
-              <Rack readouts={runs} />
+              <Rack readouts={runs} spentElsewhere={claimedPingDrawn} />
               <Dock
                 dock="rack"
                 occupant={occupant}
@@ -1514,8 +1538,8 @@ export function App() {
           </div>
 
           {/*
-            The stud hangs off *the body* rather than off the terminal, and that is
-            the whole of it being drawn at all.
+            The stud hangs off *the body* rather than off the terminal, and the
+            rack keeps the strip it hangs in clear.
 
             It may not sit in any flow — a strip that took width would narrow the
             pane, and a terminal narrowed by a piece of chrome is a live agent
@@ -1524,10 +1548,21 @@ export function App() {
             detent that box is worth the rack's floor and nothing more and clips
             its own overflow, so a stud hung there is clipped into a strip the rack
             already fills, at exactly the position where the refusal it prints is
-            the only feedback there is.
-            The body is the box the dial cannot narrow, and it is already the
-            peek overlay's containing block, so the stud and the overlay are
-            measured against the same edges.
+            the only feedback there is. The body is the box the dial cannot narrow,
+            and it is already the peek overlay's containing block, so the stud and
+            the overlay are measured against the same edges.
+
+            Which leaves what the stud is drawn *over*. At the top right of the
+            body that is the rack, whose region reaches the body's right edge at
+            the `map` detent — so an opaque stud there would cover the head band,
+            the lamp and `N of M still running` with it, which is the same erasure
+            as clipping, done from on top. No inset fixes that: the region's right
+            edge moves with the dial and its top edge does not, so the clearance
+            has to be horizontal, and `--c-rack-strip` in `Rack.module.css` is the
+            rack giving it. The stud's own geometry is unchanged by that, and it
+            still sits above the promoted map side — a stud under the peek overlay
+            is a button the pointer is still holding and the browser has just left,
+            which releases the spring being held.
           */}
           <PeekStud
             label={peek.label}

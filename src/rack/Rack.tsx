@@ -1,7 +1,16 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { useNow } from "../chrome/useNow";
 import type { RunReadout } from "../terminal/runs";
-import { SHOWN, droppedSentence, liveCount, phraseAt, rowsFor, tierFor, type Field } from "./rack";
+import {
+  SHOWN,
+  droppedSentence,
+  lampPings,
+  liveCount,
+  phraseAt,
+  rowsFor,
+  tierFor,
+  type Field,
+} from "./rack";
 import styles from "./Rack.module.css";
 
 /**
@@ -27,21 +36,43 @@ import styles from "./Rack.module.css";
  *   field shrunk to an ellipsis would be `SHOWN` promising something the screen
  *   does not show, so the narrow tiers wrap rather than shrink and say the same
  *   facts in fewer characters.
- * - **A landing is announced by the ping ceasing.** There is exactly one moving
- *   element in this subtree at any time — the lamp — however many runs are live.
- *   A row that lands loses its live ink and gains the word `landed`, and if it
- *   was the last live run the lamp stops. Nothing starts moving because
+ * - **A landing is announced by the ping ceasing.** There is at most one moving
+ *   element on the *screen* at any time — this lamp — however many runs are
+ *   live. A row that lands loses its live ink and gains the word `landed`, and
+ *   if it was the last live run the lamp stops. Nothing starts moving because
  *   something ended, and nothing here flashes, toasts or slides on arrival: an
  *   arrival may not interrupt a sentence being typed on the other side of the
  *   window.
+ *
+ * The ration is the screen's and not this subtree's, which is why the shell
+ * hands the rack [`spentElsewhere`]: the Route spends a ping of its own on a
+ * claimed node, and a lamp that counted only its own children would animate a
+ * second element beside it. [`lampPings`] is the arbitration, and the rack is
+ * the surface that yields — it keeps the fact and loses only the movement,
+ * because the filled ring and `N of M still running` say the same thing
+ * standing still.
  */
-export function Rack({ readouts }: { readouts: readonly RunReadout[] }) {
+export function Rack({
+  readouts,
+  spentElsewhere,
+}: {
+  readouts: readonly RunReadout[];
+  /**
+   * A licensed animation is already drawn somewhere on this screen.
+   *
+   * Required rather than defaulted: the shell is the only box that can see both
+   * surfaces, and a prop with a default is a prop a second call site can forget
+   * — which is the two-pings-at-once defect, back with nothing red to show it.
+   */
+  spentElsewhere: boolean;
+}) {
   const region = useRef<HTMLElement | null>(null);
   const width = useRegionWidth(region);
   const tier = tierFor(width);
 
   const rows = rowsFor(readouts, useNow());
   const live = liveCount(rows);
+  const pinging = lampPings(live, spentElsewhere);
   const dropped = droppedSentence(tier);
 
   return (
@@ -53,14 +84,30 @@ export function Rack({ readouts }: { readouts: readonly RunReadout[] }) {
     >
       <div className={styles.head}>
         {/*
-          The one animated element in the rack, and it is the rack's rather than
-          a row's: N live runs would otherwise be N pings, and the ration is one.
-          `data-animated` is what the tests count, so *at most one* is a claim
+          The one animated element on the screen, and it is the rack's rather
+          than a row's: N live runs would otherwise be N pings, and the ration is
+          one. `data-animated` is what the tests count — here and on the Route's
+          claimed node, the only other licence — so *at most one* is a claim
           about the DOM rather than about how carefully this file was read.
+
+          Three states and not two: dark when nothing is running, a filled ring
+          when something is and the window's ration is spent elsewhere, and the
+          ring plus the ping when it is not. The ring is the still form rule 12
+          asks for, so what a suppressed ping costs is the motion and never the
+          fact. `data-lamp` is the address the conformance spec reads it by, at
+          every one of those states — a spec that found the lamp by its ping
+          could not ask whether something was painted over a lamp that is dark.
         */}
         <span
-          className={live === 0 ? styles.lamp : `${styles.lamp} ${styles.lampLive}`}
-          data-animated={live === 0 ? undefined : "true"}
+          className={
+            live === 0
+              ? styles.lamp
+              : pinging
+                ? `${styles.lamp} ${styles.lampLive} ${styles.lampPing}`
+                : `${styles.lamp} ${styles.lampLive}`
+          }
+          data-lamp="true"
+          data-animated={pinging ? "true" : undefined}
         />
         <span className={styles.count}>
           {rows.length === 0

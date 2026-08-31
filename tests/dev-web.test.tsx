@@ -1664,11 +1664,23 @@ describe("the rack lists every run beside the pane, from the fixture behind dev:
     expect(rack.textContent).toContain("landed");
   });
 
-  it("moves one thing at most, however many of them are running", async () => {
+  it("moves one thing at most on the screen, however many of them are running", async () => {
     await boot("/?map=awkward-map&runs=rack");
-    // Scoped to the rack's own subtree: the Route's per-claimed-node ping is
-    // that view's identity and is not this ticket's to re-ration.
-    expect(theRack().querySelectorAll('[data-animated="true"]')).toHaveLength(1);
+    /*
+     * Counted over the window and not over the rack's subtree, because the
+     * criterion is one animated element *on screen*. Both licensed animations
+     * carry `data-animated` — the Route's claimed ping and the rack's lamp — and
+     * here the map side is drawing the Route over a fixture that stakes exactly
+     * one claim, so the window's ration is already spent when the rack is asked.
+     * The rack yields it: this is the state that animated two things at once
+     * before the ration was arbitrated in `lampPings`.
+     */
+    expect(document.querySelectorAll('[data-animated="true"]')).toHaveLength(1);
+    expect(theRack().querySelectorAll('[data-animated="true"]')).toHaveLength(0);
+    /* And what it gives up is the movement, never the fact: the lamp is still
+       lit and the count still says how many are going. */
+    expect(theRack().querySelector("[data-lamp]")).not.toBeNull();
+    expect(theRack().textContent).toContain("still running");
   });
 
   it("draws the narrow tier in a window nothing has laid out, rather than nothing", async () => {
