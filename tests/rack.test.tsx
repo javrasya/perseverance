@@ -7,17 +7,21 @@ import { Rack } from "../src/rack/Rack.jsx";
 import {
   FIELDS,
   NO_STAKES,
+  RACK_BASIS,
   RACK_FLOOR,
+  RACK_RESERVE,
   SHOWN,
   TIERS,
   TIER_FLOORS,
   droppedAt,
   droppedSentence,
+  regionFor,
   rowsFor,
   shows,
   tierFor,
   type Tier,
 } from "../src/rack/rack";
+import { fractionOf, sides, type Detent } from "../src/panes/dial";
 import { runFixtureNamed } from "../src/terminal/fixtures";
 import { type RunReadout } from "../src/terminal/runs";
 import { readMotion } from "./support/checks";
@@ -37,6 +41,7 @@ import { collectStylesheets } from "./support/sources";
   true;
 
 const RACK_CSS = "src/rack/Rack.module.css";
+const PANE_CSS = "src/terminal/Pane.module.css";
 
 let mounted: { root: ReturnType<typeof createRoot>; host: HTMLElement } | null = null;
 
@@ -126,6 +131,50 @@ describe("the tier is a function of width, and of nothing else", () => {
     expect(RACK_FLOOR).toBeLessThan(TIER_FLOORS.boards);
   });
 
+  it("draws one named tier at each detent, and glance is not the narrow one", () => {
+    // The ruling in ADR 0025, in numbers. #56 asks for `studs` at `glance`, and
+    // no function of width can give it: `glance` hands the *map* 0.3, so the
+    // terminal side there is 70% — wider than at `split` — and a wider region
+    // may never draw a narrower tier.
+    const WINDOW = 1280;
+    const REACH = 12;
+    const table: readonly [Detent, Tier][] = [
+      ["terminal", "bays"],
+      ["glance", "bays"],
+      ["split", "bays"],
+      ["map", "studs"],
+    ];
+
+    for (const [detent, tier] of table) {
+      const { terminal } = sides(fractionOf(detent), WINDOW, REACH);
+      expect(tierFor(regionFor(terminal)), detent).toBe(tier);
+    }
+
+    // The two ends of the table said as widths rather than as names: three
+    // detents leave the region more than its basis, and the fourth leaves it the
+    // reserve exactly, which is the floor plus the terminal box's own padding.
+    expect(regionFor(sides(fractionOf("split"), WINDOW, REACH).terminal)).toBe(RACK_BASIS);
+    expect(sides(fractionOf("map"), WINDOW, REACH).terminal).toBe(RACK_RESERVE);
+    expect(regionFor(RACK_RESERVE)).toBe(RACK_FLOOR);
+
+    // Monotone, which is the invariant the ruling turns on: every wider terminal
+    // side draws a tier at least as wide.
+    let seen = 0;
+    for (const detent of ["map", "split", "glance", "terminal"] as const) {
+      const region = regionFor(sides(fractionOf(detent), WINDOW, REACH).terminal);
+      expect(region, detent).toBeGreaterThanOrEqual(seen);
+      seen = region;
+    }
+
+    // And `boards` is the drag tier and the small-window tier, not a detent's:
+    // no press reaches it on a default window, and `split` reaches it on a
+    // narrow one.
+    expect(
+      table.map(([detent]) => tierFor(regionFor(sides(fractionOf(detent), WINDOW, REACH).terminal))),
+    ).not.toContain("boards");
+    expect(tierFor(regionFor(sides(fractionOf("split"), 700, REACH).terminal))).toBe("boards");
+  });
+
   it("draws the same tier for one run and for forty", async () => {
     regionIs(300);
     const runs = await fixtureRuns();
@@ -149,6 +198,15 @@ describe("the tier is a function of width, and of nothing else", () => {
     expect(css).toContain(`--c-rack-floor: ${RACK_FLOOR}px`);
     expect(css).toContain("min-width: var(--c-rack-floor)");
     expect(css).toContain("flex: 0 1 var(--c-rack-basis)");
+    // The basis is a preference rather than a measurement, so the stylesheet may
+    // keep it in `rem` — at the root size nothing in this app overrides.
+    expect(css).toContain(`--c-rack-basis: ${RACK_BASIS / 16}rem`);
+    // And the pane's declaration, which is half of this claim: the region's
+    // siblings share out the line's shrinkage in proportion to their bases, so a
+    // pane left at the initial `0 1 auto` would put xterm's fitted width — or the
+    // width of an empty pane's sentence — into the rack's width, and the tier
+    // would have become a function of what the pane contains.
+    expect(stylesheet(PANE_CSS)).toContain("flex: 1 1 0;");
     // `min-width: auto` is flexbox's content measurement, and it is exactly the
     // way a long run kind would come to widen the region.
     expect(css).not.toContain("min-width: auto");

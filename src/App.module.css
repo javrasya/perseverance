@@ -112,10 +112,12 @@
  * whose measured width sheds the columns inside it.
  *
  * The basis is inline, from the store, because it moves between frames of a
- * drag, and so is the cap on it — `max-width: calc(100% - reach - RACK_RESERVE)`,
- * from the measured dial and the rack's exported floor. All of it is one
- * sentence: the map side is worth `position × body`, less the seam and less what
- * the terminal side owes the rack, which is exactly what `sides()` prints. Left
+ * drag, and so is the cap on it — `mapCap()` in `src/panes/dial.ts`, written
+ * from the measured dial and the rack's exported floor by the same arithmetic
+ * that prints the sides. All of it is one sentence: the map side is worth
+ * `position × body`, less the seam and less what the terminal side owes the rack
+ * — a reservation halved away rather than inverting the dial on a body that
+ * cannot afford it, in the cap exactly as in `sides()`. Left
  * uncapped, the `map` detent asks for a whole body plus a dial and this box is
  * `overflow: hidden`, so the dial's column — the one control that undoes every
  * position — would be laid out past the clip edge and there would be no pointer

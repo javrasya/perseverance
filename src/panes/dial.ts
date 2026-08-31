@@ -188,11 +188,54 @@ export function sides(
   // than the box it sits in, and that box is `overflow: hidden`. What gets
   // pushed past the clip edge is the dial's own column — the one control the
   // shed columns, the stand-down's `Widen to map` and the switcher's caps all
-  // rely on being on screen at every position. `src/App.tsx` takes the same two
-  // numbers out of the map side's `max-width`, which is what makes this a
-  // description of the layout rather than a claim about it.
+  // rely on being on screen at every position. [`mapCap`] below writes this same
+  // line, degrade included, as the `max-width` `src/App.tsx` puts on the map
+  // side, which is what makes this a description of the layout rather than a
+  // claim about it.
   const map = Math.min(Math.round(usable * clamp(position)), shared - owed);
   return { map, terminal: shared - map };
+}
+
+/**
+ * The map side's `max-width`, in the words a stylesheet can say it in.
+ *
+ * The same sentence as [`sides`], written for the flexbox, so that the width the
+ * shell prints and the width the browser lays out cannot be two numbers. A flat
+ * `calc(100% - Xpx)` was the second copy of it, and it was wrong in exactly one
+ * place: on a body too narrow to afford the reservation, [`sides`] halves the
+ * reservation away rather than inverting the dial, and a flat subtraction knows
+ * nothing about that. Below `2 x RACK_RESERVE` of shared width the subtraction
+ * hands the terminal side *more* pixels than the map side at the `map` detent —
+ * the inversion the degrade branch exists to refuse, printed as a layout. So the
+ * cap is a `max()` of the two branches, which is what the arithmetic is: the
+ * whole reservation while the body can afford it, half of what the two sides
+ * share when it cannot.
+ *
+ * Percentages rather than the measured body width, because this has to be right
+ * on the first paint as well. Before the `ResizeObserver` has spoken the shell
+ * measures zero, and a cap computed from zero is a map side collapsed for a
+ * frame; a percentage resolves against the box the browser is already laying
+ * out. Half a pixel is the whole difference that leaves between this and
+ * [`sides`], on an odd shared width, and it falls inside the rack's floor.
+ */
+export function mapCap(reach: number): string {
+  const seam = Math.max(0, Math.round(reach));
+  return `max(calc(100% - ${seam + RACK_RESERVE}px), calc((100% - ${seam}px) / 2))`;
+}
+
+/**
+ * Where [`mapCap`] leaves off, measured in from the body's right edge.
+ *
+ * The promoted peek is drawn at the `map` detent's width, so it has to stop
+ * where the map side's own cap stops — and it is positioned from the right,
+ * which makes it the complement of the cap rather than a third spelling of it.
+ * The two are derived here together for the same reason the cap is derived at
+ * all: a peek that reached past the cap would cover the rack at the one position
+ * where the rack is the whole of the terminal side.
+ */
+export function beyondMapCap(reach: number): string {
+  const seam = Math.max(0, Math.round(reach));
+  return `min(${seam + RACK_RESERVE}px, calc(${seam}px + (100% - ${seam}px) / 2))`;
 }
 
 /**

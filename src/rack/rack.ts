@@ -88,6 +88,40 @@ export const RACK_GUTTER = 16;
 export const RACK_RESERVE = RACK_FLOOR + RACK_GUTTER;
 
 /**
+ * The width the region prefers, in pixels, before anything shrinks it.
+ *
+ * `Rack.module.css` authors it as `--c-rack-basis: 25rem`, and 25rem is this
+ * number at the root size — nothing in this app sets a root `font-size`, so the
+ * conversion is the browser default and `tests/rack.test.tsx` pins the two
+ * spellings together. It is a preference rather than a measurement, which is why
+ * the stylesheet may keep it in `rem` where [`RACK_FLOOR`] may not.
+ *
+ * Above the `bays` floor on purpose: a region whose preferred width fell inside
+ * a narrower tier would have a widest tier that only ever appeared by accident.
+ */
+export const RACK_BASIS = 400;
+
+/**
+ * How wide the region is drawn when the terminal side is this wide.
+ *
+ * The flexbox, in arithmetic. The terminal box keeps [`RACK_GUTTER`] of its own
+ * padding to the region's right; the pane beside the region is `flex: 1 1 0`,
+ * so every pixel the line is short comes out of the region and none of it out of
+ * the pane, down to [`RACK_FLOOR`] where the region stops giving and the pane
+ * gives instead; and the region never grows past [`RACK_BASIS`], because its
+ * `flex-grow` is zero.
+ *
+ * Here rather than in a test because it is what makes *the tier is a function of
+ * the terminal side's width* checkable without a browser: [`tierFor`] of this is
+ * the tier a detent draws, and the conformance spec measures the same number off
+ * the real layout.
+ */
+export function regionFor(terminalSide: number): number {
+  const box = Math.max(0, Math.floor(terminalSide) - RACK_GUTTER);
+  return Math.min(RACK_BASIS, Math.max(RACK_FLOOR, box));
+}
+
+/**
  * The measured region width at which each tier starts.
  *
  * `studs` floors at zero, and that is the load-bearing entry: a box nobody has
@@ -102,7 +136,17 @@ export const TIER_FLOORS: Record<Tier, number> = {
   bays: 380,
 };
 
-/** Which tier a region this wide is drawn at. Width, and nothing else. */
+/**
+ * Which tier a region this wide is drawn at. Width, and nothing else.
+ *
+ * Monotone in width, and that is the non-negotiable part: a wider region may
+ * never draw a narrower tier. #56 asks in one clause for "studs at glance", and
+ * that clause cannot be honoured by any function of width, because `glance`
+ * gives the *map* 0.3 (`src/panes/dial.ts`) and so leaves the terminal side 70%
+ * — wider than at `split`, and the widest terminal side there is short of the
+ * `terminal` detent itself. The ruling, and the tier each detent draws, is
+ * written down in `docs/adr/0025-the-racks-tier-is-a-function-of-width-not-of-n.md`.
+ */
 export function tierFor(width: number): Tier {
   if (!Number.isFinite(width)) return "studs";
   let tier: Tier = "studs";

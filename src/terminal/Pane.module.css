@@ -6,11 +6,26 @@
  * with the thing the operator is reading.
  */
 
+/*
+ * The pane takes the remainder of the terminal side, and takes it explicitly.
+ *
+ * `flex: 1 1 0` and not the initial `0 1 auto`: the rack is this box's sibling
+ * in `.terminal`, and flexbox shares out shrinkage in proportion to each item's
+ * basis. Left content-derived, this basis would be xterm's last fitted width —
+ * or the width of `Nothing is running here yet.` — and the rack's rendered
+ * width, and therefore its tier, would become a function of what the pane
+ * happens to contain. A zero basis makes the rack's own basis and floor the only
+ * things setting the region's width, which is what `src/rack/rack.ts` claims of
+ * it and what the dial's arithmetic prints. It also settles the terminal side in
+ * one pass: a pane whose basis moved when its `ResizeObserver` refitted the
+ * terminal would move the rack after the dial had stopped.
+ */
 .pane {
   --c-pane-fill: var(--s-surface-sunken);
   --c-pane-line: var(--s-line-quiet);
 
   display: flex;
+  flex: 1 1 0;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
