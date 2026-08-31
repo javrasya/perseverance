@@ -2,7 +2,7 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { nowSeconds } from "../src/chrome/age";
+import { nowSeconds, relativeAge, terseAge } from "../src/chrome/age";
 import { Rack } from "../src/rack/Rack.jsx";
 import {
   FIELDS,
@@ -15,6 +15,7 @@ import {
   TIER_FLOORS,
   droppedAt,
   droppedSentence,
+  phraseAt,
   regionFor,
   rowsFor,
   shows,
@@ -276,7 +277,63 @@ describe("each tier prints what it dropped", () => {
     const studs = await draw(runs);
     expect(studs.textContent).not.toContain("#214");
     expect(studs.textContent).not.toContain("opened ");
-    expect(studs.textContent).toContain("last printed");
+  });
+
+  it("says the same facts in fewer characters where there is no room for them", async () => {
+    const rows = rowsFor(await fixtureRuns(), nowSeconds());
+    const noisy = rows.find((row) => row.run === 1)!;
+
+    // The wide row spells both out; the narrow ones say the same two facts in
+    // what a 152px region has room for. Not different facts, and not rounded
+    // any further — a field that came out as an ellipsis would be `SHOWN`
+    // claiming something the screen does not show.
+    expect(phraseAt("bays", noisy, "unseen")).toBe("2,112 bytes unseen");
+    expect(phraseAt("bays", noisy, "silence")).toBe("last printed just now");
+    for (const tier of ["boards", "studs"] as const) {
+      expect(phraseAt(tier, noisy, "unseen"), tier).toBe("2.1 KB");
+      expect(phraseAt(tier, noisy, "silence"), tier).toBe("quiet <1m");
+    }
+
+    const behind = rows.find((row) => row.run === 3)!;
+    expect(phraseAt("studs", behind, "unseen")).toBe("1.2 MB");
+    expect(phraseAt("studs", rows.find((row) => row.run === 2)!, "unseen")).toBe("0 B");
+    expect(phraseAt("studs", rows.find((row) => row.run === 4)!, "silence")).toBe("quiet 1h");
+
+    // Never longer than the seven characters the narrowest row was measured for.
+    for (const row of rows) {
+      expect(row.unseenBrief.length, row.unseenBrief).toBeLessThanOrEqual(8);
+      expect(row.silenceBrief.length, row.silenceBrief).toBeLessThanOrEqual(10);
+    }
+  });
+
+  it("keeps the terse ladder on the same rungs as the wide one", () => {
+    // Two spellings of a duration, and a rack draws one tier at a time so no
+    // screen carries both. What would make them two *answers* rather than two
+    // spellings is a boundary that moved — `6m` against `an hour ago`.
+    const now = nowSeconds();
+    const ago = (seconds: number) =>
+      [relativeAge(now - seconds, now), terseAge(now - seconds, now)] as const;
+
+    expect(ago(30)).toEqual(["just now", "<1m"]);
+    expect(ago(6 * 60)).toEqual(["6 minutes ago", "6m"]);
+    expect(ago(2 * 60 * 60)).toEqual(["2 hours ago", "2h"]);
+    expect(ago(3 * 24 * 60 * 60)).toEqual(["3 days ago", "3d"]);
+    expect(ago(21 * 24 * 60 * 60)).toEqual(["3 weeks ago", "3w"]);
+    expect(ago(300 * 24 * 60 * 60)).toEqual(["10 months ago", "10mo"]);
+    expect(ago(800 * 24 * 60 * 60)).toEqual(["2 years ago", "2y"]);
+  });
+
+  it("draws nothing for a field the tier dropped, or for a ticket a run has none of", async () => {
+    const rows = rowsFor(await fixtureRuns(), nowSeconds());
+    const unstaked = rows.find((row) => row.run === 5)!;
+
+    for (const field of FIELDS) {
+      for (const tier of TIERS) {
+        if (!shows(tier, field)) expect(phraseAt(tier, unstaked, field), field).toBeNull();
+      }
+    }
+    expect(phraseAt("boards", unstaked, "ticket")).toBeNull();
+    expect(phraseAt("boards", rows.find((row) => row.run === 1)!, "ticket")).toBe("#214");
   });
 });
 

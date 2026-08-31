@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { useNow } from "../chrome/useNow";
 import type { RunReadout } from "../terminal/runs";
-import { droppedSentence, liveCount, rowsFor, shows, tierFor } from "./rack";
+import { SHOWN, droppedSentence, liveCount, phraseAt, rowsFor, tierFor, type Field } from "./rack";
 import styles from "./Rack.module.css";
 
 /**
@@ -21,6 +21,12 @@ import styles from "./Rack.module.css";
  *   came out saying. Nothing about an arrival, a landing, a resolution or a
  *   death can change which tier draws, and the stylesheet keeps the region's own
  *   width off its content so the measurement cannot be moved that way either.
+ * - **A tier draws every field it claims, whole.** The row is `SHOWN[tier]`
+ *   mapped rather than six hand-written spans, and what each one says comes from
+ *   [`phraseAt`], which is where the narrow tiers' shorter wordings live. A
+ *   field shrunk to an ellipsis would be `SHOWN` promising something the screen
+ *   does not show, so the narrow tiers wrap rather than shrink and say the same
+ *   facts in fewer characters.
  * - **A landing is announced by the ping ceasing.** There is exactly one moving
  *   element in this subtree at any time — the lamp — however many runs are live.
  *   A row that lands loses its live ink and gains the word `landed`, and if it
@@ -40,7 +46,7 @@ export function Rack({ readouts }: { readouts: readonly RunReadout[] }) {
 
   return (
     <section
-      className={tier === "studs" ? `${styles.rack} ${styles.studs}` : styles.rack}
+      className={tier === "bays" ? styles.rack : `${styles.rack} ${styles.narrow}`}
       aria-label="The rack"
       data-tier={tier}
       ref={region}
@@ -75,20 +81,14 @@ export function Rack({ readouts }: { readouts: readonly RunReadout[] }) {
               className={row.live ? `${styles.row} ${styles.rowLive}` : `${styles.row} ${styles.rowLanded}`}
               data-live={row.live ? "true" : "false"}
             >
-              {shows(tier, "kind") ? <span className={styles.kind}>{row.kind}</span> : null}
-              {shows(tier, "ticket") && row.ticket !== null ? (
-                <span className={styles.ticket}>{row.ticket}</span>
-              ) : null}
-              {shows(tier, "age") ? (
-                <span className={styles.age}>opened {row.age}</span>
-              ) : null}
-              {shows(tier, "unseen") ? <span className={styles.unseen}>{row.unseen}</span> : null}
-              {shows(tier, "silence") ? (
-                <span className={styles.silence}>last printed {row.silence}</span>
-              ) : null}
-              {shows(tier, "liveness") ? (
-                <span className={styles.liveness}>{row.liveness}</span>
-              ) : null}
+              {SHOWN[tier].map((field) => {
+                const said = phraseAt(tier, row, field);
+                return said === null ? null : (
+                  <span key={field} className={INK[field]} data-field={field}>
+                    {said}
+                  </span>
+                );
+              })}
             </li>
           ))}
         </ol>
@@ -96,6 +96,24 @@ export function Rack({ readouts }: { readouts: readonly RunReadout[] }) {
     </section>
   );
 }
+
+/**
+ * Which class each field is drawn in, and `data-field` is how it is found.
+ *
+ * The attribute is not decoration: `tests/conformance/rack-width.spec.ts`
+ * measures these boxes in a real browser to check that a field a tier claims is
+ * a field the operator can actually read at that tier's floor, and a spec that
+ * reached for the class name would be spelling a CSS-module hash — a test that
+ * breaks on a rename instead of on a regression.
+ */
+const INK: Record<Field, string | undefined> = {
+  kind: styles.kind,
+  ticket: styles.ticket,
+  age: styles.age,
+  unseen: styles.unseen,
+  silence: styles.silence,
+  liveness: styles.liveness,
+};
 
 /**
  * This region's own width, in pixels.

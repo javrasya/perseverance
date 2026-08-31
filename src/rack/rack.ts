@@ -1,4 +1,4 @@
-import { relativeAge } from "../chrome/age";
+import { relativeAge, terseAge } from "../chrome/age";
 import type { RunReadout } from "../terminal/runs";
 
 /**
@@ -20,11 +20,18 @@ import type { RunReadout } from "../terminal/runs";
  *   supervised *without* the window moving under the operator. [`tierFor`] takes
  *   one number and reads nothing else, and the region it measures is sized from
  *   [`RACK_FLOOR`] and a fixed basis rather than from its content.
- * - **The narrow tiers say what they dropped.** Rule 10 of the encoding contract
- *   forbids putting load-bearing information behind hover, so a field a tier
- *   cannot afford is announced in visible text. [`SHOWN`] is what the component
- *   renders from and [`droppedSentence`] is derived from that same table, so the
- *   sentence cannot come to describe a rack that is drawing something else.
+ * - **The narrow tiers say what they dropped, and draw what is left legibly.**
+ *   Rule 10 of the encoding contract forbids putting load-bearing information
+ *   behind hover, so a field a tier cannot afford is announced in visible text.
+ *   [`SHOWN`] is what the component renders from and [`droppedSentence`] is
+ *   derived from that same table, so the sentence cannot come to describe a rack
+ *   that is drawing something else. The other half of that claim is that a field
+ *   a tier *keeps* arrives whole: a `silence` shrunk to an ellipsis at the
+ *   `studs` floor is a field the tier claims and does not draw, which is the
+ *   same defect as a sentence that lies. So the narrow tiers say the same facts
+ *   in fewer characters — [`phraseAt`] is where the two spellings live — and
+ *   `tests/conformance/rack-width.spec.ts` measures a row at each narrow floor
+ *   in a browser to check that nothing came out clipped.
  *
  * The third claim — that the one moving thing is the rack's lamp, and that a
  * landing is announced by that ping *ceasing* — is markup and CSS, and is argued
@@ -256,8 +263,12 @@ export interface RackRow {
   unseenBytes: number;
   /** The same count, in words. */
   unseen: string;
+  /** The same count again, in the characters a narrow tier can afford: `2.1 KB`. */
+  unseenBrief: string;
   /** How long it has been quiet, in `relativeAge`'s words. */
   silence: string;
+  /** The same silence, terse enough for a narrow row: `quiet 6m`. */
+  silenceBrief: string;
   live: boolean;
   /** `live` or `landed` — printed whether or not anything on screen moves. */
   liveness: string;
@@ -288,10 +299,72 @@ export function rowFor(readout: RunReadout, now: number): RackRow {
     age: relativeAge(readout.opened, now),
     unseenBytes,
     unseen: unseenBytes === 0 ? "nothing unseen" : `${unseenBytes.toLocaleString()} bytes unseen`,
+    unseenBrief: briefBytes(unseenBytes),
     silence: relativeAge(readout.spoke, now),
+    silenceBrief: `quiet ${terseAge(readout.spoke, now)}`,
     live: !readout.over,
     liveness: readout.over ? "landed" : "live",
   };
+}
+
+/**
+ * A byte count in at most seven characters, so a narrow row can hold it.
+ *
+ * Powers of ten rather than of two, and one decimal place, because the number is
+ * read as *how far behind this terminal is* and not as an allocation: `1.2 MB`
+ * answers that question and `1,204,880 bytes unseen` — which is what the wide
+ * row says — answers it in a hundred and thirty pixels the `studs` floor does
+ * not have. The unit ladder stops at `GB` because a run that has printed a
+ * terabyte into a ring buffer has other problems.
+ */
+function briefBytes(bytes: number): string {
+  if (bytes < 1_000) return `${bytes} B`;
+  if (bytes < 1_000_000) return `${(bytes / 1_000).toFixed(1)} KB`;
+  if (bytes < 1_000_000_000) return `${(bytes / 1_000_000).toFixed(1)} MB`;
+  return `${(bytes / 1_000_000_000).toFixed(1)} GB`;
+}
+
+/**
+ * What one field says on a row at this tier, or `null` when it is not drawn.
+ *
+ * The whole of a row's wording, in one place the component maps over rather than
+ * six literals in JSX — and the reason it is here rather than there is that the
+ * *narrow* wordings are load-bearing. A tier's promise is [`SHOWN`], and a rack
+ * keeps that promise only if the field arrives whole: the wide row's
+ * `last printed 6 minutes ago` is a hundred and forty-five pixels, and at the
+ * `studs` floor the row has a hundred and twenty-seven for four fields
+ * altogether. Shrunk to fit, it renders as an ellipsis, and an ellipsis is not a
+ * field — it is `SHOWN` claiming something the screen does not show, the same
+ * defect ADR 0025 lists as *a sentence naming a field the tier is in fact
+ * drawing*, arrived at from the other side.
+ *
+ * So the narrow tiers say the same facts in fewer characters. They are not
+ * different facts and they are not rounded further than the wide ones: `2.1 KB`
+ * is `2,112 bytes unseen` at one decimal place, `quiet 6m` is
+ * `last printed 6 minutes ago` on `terseAge`'s ladder, and `ticket` and `age` —
+ * the two that could only be shortened by lying about which run they name — are
+ * dropped outright and named in [`droppedSentence`] instead.
+ *
+ * `null` for a `ticket` a run has none of: a row that printed an empty span
+ * would be a tier drawing a field about a run that has nothing to say for it.
+ */
+export function phraseAt(tier: Tier, row: RackRow, field: Field): string | null {
+  if (!shows(tier, field)) return null;
+  const wide = tier === "bays";
+  switch (field) {
+    case "kind":
+      return row.kind;
+    case "ticket":
+      return row.ticket;
+    case "age":
+      return `opened ${row.age}`;
+    case "unseen":
+      return wide ? row.unseen : row.unseenBrief;
+    case "silence":
+      return wide ? `last printed ${row.silence}` : row.silenceBrief;
+    case "liveness":
+      return row.liveness;
+  }
 }
 
 /**

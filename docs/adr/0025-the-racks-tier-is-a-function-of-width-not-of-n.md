@@ -116,6 +116,20 @@ of what a rack is for — `ticket` and `age` are how you recognise a run you
 already know about, while `liveness`, `unseen` and `silence` are the question the
 surface exists to answer, and they survive to the narrowest tier.
 
+**And draws what it kept, whole.** The sentence is only half the promise. A tier
+that keeps `silence` and then renders it as an ellipsis has told the same lie
+from the other end — the field is in the accessibility tree, in `textContent`
+and in `SHOWN`, and is not on the screen — and jsdom cannot see the difference,
+because jsdom measures every box at zero. So the two narrow tiers say the same
+facts in fewer characters (`phraseAt` in `src/rack/rack.ts`: `2.1 KB` for
+`2,112 bytes unseen`, `quiet 6m` for `last printed 6 minutes ago`) and their rows
+wrap onto further lines of a fixed-height box rather than shrinking their fields
+to fit one. Not different facts and not coarser ones: what cannot be shortened
+without lying about which run it names — `ticket` and `age` — is dropped outright
+and named in the sentence instead. `tests/conformance/rack-width.spec.ts` pins
+the region to each narrow tier's floor in a real browser and measures every field
+the tier claims.
+
 **One moving thing, and a landing is announced by its ceasing.** Rule 9 rations
 motion to liveness, and a run readout carries the realest liveness in this app —
 a child that is either printing or has stopped. It is still one ration. Four live
@@ -185,6 +199,10 @@ read as silent for a year.
   detent table above without this ADR moving with it.
 - A field a narrow tier drops that is not named in the sentence that tier prints,
   or a sentence naming a field the tier is in fact drawing.
+- A field a tier keeps that is not legible at that tier's floor: clipped to an
+  ellipsis, cut off by the row's `overflow`, or on a flex line below the row's
+  fixed height. Read in `textContent` it is present; measured it is not there,
+  and `SHOWN` is claiming it either way.
 - Liveness readable only while something moves: with
   `prefers-reduced-motion: reduce` every animation in this app is killed, and
   live-versus-landed has to survive that in words and in ink.

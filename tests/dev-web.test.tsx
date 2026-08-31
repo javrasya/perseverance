@@ -1654,8 +1654,13 @@ describe("the rack lists every run beside the pane, from the fixture behind dev:
 
     expect(rack.textContent).toContain("research");
     expect(rack.textContent).toContain(NO_STAKES);
-    expect(rack.textContent).toContain("last printed");
-    expect(rack.textContent).toContain("bytes unseen");
+    // jsdom measures every box at zero, so this is the `studs` row — and the
+    // narrow tiers say the silence and the waiting output in the characters a
+    // 152px region has, rather than in the wide row's sentence.
+    expect(rack.textContent).toContain("quiet 6m");
+    expect(rack.textContent).toContain("2.1 KB");
+    expect(rack.textContent).not.toContain("last printed");
+    expect(rack.textContent).not.toContain("bytes unseen");
     expect(rack.textContent).toContain("landed");
   });
 

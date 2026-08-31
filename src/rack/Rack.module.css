@@ -35,7 +35,8 @@
   --c-rack-floor: 152px;
   --c-rack-basis: 25rem;
   --c-rack-row: 1.75rem;
-  --c-rack-row-studs: 2.75rem;
+  --c-rack-row-narrow: 3rem;
+  --c-rack-leading: 1.2;
   --c-rack-lamp: 0.5rem;
   --c-rack-live: var(--s-live);
 
@@ -210,23 +211,56 @@
 }
 
 /*
- * The narrowest tier wraps a row onto two lines rather than shortening the
- * words. It is still a fixed height, and it is still the same height for every
- * row — which is all the no-relayout rule asks. Which fields are on the row at
- * all is `SHOWN`'s answer, in the component, never a `display: none` here: a
- * field hidden in CSS would still be in the accessibility tree, and the rack
- * would be claiming to show what it dropped.
+ * Both narrow tiers wrap a row onto as many lines as the fields they kept need,
+ * rather than shrinking those fields until they are ellipses.
+ *
+ * The alternative is what this rule replaced, and it was a lie the stylesheet
+ * told on `SHOWN`'s behalf. At the `boards` floor the row has 215px of content
+ * width; `kind`, `ticket` and `liveness` do not shrink, and the four gaps are
+ * not free, so `unseen` and `silence` were left about fifty pixels between them
+ * on one `nowrap` line — an ellipsis each. At the `studs` floor there is less
+ * still, and a fourth flex line put `liveness` under the row's `overflow:
+ * hidden`. Either way the tier drew a field it says it drew and the operator
+ * could read none of it, which is ADR 0025's falsifier — *a sentence naming a
+ * field the tier is in fact drawing* — reached from the other end. The wordings
+ * got shorter too (`phraseAt` in `rack.ts`); this is the half that guarantees
+ * whatever they say lands on a line rather than in an ellipsis.
+ *
+ * Still a fixed height, and still the same height for every row at the tier,
+ * which is all the no-relayout rule asks: the box does not grow when a row has
+ * more to say, the words inside it use another line of a box that was already
+ * that tall. `line-height` is pinned rather than left at `normal` because the
+ * number of lines that fit is then arithmetic — three, at `--s-text-micro` in a
+ * `3rem` row — instead of a property of whichever font the platform resolved.
+ * The row gap is zero for the same reason: it is height the lines need.
+ *
+ * Which fields are on the row at all is `SHOWN`'s answer, in the component,
+ * never a `display: none` here: a field hidden in CSS would still be in the
+ * accessibility tree, and the rack would be claiming to show what it dropped.
  */
-.studs .row {
+.narrow .row {
   flex-wrap: wrap;
-  flex-basis: var(--c-rack-row-studs);
-  height: var(--c-rack-row-studs);
+  flex-basis: var(--c-rack-row-narrow);
+  height: var(--c-rack-row-narrow);
   align-items: flex-start;
   align-content: flex-start;
+  gap: 0 var(--s-space-snug);
+  line-height: var(--c-rack-leading);
   white-space: normal;
 }
 
-.studs .liveness {
+/* Nothing on a narrow row is allowed to be wider than the row. `kind` and
+   `liveness` do not shrink — on purpose, so that a word is never traded for an
+   ellipsis — which without this would let a long kind on an unusually wide font
+   hang past the row's `overflow: hidden` and be cut. Capped, it takes a second
+   line of a box that already had the height for one. */
+.narrow .row > * {
+  max-width: 100%;
+}
+
+/* On a wrapped row the auto margin would push the word to the far end of
+   whichever line it landed on, which is not the right edge of anything. */
+.narrow .liveness {
   margin-left: 0;
 }
 
