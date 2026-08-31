@@ -99,9 +99,10 @@ invisible to the harness and to every session after you.
 ## Finishing
 
 Commit everything you wrote — notes, sketches, spikes, whatever the research
-produced — and push the branch you are on to `origin`. Nothing on this side of
-the run is kept: the worktree goes away with the session, so work that was not
-committed and pushed never existed.
+produced — and push the branch you are on to `origin`. Nothing you write here
+reaches anybody until you push: the operator never reads this worktree and the
+harness keeps no transcript, so work that was not committed and pushed never
+existed to anyone but you.
 
 Then resolve the ticket in three acts, all three or none:
 

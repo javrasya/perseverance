@@ -179,6 +179,30 @@ function withoutComments(source) {
       }
     }
 
+    /* Char literals go before the `"` branch, because `'"'` is a quote that
+       opens nothing. Read as the start of a string it would swallow everything
+       up to the next quote in the file, and the scan would go quietly blind for
+       as long as the quotes stayed odd — a real trespass sitting behind one
+       would be reported as nothing at all. The literal is matched whole and
+       blanked, because no rule here cares what a char says.
+
+       The shape is deliberately narrow so a lifetime falls through untouched:
+       `'a`, `&'static` and `'outer:` have no closing quote where a char literal
+       has one, so the pattern does not match and the apostrophe is copied out
+       like any other character. The byte forms need no case of their own — the
+       `b` of `b'"'` is copied first and the quote arrives here. */
+    if (here === "'") {
+      const character =
+        /^'(?:\\(?:u\{[0-9a-fA-F]{1,6}\}|x[0-9a-fA-F]{2}|[^\n])|[^\\'\n])'/.exec(
+          source.slice(at),
+        );
+      if (character) {
+        out += blank(character[0]);
+        at += character[0].length;
+        continue;
+      }
+    }
+
     if (here === '"') {
       let cursor = at + 1;
       while (cursor < source.length) {
@@ -373,6 +397,20 @@ const KNOWN_BAD = [
     file: "crates/worktree/src/lib.rs",
     source: "OpenOptions::new().create(true).open(&exclude)?;\n",
   },
+  {
+    name: "a trespass hidden behind a quote char literal",
+    file: "crates/worktree/src/lib.rs",
+    source:
+      "let quote = '\"';\n" +
+      'std::fs::write(folder.join(".gitignore"), "/.perseverance/\\n")?;\n',
+  },
+  {
+    name: "a trespass hidden behind a byte quote literal",
+    file: "crates/github/src/read.rs",
+    source:
+      "let quote = b'\"';\n" +
+      'Command::new("git").arg("worktree").arg("remove").arg(path).output()?;\n',
+  },
 ];
 
 const KNOWN_GOOD = [
@@ -400,6 +438,13 @@ const KNOWN_GOOD = [
     source:
       "//! Nothing is forced: `--force` appears here nowhere, and the tracked\n" +
       "//! `.gitignore` is never touched.\n",
+  },
+  {
+    name: "an apostrophe that is a lifetime and not a char",
+    file: "crates/worktree/src/lib.rs",
+    source:
+      "fn refusal<'a>(said: &'a str, quote: char) -> &'a str {\n" +
+      "    let _ = (quote, '\\'', 'x');\n    said\n}\n",
   },
   {
     name: "a test that builds a real repository",

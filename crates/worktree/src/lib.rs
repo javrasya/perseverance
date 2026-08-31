@@ -79,17 +79,17 @@ pub enum WorktreeError {
     /// The path is taken by something that is not this ticket's worktree.
     ///
     /// Refused rather than cleared: whatever is there was put there by somebody,
-    /// and this app has never been the one to decide it was rubbish.
+    /// and this app has never been the one to decide it was rubbish. No branch
+    /// is named in the sentence, because a branch is not what disqualified it:
+    /// anything of this repository's on a `research/<ticket>` branch is ours
+    /// whatever its slug says, so what is there is either not a worktree of this
+    /// repository or not this ticket's work at all.
     #[error(
-        "{} already holds something that is not #{ticket}'s worktree on {branch}; move it aside \
+        "{} already holds something that is not #{ticket}'s worktree; move it aside \
          yourself — this app removes nothing it did not create",
         .path.display()
     )]
-    Occupied {
-        path: PathBuf,
-        ticket: u64,
-        branch: String,
-    },
+    Occupied { path: PathBuf, ticket: u64 },
 
     /// `git` could not be run at all.
     #[error(
@@ -169,9 +169,19 @@ pub fn worktree_path(folder: &Path, ticket: u64) -> PathBuf {
 ///
 /// Reuse is silent and is the ordinary case — a second press on the same ticket
 /// after the first run ended finds the same branch with the same commits on it,
-/// and starting a run is not a reason to lose them. *Already there* means both
-/// halves: a worktree of **this** repository, on **that** branch. Anything else
-/// at that path is somebody else's and refuses.
+/// and starting a run is not a reason to lose them. *Already there* means a
+/// worktree of **this** repository on **some** `research/<ticket>` branch, and
+/// the branch it is actually on is the one returned. The title is not part of
+/// the question: it is a mutable field on somebody else's issue tracker, and a
+/// rename between two presses would otherwise make the second one refuse a
+/// directory that is plainly the first one's — with the run's commits stranded
+/// on a branch nothing points at. The ticket number is the half that cannot
+/// change, so it is the half identity is keyed on. Anything else at that path is
+/// somebody else's and refuses.
+///
+/// The title is still what *names* a branch that does not exist yet, and only
+/// then: a first press slugs it, and every press after that inherits whatever
+/// the first one wrote.
 ///
 /// The exclude line is appended on every call, including a reuse, because it is
 /// idempotent and because the operator may have tidied it away between two
@@ -180,20 +190,19 @@ pub fn worktree_path(folder: &Path, ticket: u64) -> PathBuf {
 /// not a state at all.
 pub fn worktree_for(folder: &Path, ticket: u64, title: &str) -> Result<Worktree, WorktreeError> {
     let common = perseverance_store::common_git_dir(folder).ok_or(WorktreeError::NotAGitRepo)?;
-    let branch = branch_for(ticket, title);
     let path = worktree_path(folder, ticket);
 
-    if path.exists() {
-        if !is_ours(&path, &common, &branch) {
-            return Err(WorktreeError::Occupied {
-                path,
-                ticket,
-                branch,
-            });
+    let branch = match path.exists() {
+        true => match ours_at(&path, &common, ticket) {
+            Some(branch) => branch,
+            None => return Err(WorktreeError::Occupied { path, ticket }),
+        },
+        false => {
+            let branch = branch_for(ticket, title);
+            add(folder, &path, &branch, ticket, &common)?;
+            branch
         }
-    } else {
-        add(folder, &path, &branch, ticket, &common)?;
-    }
+    };
 
     hide(&common, ticket)?;
 
@@ -206,18 +215,37 @@ pub fn worktree_for(folder: &Path, ticket: u64, title: &str) -> Result<Worktree,
     })
 }
 
-/// Whether what is already at the path is this ticket's worktree.
+/// The branch this ticket's worktree is on, if what is at the path is ours.
 ///
 /// Two questions, and both have to answer yes. *Ours* is asked of the shared git
 /// directory rather than of the path — a worktree of a different clone, or a
 /// clone of its own, is not this repository's working copy however it is spelled
 /// — and the branch is read out of the worktree's own `HEAD`.
-fn is_ours(path: &Path, common: &Path, branch: &str) -> bool {
+///
+/// The second question is asked of the branch's stem only: `research/<ticket>`
+/// exactly, or `research/<ticket>-` and then anything. The slug is derived from
+/// a title that anyone can edit on GitHub between two presses, so an equality
+/// against a freshly derived name would answer *not ours* about the worktree
+/// this very ticket is standing in. The `-` is required rather than assumed:
+/// without it `research/580-…` would answer for #58.
+///
+/// The branch that comes back is the one on disk, never the one the caller would
+/// have derived — a reused worktree keeps the name it was made under, so the
+/// commits of every earlier run on this ticket stay on one branch.
+fn ours_at(path: &Path, common: &Path, ticket: u64) -> Option<String> {
     let same_repository = perseverance_store::common_git_dir(path)
         .map(|theirs| same_directory(&theirs, common))
         .unwrap_or(false);
+    if !same_repository {
+        return None;
+    }
 
-    same_repository && checked_out_branch(path).as_deref() == Some(branch)
+    let branch = checked_out_branch(path)?;
+    let stem = format!("research/{ticket}");
+    match branch == stem || branch.starts_with(&format!("{stem}-")) {
+        true => Some(branch),
+        false => None,
+    }
 }
 
 /// The branch checked out in a worktree, read as text.
@@ -568,6 +596,30 @@ mod tests {
             listed.matches("branch refs/heads/research/58").count(),
             1,
             "{listed}"
+        );
+    }
+
+    /// A title is somebody else's mutable field. Renaming the ticket on GitHub
+    /// between two presses changes the slug it would derive, and it may not
+    /// change the answer to *is this ticket's worktree already there?* — the run
+    /// resumes on the branch the first press made, with its commits on it.
+    #[test]
+    fn a_retitled_ticket_reuses_the_worktree_the_first_press_made() {
+        let Some(folder) = a_repository() else {
+            return;
+        };
+
+        let first = worktree_for(folder.path(), 58, "a title").expect("makes a worktree");
+        std::fs::write(first.path.join("notes.md"), "kept\n").expect("writes in the worktree");
+
+        let again = worktree_for(folder.path(), 58, "a wholly different title")
+            .expect("reuses the worktree");
+
+        assert_eq!(again, first);
+        assert_eq!(again.branch, "research/58-a-title");
+        assert_eq!(
+            std::fs::read_to_string(again.path.join("notes.md")).expect("still there"),
+            "kept\n"
         );
     }
 

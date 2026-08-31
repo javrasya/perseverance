@@ -52,6 +52,16 @@ two derivations behind it — `branch_for` and `worktree_path` — exposed becau
 later ticket that lists or removes worktrees needs the same two answers and must
 not compute them again.
 
+**A worktree is identified by its ticket, never by its title.** *Already ours* is
+a worktree of this repository at `<folder>/.perseverance/worktrees/<ticket>` on a
+branch whose stem is `research/<ticket>` — the slug after it is not part of the
+question, and the branch the reused worktree is actually on is the one returned.
+The title is a field anyone can edit on GitHub between two presses, and keying
+identity on the slug it derives would mean a rename made the second press refuse
+the first press's own directory, with that run's commits left on a branch nothing
+points at. The title still *names* a branch that does not exist yet, and only
+then: the first press slugs it and every press after inherits what it wrote.
+
 **It shells out to `git`, and takes no library.** `git2` and `gix` would each
 add a large dependency (and, for `git2`, a C build and a TLS story on a Windows
 runner) to spend it on one command. More decisively: a worktree is an entry in
@@ -184,4 +194,7 @@ refusal in `start_working`.
 
 Second presses on the same ticket reuse the worktree silently, which is what
 makes a research run resumable at all: the branch is where the last run's commits
-are, and starting a new session is not a reason to lose them.
+are, and starting a new session is not a reason to lose them. A retitle on GitHub
+between two presses is a non-event for the same reason the deleted directory is —
+identity is the ticket number, and the branch on disk is read rather than
+re-derived.

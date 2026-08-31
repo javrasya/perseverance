@@ -382,6 +382,46 @@ const NO_CLAIM_BESIDE =
   "this fixture renders no claimed node beside a node in another state, so no distinction here is carried by motion";
 
 const STILL_FORMS: Record<string, StillForm> = {
+  /* The rack's lamp, and it is read off the **page** rather than the view root:
+     the rack is chrome, so scoping this to a view would pass vacuously in a view
+     that never draws one (rule 7's corollary, the same reason the ledger's
+     checks are page-scoped).
+
+     `applies` is everywhere because the subject is everywhere: the rack draws a
+     lamp at every tier and in every state, and `.lampPing` is put on it by
+     `lampPings` — a function of how many runs are live and which side of the
+     window holds #56's ration, neither of which the media query touches. So a
+     reduced-motion rendering can carry the pinging class exactly as a moving one
+     does, and what is asked here is what the media query left of it.
+
+     Read at `[data-lamp]`, which `Rack.tsx` put on the lamp for this and says so:
+     an address that answers for a dark lamp as well as a pinging one, where
+     finding the lamp by its ping could only ever ask about lamps that were
+     already moving. What is asserted is the pair `Rack.module.css` promises —
+     the ping is gone, and the ring it was drawn on top of is still there. */
+  ".lampPing::after": {
+    applies: EVERYWHERE,
+    check: async (rendering) => {
+      const lamp = rendering.page.locator("[data-lamp]");
+      await expect(lamp, "the rack draws no lamp to read a still form off").toHaveCount(1);
+
+      const still = await stillFormOf(lamp);
+      expect(still.animationName, "motion survived the media query").toBe("none");
+
+      const ring = await lamp.evaluate((element: Element) => {
+        const own = getComputedStyle(element);
+        return {
+          animationName: own.animationName,
+          borderStyle: own.borderTopStyle,
+          borderWidth: own.borderTopWidth,
+        };
+      });
+      expect(ring.animationName, "the lamp itself is still moving").toBe("none");
+      expect(ring.borderStyle, "the ring went with the animation").not.toBe("none");
+      expect(ring.borderWidth, "the ring went with the animation").not.toBe("0px");
+    },
+  },
+
   /* The animation's selector and not the ring's: `.markClaimed::after` draws the
      halo on every claimed row and `.markPing::after` moves one of them, because
      #56 rations motion by the screen. The still form is read off the row that
