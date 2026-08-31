@@ -101,6 +101,12 @@ detent leaves the terminal side worth no pixels, so a dock on that side lends th
 pass back to the spine until the width returns, and both docks say so in a
 sentence. **A dock without the pass is never a blank box**; it names where the
 panel went and offers to take it back.
+[ADR 0025](docs/adr/0025-the-node-panel-is-one-element-with-three-addresses.md)
+records the decision the panel and the pass are two halves of — why a reading
+position is what makes a re-dock a move rather than a remount, why the scroller
+travels with the pass instead of belonging to a dock, why the markdown is
+rendered here rather than fetched rendered or painted in Rust, and the tests that
+falsify each.
 
 What is deliberately not in it is the more interesting half. There is **no issue
 body**: the graph query never asks for one, so the title is the whole question
