@@ -142,6 +142,16 @@ struct MapsView {
     /// [`Truncation`] — and either, both, or neither is a state the chrome
     /// draws.
     labels_truncated: bool,
+    /// Whether this build can vouch for `labels_truncated` at all.
+    ///
+    /// A third state, and the reason it is a third rather than a value of the
+    /// second: `labels_truncated` answers *were labels cut off*, and both of
+    /// its answers are claims about what GitHub said. A cached body whose
+    /// question this build cannot identify supports neither — the page was
+    /// never asked for, so *yes* is a false assertion and *no* is a false
+    /// reassurance. This flag says the third thing, which is the true one, and
+    /// the chrome gives it its own sentence.
+    labels_unvouched: bool,
     /// Whether the rate-limit budget is what is holding the poller's interval
     /// down, right now — already decided, on the Rust side, by the composition
     /// in `cadence.rs`. The WebView paints a clause from it and computes
@@ -176,6 +186,7 @@ impl MapsView {
             rate_limit: None,
             truncated: false,
             labels_truncated: false,
+            labels_unvouched: false,
             yielding_to_rate_limit: false,
         }
     }
@@ -201,6 +212,7 @@ impl MapsView {
             }),
             truncated: read.truncation.capped(),
             labels_truncated: read.truncation.labels,
+            labels_unvouched: false,
             yielding_to_rate_limit: false,
         }
     }
@@ -220,21 +232,32 @@ impl MapsView {
     /// because the question was never put is the harm #82 opened for: an
     /// operator who reads no caveat believes there is nothing past the end of
     /// the list, and a `platform:` label past the end is indistinguishable from
-    /// a ticket that named no machine. So it goes to the caveat until a live
-    /// read re-derives it, which is the direction [`Truncation::labels`] fails
-    /// in everywhere else.
+    /// a ticket that named no machine.
     ///
-    /// `truncated` is deliberately left alone, and this is the whole of the
-    /// asymmetry. It is [`Truncation::capped`], whose sentence on screen says a
-    /// page GitHub's own limits forbid was answered anyway — a tripwire whose
-    /// value is that it has never fired. Setting it here would print that
-    /// sentence to every operator on their first launch after the version-3
-    /// upgrade, and keep printing it for as long as the polls went on failing,
-    /// on the strength of a stamp that is evidence about a `pageInfo` and no
-    /// evidence at all that GitHub broke its own caps. A caveat that says
-    /// something false is not a smaller lie than a flag that reads clean.
+    /// It does not go to `labels_truncated` either, and that is the whole of
+    /// this method. That flag's sentence says some labels **were not read** — a
+    /// positive claim about what GitHub answered, true only where the page was
+    /// asked for and came back short. Here it was never asked, so that sentence
+    /// is false for every folder whose cache predates the upgrade, which on the
+    /// first launch after it is most of them. **A caveat that asserts something
+    /// false is not a smaller lie than a flag that reads clean**, and that rule
+    /// does not bend for the direction the falsehood happens to fail in: it is
+    /// the rule that governs `truncated` one paragraph below, and a principle
+    /// applied to one flag and not its neighbour is not a principle.
+    ///
+    /// So the true statement gets its own flag. Not *labels were cut off*, and
+    /// not *none were*, but *whether any were is unknown here, because this
+    /// build cannot tell what was asked* — which carries the same operational
+    /// warning as the caveat without asserting anything GitHub did not say. A
+    /// live read replaces it with a derived answer.
+    ///
+    /// `truncated` is left alone for the reason it always was. It is
+    /// [`Truncation::capped`], whose sentence on screen says a page GitHub's
+    /// own limits forbid was answered anyway — a tripwire whose value is that
+    /// it has never fired — and a stamp is evidence about a `pageInfo`, no
+    /// evidence at all that GitHub broke its own caps.
     fn unvouched(mut self) -> MapsView {
-        self.labels_truncated = true;
+        self.labels_unvouched = true;
         self
     }
 
@@ -2925,8 +2948,12 @@ mod tests {
         assert_eq!(json["provenance"]["outcome"]["kind"], "ok");
         assert_eq!(json["provenance"]["fetchedAt"], "2026-08-05T00:00:00Z");
         assert_eq!(json["truncated"], false);
-        // Two flags and not one, because the sentence each draws is different.
+        // Three flags and not one, because the sentence each draws is different:
+        // a page GitHub's limits forbid was answered, a page was asked for and
+        // came back short, and this build cannot tell whether it was asked.
         assert_eq!(json["labelsTruncated"], false);
+        // A live read derives the flag, so it vouches for what it derived.
+        assert_eq!(json["labelsUnvouched"], false);
         assert_eq!(json["rateLimit"]["remaining"], 4_417);
         assert_eq!(json["rateLimit"]["resetAt"], "2026-08-05T11:02:14Z");
         // A view nobody has told which floor held the poller says *not
@@ -2943,7 +2970,7 @@ mod tests {
         assert_eq!(first.as_object().expect("an object").len(), 5);
         // The finished map is in the list rather than filtered out of it.
         assert_eq!(json["maps"][1]["closed"], true);
-        assert_eq!(json.as_object().expect("an object").len(), 7);
+        assert_eq!(json.as_object().expect("an object").len(), 8);
     }
 
     /// The two truncation readings are two fields because they are two
@@ -3685,7 +3712,7 @@ mod tests {
     /// evidence of that, and firing it here would print that sentence to every
     /// operator on the first launch after the version-3 upgrade.
     #[test]
-    fn an_unfamiliar_document_caveats_labels_truncated_and_leaves_capped_clean() {
+    fn an_unfamiliar_document_marks_labels_unvouched_and_asserts_neither_truncation() {
         let (store, folder_id) = registry_with_a_folder();
         store
             .cache_graph(folder_id, None, TWO_MAPS, 1_785_888_000, "some older shape")
@@ -3693,7 +3720,14 @@ mod tests {
 
         let json = serde_json::to_value(from_cache(&store, folder_id)).expect("serialises");
 
-        assert_eq!(json["labelsTruncated"], true);
+        assert_eq!(
+            json["labelsUnvouched"], true,
+            "a document this build cannot identify vouches for nothing"
+        );
+        assert_eq!(
+            json["labelsTruncated"], false,
+            "the page was never asked for, so `some were not read` is a false claim"
+        );
         assert_eq!(json["truncated"], false, "a stamp is not a broken cap");
 
         store
@@ -3710,6 +3744,10 @@ mod tests {
 
         assert_eq!(json["truncated"], false);
         assert_eq!(json["labelsTruncated"], false);
+        assert_eq!(
+            json["labelsUnvouched"], false,
+            "the document is this build's own, so the flag is vouched for again"
+        );
     }
 
     /// **A failed poll draws no row**, and the copy on screen keeps the age it

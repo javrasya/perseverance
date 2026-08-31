@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   COMPLETED_GROUP,
   LABELS_TRUNCATED_NOTE,
+  LABELS_UNVOUCHED_NOTE,
   MAPS_PREAMBLE,
   MAP_LABEL,
   NO_MAP_COPY,
@@ -307,6 +308,33 @@ describe("a page that cannot exist and a label list that ran long are two caveat
     // Two sentences, and neither is a reading of the other.
     expect(LABELS_TRUNCATED_NOTE).not.toContain(TRUNCATED_NOTE);
     expect(TRUNCATED_NOTE).not.toContain(LABELS_TRUNCATED_NOTE);
+  });
+
+  it("says the answer is unknown rather than claiming labels were dropped", () => {
+    /*
+     * The defect this pair exists to prevent. `labelsTruncated`'s sentence is a
+     * positive claim about what GitHub answered — *some of them were not read* —
+     * and it is true only where the page was asked for and came back short. A
+     * cached body this build cannot identify the question behind was never
+     * asked, so borrowing that sentence would print a falsehood to every
+     * operator whose cache predates the upgrade. The rule is the one the caveat
+     * for `truncated` already obeys: a caveat that asserts something false is
+     * not a smaller lie than a flag that reads clean.
+     */
+    expect(LABELS_UNVOUCHED_NOTE).toContain("unknown");
+    expect(LABELS_UNVOUCHED_NOTE).not.toContain("were not read");
+    // The operational warning survives the hedge — that is the whole point of
+    // carrying a third state rather than simply leaving the flag clean.
+    expect(LABELS_UNVOUCHED_NOTE).toContain("bound to another");
+    // Three sentences, and none is a reading of another.
+    expect(LABELS_UNVOUCHED_NOTE).not.toBe(LABELS_TRUNCATED_NOTE);
+    expect(LABELS_UNVOUCHED_NOTE).not.toContain(TRUNCATED_NOTE);
+    expect(LABELS_UNVOUCHED_NOTE).not.toContain(LABELS_TRUNCATED_NOTE);
+  });
+
+  it("starts clean: a view nobody has read vouches for nothing and claims nothing", () => {
+    expect(nothingReadYet(1).labelsUnvouched).toBe(false);
+    expect(loadFixture(1).labelsUnvouched).toBe(false);
   });
 });
 

@@ -80,6 +80,14 @@ export interface MapsView {
    */
   labelsTruncated: boolean;
   /**
+   * Whether this build can vouch for `labelsTruncated` at all.
+   *
+   * A third state rather than a value of the second: both of `labelsTruncated`'s
+   * answers are claims about what GitHub said, and a cached body whose question
+   * this build cannot identify supports neither. Its own flag, its own sentence.
+   */
+  labelsUnvouched: boolean;
+  /**
    * Whether the rate-limit budget is what is holding the poller's interval
    * down. Decided in Rust — the inputs to that decision are not on this side at
    * all — and true only while the budget is the *winning* term, so the clause
@@ -140,6 +148,7 @@ export function nothingReadYet(folderId: number): MapsView {
     rateLimit: null,
     truncated: false,
     labelsTruncated: false,
+    labelsUnvouched: false,
     yieldingToRateLimit: false,
   };
 }
@@ -360,6 +369,18 @@ export const TRUNCATED_NOTE =
  * itself stays there — ADR 0006, and the structural guard in
  * `tests/snapshot.test.ts` that reads every file on this side looking for it.
  */
+/**
+ * What the screen says when it cannot tell whether any labels were cut off.
+ *
+ * Deliberately not {@link LABELS_TRUNCATED_NOTE}: that sentence claims some
+ * labels were not read, which is a positive claim about GitHub's answer and is
+ * false wherever the page was never asked for. This one carries the same
+ * operational warning — a cut-off platform label reads as a ticket that named no
+ * machine — while asserting only what is true, that the answer is unknown.
+ */
+export const LABELS_UNVOUCHED_NOTE =
+  "This list came out of a cached read whose question this build cannot identify, so whether any issue here carries more labels than one page holds is unknown. A ticket whose platform label was cut off reads as one that said nothing about machines, so it can be offered on this one even though it is bound to another. The next live read settles it.";
+
 export const LABELS_TRUNCATED_NOTE =
   "An issue here carries more labels than one page holds, so some of them were not read. A ticket whose platform label was cut off reads as one that said nothing about machines, so it can be offered on this one even though it is bound to another.";
 

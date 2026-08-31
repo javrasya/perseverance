@@ -4,6 +4,7 @@ import {
   COMPLETED_HINT,
   CONDITIONS,
   LABELS_TRUNCATED_NOTE,
+  LABELS_UNVOUCHED_NOTE,
   MAPS_HEADING,
   MAPS_PREAMBLE,
   NOT_READ_COPY,
@@ -91,6 +92,20 @@ export function MapList({ view, selected, onOpen }: MapListProps) {
       {view.labelsTruncated ? (
         <p className={styles.caveat} role="status" data-labels-truncated="">
           {LABELS_TRUNCATED_NOTE}
+        </p>
+      ) : null}
+
+      {/*
+        Beside the one above rather than folded into it. The two say different
+        things — one that labels were cut off, one that whether they were is
+        unknown — and only one of them can be true of a given read, so the pair
+        never prints twice. Drawn separately because a sentence that asserted
+        truncation on the strength of a stamp would be the falsehood #82 was
+        opened for, in the opposite direction.
+      */}
+      {view.labelsUnvouched ? (
+        <p className={styles.caveat} role="status" data-labels-unvouched="">
+          {LABELS_UNVOUCHED_NOTE}
         </p>
       ) : null}
 

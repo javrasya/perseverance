@@ -3,7 +3,7 @@
   "maps": [
     {
       "number": 28,
-      "title": "Spec: perseverance — a desktop harness for the wayfinder loop",
+      "title": "Spec: perseverance \u2014 a desktop harness for the wayfinder loop",
       "closed": false,
       "url": "https://github.com/javrasya/perseverance/issues/28",
       "updatedAt": "2026-08-05T09:12:44Z"
@@ -25,7 +25,9 @@
   ],
   "provenance": {
     "source": "cache",
-    "outcome": { "kind": "ok" },
+    "outcome": {
+      "kind": "ok"
+    },
     "fetchedAt": "2026-08-05T08:00:00Z"
   },
   "rateLimit": {
@@ -37,5 +39,6 @@
   },
   "truncated": false,
   "labelsTruncated": false,
-  "yieldingToRateLimit": false
+  "yieldingToRateLimit": false,
+  "labelsUnvouched": false
 }
