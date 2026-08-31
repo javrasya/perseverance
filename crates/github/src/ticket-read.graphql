@@ -1,0 +1,17 @@
+# One ticket's body, and nothing else.
+#
+# Its own document rather than a field on `map-read.graphql`, because the map
+# read is what every fixture in `crates/model` is recorded from and what the
+# WebView's snapshots are generated through: widening it to carry a body for
+# every child would re-record all of them to answer a question asked once, at
+# the moment somebody presses Start Working, about one ticket.
+#
+# It is asked at spawn rather than cached, because the question a session is
+# handed has to be the question as it stands now.
+query TicketRead($owner: String!, $repo: String!, $number: Int!) {
+  repository(owner: $owner, name: $repo) {
+    issue(number: $number) {
+      body
+    }
+  }
+}

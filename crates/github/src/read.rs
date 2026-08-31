@@ -457,6 +457,79 @@ pub fn read_maps(
     interpret_read(sent, epoch_seconds(), map_read_query_id())
 }
 
+/// The document one ticket's own question is asked with — see the file for why
+/// it is a second document rather than a field on the first.
+pub const TICKET_READ_QUERY: &str = include_str!("ticket-read.graphql");
+
+/// One ticket's body: the question the `work-ticket` prompt carries verbatim.
+///
+/// Not part of a tick and not cached anywhere. It is asked once, on the press
+/// that is about to spawn, after the awaited revalidation has already said the
+/// frontier is where the press thought it was.
+///
+/// No [`FreshRead`], because there is nothing here to stamp: this answers no
+/// map, writes no cache row and feeds no ledger. What it shares with the read
+/// next door is the socket, the status classification and the taxonomy — a
+/// refusal here is a [`ReadFailure`] like any other, so `degraded()` is still
+/// the one place an observation becomes a condition.
+pub fn read_ticket_body(
+    token: &Token,
+    owner: &str,
+    repo: &str,
+    number: u64,
+) -> Result<String, ReadFailure> {
+    let variables = serde_json::json!({ "owner": owner, "repo": repo, "number": number });
+    let body = serde_json::json!({ "query": TICKET_READ_QUERY, "variables": variables });
+    let answer = send(token, &body.to_string())?;
+    let fetched_at = epoch_seconds();
+
+    if !(200..300).contains(&answer.status) {
+        return Err(ReadFailure::Status {
+            code: answer.status,
+            detail: first_line_of(&answer.body, answer.status),
+            resets_at: when_it_resets(&answer, fetched_at),
+        });
+    }
+
+    interpret_ticket(&answer.body)
+}
+
+/// What the ticket document's answer says. Pure, so every branch is reachable
+/// with no token and no network.
+fn interpret_ticket(body: &str) -> Result<String, ReadFailure> {
+    let answered: serde_json::Value = serde_json::from_str(body)
+        .map_err(|error| ReadFailure::Unreadable(ReadError::NotJson(error.to_string())))?;
+
+    // A refused query is a 200 with an `errors` array, exactly as it is for the
+    // map read — and it is classified by GitHub's own `type` rather than by the
+    // sentence beside it.
+    if let Some(first) = answered
+        .get("errors")
+        .and_then(|errors| errors.as_array())
+        .and_then(|errors| errors.first())
+    {
+        let text = |name: &str| {
+            first
+                .get(name)
+                .and_then(|value| value.as_str())
+                .unwrap_or_default()
+                .to_string()
+        };
+        return Err(ReadFailure::Unreadable(ReadError::Answered {
+            kind: text("type"),
+            message: text("message"),
+        }));
+    }
+
+    match answered.pointer("/data/repository/issue/body") {
+        Some(serde_json::Value::String(question)) => Ok(question.clone()),
+        // A repository or an issue that came back null. Either way this is not
+        // an answer about that ticket, and a spawn on an empty question would
+        // hand a session a brief with nothing in it.
+        _ => Err(ReadFailure::Unreadable(ReadError::NoRepository)),
+    }
+}
+
 /// The request body, as JSON. Separated so a test can read the document this
 /// build actually ships rather than a copy of it.
 pub fn request_body(owner: &str, repo: &str, map: Option<u64>) -> String {
@@ -674,6 +747,32 @@ mod tests {
             rate_limit_remaining: Some(remaining),
             rate_limit_reset: Some(reset),
         })
+    }
+
+    /// The ticket document's three answers, from text in this file: the body, a
+    /// refused query, and an answer about no issue at all.
+    #[test]
+    fn a_ticket_read_is_the_body_when_there_is_one_and_a_refusal_when_there_is_not() {
+        assert_eq!(
+            interpret_ticket(r#"{"data":{"repository":{"issue":{"body":"What next?"}}}}"#),
+            Ok("What next?".to_string())
+        );
+
+        assert_eq!(
+            interpret_ticket(r#"{"errors":[{"type":"NOT_FOUND","message":"no such issue"}]}"#),
+            Err(ReadFailure::Unreadable(ReadError::Answered {
+                kind: "NOT_FOUND".to_string(),
+                message: "no such issue".to_string(),
+            }))
+        );
+
+        // An answer about a repository this token cannot see, which is not an
+        // answer about that ticket — and must never render as a prompt with an
+        // empty question in it.
+        assert_eq!(
+            interpret_ticket(r#"{"data":{"repository":null}}"#),
+            Err(ReadFailure::Unreadable(ReadError::NoRepository))
+        );
     }
 
     #[test]

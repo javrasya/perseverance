@@ -21,19 +21,20 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::time::Duration;
 
-use perseverance_agent::{agent, AgentId, Override, Platform, Scope};
+use perseverance_agent::{agent, agent_named, AgentId, LaunchContext, Override, Platform, Scope};
 use perseverance_env::{
     degradation_in, locate_in, probe_in, spawnable_form, Bounds, Degradation, Environment,
     FolderEnvironment, HarvestAttempt, Harvests, Located, ProbeOutcome, Shell, Stderr, StderrKind,
     Tally,
 };
 use perseverance_github::{
-    acquire_token, map_read_query_id, read_maps, Ahead, Attention, Fault, FreshRead, Held, Poke,
-    Poker, ReadFailure, Tick, Timings, TokenOutcome, Watched,
+    acquire_login, acquire_token, map_read_query_id, read_maps, read_ticket_body, Ahead, Attention,
+    Fault, FreshRead, Held, Poke, Poker, ReadFailure, RunHandle, Tick, Timings, TokenOutcome,
+    Watched,
 };
 use perseverance_model::{
-    read_response, ChangeLog, Degraded, Machine, MapRead, Model, Provenance, ReadOutcome, Snapshot,
-    Source, TicketType,
+    read_response, ChangeLog, ChildKind, Degraded, Frontier, Machine, Map, MapRead, Model,
+    Provenance, ReadOutcome, Snapshot, Source, TicketType,
 };
 use perseverance_pty::{Delivery, Geometry, RunId, Runs, GRACE};
 use perseverance_store::{CachedBody, CachedGraph, Folder, RepoBindingError, Store, StoreError};
@@ -1149,6 +1150,11 @@ struct Ambient {
     readout: Mutex<EnvironmentReadout>,
     environment: OnceLock<Environment>,
     token: OnceLock<TokenOutcome>,
+    /// Who this operator is on GitHub, asked beside the token and never carried
+    /// with it — see [`perseverance_github::acquire_login`], which argues both
+    /// halves of that. `None` is *this run does not know*, and the one thing
+    /// that needs it refuses rather than guessing.
+    login: OnceLock<Option<String>>,
 }
 
 impl Ambient {
@@ -1160,6 +1166,7 @@ impl Ambient {
             readout: Mutex::new(EnvironmentReadout::harvesting()),
             environment: OnceLock::new(),
             token: OnceLock::new(),
+            login: OnceLock::new(),
         }
     }
 
@@ -1186,6 +1193,7 @@ fn settle_into(
     ambient: &Ambient,
     take: impl FnOnce() -> HarvestAttempt,
     ask: impl FnOnce(&Environment) -> TokenOutcome,
+    identify: impl FnOnce(&Environment) -> Option<String>,
 ) -> EnvironmentReadout {
     let attempt = take();
     let taken = &attempt.outcome;
@@ -1207,6 +1215,16 @@ fn settle_into(
         Err(_) => TokenOutcome::NotAttempted,
     };
     let token = ambient.token.get_or_init(|| outcome);
+    // Only where there is already a token, and in the same environment: the two
+    // are one sign-in, and asking a second time after `gh` has just said there
+    // is none would be a second refusal saying nothing new. It reaches no
+    // readout — the login is a coordinate a prompt carries, not a state the
+    // WebView draws — so nothing below this line looks at it.
+    let named = match token {
+        TokenOutcome::Acquired(_) => identify(environment),
+        _ => None,
+    };
+    let _ = ambient.login.set(named);
 
     let path = environment.path().map(|path| path.into_owned());
     let readout = EnvironmentReadout {
@@ -1275,6 +1293,7 @@ fn start_harvesting(app: AppHandle) -> std::io::Result<()> {
                 app.state::<Ambient>().inner(),
                 perseverance_env::harvest,
                 acquire_token,
+                acquire_login,
             );
             // Nobody listening is not a failure. The readout is in `Ambient`
             // either way and the WebView asks as well as subscribing, because a
@@ -1959,6 +1978,13 @@ pub struct Terminals {
     /// never recorded is still a live run — [`what_it_loses`] says so rather
     /// than leaving it out.
     stakes: Mutex<BTreeMap<RunId, Stakes>>,
+    /// The poller's count of live runs, one handle per child, held here for the
+    /// same reason the stakes are: `crates/pty` knows a [`RunId`] and nothing
+    /// about cadence, and [`perseverance_github::RunHandle`] is not `Clone`
+    /// precisely so that *a run is live exactly while something holds it* is a
+    /// property of the type. This table is that something, and dropping a row
+    /// is the only thing that sends `Poke::RunExited`.
+    live: Mutex<BTreeMap<RunId, RunHandle>>,
 }
 
 impl Terminals {
@@ -1967,6 +1993,7 @@ impl Terminals {
             runs: Mutex::new(Runs::new()),
             bytes: Mutex::new(None),
             stakes: Mutex::new(BTreeMap::new()),
+            live: Mutex::new(BTreeMap::new()),
         }
     }
 
@@ -2004,6 +2031,32 @@ impl Terminals {
     /// The same posture [`Claims::claimed`] takes, for the same reason.
     pub fn staked(&self, run: RunId, stakes: Stakes) {
         self.staked_here().insert(run, stakes);
+    }
+
+    /// This run is live, as far as the poller's ladder is concerned, until the
+    /// handle handed in here is dropped.
+    pub fn counting(&self, run: RunId, handle: RunHandle) {
+        self.counted_here().insert(run, handle);
+    }
+
+    /// Lets go of every run the registry says is over.
+    ///
+    /// Called from the readout tick, because that is the one thing in this
+    /// process that already asks whether a child has ended — the alternative is
+    /// a second watcher entitled to disagree with it about when a run stopped.
+    /// The drop is what pokes the poller, so the falling edge reaches the
+    /// cadence within a readout rather than within a rung.
+    fn let_go_of(&self, over: &[RunId]) {
+        let mut counted = self.counted_here();
+        for run in over {
+            counted.remove(run);
+        }
+    }
+
+    fn counted_here(&self) -> MutexGuard<'_, BTreeMap<RunId, RunHandle>> {
+        self.live
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     /// One sentence per live run, in the order they were opened — and the count
@@ -2248,10 +2301,354 @@ fn start_terminals(app: AppHandle) -> std::io::Result<()> {
                 .iter()
                 .map(RunReadout::from)
                 .collect();
+            // The falling edge of a run, taken from the same readout the screen
+            // is drawn from. Dropping the handle is what tells the poller the
+            // ladder has come down a rung.
+            let over: Vec<RunId> = readouts
+                .iter()
+                .filter(|readout| readout.over)
+                .map(|readout| RunId::from_u64(readout.run))
+                .collect();
+            terminals.let_go_of(&over);
             let _ = app.emit("run-readouts", readouts);
         })?;
 
     Ok(())
+}
+
+/* ----------------------------------------------------- starting working --- */
+
+/// How long a press waits for its revalidation before giving up on the wait.
+///
+/// Longer than the read it is waiting for (~0.4 s) and the poke floor (1 s)
+/// together; shorter than a person will hold still. A pass queued behind a read
+/// already in flight can be a whole twenty-second deadline away, and waiting
+/// that out is a button that looks broken. What runs out here is the *wait* and
+/// never the read: the pass this poke bought still happens, still emits both
+/// surfaces, and still lands in the graph and the ledger.
+const CHECKING: Duration = Duration::from_secs(6);
+
+/// What one press came to.
+///
+/// Two answers and no third — this is a socket return, not a condition on the
+/// graph, and `docs/adr/0009`'s one-enum-twice is about the taxonomy the poller
+/// and the WebView share, which nothing here joins.
+///
+/// **A refusal carries the frontier the fresh read established**, so the next
+/// press is a press at the target that actually exists. Re-arming the button on
+/// that number and requiring a second press is the WebView's, out of this
+/// value: a press is never silently retargeted. `None` is *no fresh read
+/// landed*, which is a different fact from *the frontier moved* — it names no
+/// new target because it learned none.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+enum Started {
+    Spawned {
+        run: u64,
+        /// The text the child was actually started with, its length, and
+        /// whether it came from our prose or the operator's — which is the
+        /// badge, and the only reason a run under custom prose is diagnosable.
+        prompt: prompt::Rendered,
+    },
+    Refused {
+        detail: String,
+        frontier: Option<Frontier>,
+    },
+}
+
+impl Started {
+    fn refused(detail: impl Into<String>, frontier: Option<Frontier>) -> Started {
+        Started::Refused {
+            detail: detail.into(),
+            frontier,
+        }
+    }
+}
+
+/// Start Working, from the press to the child.
+///
+/// The order is the whole of it and none of it is rearrangeable: revalidate,
+/// compare, render, resolve, plan, spawn, and only then stake, claim and count.
+/// Nothing is written down before the spawn has succeeded, so a refusal at any
+/// step leaves the graph and the ledger exactly as the revalidation left them.
+///
+/// **The re-read is an ordinary poll, awaited.** It is the same closure on the
+/// same thread emitting the same two surfaces, so a race this press loses lands
+/// on the graph and feeds the ledger by the route every other pass uses — and
+/// there is no second read path to keep in step with the first. It is a UX
+/// guard and not a correctness guard: two machines can check in the same second
+/// and both spawn, and the guard that holds is the agent's conditional claim,
+/// because the agent is the only writer.
+///
+/// **The adapter is an argument**, because the crossing owns the picker: which
+/// agent to start is a fact about this press, resolved against this folder's
+/// environment and this app's override, and never a global setting read here.
+///
+/// **The harness surfaces only its own failures.** Every refusal below is a
+/// sentence returned to the socket. None of them is a `Degraded` on the graph,
+/// and nothing the child prints is one either — agent stderr is the terminal's
+/// to show.
+// Eleven, and every one of them is either managed state this command needs or a
+// fact about the press. Tauri resolves the first eight by type from the
+// container; splitting them into a struct would be a struct assembled here for
+// the sake of a lint.
+#[allow(clippy::too_many_arguments)]
+#[tauri::command(async)]
+fn start_working(
+    app: AppHandle,
+    terminals: State<'_, Terminals>,
+    harvests: State<'_, Harvests>,
+    registry: State<'_, Registry>,
+    ambient: State<'_, Ambient>,
+    ledgers: State<'_, Ledgers>,
+    claims: State<'_, Claims>,
+    poker: State<'_, Poker>,
+    folder: String,
+    ticket: u64,
+    adapter: String,
+) -> Started {
+    if !poker.revalidate(CHECKING).is_fresh() {
+        return Started::refused(
+            "the check of GitHub did not land in time, so nothing was started",
+            None,
+        );
+    }
+
+    // The frontier as the one resolver derived it, on the pass that press just
+    // bought — read from the snapshot that pass emitted rather than from
+    // anything this side kept, and structural rather than any view's opinion.
+    let Some(map) = ledgers.held().model.map else {
+        return Started::refused("no map is open, so there is nothing to start", None);
+    };
+    // The whole of the guard, in one comparison. `Frontier::Designated` is the
+    // first *takeable* node in map order, so *somebody else got there first*,
+    // *it was closed*, *it became blocked* and *it is not for this machine* are
+    // all the same answer: not this one.
+    if map.frontier != Frontier::Designated(ticket) {
+        return Started::refused(
+            format!("#{ticket} is not what this map offers to start any more"),
+            Some(map.frontier),
+        );
+    }
+
+    let standing = Some(map.frontier);
+    match spawn_at(
+        &app, &terminals, &harvests, &registry, &ambient, &map, ticket, &folder, &adapter,
+    ) {
+        Ok((run, rendered)) => {
+            // Three writes and a bind, in the order that keeps each of them
+            // true of a run that already exists: what it would lose, that this
+            // harness is the one that took the node, and that the ladder has a
+            // live run on it.
+            terminals.staked(
+                run,
+                Stakes {
+                    ticket,
+                    folder,
+                    kind: kind_of(&map, ticket),
+                },
+            );
+            claims.claimed(ticket);
+            terminals.counting(run, poker.run_started());
+            // The operator watches what they started.
+            terminals.held().monitor(Some(run));
+
+            Started::Spawned {
+                run: run.as_u64(),
+                prompt: rendered,
+            }
+        }
+        Err(refusal) => Started::refused(refusal, standing),
+    }
+}
+
+/// What kind of run this ticket is, from the node the frontier named.
+///
+/// A ticket the frontier designates is a ticket by construction — `is_takeable`
+/// says so — so the fallback is unreachable rather than a policy, and it is
+/// [`RunKind::Work`] because that is the kind whose loss sentence is the safe
+/// one to be wrong with.
+fn kind_of(map: &Map, ticket: u64) -> RunKind {
+    match map
+        .nodes
+        .iter()
+        .find(|node| node.number == ticket)
+        .map(|node| node.kind)
+    {
+        Some(ChildKind::Ticket(ticket)) => RunKind::of(ticket),
+        _ => RunKind::Work,
+    }
+}
+
+/// Everything between the guard and the run, and every way it can refuse.
+///
+/// Split out so the command above is the *order* and this is the *chain*, and
+/// so that one `?` per hop is what carries a refusal back rather than nine
+/// early returns that each have to remember the frontier.
+#[allow(clippy::too_many_arguments)]
+fn spawn_at(
+    app: &AppHandle,
+    terminals: &Terminals,
+    harvests: &Harvests,
+    registry: &Registry,
+    ambient: &Ambient,
+    map: &Map,
+    ticket: u64,
+    folder: &str,
+    adapter: &str,
+) -> Result<(RunId, prompt::Rendered), String> {
+    let node = map
+        .nodes
+        .iter()
+        .find(|node| node.number == ticket)
+        .ok_or_else(|| format!("#{ticket} is not on this map"))?;
+
+    let repo = perseverance_store::bind_repo(Path::new(folder)).map_err(|refusal| {
+        // The store's own sentence, unedited, exactly as `poll_once` carries it.
+        refusal.to_string()
+    })?;
+
+    let Some(TokenOutcome::Acquired(token)) = ambient.token.get() else {
+        return Err("this run acquired no GitHub token, so no session can be started".to_string());
+    };
+    // The brief's step 1 branches on *already assigned to you*, so a prompt with
+    // no operator in it is a brief a session cannot follow. Refused rather than
+    // rendered with a hole.
+    let Some(Some(operator)) = ambient.login.get() else {
+        return Err(
+            "this run never learned which GitHub account is signed in, and a brief names its \
+             operator"
+                .to_string(),
+        );
+    };
+
+    let question = read_ticket_body(token, &repo.owner, &repo.name, ticket)
+        .map_err(|refusal| refusal.to_string())?;
+
+    let rendered = render(app, operator, &repo, map, node, question);
+    let (spawn, launch) = plan_in(harvests, registry, folder, adapter, &rendered.text)?;
+    let accepted = perseverance_pty::accept(launch).map_err(|refusal| refusal.to_string())?;
+
+    let run = terminals
+        .held()
+        .open(accepted, &spawn.directory, &spawn.environment)
+        .map_err(|refusal| refusal.to_string())?;
+
+    Ok((run, rendered))
+}
+
+/// The prompt, rendered at the moment of spawn.
+///
+/// **The override is read here and never cached**, so an operator who edits it
+/// between two presses gets the text they just wrote — and it is wholesale, with
+/// no merging, which is [`prompt::work_ticket_override`]'s rule and not one this
+/// file gets to soften.
+fn render(
+    app: &AppHandle,
+    operator: &str,
+    repo: &perseverance_store::RepoRef,
+    map: &Map,
+    node: &perseverance_model::Node,
+    question: String,
+) -> prompt::Rendered {
+    let overriding = app
+        .path()
+        .app_data_dir()
+        .ok()
+        .and_then(|directory| prompt::work_ticket_override(&directory));
+
+    prompt::work_ticket(
+        overriding.as_deref(),
+        &prompt::Coordinates {
+            repo: format!("{}/{}", repo.owner, repo.name),
+            map_number: map.number,
+            // The map's own URL never crosses the derivation — the graph
+            // carries its number and its children's URLs — so it is built from
+            // the sibling GitHub itself sent rather than from a template this
+            // file would have to keep true.
+            map_url: match node.url.rsplit_once('/') {
+                Some((issues, _)) => format!("{issues}/{}", map.number),
+                None => node.url.clone(),
+            },
+            ticket_number: node.number,
+            ticket_url: node.url.clone(),
+            ticket_title: node.title.clone(),
+            operator: operator.to_string(),
+            question,
+        },
+    )
+}
+
+/// The folder's environment, the chosen adapter's program in it, and the launch
+/// that adapter planned — the hop this whole chain existed for.
+///
+/// Returned beside the directory and the environment pairs because the session
+/// needs all three and they are one folder's answer: resolving the program
+/// against one environment and starting the child in another is the bug the
+/// harvest exists to prevent.
+fn plan_in(
+    harvests: &Harvests,
+    registry: &Registry,
+    folder: &str,
+    adapter: &str,
+    prompt: &str,
+) -> Result<(SpawnIn, perseverance_agent::Launch), String> {
+    let agent = agent_named(adapter).ok_or_else(|| format!("no adapter is named {adapter}"))?;
+    let settled = harvests.in_folder(Path::new(folder));
+    let chosen = remembered_override(registry);
+
+    // The same two-tier resolution the folder readout already draws, and not a
+    // second copy of it: an override's `argv[0]` goes through
+    // `Environment::resolve`, and a candidate list through `locate_in`.
+    let program = match &chosen {
+        Some(chosen) => settled
+            .environment
+            .resolve(&chosen.program().to_string_lossy()),
+        None => match locate_in(&settled.environment, agent.discovery().candidates) {
+            Located::Found(found) => Some(found.program),
+            Located::NotFound(_) => None,
+        },
+    };
+    let program = program
+        .ok_or_else(|| format!("nothing this folder's environment can run is named {adapter}"))?;
+
+    // The directory in the spelling a child can be given: the harvest's key
+    // keeps Windows' verbatim prefix and a spawn is not known to take it.
+    let directory = spawnable_form(&settled.spawn_directory);
+    let variables: Vec<(&str, &[u8])> = settled.environment.iter().collect();
+
+    let planned = agent
+        .plan(&LaunchContext::new(
+            Platform::host(),
+            program.as_os_str(),
+            directory.as_os_str(),
+            prompt,
+            &variables,
+        ))
+        .map_err(|refusal| refusal.to_string())?;
+
+    // The operator's interposed arguments, after the program and before the
+    // adapter's own. One splice, and `Launch::under` is where it is spelled.
+    let launch = match &chosen {
+        Some(chosen) => planned.under(chosen.interposed()),
+        None => planned,
+    };
+
+    Ok((
+        SpawnIn {
+            directory,
+            environment: settled.environment.os_pairs(),
+        },
+        launch,
+    ))
+}
+
+/// Where a child is started and what it inherits — one folder's answer, kept
+/// together because resolving a program against one environment and starting it
+/// in another is the bug the harvest exists to prevent.
+struct SpawnIn {
+    directory: PathBuf,
+    environment: Vec<(OsString, OsString)>,
 }
 
 /* --------------------------------------------------- what a quit costs --- */
@@ -2773,7 +3170,8 @@ pub fn run() {
             run_took,
             typed_at_run,
             settled_geometry,
-            run_readouts
+            run_readouts,
+            start_working
         ])
         .build(tauri::generate_context!())
         .expect("perseverance failed to start")
@@ -2846,6 +3244,53 @@ mod tests {
         // rather than stored, so this row crosses as missing.
         assert_eq!(json["present"], false);
         assert_eq!(json.as_object().expect("an object").len(), 6);
+    }
+
+    /// #48's answer is hand-mirrored in TypeScript rather than generated, so
+    /// both shapes are pinned from this side — including the refusal's
+    /// frontier, which is the value the button re-arms on and asks for a second
+    /// press.
+    #[test]
+    fn what_start_working_answers_crosses_in_the_shape_the_frontend_declares() {
+        let spawned = serde_json::to_value(Started::Spawned {
+            run: 7,
+            prompt: prompt::Rendered {
+                text: "work #48".to_string(),
+                characters: 8,
+                origin: prompt::Origin::Custom,
+            },
+        })
+        .expect("serialises");
+
+        assert_eq!(spawned["kind"], "spawned");
+        assert_eq!(spawned["run"], 7);
+        assert_eq!(spawned["prompt"]["text"], "work #48");
+        assert_eq!(spawned["prompt"]["characters"], 8);
+        // The badge, and the only reason a run under an operator's own prose is
+        // diagnosable from a screenshot.
+        assert_eq!(spawned["prompt"]["origin"], "custom");
+        assert_eq!(spawned.as_object().expect("an object").len(), 3);
+
+        let moved = serde_json::to_value(Started::refused(
+            "#48 is not what this map offers to start any more",
+            Some(Frontier::Designated(91)),
+        ))
+        .expect("serialises");
+
+        assert_eq!(moved["kind"], "refused");
+        assert_eq!(
+            moved["detail"],
+            "#48 is not what this map offers to start any more"
+        );
+        assert_eq!(moved["frontier"]["frontier"], "designated");
+        assert_eq!(moved["frontier"]["number"], 91);
+
+        // And the refusal that learned no target names none, rather than
+        // reporting the last one anybody happened to know.
+        let unchecked =
+            serde_json::to_value(Started::refused("nothing landed", None)).expect("serialises");
+
+        assert_eq!(unchecked["frontier"], serde_json::Value::Null);
     }
 
     #[test]
@@ -3272,6 +3717,12 @@ mod tests {
 ";
 
     /// A harvest that settled on `outcome`, or one that has not settled at all.
+    /// The launch step these tests are not about. Every one of them is about
+    /// the harvest or the token, and a login is neither.
+    fn no_login(_: &Environment) -> Option<String> {
+        None
+    }
+
     fn ambient_with(outcome: Option<TokenOutcome>) -> Ambient {
         let ambient = Ambient::harvesting();
         if let Some(outcome) = outcome {
@@ -4845,6 +5296,7 @@ mod tests {
             &ambient,
             || harvest_of(&[("PATH", b"/opt/homebrew/bin:/usr/bin")]),
             |_| a_token(),
+            no_login,
         );
 
         let json = serde_json::to_value(&readout).expect("serialises");
@@ -4890,11 +5342,12 @@ mod tests {
             kind: perseverance_env::classify_stderr(refused.as_bytes()),
         };
 
-        let named = settle_into(&Ambient::harvesting(), || attempt, |_| a_token());
+        let named = settle_into(&Ambient::harvesting(), || attempt, |_| a_token(), no_login);
         let quiet = settle_into(
             &Ambient::harvesting(),
             || harvest_of(&[("PATH", b"C:\\Windows\\system32")]),
             |_| a_token(),
+            no_login,
         );
 
         let json = serde_json::to_value(&named).expect("serialises");
@@ -5005,6 +5458,7 @@ mod tests {
             // `gh` is never looked for, so this is never called. A closure that
             // would panic is how that is asserted.
             |_| panic!("a discarded harvest asked gh for a token"),
+            no_login,
         );
 
         let json = serde_json::to_value(&readout).expect("serialises");
@@ -5044,11 +5498,13 @@ mod tests {
             &Ambient::harvesting(),
             || discarded_after(""),
             |_| TokenOutcome::NotAttempted,
+            no_login,
         );
         let spoken = settle_into(
             &Ambient::harvesting(),
             || discarded_after("profile cannot be loaded. The file is not digitally signed."),
             |_| TokenOutcome::NotAttempted,
+            no_login,
         );
 
         // Both harvests were discarded and both fell back to inheritance, so
@@ -5077,6 +5533,7 @@ mod tests {
                 ])
             },
             |_| a_token(),
+            no_login,
         );
 
         // The environment has exactly one exit from Rust and this is it.
@@ -5105,6 +5562,7 @@ mod tests {
                 *asked_inside.borrow_mut() = environment.path().map(|path| path.into_owned());
                 a_token()
             },
+            no_login,
         );
 
         // The launch order, tested. `gh` is not on a GUI bundle's PATH, so a
@@ -5137,6 +5595,7 @@ mod tests {
                 asks.set(asks.get() + 1);
                 a_token()
             },
+            no_login,
         );
 
         // Asking for the readout is the command's whole body, and it re-reads
@@ -5188,6 +5647,7 @@ mod tests {
             &ambient,
             || perseverance_env::harvest_with(&command, &nonce, &Bounds::for_this_machine()),
             |_| TokenOutcome::NotAttempted,
+            no_login,
         );
 
         let json = serde_json::to_value(&readout).expect("serialises");
@@ -5684,6 +6144,30 @@ mod tests {
             on_close(terminals.losses().len(), &Quit::NotAsked),
             OnClose::GoNow
         );
+    }
+
+    /// The count the poller's ten-second rung is a function of, and the only
+    /// thing that ever brings it back down.
+    ///
+    /// A real run and a real poller, because the property is about a handle
+    /// living in a table beside the stakes rather than about a number: nothing
+    /// else in this process can increment it, and letting go of the row is what
+    /// sends `Poke::RunExited`.
+    #[test]
+    fn a_started_run_is_counted_live_until_the_readout_says_it_is_over() {
+        let directory = TempDir::new().expect("temp dir");
+        let terminals = Terminals::new();
+        let poker =
+            perseverance_github::start(Timings::shipped(), |_watched, _ahead| Tick::NotAttempted)
+                .expect("a poller thread");
+
+        let run = a_live_run_in(&terminals, directory.path());
+        terminals.counting(run, poker.run_started());
+        assert_eq!(poker.runs_live(), 1);
+
+        // The falling edge, exactly as the readout tick takes it.
+        terminals.let_go_of(&[run]);
+        assert_eq!(poker.runs_live(), 0);
     }
 
     /// The mapping is written once. `route.ts` draws the same line for
