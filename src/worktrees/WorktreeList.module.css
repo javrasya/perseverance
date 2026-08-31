@@ -1,0 +1,338 @@
+/*
+ * Tier 3 — component tokens, defined from semantic tokens only.
+ *
+ * The bar, the panel and the verbatim box are `FolderReadout.module.css`'s,
+ * deliberately: this is the second panel under the same folder and a second
+ * visual language for it would say the two are different kinds of thing.
+ *
+ * Nothing here animates. The list has no liveness in it — it is a still answer
+ * about a set of directories, re-derived only when something is pressed — and
+ * the app spends its one `@keyframes` elsewhere. Transitions on colour and
+ * border are the established chrome, and `global.css` retires them under
+ * reduced motion.
+ */
+
+.holder {
+  display: flex;
+  width: 100%;
+  max-width: 76ch;
+  flex-direction: column;
+  gap: var(--s-space-tight);
+  text-align: left;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: var(--s-space-snug);
+}
+
+.disclose {
+  --c-worktree-ink: var(--s-ink-faint);
+
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: var(--s-space-tight);
+  padding: 0 var(--s-space-tight);
+  border: var(--s-border-hairline) solid transparent;
+  border-radius: var(--s-radius-chip);
+  background: transparent;
+  color: var(--c-worktree-ink);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-micro);
+  cursor: pointer;
+  transition:
+    color var(--s-motion-fast) var(--s-motion-ease),
+    border-color var(--s-motion-fast) var(--s-motion-ease);
+}
+
+.disclose:hover {
+  --c-worktree-ink: var(--s-ink-secondary);
+
+  border-color: var(--s-line-strong);
+}
+
+.disclose:focus-visible {
+  outline: var(--s-border-emphasis) solid var(--s-focus-ring);
+  outline-offset: 2px;
+}
+
+.label {
+  flex: 0 0 auto;
+  letter-spacing: var(--s-tracking-label);
+}
+
+.summary {
+  overflow: hidden;
+  min-width: 0;
+  flex: 1 1 auto;
+  color: var(--s-ink-secondary);
+  white-space: pre;
+  text-overflow: ellipsis;
+}
+
+.chevron {
+  flex: 0 0 auto;
+  color: var(--c-worktree-ink);
+}
+
+/*
+ * On the bar rather than in the panel, for the reason the folder's *Ask again*
+ * is: the list is derived on every call and nothing keeps it, so asking again
+ * is the only fresh answer there is — and it is the way back from a refusal,
+ * which replaces the listing instead of annotating it.
+ */
+.again {
+  flex: 0 0 auto;
+  padding: var(--s-space-hair) var(--s-space-snug);
+  border: var(--s-border-hairline) solid var(--s-line-quiet);
+  border-radius: var(--s-radius-control);
+  background: transparent;
+  color: var(--s-ink-secondary);
+  font-size: var(--s-text-micro);
+  cursor: pointer;
+  transition: border-color var(--s-motion-fast) var(--s-motion-ease);
+}
+
+.again:hover {
+  border-color: var(--s-line-strong);
+  color: var(--s-ink-primary);
+}
+
+.again:focus-visible {
+  outline: var(--s-border-emphasis) solid var(--s-focus-ring);
+  outline-offset: 2px;
+}
+
+/* -------------------------------------------------------------- panel --- */
+
+.panel {
+  --c-worktree-rail: var(--s-line-quiet);
+
+  display: none;
+  max-height: 45vh;
+  overflow-y: auto;
+  padding: var(--s-space-base);
+  border: var(--s-border-hairline) solid var(--s-line-quiet);
+  border-left: var(--s-border-emphasis) solid var(--c-worktree-rail);
+  border-radius: var(--s-radius-panel);
+  background: var(--s-surface-raised);
+}
+
+.panel[data-shown="true"] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-space-loose);
+}
+
+/* A listing that could not be read is a fact about this disk, not an alarm. */
+.panel[data-state="refused"] {
+  --c-worktree-rail: var(--s-accent);
+}
+
+.section {
+  display: flex;
+  max-width: 76ch;
+  flex-direction: column;
+  gap: var(--s-space-tight);
+}
+
+.heading {
+  margin: 0;
+  color: var(--s-ink-primary);
+  font-size: var(--s-text-micro);
+  font-weight: var(--s-weight-emphasis);
+  letter-spacing: var(--s-tracking-label);
+  text-transform: uppercase;
+}
+
+.refusal {
+  max-width: 60ch;
+  margin: 0;
+  color: var(--s-ink-primary);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-small);
+  line-height: 1.5;
+}
+
+.note {
+  max-width: 60ch;
+  margin: 0;
+  color: var(--s-ink-secondary);
+  font-size: var(--s-text-small);
+  line-height: 1.5;
+}
+
+/* ------------------------------------------------------------ entries --- */
+
+.entries {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-space-loose);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/*
+ * One row per directory, ours and foreign alike. The rail is the only thing
+ * that tells them apart, and it is a rail rather than a fade: a worktree
+ * somebody else made is not a lesser row, it is a row this app does not act on.
+ */
+.entry {
+  --c-worktree-edge: var(--s-line-quiet);
+
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-space-tight);
+  padding-left: var(--s-space-snug);
+  border-left: var(--s-border-emphasis) solid var(--c-worktree-edge);
+}
+
+.entry[data-whose="ours"] {
+  --c-worktree-edge: var(--s-designated-edge);
+}
+
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s-space-snug);
+}
+
+.whose {
+  --c-worktree-whose: var(--s-ink-primary);
+
+  color: var(--c-worktree-whose);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-small);
+  font-weight: var(--s-weight-emphasis);
+}
+
+/* An orphan is marked, and marked in the list rather than moved out of it. */
+.whose[data-orphan="true"] {
+  --c-worktree-whose: var(--s-live);
+}
+
+.branch {
+  color: var(--s-ink-secondary);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-micro);
+  overflow-wrap: break-word;
+}
+
+.verbatim {
+  overflow-x: auto;
+  padding: var(--s-space-tight) var(--s-space-snug);
+  border: var(--s-border-hairline) solid var(--s-line-quiet);
+  border-radius: var(--s-radius-control);
+  background: var(--s-surface-sunken);
+}
+
+.path {
+  color: var(--s-ink-primary);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-micro);
+  white-space: pre;
+}
+
+.state {
+  --c-worktree-state-ink: var(--s-ink-primary);
+
+  margin: 0;
+  color: var(--c-worktree-state-ink);
+  font-size: var(--s-text-body);
+  font-weight: var(--s-weight-emphasis);
+}
+
+/* A directory that is not there was never asked, so it reads as a fact. */
+.state[data-working="gone"],
+.state[data-working="notAsked"] {
+  --c-worktree-state-ink: var(--s-ink-secondary);
+}
+
+.facts {
+  margin: 0;
+  color: var(--s-ink-faint);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-micro);
+}
+
+.detail {
+  max-width: 60ch;
+  margin: 0;
+  color: var(--s-ink-primary);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-small);
+  line-height: 1.5;
+}
+
+/*
+ * The porcelain, in full and in the open. It scrolls down rather than being
+ * capped at a few lines: the whole of it is the evidence for why the directory
+ * is staying, exactly as the stderr box is for a start-up file.
+ */
+.changes {
+  max-height: 12em;
+  overflow: auto;
+  margin: 0;
+  padding: var(--s-space-tight) var(--s-space-snug);
+  border: var(--s-border-hairline) solid var(--s-line-quiet);
+  border-radius: var(--s-radius-control);
+  background: var(--s-surface-sunken);
+  list-style: none;
+}
+
+.change {
+  color: var(--s-ink-primary);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-micro);
+  white-space: pre;
+}
+
+/*
+ * The one destructive press in this panel, and it is drawn as a plain control.
+ * It is only ever on a row where every rule already cleared it, so a red button
+ * would be dressing an offer up as a dare.
+ */
+.remove {
+  align-self: flex-start;
+  padding: var(--s-space-hair) var(--s-space-snug);
+  border: var(--s-border-hairline) solid var(--s-line-quiet);
+  border-radius: var(--s-radius-control);
+  background: transparent;
+  color: var(--s-ink-secondary);
+  font-size: var(--s-text-micro);
+  cursor: pointer;
+  transition: border-color var(--s-motion-fast) var(--s-motion-ease);
+}
+
+.remove:hover {
+  border-color: var(--s-line-strong);
+  color: var(--s-ink-primary);
+}
+
+.remove:focus-visible {
+  outline: var(--s-border-emphasis) solid var(--s-focus-ring);
+  outline-offset: 2px;
+}
+
+/* ------------------------------------------------------------- limits --- */
+
+.limits {
+  display: flex;
+  max-width: 60ch;
+  flex-direction: column;
+  gap: var(--s-space-tight);
+  margin: 0;
+  padding-left: var(--s-space-loose);
+  list-style: disc;
+}
+
+.limit {
+  color: var(--s-ink-secondary);
+  font-size: var(--s-text-small);
+  line-height: 1.5;
+}

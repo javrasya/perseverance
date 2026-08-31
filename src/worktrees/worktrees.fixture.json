@@ -1,0 +1,249 @@
+{
+  "everyState": [
+    {
+      "path": "/Users/you/work/perseverance",
+      "branch": "refs/heads/main",
+      "locked": null,
+      "prunable": null,
+      "whose": { "kind": "foreign" },
+      "probed": null,
+      "removable": false
+    },
+    {
+      "path": "/Users/you/work/perseverance/.perseverance/worktrees/60-the-worktree-list",
+      "branch": "refs/heads/research/60-the-worktree-list",
+      "locked": null,
+      "prunable": null,
+      "whose": { "kind": "ours", "ticket": 60, "orphan": false },
+      "probed": {
+        "working": { "kind": "clean" },
+        "publication": { "kind": "pushed" }
+      },
+      "removable": true
+    },
+    {
+      "path": "/Users/you/work/perseverance/.perseverance/worktrees/45-per-folder-resolution",
+      "branch": "refs/heads/research/45-per-folder-resolution",
+      "locked": null,
+      "prunable": null,
+      "whose": { "kind": "ours", "ticket": 45, "orphan": false },
+      "probed": {
+        "working": {
+          "kind": "uncommitted",
+          "lines": [
+            " M src/environment/folder.ts",
+            " M src/environment/FolderReadout.module.css",
+            "?? notes/what-the-shell-answered.md",
+            "?? src/environment/folder.fixture.json.orig"
+          ]
+        },
+        "publication": { "kind": "unpushed", "commits": 2 }
+      },
+      "removable": false
+    },
+    {
+      "path": "/Users/you/work/perseverance/.perseverance/worktrees/46-codex-pi-adapters",
+      "branch": "refs/heads/research/46-codex-pi-adapters",
+      "locked": null,
+      "prunable": null,
+      "whose": { "kind": "ours", "ticket": 46, "orphan": false },
+      "probed": {
+        "working": { "kind": "clean" },
+        "publication": { "kind": "unpushed", "commits": 7 }
+      },
+      "removable": false
+    },
+    {
+      "path": "/Users/you/work/perseverance/.perseverance/worktrees/12-a-ticket-no-open-map-has",
+      "branch": "refs/heads/research/12-a-ticket-no-open-map-has",
+      "locked": null,
+      "prunable": null,
+      "whose": { "kind": "ours", "ticket": 12, "orphan": true },
+      "probed": {
+        "working": { "kind": "clean" },
+        "publication": { "kind": "pushed" }
+      },
+      "removable": true
+    },
+    {
+      "path": "/Users/you/work/perseverance/.perseverance/worktrees/31-the-ledger-is-append-only",
+      "branch": "refs/heads/research/31-the-ledger-is-append-only",
+      "locked": "keeping this one until the release goes out",
+      "prunable": null,
+      "whose": { "kind": "ours", "ticket": 31, "orphan": false },
+      "probed": {
+        "working": { "kind": "clean" },
+        "publication": { "kind": "pushed" }
+      },
+      "removable": false
+    },
+    {
+      "path": "/Users/you/work/perseverance/.perseverance/worktrees/28-the-worktree-inventory",
+      "branch": "refs/heads/research/28-the-worktree-inventory",
+      "locked": null,
+      "prunable": "gitdir file points to non-existent location",
+      "whose": { "kind": "ours", "ticket": 28, "orphan": false },
+      "probed": {
+        "working": { "kind": "gone" },
+        "publication": { "kind": "pushed" }
+      },
+      "removable": true
+    },
+    {
+      "path": "/Users/you/work/perseverance/.perseverance/worktrees/54-a-detached-head",
+      "branch": null,
+      "locked": null,
+      "prunable": null,
+      "whose": { "kind": "ours", "ticket": 54, "orphan": false },
+      "probed": {
+        "working": { "kind": "clean" },
+        "publication": { "kind": "detached" }
+      },
+      "removable": false
+    },
+    {
+      "path": "/Users/you/work/perseverance/.perseverance/worktrees/57-nothing-answered",
+      "branch": "refs/heads/research/57-nothing-answered",
+      "locked": null,
+      "prunable": null,
+      "whose": { "kind": "ours", "ticket": 57, "orphan": false },
+      "probed": {
+        "working": {
+          "kind": "unreadable",
+          "detail": "git status would not answer in this directory: Permission denied (os error 13)."
+        },
+        "publication": {
+          "kind": "unknown",
+          "detail": "git rev-list would not answer for this branch: Permission denied (os error 13)."
+        }
+      },
+      "removable": false
+    }
+  ],
+  "cleanAndPushed": [
+    {
+      "path": "/Users/you/work/perseverance/.perseverance/worktrees/60-the-worktree-list",
+      "branch": "refs/heads/research/60-the-worktree-list",
+      "locked": null,
+      "prunable": null,
+      "whose": { "kind": "ours", "ticket": 60, "orphan": false },
+      "probed": {
+        "working": { "kind": "clean" },
+        "publication": { "kind": "pushed" }
+      },
+      "removable": true
+    }
+  ],
+  "uncommitted": [
+    {
+      "path": "/Users/you/work/perseverance/.perseverance/worktrees/45-per-folder-resolution",
+      "branch": "refs/heads/research/45-per-folder-resolution",
+      "locked": null,
+      "prunable": null,
+      "whose": { "kind": "ours", "ticket": 45, "orphan": false },
+      "probed": {
+        "working": {
+          "kind": "uncommitted",
+          "lines": [
+            " M src/environment/folder.ts",
+            " M src/environment/FolderReadout.module.css",
+            "A  src/worktrees/worktrees.ts",
+            "?? notes/what-the-shell-answered.md",
+            "?? src/environment/folder.fixture.json.orig"
+          ]
+        },
+        "publication": { "kind": "pushed" }
+      },
+      "removable": false
+    }
+  ],
+  "unpushed": [
+    {
+      "path": "/Users/you/work/perseverance/.perseverance/worktrees/46-codex-pi-adapters",
+      "branch": "refs/heads/research/46-codex-pi-adapters",
+      "locked": null,
+      "prunable": null,
+      "whose": { "kind": "ours", "ticket": 46, "orphan": false },
+      "probed": {
+        "working": { "kind": "clean" },
+        "publication": { "kind": "unpushed", "commits": 7 }
+      },
+      "removable": false
+    }
+  ],
+  "orphan": [
+    {
+      "path": "/Users/you/work/perseverance/.perseverance/worktrees/12-a-ticket-no-open-map-has",
+      "branch": "refs/heads/research/12-a-ticket-no-open-map-has",
+      "locked": null,
+      "prunable": null,
+      "whose": { "kind": "ours", "ticket": 12, "orphan": true },
+      "probed": {
+        "working": { "kind": "clean" },
+        "publication": { "kind": "pushed" }
+      },
+      "removable": true
+    }
+  ],
+  "foreign": [
+    {
+      "path": "/Users/you/work/perseverance",
+      "branch": "refs/heads/main",
+      "locked": null,
+      "prunable": null,
+      "whose": { "kind": "foreign" },
+      "probed": null,
+      "removable": false
+    },
+    {
+      "path": "/Users/you/work/perseverance-review",
+      "branch": "refs/heads/somebody-elses-review",
+      "locked": null,
+      "prunable": null,
+      "whose": { "kind": "foreign" },
+      "probed": null,
+      "removable": false
+    }
+  ],
+  "locked": [
+    {
+      "path": "/Users/you/work/perseverance/.perseverance/worktrees/31-the-ledger-is-append-only",
+      "branch": "refs/heads/research/31-the-ledger-is-append-only",
+      "locked": "keeping this one until the release goes out",
+      "prunable": null,
+      "whose": { "kind": "ours", "ticket": 31, "orphan": false },
+      "probed": {
+        "working": { "kind": "clean" },
+        "publication": { "kind": "pushed" }
+      },
+      "removable": false
+    },
+    {
+      "path": "/Users/you/work/perseverance/.perseverance/worktrees/33-a-lock-with-no-reason",
+      "branch": "refs/heads/research/33-a-lock-with-no-reason",
+      "locked": "",
+      "prunable": null,
+      "whose": { "kind": "ours", "ticket": 33, "orphan": false },
+      "probed": {
+        "working": { "kind": "clean" },
+        "publication": { "kind": "pushed" }
+      },
+      "removable": false
+    }
+  ],
+  "gone": [
+    {
+      "path": "/Users/you/work/perseverance/.perseverance/worktrees/28-the-worktree-inventory",
+      "branch": "refs/heads/research/28-the-worktree-inventory",
+      "locked": null,
+      "prunable": "gitdir file points to non-existent location",
+      "whose": { "kind": "ours", "ticket": 28, "orphan": false },
+      "probed": {
+        "working": { "kind": "gone" },
+        "publication": { "kind": "pushed" }
+      },
+      "removable": true
+    }
+  ],
+  "nothingListed": []
+}
