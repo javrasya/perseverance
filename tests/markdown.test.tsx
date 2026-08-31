@@ -152,6 +152,29 @@ describe("the subset renders, and everything outside it stays literal", () => {
     expect(inlinesOf("`unclosed")).toEqual([{ kind: "text", text: "`unclosed" }]);
   });
 
+  it("keeps an identifier whole, because an underscore inside a word is not a marker", async () => {
+    expect(inlinesOf("a snake_case_word here")).toEqual([
+      { kind: "text", text: "a snake_case_word here" },
+    ]);
+    expect(inlinesOf("call foo_bar and baz_qux")).toEqual([
+      { kind: "text", text: "call foo_bar and baz_qux" },
+    ]);
+    expect(inlinesOf("check:model_purity failed")).toEqual([
+      { kind: "text", text: "check:model_purity failed" },
+    ]);
+
+    // A word boundary on both sides is still emphasis.
+    expect(inlinesOf("an _emphasised_ phrase")).toEqual([
+      { kind: "text", text: "an " },
+      { kind: "emphasis", children: [{ kind: "text", text: "emphasised" }] },
+      { kind: "text", text: " phrase" },
+    ]);
+
+    const host = await paint("cut by check:model_purity, see agent_solitude");
+    expect(host.querySelector("em")).toBeNull();
+    expect(host.textContent).toBe("cut by check:model_purity, see agent_solitude");
+  });
+
   it("runs an unterminated fence to the end rather than reverting to prose", () => {
     expect(blocksOf("```\nstill code")).toEqual([{ kind: "code", text: "still code" }]);
   });

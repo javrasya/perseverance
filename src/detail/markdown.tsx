@@ -59,7 +59,10 @@ import styles from "./markdown.module.css";
  * Unrecognised syntax is never dropped. A `> quote`, a `# heading` or a
  * `| table |` prints as its own literal characters, which is the honest
  * rendering of *this renderer does not know that one* — silently swallowing a
- * line would lose words an operator wrote.
+ * line would lose words an operator wrote. An underscore inside a word is held
+ * to that same promise: a cut reason is prose *about code*, so `snake_case` and
+ * `check:model_purity` leave with every character they came with, and only an
+ * underscore at a word boundary is emphasis.
  */
 
 /* --------------------------------------------------------------- inline --- */
@@ -77,9 +80,33 @@ export type Inline =
 const ISSUE = /^#(\d+)(?![\w#-])/;
 const LINK = /^\[([^\]\n]*)\]\(([^()\s]*)\)/;
 
+/* A character an identifier is made of. `_` beside one is part of a word. */
+const WORD = /\w/;
+
+/**
+ * Whether `marker` at `at` is a marker at all.
+ *
+ * CommonMark's intra-word rule, and only for `_`: an underscore with a word
+ * character to its left is inside an identifier — `snake_case`,
+ * `check:model_purity`, a file name — and opens nothing. `*` keeps the naive
+ * reading the subset documents, because `*` does not turn up inside words.
+ */
+function opens(source: string, at: number, marker: string): boolean {
+  if (marker !== "_") return true;
+  const before = source[at - 1];
+  return before === undefined || !WORD.test(before);
+}
+
 /** Where a run of `marker` closes, or `-1` if it never does. */
 function closes(source: string, from: number, marker: string): number {
-  const at = source.indexOf(marker, from);
+  let at = source.indexOf(marker, from);
+  // The same rule on the way out: an underscore followed by a word character
+  // is the middle of an identifier and cannot be the closer, so keep looking.
+  while (marker === "_" && at !== -1) {
+    const after = source[at + marker.length];
+    if (after === undefined || !WORD.test(after)) break;
+    at = source.indexOf(marker, at + marker.length);
+  }
   // An opener with nothing between it and its closer is two literal markers,
   // not empty emphasis.
   return at === from ? -1 : at;
@@ -126,7 +153,7 @@ export function inlinesOf(source: string): Inline[] {
       }
     }
 
-    if (here === "*" || here === "_") {
+    if ((here === "*" || here === "_") && opens(source, at, here)) {
       const end = closes(source, at + 1, here);
       if (end !== -1) {
         flush();
