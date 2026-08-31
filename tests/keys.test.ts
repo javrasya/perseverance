@@ -43,8 +43,20 @@ describe("the one chord table", () => {
     for (const entry of ENTRIES) {
       expect(entry.verb.length, entry.id).toBeGreaterThan(0);
       expect(entry.verb, entry.id).toBe(entry.verb.toLowerCase());
-      expect(labelFor(entry, state()).length, entry.id).toBeGreaterThan(0);
+      /* Trimmed and untrimmed alike: a key that renders as whitespace prints
+         as an empty `<kbd>`, which is a row an operator cannot read. */
+      const label = labelFor(entry, state());
+      expect(label.length, entry.id).toBeGreaterThan(0);
+      expect(label.trim(), entry.id).toBe(label);
     }
+  });
+
+  it("names the keys that would otherwise print as nothing", () => {
+    // `" "` in a `<kbd>` is a blank box: the one row with two ways in would
+    // print its second way as nothing at all.
+    const open = ENTRIES.find((entry) => entry.id === "open");
+    expect(open).toBeDefined();
+    expect(labelFor(open as Entry, state())).toBe("Enter or Space");
   });
 
   it("home is Ctrl+0, and Ctrl+R is left to reverse-i-search", () => {

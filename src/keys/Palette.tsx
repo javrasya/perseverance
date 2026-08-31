@@ -79,6 +79,14 @@ export function Palette({
   const state = currentState();
   const matching = (text: string) => text.toLowerCase().includes(filter.trim().toLowerCase());
 
+  /* The dismiss rows are not offered as rows. `Esc` has no static destination —
+     that is the whole of it — and the readout line above already says where it
+     goes right now, computed from these very rows; a pressable `Escape` button
+     under it would teach the opposite. Filtering on `dismisses` rather than on
+     the key keeps the palette generated: a later dismissible surface joins the
+     readout without this file being touched. */
+  const printed = table.filter((entry) => entry.dismisses === undefined);
+
   const pickAgent = () => {
     const why = focusPicker();
     setRefused(why);
@@ -114,7 +122,7 @@ export function Palette({
           <span className={styles.aside}>a readout, not a binding</span>
         </p>
         <ul className={styles.rows}>
-          {table
+          {printed
             .filter((entry) => matching(entry.verb) || matching(labelFor(entry, state)))
             .map((entry) => {
               const label = labelFor(entry, state);

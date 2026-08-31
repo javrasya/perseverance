@@ -70,7 +70,8 @@ describe("the command palette", () => {
   it("lists every binding in the table with its label and its verb", async () => {
     const { host } = await paint();
     const state = currentState();
-    for (const entry of ENTRIES) {
+    // The dismiss rows are the `Esc` readout's, not the list's — see below.
+    for (const entry of ENTRIES.filter((row) => row.dismisses === undefined)) {
       const row = rowFor(host, entry.id);
       expect(row, entry.id).not.toBeNull();
       expect(row?.textContent, entry.id).toContain(entry.verb);
@@ -115,6 +116,26 @@ describe("the command palette", () => {
       button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     expect(painted.ran).toEqual([]);
+  });
+
+  it("prints no Escape row: Esc is the readout line and never a binding", async () => {
+    /*
+     * ADR 0025's central claim, asserted on the surface that teaches it. The
+     * dismiss rows are already represented by the `Esc` readout, which is
+     * computed from them; offered as pressable rows too they would be two rival
+     * static answers for the key whose whole point is that it has no static one.
+     */
+    await act(async () => {
+      monitor(4);
+      raise("palette");
+    });
+    const { host } = await paint();
+    for (const entry of ENTRIES.filter((row) => row.dismisses !== undefined)) {
+      expect(rowFor(host, entry.id), entry.id).toBeNull();
+    }
+    const keys = [...host.querySelectorAll("[data-row] kbd")].map((key) => key.textContent);
+    expect(keys.length).toBeGreaterThan(0);
+    expect(keys).not.toContain("Escape");
   });
 
   it("prints the hold as a hold, because a click cannot hold a key", async () => {

@@ -314,6 +314,26 @@ function isMac(os: string): boolean {
   return /mac|iphone|ipad|ipod/i.test(os);
 }
 
+/**
+ * What a key is called on screen, for the keys that print as nothing or as a
+ * glyph nobody would recognise typed out.
+ *
+ * A `<kbd>` holding `" "` reads as an empty box — HTML collapses it — so the
+ * one row with two ways in would print its second way as a blank. Every key a
+ * table can carry has to have a name a person can read aloud.
+ */
+const KEY_NAMES: Readonly<Record<string, string>> = {
+  " ": "Space",
+  ArrowLeft: "\u2190",
+  ArrowRight: "\u2192",
+  ArrowUp: "\u2191",
+  ArrowDown: "\u2193",
+};
+
+function keyName(key: string): string {
+  return KEY_NAMES[key] ?? (key.length === 1 ? key.toUpperCase() : key);
+}
+
 /** What a chord is called on screen. Symbols on macOS, words elsewhere. */
 export function labelOf(chord: Chord, os: string): string {
   const mac = isMac(os);
@@ -322,7 +342,7 @@ export function labelOf(chord: Chord, os: string): string {
   if (chord.alt) parts.push(mac ? "⌥" : "Alt");
   if (chord.shift) parts.push(mac ? "⇧" : "Shift");
   if (chord.meta) parts.push(mac ? "⌘" : "Win");
-  parts.push(chord.key.length === 1 ? chord.key.toUpperCase() : chord.key);
+  parts.push(keyName(chord.key));
   return parts.join(mac ? "" : "+");
 }
 

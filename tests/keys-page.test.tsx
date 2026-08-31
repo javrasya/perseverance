@@ -50,7 +50,8 @@ describe("the keys page", () => {
   it("lists every binding in the table with its label and its verb", async () => {
     const host = await paint();
     const state = currentState();
-    for (const entry of ENTRIES) {
+    // The dismiss rows are the `Esc` readout's, not the list's — see below.
+    for (const entry of ENTRIES.filter((row) => row.dismisses === undefined)) {
       const row = rowFor(host, entry.id);
       expect(row, entry.id).not.toBeNull();
       expect(row?.textContent, entry.id).toContain(entry.verb);
@@ -86,6 +87,26 @@ describe("the keys page", () => {
     expect(line).not.toBeNull();
     expect(line?.textContent).toContain("dismisses the keys page");
     expect(line?.textContent).toContain("readout, not a binding");
+  });
+
+  it("prints no Escape row: Esc is the readout line and never a binding", async () => {
+    /*
+     * ADR 0025's central claim, asserted on the surface that teaches it. The
+     * dismiss rows are already represented by the `Esc` readout, which is
+     * computed from them; printed as rows too they would be two rival static
+     * answers for the key whose whole point is that it has no static answer.
+     */
+    await act(async () => {
+      monitor(4);
+      raise("keys");
+    });
+    const host = await paint();
+    for (const entry of ENTRIES.filter((row) => row.dismisses !== undefined)) {
+      expect(rowFor(host, entry.id), entry.id).toBeNull();
+    }
+    const keys = [...host.querySelectorAll("[data-row] kbd")].map((key) => key.textContent);
+    expect(keys.length).toBeGreaterThan(0);
+    expect(keys).not.toContain("Escape");
   });
 
   it("prints the hold as a hold, because a page cannot be held", async () => {

@@ -52,6 +52,15 @@ export function KeysPage({
 
   const state = currentState();
 
+  /* The dismiss rows are the one thing this page does not print as a row. `Esc`
+     has no static destination — that is the whole of it — and the readout line
+     above already says where it goes right now, computed from these very rows.
+     Printing them as bindings too would put two rival static answers directly
+     under the line that says there is none. Filtering on `dismisses` rather
+     than on the key keeps the page generated: a later dismissible surface joins
+     the readout without this file being touched. */
+  const printed = table.filter((entry) => entry.dismisses === undefined);
+
   return (
     <section
       ref={page}
@@ -74,7 +83,7 @@ export function KeysPage({
         <span className={styles.aside}>a readout, not a binding</span>
       </p>
       <ul className={styles.rows}>
-        {table.map((entry) => {
+        {printed.map((entry) => {
           const held = entry.held === true;
           return (
             <li
