@@ -4,7 +4,6 @@ import type { Map, Node } from "../src/snapshot/model.generated";
 import {
   BAND_HIGH,
   BAND_LOW,
-  FOG_ALL_CHARTED,
   NOBODY_SURVEYED,
   VIEW_NAME,
   deepFieldOf,
@@ -12,6 +11,7 @@ import {
   type DeepField,
   type FanOut,
 } from "../src/views/deep-field/deepField";
+import { FOG_ALL_CHARTED } from "../src/views/vocabulary";
 import { collect } from "./support/sources";
 
 /**

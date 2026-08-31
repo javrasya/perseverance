@@ -15,12 +15,12 @@ import type { Map, Model, Node } from "../src/snapshot/model.generated";
  */
 import { DeepField } from "../src/views/deep-field/DeepField.jsx";
 import {
-  FOG_HEADING,
   GUTTER_CLEARANCE,
   NOBODY_SURVEYED,
   PLATE_WIDTH,
   VIEW_NAME,
 } from "../src/views/deep-field/deepField";
+import { FOG_HEADING } from "../src/views/vocabulary";
 import { REPO_ROOT } from "./support/sources";
 
 /**
@@ -45,18 +45,37 @@ import { REPO_ROOT } from "./support/sources";
   true;
 
 /**
- * The width the view measures itself at.
+ * The width the view measures itself at, and it is the **view root's** width
+ * and not the window's.
  *
- * `getBoundingClientRect` answers zero for everything in jsdom, so the view
- * falls back to the window — which is exactly the fallback that makes a first
- * paint honest in the browser, and is what lets a test say *this pane is 320px
- * wide* without a layout engine.
+ * `getBoundingClientRect` answers zero for everything in jsdom, and the hook
+ * reads a zero as *nobody has laid this out yet* and stands in the window
+ * (`THE_WINDOW`, `src/panes/useMeasuredWidth.ts`). A suite that drove
+ * `window.innerWidth` would therefore be asserting against that stand-in: every
+ * geometry claim below would hold for an element exactly as wide as the window,
+ * which this view's root never is — it is one side of a split pane, and a
+ * WebKit run measured it at 135px in a 1280px window. So the box is stubbed on
+ * the root itself, the window is pinned wide and left alone, and every
+ * `widthIs(320)` below is an element narrower than the window it sits in.
  */
 const AMPLE = 4000;
 
+/** A real window, never varied: the view is not allowed to be reading this. */
+const WINDOW_WIDTH = 1280;
+
+const VIEW_ROOT = 'section[aria-label="Deep Field"]';
+
+let paneWidth = AMPLE;
+
 function widthIs(pixels: number) {
-  Object.defineProperty(window, "innerWidth", { value: pixels, configurable: true });
+  paneWidth = pixels;
 }
+
+const unlaidOut = HTMLElement.prototype.getBoundingClientRect;
+HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement): DOMRect {
+  return this.matches(VIEW_ROOT) ? new DOMRect(0, 0, paneWidth, 0) : unlaidOut.call(this);
+};
+Object.defineProperty(window, "innerWidth", { value: WINDOW_WIDTH, configurable: true });
 
 let mounted: { root: ReturnType<typeof createRoot>; host: HTMLElement } | null = null;
 
@@ -274,6 +293,28 @@ describe("the stand-down keeps the answer alive and offers no way out", () => {
     expect(notice?.textContent).toContain(VIEW_NAME);
     expect(notice?.querySelector("[data-needs]")?.textContent).toMatch(/needs \d+px/);
     expect(notice?.querySelector("[data-has]")?.textContent).toBe("has 320px");
+  });
+
+  it("measures its own root and not the window it sits in", async () => {
+    /*
+     * The regression this pins, and the reason the root's box is stubbed at the
+     * top of this file: the view's root is one side of a split pane, so a shell
+     * that answered with `window.innerWidth` would report a box several times
+     * the one on screen — 320 against a 1280px window here, 135 against 1280 in
+     * the WebKit run that found it — and would draw a picture that does not
+     * fit. The printed *has* is the only place the number is legible from here.
+     */
+    widthIs(320);
+    const model = modelOf([node(1), node(2, { waitsOn: [1] })]);
+    const host = await paint(model);
+
+    expect(window.innerWidth).toBe(WINDOW_WIDTH);
+    expect(view(host).querySelector("[data-has]")?.textContent).toBe("has 320px");
+
+    // And the other way: a root wider than the window is a root that fits.
+    widthIs(AMPLE);
+    await paint(model);
+    expect(view(host).querySelector("[data-stand-down]")).toBeNull();
   });
 
   it("keeps the three counts and the frontier when the graph is gone", async () => {

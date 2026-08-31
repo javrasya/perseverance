@@ -1,13 +1,5 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactElement,
-  type RefObject,
-} from "react";
+import { useMemo, useRef, type ReactElement } from "react";
+import { THE_WINDOW, useMeasuredWidth } from "../../panes/useMeasuredWidth";
 import type { Counts, Frontier, Node, NodeState } from "../../snapshot/model.generated";
 import {
   NOTHING_FOR_THIS_MACHINE,
@@ -20,16 +12,17 @@ import {
  * snapshot, and what a view is handed is decided in exactly one place.
  */
 import type { ViewProps } from "../views";
+import { beyondTheMapNote, blockedByLabel } from "../graph";
 import {
   BOUND_ELSEWHERE_TAG,
-  CIRCULAR_TAG,
   DESIGNATED_TAG,
-  NOBODY_SURVEYED,
   SPEC_TAG,
   STATE_NAMES,
   UNCLASSIFIED_TAG,
-  beyondTheMapNote,
-  blockedByLabel,
+} from "../vocabulary";
+import {
+  CIRCULAR_TAG,
+  NOBODY_SURVEYED,
   deepFieldOf,
   type FanOut,
   type FieldFog,
@@ -59,7 +52,8 @@ import styles from "./DeepField.module.css";
  *
  * The one thing this file finds out for itself is how wide it is, because
  * `ViewProps` carries no width and the app's single `ResizeObserver` is
- * `Pane`'s and stays singular — see [`useMeasuredWidth`].
+ * `Pane`'s and stays singular — see [`useMeasuredWidth`] in `src/panes`, which
+ * this view shares with the shell rather than copying.
  *
  * **Import this file as `DeepField.jsx`.** It sits beside `deepField.ts`, and
  * macOS and Windows filesystems are case-insensitive, so an extensionless
@@ -132,7 +126,20 @@ const COUNT_NAMES = ["tickets", "open", "specs"] as const;
 
 export function DeepField({ model, selected, onSelect }: ViewProps) {
   const root = useRef<HTMLElement | null>(null);
-  const width = useMeasuredWidth(root);
+  /*
+   * The shell's measurement, on this view's own root: one hook, one rule for a
+   * box nobody has laid out yet, shared with the body and the seam.
+   *
+   * `THE_WINDOW` is a stand-in and not a claim. This root is a fraction of the
+   * body — a map side beside a terminal — so before the first layout the window
+   * over-reports it, badly and knowingly: the alternative is a zero, and a zero
+   * stands the view down on every first paint, which would be an artefact of
+   * measurement rather than a fact about the pane. Nothing may *assert* against
+   * the stand-in, and that is a live constraint on the tests — `getBoundingClientRect`
+   * answers zero for everything in jsdom, so a geometry test has to drive this
+   * element's own box or it is measuring the window.
+   */
+  const width = useMeasuredWidth(root, THE_WINDOW);
 
   /*
    * A memo and nothing more. `deepFieldOf` is pure and cheap, so this saves a
@@ -237,48 +244,6 @@ export function DeepField({ model, selected, onSelect }: ViewProps) {
       ) : null}
     </section>
   );
-}
-
-/**
- * How wide this view is, measured off its own root.
- *
- * `ViewProps` carries no width, and it should not: the app's one
- * `ResizeObserver` is `Pane`'s and stays the only one, because that observer is
- * the single path to a PTY resize (`src/panes/geometry.ts` is why that path has
- * to stay singular). So this measures instead of observing — after every render
- * and on a window resize, which between them are every layout change the shell
- * can cause: the dial moving, a column shed, a view opened.
- *
- * The pattern is `src/panes/useBodyBox.ts`'s, down to the fallback. A box below
- * a pixel is not a narrow box, it is a box nobody has laid out yet — the first
- * paint, and every jsdom test, where `getBoundingClientRect` answers zero for
- * everything — and the window is the honest number there. Without it this view
- * would stand down on every first paint and in every test, and the stand-down
- * would be an artefact of measurement rather than a fact about the pane.
- *
- * An unchanged measurement sets no state, so the layout effect settles in one
- * pass rather than looping.
- */
-function useMeasuredWidth(element: RefObject<HTMLElement | null>): number {
-  const [width, setWidth] = useState(() =>
-    typeof window === "undefined" ? 0 : window.innerWidth,
-  );
-
-  const measure = useCallback(() => {
-    const measured = element.current?.getBoundingClientRect().width ?? 0;
-    const next = measured >= 1 ? measured : window.innerWidth;
-    setWidth((was) => (was === next ? was : next));
-  }, [element]);
-
-  // No dependency list: after every render, for the reason `useBodyBox` has none.
-  useLayoutEffect(measure);
-
-  useEffect(() => {
-    window.addEventListener("resize", measure);
-    return () => window.removeEventListener("resize", measure);
-  }, [measure]);
-
-  return width;
 }
 
 /**
