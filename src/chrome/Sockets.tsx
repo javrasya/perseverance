@@ -187,6 +187,19 @@ export function Sockets({
     );
   }, [frontier]);
 
+  /* The same retirement, on the other thing a press can be aimed at. An Ask
+     refusal names no frontier — it was aimed at the selection, which no
+     resolver has been through — so the comparison above finds nothing to
+     contradict it and leaves it standing. What contradicts it is the selection
+     moving: the sentence answers a press made at one node, and under the next
+     node it is a sentence about a press nobody made. The selection is a number,
+     so a tick that reselects the same node is not a move and retires nothing. */
+  useEffect(() => {
+    setPress((current) =>
+      current.kind === "refused" && current.socket === "ask" ? { kind: "idle" } : current,
+    );
+  }, [selection]);
+
   const composing = composed !== null && liveRuns.includes(composed.run) ? composed.map : null;
   const rail = railAt({
     frontier,

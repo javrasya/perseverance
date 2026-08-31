@@ -79,10 +79,18 @@ compose and Ask do not. A non-claiming run therefore never enters the resolution
 table at all, which is what keeps its ending `Live` until its child exits and
 `Exited` afterwards, whatever the node under it did.
 
-**What #56 still owes.** The kind is on the wire and no surface draws it yet:
-the rack is #56's, and *appears in the rack as its own kind* is met on this
-branch only in the sense that the substrate is there and correct. #56 reads
-`RunReadout.kind` and needs nothing further from this side.
+**#55's sixth criterion is restated, not met.** #55 asked that an Ask run
+*appear in the rack as its own kind*. Nothing on this branch draws a kind,
+because there is no rack on this branch: the rack is #56, which #55 neither
+blocks nor is blocked by. So the criterion is restated here, deliberately and in
+the record, as two halves with two owners. #55's half is the seam: `RunKind`
+serialises, `RunReadout` carries `kind`, and `RunKind::claiming` is what both
+joins ask — that half is done. The drawing is #56's half, and it is an
+obligation #56 owes back to #55 rather than a line #55 can claim: a rack whose
+rows carry a kind, with the Ask run's row reading *ask*. #55 closes on the
+restated criterion — the kind crosses the seam, and #56 draws it — and #56 is
+not finished until it has. #56 reads `RunReadout.kind` and needs nothing further
+from this side.
 
 ## Consequences
 

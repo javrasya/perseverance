@@ -2270,9 +2270,7 @@ impl Terminals {
             .staked_here()
             .iter()
             .filter(|(_, stakes)| {
-                stakes.ticket == Some(ticket)
-                    && stakes.folder == folder
-                    && stakes.kind.claiming()
+                stakes.ticket == Some(ticket) && stakes.folder == folder && stakes.kind.claiming()
             })
             .map(|(run, _)| *run)
             .collect();

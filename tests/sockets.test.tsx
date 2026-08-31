@@ -719,6 +719,32 @@ describe("an Ask press", () => {
     expect(button(host, "ask").textContent).toContain(ASK_LABEL);
   });
 
+  it("retires that refusal when the selection moves off the node it was about", async () => {
+    invoke.mockResolvedValue({
+      kind: "refused",
+      detail: "#41 is not on map #28, so there is nothing here to ask about",
+    } satisfies Asked);
+    const host = paint(ASKING);
+
+    await act(async () => {
+      button(host, "ask").click();
+    });
+
+    expect(socket(host, "ask").textContent).toContain("nothing here to ask about");
+
+    /* A tick that hands back the same selection is not a move: the refusal is
+       still the answer to the press the socket is wearing. */
+    paint(ASKING);
+    expect(socket(host, "ask").textContent).toContain("nothing here to ask about");
+
+    /* A different node is, and the sentence goes with the press it answered:
+       it was about #41, and nobody has asked anything about #42. */
+    paint({ ...ASKING, selection: 42 });
+    expect(socket(host, "ask").textContent).not.toContain("nothing here to ask about");
+    expect(socket(host, "ask").textContent).toContain("#42");
+    expect(button(host, "ask").textContent).toContain(ASK_LABEL);
+  });
+
   it("says `checking…` while its press is out, and a second press buys nothing", async () => {
     let answer: (asked: Asked) => void = () => {};
     invoke.mockReturnValue(
