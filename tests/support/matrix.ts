@@ -25,7 +25,9 @@ export function enforcedBy(rule: Rule): string {
     case "structural":
       return `construction in \`${rule.mechanismPath}\``;
     case "asserted":
-      return rule.renderBound ? "assertion over the fixture space (#43)" : "assertion";
+      return rule.renderBound
+        ? "assertion over the fixture space (#43)"
+        : "enumeration over the stylesheets (#43)";
     case "judged":
       return rule.assertedFloor === undefined
         ? "declaration only — no floor a machine can settle"

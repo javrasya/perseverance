@@ -30,7 +30,7 @@ classification is
 | 6 | Out-of-scope is never progress | rendering | asserted | yes | assertion over the fixture space (#43) | no slot |
 | 7 | The ledger is chrome | codebase | structural | no | construction in `src/views/views.ts` | no slot |
 | 8 | No stored positions | codebase | structural | no | construction in `crates/store/src/schema.rs` | no slot |
-| 9 | Motion is rationed | rendering | asserted | yes | assertion over the fixture space (#43) | no slot |
+| 9 | Motion is rationed | rendering | asserted | no | enumeration over the stylesheets (#43) | no slot |
 | 10 | Hover discloses nothing | reading | **judged** | yes | asserted floor (#43), then declaration | declared |
 | 11 | The field is not the label surface | reading | **judged** | yes | declaration only — no floor a machine can settle | declared |
 | 12 | Still-state equivalent | rendering | **judged** | yes | asserted floor (#43), then declaration | declared |

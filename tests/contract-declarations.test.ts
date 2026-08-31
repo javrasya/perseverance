@@ -73,6 +73,7 @@ describe("the declaration parser, against input it has to reject", () => {
 
     expect(parsed.sections.map((section) => section.ruleId)).toEqual([4, 10]);
     expect(parsed.checkboxes).toEqual([]);
+    expect(parsed.nearMisses).toEqual([]);
     expect(parsed.sections[0]?.deviations).toEqual([
       "Deviation: the second absence is drawn as a numeral in a lighter face.",
     ]);
@@ -120,9 +121,38 @@ describe("the declaration parser, against input it has to reject", () => {
       "## Rule 13 — Resolved stays locatable",
       "",
       "The floor is met, and this is not a Deviation: it is the answer.",
+      "",
+      "That is a note for whoever writes the next view, not a deviation.",
     ].join("\n");
+    const parsed = parseDeclaration(mentioned);
 
-    expect(parseDeclaration(mentioned).sections[0]?.deviations).toEqual([]);
+    expect(parsed.sections[0]?.deviations).toEqual([]);
+    // And prose *about* a deviation is not a near miss either: the parser
+    // fires on the shape of an opener, not on the word.
+    expect(parsed.nearMisses).toEqual([]);
+  });
+
+  it("fires on a deviation that reaches for the opener and misses", () => {
+    const missed = [
+      "## Rule 13 — Resolved stays locatable",
+      "",
+      "**Deviation:** resolved recedes past legibility on the widest breakpoint.",
+      "",
+      "- Deviation: the count is dropped below eighty nodes.",
+      "",
+      "Deviation — the plate keeps its own key.",
+      "",
+      "The floor is met at every other breakpoint.",
+      "Deviation: except in print, where the plate is dropped.",
+    ].join("\n");
+    const parsed = parseDeclaration(missed);
+
+    // None of the four is lifted, which is exactly why each has to go red:
+    // silently they are statements, and the view ships an undeclared
+    // carve-out with the whole suite green.
+    expect(parsed.sections[0]?.deviations).toEqual([]);
+    expect(parsed.nearMisses.map((miss) => miss.line)).toEqual([3, 5, 7, 10]);
+    expect(parsed.nearMisses[0]?.detail).toMatch(/`Deviation:` opener/);
   });
 });
 
@@ -132,6 +162,7 @@ describe("presence is asserted, content is judged", () => {
       const declaration = readDeclaration(view);
       expect(declaration.parsed, `missing ${declaration.path}`).not.toBeNull();
       expect(declaration.parsed?.checkboxes ?? []).toEqual([]);
+      expect(declaration.parsed?.nearMisses ?? []).toEqual([]);
     }
   });
 

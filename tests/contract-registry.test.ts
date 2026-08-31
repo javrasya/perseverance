@@ -67,13 +67,14 @@ describe("thirteen rules, each classified", () => {
 
   it("says which rules need a rendering without naming a single cell", () => {
     // #43 fans out over these; the fixture space is `src/snapshot/fixtures.ts`
-    // and stays there. A rule that needs no rendering is exactly a structural
-    // one today — the three that are settled against source and schema.
+    // and stays there. Render-boundness is where the check runs, not how weak
+    // the automation is: a structural rule never needs a rendering, but the
+    // converse does not hold — rule 9 is asserted and still settled against
+    // stylesheet text, so the two must stay separable.
     const renderBound = renderBoundRules().map((rule) => rule.id);
-    expect(renderBound).toHaveLength(10);
-    expect(RULES.filter((rule) => !rule.renderBound).map((rule) => rule.id)).toEqual(
-      STRUCTURAL,
-    );
+    expect(renderBound).toHaveLength(9);
+    expect(renderBound).not.toContain(9);
+    for (const id of STRUCTURAL) expect(ruleById(id).renderBound).toBe(false);
 
     const source = registrySource();
     expect(source).not.toMatch(/\bimport\b/);

@@ -220,7 +220,11 @@ export const RULES: readonly Rule[] = [
     text: 'Liveness is motion, and motion is rationed. Running vs stale claim is "is it moving" in every view. No view spends motion on anything else.',
     subject: "rendering",
     tier: "asserted",
-    renderBound: true,
+    /* Its subject is a rendering, but its check is not: killing SMIL made the
+       ration enumerable over static CSS text, so the enumeration reads `src/`
+       and never needs a fixture rendered. Tier and render-boundness are
+       separate facts, and this is the rule where they come apart. */
+    renderBound: false,
     check:
       "SMIL is banned stack-wide (`tests/no-smil.test.ts`), so every animation in this app is a CSS animation and the ration is *enumerable over the stylesheets*: collect every `animation` declaration and every keyframes block under `src/`, and assert each animated selector lands on an element carrying the running-vs-stale claim. Transitions on colour, border and opacity are not motion spent and are not counted.",
     tension:

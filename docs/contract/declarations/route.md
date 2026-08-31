@@ -16,6 +16,16 @@ Structural and asserted rules have no section here and no route to one. A red
 assertion is a failure with no appeal, and a structural rule has nothing to
 declare.
 
+Where this view does **not** comply with a judged rule, say so in a paragraph of
+its own that begins with the word `Deviation` and a colon, as the first thing on
+the line and with no bold, bullet or dash around it — that exact opener is the
+one piece of structure this format has, and it is what lifts the paragraph onto
+the worklist in `docs/contract/matrix.md`. A near miss (`**Deviation:**`, a list
+item, an em dash for the colon, or the sentence buried mid-paragraph) reads as an
+ordinary statement, so `tests/contract-declarations.test.ts` goes red on one
+rather than letting a declared deviation ship as a silent carve-out. A declared
+deviation is a worklist item, never an exemption.
+
 The Route is a grouped list in one column — Now/Next, Frontier, Blocked,
 Resolved, Out of scope, Unclassified — with the fog and the destination beside
 those sections rather than inside them. It **draws no edge at all**, and under

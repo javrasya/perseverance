@@ -258,8 +258,10 @@ derived from `FIXTURE_NAMES`, and no second enumeration of fixture names may
 exist), adding a view (driven off `VIEWS`, so a new view is red until it has
 declarations), and adding a rule (driven off the registry, so a rule landing in
 *judged* retro-fits a section onto every view). A declared deviation is a
-paragraph opening `Deviation:` — the only structure the format has — and it is
-collected verbatim into a worklist to be worked off, never a carve-out. The
+paragraph opening `Deviation:` — the only structure the format has, stated in
+the declarations themselves, with a near miss (bold, a bullet, an em dash, or
+the sentence buried mid-paragraph) red rather than silent — and it is collected
+verbatim into a worklist to be worked off, never a carve-out. The
 declarations are read when a view is designed or redesigned, not at every
 commit.
 

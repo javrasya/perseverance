@@ -70,9 +70,11 @@ rules a `judgedResidue` where it cannot.
 **Three subjects, because the tier follows the subject more often than not.**
 `codebase` (what the source can express), `rendering` (what ends up on screen),
 `reading` (what a person takes away). The three codebase rules are exactly the
-three structural ones and exactly the three that need no rendering; the three
-reading rules are exactly the three whose tier is judged with no asserted half
-worth the name.
+three structural ones, and every one of them needs no rendering — but the
+converse does not hold: rule 9's subject is a rendering and its check is a walk
+over the stylesheets, so it is asserted and not render-bound. The three reading
+rules are exactly the three whose tier is judged with no asserted half worth the
+name.
 
 **Deviation is a function of tier, written once.** Structural: no deviation and
 no declaration slot — deviating would mean a code change that makes the
@@ -86,9 +88,12 @@ grant.
 **`renderBound` says whether the fixture space is needed, and the registry
 enumerates nothing else.** No cells, no views, no themes, no fixture names. #43
 fans its assertions out over render-bound rules × fixtures × themes ×
-reduced-motion, and the fixture space is `src/snapshot/fixtures.ts`. A matrix
-written down here would be an artifact that goes stale the first time a fixture
-lands, in a way nothing fails.
+reduced-motion, and the fixture space is `src/snapshot/fixtures.ts`. It is a
+fact about *where the check runs*, not about the tier: an asserted rule settled
+against source text, a schema or a stylesheet is not render-bound, and rule 9 is
+the one entry today where the two come apart. A matrix written down here would
+be an artifact that goes stale the first time a fixture lands, in a way nothing
+fails.
 
 ### The thirteen, with the mechanism each tier rests on
 
@@ -213,7 +218,11 @@ cannot exist. **No checkboxes**: a box invites ticking, a ticked box says
 nothing about the view, and by the third view it is a rubber stamp, so a
 checkbox anywhere in a declaration is itself a failure. The one piece of
 structure the format has is a paragraph opening `Deviation:`, which is what the
-worklist collects verbatim.
+worklist collects verbatim — and because it is the only structure, **reaching for
+it and missing is red too**: `**Deviation:**`, a list item, an em dash where the
+colon goes, or the sentence buried mid-paragraph all parse as plain statement
+prose, and a deviation nothing lifts is the carve-out the declaration exists not
+to be.
 
 **A declared deviation is a worklist item, never a carve-out.** It is fog on the
 contract: something the view owes, rendered where it can be scheduled and worked
@@ -281,9 +290,9 @@ review, and not a note beside a shipped violation.
 
 **The registry is now the contract's readable form, and `tests/contract-registry.test.ts`
 holds it to being one.** Thirteen entries, ids 1–13, every entry with a subject,
-a tier and a mechanism; rules 1, 7 and 8 structural with no declaration slot; the
-render-bound set exactly the ten non-structural rules; rule 5 registered
-positively and rule 9 over the stylesheets.
+a tier and a mechanism; rules 1, 7 and 8 structural with no declaration slot;
+every structural rule non-render-bound, with rule 9 asserted and non-render-bound
+too because its check is a stylesheet walk; rule 5 registered positively.
 
 **The structural entries are checked against the tree, not just written down.**
 The registry names a `mechanismPath` for each and the test reads it: `ViewProps`
