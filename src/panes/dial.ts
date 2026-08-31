@@ -1,3 +1,4 @@
+import { widthNeededFor } from "../views/deep-field/deepField";
 import type { ViewName } from "../views/views";
 
 /**
@@ -234,6 +235,16 @@ export function namesFit(width: number): boolean {
  */
 export const VIEW_FLOORS: Record<ViewName, number> = {
   route: 420,
+  /*
+   * Two rank columns' worth: the narrowest picture in which one ticket is drawn
+   * releasing another, which is the whole of what this view is for. Asked of
+   * the layout rather than written down, so the plate lane, the clearance and
+   * the column pitch cannot drift away from the number the dial promises. One
+   * column would fit in less and would be a field with no fan-out in it, and a
+   * map deeper than two stands the view down from inside — that answer moves
+   * with the map and no constant here can say it.
+   */
+  "deep-field": widthNeededFor(2),
 };
 
 /**

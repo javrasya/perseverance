@@ -5,7 +5,7 @@ import {
   isFixtureName,
 } from "../../../src/snapshot/fixtures";
 import type { Snapshot } from "../../../src/snapshot/model.generated";
-import { DEFAULT_VIEW, type ViewName } from "../../../src/views/views";
+import { DEFAULT_VIEW, STORAGE_KEY, type ViewName } from "../../../src/views/views";
 import type { FixtureState } from "../../support/contract";
 import { surfaceOf, type ViewSurface } from "./views";
 
@@ -100,6 +100,25 @@ export async function load(
     colorScheme: state.theme,
     reducedMotion: state.motion === "reduced" ? "reduce" : "no-preference",
   });
+
+  /*
+   * Which view is open is the remembered one, so the way to open a view here is
+   * the way an operator's last session opens it: the key `views.ts` reads at
+   * boot, written before any of the app's own script runs. Pressing the
+   * switcher instead would make every rule check depend on the switcher being
+   * reachable at this width, which is a different claim from the rule's.
+   */
+  await page.addInitScript(
+    ([key, name]: readonly [string, ViewName]) => {
+      try {
+        window.localStorage.setItem(key, name);
+      } catch {
+        // Storage denied: the app opens on its default, and the root wait below
+        // is what reports that rather than a check quietly reading another view.
+      }
+    },
+    [STORAGE_KEY, view] as const,
+  );
 
   await page.goto(`/?${FIXTURE_PARAMETER}=${encodeURIComponent(state.fixture)}`);
 

@@ -15,12 +15,12 @@ import { collect } from "./support/sources";
  * second launch opens on, and what happens when the store cannot answer. A
  * preference that only works while the app is running is not a preference.
  *
- * `VIEWS` has exactly one entry today, and that is what makes this file easy to
- * write badly. The stored value and the default are the same string, so every
- * assertion made against what `readDefaultView` *returns* passes unchanged for
- * a body of `return DEFAULT_VIEW`. What tells a real read from that one is the
- * key: whether the read goes to the store at all, and to the one app-wide key
- * the write used. So the store is watched below rather than only seeded.
+ * Every case below writes and reads `route`, which is also the default, and
+ * that is what makes this file easy to write badly: every assertion made
+ * against what `readDefaultView` *returns* passes unchanged for a body of
+ * `return DEFAULT_VIEW`. What tells a real read from that one is the key —
+ * whether the read goes to the store at all, and to the one app-wide key the
+ * write used. So the store is watched below rather than only seeded.
  */
 
 const KEY = "perseverance.view";
