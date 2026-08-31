@@ -211,6 +211,63 @@ describe("a cut is a decoration on resolved, and its reason is on the plate", ()
     // screenshot or a page search would miss.
     expect(host.querySelector("[title]")).toBeNull();
   });
+
+  it("spends every hover on ink and on nothing that discloses", () => {
+    /*
+     * Rule 10's asserted floor walks the live CSSOM for `:hover` selectors
+     * touching a disclosure property, and it reads the whole page — one
+     * registered stylesheet carrying such a declaration turns the floor red for
+     * every view at once. That floor needs a browser and cannot run on this
+     * checkout, so this case is what stands between a hover that lifts, fades or
+     * unfolds and a page-wide red nobody here can see go red.
+     *
+     * The list is restated by hand because the floor keeps its copy inside a
+     * `page.evaluate` closure, which vitest cannot import. Its source is
+     * `tests/conformance/support/rules.ts`; an edit there is an edit here.
+     */
+    const DISCLOSURE = [
+      "display",
+      "visibility",
+      "opacity",
+      "content",
+      "height",
+      "max-height",
+      "width",
+      "max-width",
+      "clip-path",
+      "transform",
+    ];
+
+    const sheet = collectStylesheets().find(
+      (file) => file.path === "src/views/bench/Bench.module.css",
+    );
+    if (sheet === undefined) throw new Error("the bench stylesheet is no longer collected");
+
+    // Comments talk about `:hover` and about `transform` at length; only what
+    // the browser parses counts.
+    const css = sheet.text.replace(/\/\*[\s\S]*?\*\//g, "");
+
+    const hovered: { selector: string; block: string }[] = [];
+    for (const rule of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      const selector = rule[1] ?? "";
+      if (selector.includes(":hover")) {
+        hovered.push({ selector: selector.trim(), block: rule[2] ?? "" });
+      }
+    }
+
+    // If the sheet stops hovering at all, this case has stopped guarding
+    // anything and should say so rather than pass quietly.
+    expect(hovered.length).toBeGreaterThan(0);
+
+    for (const { selector, block } of hovered) {
+      for (const property of DISCLOSURE) {
+        const declared = new RegExp(`(^|[;{\\s])${property}\\s*:`).test(block);
+        expect(`${selector} declares ${property}: ${declared}`).toBe(
+          `${selector} declares ${property}: false`,
+        );
+      }
+    }
+  });
 });
 
 describe("fan-out is drawn, and the two blocker tallies are never one number", () => {

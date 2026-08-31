@@ -410,8 +410,12 @@ function headOf(edge: Edge): string {
  * and a faded glyph — and never visibility. There is no opacity on the plate,
  * no `display`, and nothing is dropped from the drawing.
  *
- * Hover discloses nothing (rule 10): the stylesheet lifts the plate a pixel and
- * brightens its border, and that is the whole of it. There is **no `title`
+ * Hover discloses nothing (rule 10): the stylesheet brightens the plate's
+ * border, and that is the whole of it. The pixel of lift it once carried is
+ * gone — `transform` is on rule 10's disclosure list, so a registered
+ * stylesheet declaring it on `:hover` turns that floor red for every view at
+ * once; `Bench.module.css` states the reasoning in full above `.plate:hover`.
+ * There is **no `title`
  * anywhere on this canvas** — not on the plate, not on the title, and
  * emphatically not on the cut's reason.
  */
