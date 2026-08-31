@@ -57,6 +57,20 @@ function state(fixture: string): FixtureState {
 const LIT = state(DEFAULT_FIXTURE);
 
 /**
+ * A window with runs in it, which is not the window `dev:web` opens.
+ *
+ * `DEFAULT_RUN_FIXTURE` is `none`, and honestly so — nothing in a browser
+ * spawns a run — but a rack handed no runs draws no `<ol>` at all: it prints
+ * *Nothing has been started in this window yet.* instead, which is the correct
+ * screen and has no rows on it to measure. So every case below that reads a
+ * *row* has to ask for runs, and the ones that read only the region's own box
+ * deliberately do not: the width is a function of the dial and never of what
+ * arrived, so the emptiest rack this app can draw is the sharpest place to
+ * check it.
+ */
+const RACKED = { runs: "rack" } as const;
+
+/**
  * The window a developer opens the app in, and one narrower than that.
  *
  * The default is Playwright's own device width, so *what the rack is worth on
@@ -212,7 +226,7 @@ test.describe("the rack's width, at every detent", () => {
 
   test("does not move when what it is showing grows", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 720 });
-    await load(page, DEFAULT_VIEW, LIT);
+    await load(page, DEFAULT_VIEW, LIT, RACKED);
     await turnTo(page, "split");
 
     const before = await measure(page);
@@ -346,7 +360,7 @@ test.describe("what a tier claims, at that tier's floor", () => {
        * end: the rack claiming something the operator cannot read.
        */
       await page.setViewportSize({ width: 1280, height: 720 });
-      await load(page, DEFAULT_VIEW, LIT);
+      await load(page, DEFAULT_VIEW, LIT, RACKED);
       await turnTo(page, "split");
       await pinTo(page, narrow.floor);
 
@@ -385,7 +399,7 @@ test.describe("what a tier claims, at that tier's floor", () => {
        * where the box is real.
        */
       await page.setViewportSize({ width: 1280, height: 720 });
-      await load(page, DEFAULT_VIEW, LIT, { runs: "rack", pending: "waiting" });
+      await load(page, DEFAULT_VIEW, LIT, { ...RACKED, pending: "waiting" });
       await turnTo(page, "split");
       await pinTo(page, narrow.floor);
 

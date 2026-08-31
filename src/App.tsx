@@ -1608,6 +1608,44 @@ export function App() {
 
           <div className={styles.terminal}>
             {/*
+              The rack, at the address ticket/64 reserved for it: in the flow on
+              the dial's side of the pane, so a narrowing terminal takes the
+              pane's pixels and leaves the rack standing on its floor. At the
+              `map` detent what is left of this side is the rack in studs, which
+              is the width at which supervising N runs still works.
+
+              It is a child of *this* box and a sibling of the run side, never a
+              row inside that column, and the distinction is the whole of its
+              geometry rather than a matter of where it reads best. Everything
+              `Rack.module.css` says about the region's width is a main-axis
+              rule — `flex: 0 1 var(--c-rack-basis)` for the preferred width and
+              `min-width: var(--c-rack-floor)` for the floor that switches off
+              flexbox's content-derived minimum — and the run side's main axis is
+              vertical. Parked in there the basis was read as a height and the
+              floor as a cross-axis minimum that `stretch` had already beaten, so
+              the region was simply the pane's width: `regionFor` in
+              `src/rack/rack.ts` described a layout nobody was producing, the
+              region never shrank when the line got short, and `tierFor` was
+              handed a number that said `bays` at every detent. Here the two
+              boxes share one flex line — this one at `0 1` and the run side at
+              `1 1 0` — which is the arrangement `sides()` and `regionFor` are
+              both written from: every pixel the line is short comes out of the
+              region until it stands on its floor, and out of the pane after
+              that.
+
+              Which run the pane shows is the rack's to change (#57): a row
+              is pressable and the press patches `monitored`, Rust first and
+              the store after. It moves what the terminal shows and never
+              where the keystrokes go — watching and typing are two paths, and
+              the rack is only on the watching one (ADR 0027).
+            */}
+            <Rack
+              readouts={runs}
+              pending={queuedRuns}
+              refusals={refusedRuns}
+              spentElsewhere={rationHeldByMapSide}
+            />
+            {/*
               The run side, as a column: the run bar's dock, the pane, the rack's.
               The two docks are strips in the flow rather than anything positioned,
               because this box is deliberately not a containing block — and they
@@ -1630,25 +1668,6 @@ export function App() {
               <div className={styles.paneSlot}>
                 <Pane terminals={terminals} readouts={runs} />
               </div>
-              {/*
-                The rack, at the address ticket/64 reserved for it: in the flow
-                on the dial's side of the pane, so a narrowing terminal takes the
-                pane's pixels and leaves the rack standing on its floor. At the
-                `map` detent what is left of this side is the rack in studs,
-                which is the width at which supervising N runs still works.
-
-                Which run the pane shows is the rack's to change (#57): a row
-                is pressable and the press patches `monitored`, Rust first and
-                the store after. It moves what the terminal shows and never
-                where the keystrokes go — watching and typing are two paths, and
-                the rack is only on the watching one (ADR 0027).
-              */}
-              <Rack
-                readouts={runs}
-                pending={queuedRuns}
-                refusals={refusedRuns}
-                spentElsewhere={rationHeldByMapSide}
-              />
               <Dock
                 dock="rack"
                 occupant={occupant}
