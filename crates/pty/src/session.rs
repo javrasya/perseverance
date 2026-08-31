@@ -1199,6 +1199,7 @@ mod tests {
             &[],
             Geometry::new(40, 120),
             SCROLLBACK,
+            Box::new(NoWatch),
         )
         .expect("a shell starts");
 
