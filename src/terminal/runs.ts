@@ -86,17 +86,25 @@ export function readDelivery(frame: ArrayBuffer): Delivery | null {
 export type RunEnding = "live" | "spent" | "exitedUnresolved" | "exited";
 
 /**
- * Why a run reads as wedged. Two, and they want different sentences.
+ * Why a run reads as wedged. Two, and they want different sentences — and, being
+ * sentences about different quantities, different numbers.
  *
  * - `awaitingOperator` — the readiness rule the adapter declared ran out before
  *   the session opened. Every declared timeout is an order of magnitude above
  *   the ~223 ms an alternate screen has been measured to take, so what expired
  *   is not a slow machine: something is waiting for the operator, most likely a
- *   trust prompt.
+ *   trust prompt. It carries `unopenedForMs`, **how long since the spawn this
+ *   session has not opened** — never the byte silence, which is nothing at all
+ *   on a CLI that repaints a spinner while it waits, and which would print
+ *   `waiting for you · 0s` beside a run that has been stuck for ten seconds.
  * - `silent` — an unattended run has printed nothing for five minutes and
  *   nothing has ever classified it. Nobody is watching and nothing is coming.
+ *   It carries `silentForMs`, the byte silence, which is the whole of what this
+ *   reading is derived from.
  */
-export type Wedge = "awaitingOperator" | "silent";
+export type Wedge =
+  | { why: "awaitingOperator"; unopenedForMs: number }
+  | { why: "silent"; silentForMs: number };
 
 /**
  * What a run's silence means, or that it means nothing — as Rust derives it.
@@ -115,12 +123,14 @@ export type Wedge = "awaitingOperator" | "silent";
  * - `quiet` — silent with somebody at the keyboard and the ticket still open.
  *   For any elapsed, and forever.
  * - `wedged` — silent in a way that wants somebody, and `why` says which way.
+ *   The elapsed beside it is the one that way's sentence claims, so it is named
+ *   for that quantity and not for a shared one: see `Wedge`.
  */
 export type RunSilence =
   | { kind: "nothing" }
   | { kind: "spent" }
   | { kind: "quiet"; silentForMs: number }
-  | { kind: "wedged"; why: Wedge; silentForMs: number };
+  | ({ kind: "wedged" } & Wedge);
 
 /**
  * A live signal, as Rust writes it.

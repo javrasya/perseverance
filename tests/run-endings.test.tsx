@@ -260,11 +260,17 @@ describe("the silence reading crosses in the shape Rust writes", () => {
     const wedged: RunSilence = {
       kind: "wedged",
       why: "awaitingOperator",
-      silentForMs: 11_000,
+      unopenedForMs: 11_000,
     };
 
     expect(quiet.silentForMs).toBe(90_000);
     expect(wedged.why).toBe("awaitingOperator");
+    // Each wedge carries the quantity its own sentence claims, under the name
+    // of that quantity: how long the session has failed to open for this one,
+    // and the byte silence for the other.
+    expect(wedged.unopenedForMs).toBe(11_000);
+    const unwatched: RunSilence = { kind: "wedged", why: "silent", silentForMs: 5 * 60_000 };
+    expect(unwatched.silentForMs).toBe(5 * 60_000);
 
     // And the readings with nothing to print carry no elapsed at all, because a
     // spent run is never quiet and an exited one is an ending.
@@ -329,7 +335,7 @@ describe("the silence, printed as an observation", () => {
   it("names the CLI's own trust prompt, and raises nothing of its own", () => {
     monitor(7);
     const { host, unmount } = mount([
-      saying({ kind: "wedged", why: "awaitingOperator", silentForMs: 12_000 }),
+      saying({ kind: "wedged", why: "awaitingOperator", unopenedForMs: 12_000 }),
     ]);
 
     expect(chrome(host)).toContain(`${AWAITING_OPERATOR_READING} · 12s`);
@@ -381,7 +387,7 @@ describe("the silence, printed as an observation", () => {
     monitor(7);
     for (const silence of [
       { kind: "quiet", silentForMs: 4 * 60 * 60_000 },
-      { kind: "wedged", why: "awaitingOperator", silentForMs: 30_000 },
+      { kind: "wedged", why: "awaitingOperator", unopenedForMs: 30_000 },
       { kind: "wedged", why: "silent", silentForMs: 42 * 60_000 },
       { kind: "spent" },
       { kind: "nothing" },
@@ -402,7 +408,7 @@ describe("the silence, printed as an observation", () => {
   it("prints the reading as visible text and never behind a tooltip", () => {
     monitor(7);
     const { host, unmount } = mount([
-      saying({ kind: "wedged", why: "awaitingOperator", silentForMs: 12_000 }),
+      saying({ kind: "wedged", why: "awaitingOperator", unopenedForMs: 12_000 }),
     ]);
 
     for (const element of host.querySelectorAll("*")) {

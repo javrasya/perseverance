@@ -2748,25 +2748,53 @@ enum Silence {
     Quiet { silent_for_ms: u64 },
 
     /// Silent in a way that wants somebody. The elapsed is carried for the same
-    /// reason it is on [`Silence::Quiet`]: it is what the copy prints.
-    #[serde(rename_all = "camelCase")]
-    Wedged { why: Wedge, silent_for_ms: u64 },
+    /// reason it is on [`Silence::Quiet`] — it is what the copy prints — but
+    /// **which** elapsed is the wedge's own: see [`Wedge`], which carries it.
+    Wedged {
+        #[serde(flatten)]
+        why: Wedge,
+    },
 }
 
-/// Why a run reads as wedged. Two, and they want different sentences.
+/// Why a run reads as wedged. Two, and they want different sentences — and,
+/// because they are sentences about different quantities, different numbers.
+///
+/// Each carries its own elapsed rather than sharing one field, because the one
+/// they would share is a lie for one of them: a CLI repainting a spinner while
+/// it waits on a trust prompt has a byte silence of nothing at all, and
+/// `waiting for you · 0s` beside a session that has been failing to open for ten
+/// seconds is an observation of the wrong thing. The tag is flattened, so a
+/// wedge crosses as `{ kind: "wedged", why, … }` with the duration beside it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(tag = "why", rename_all = "camelCase")]
 enum Wedge {
     /// The readiness rule the adapter declared ran out before the session
     /// opened. The diagnosis is *something is waiting for the operator, most
     /// likely a trust prompt* — every declared timeout is an order of magnitude
     /// above the ~223 ms an alternate screen has been measured to take, so what
     /// expired is not a slow machine.
-    AwaitingOperator,
+    ///
+    /// The elapsed is how long since the spawn the session has not opened, which
+    /// is what the verdict is about and what `Readiness::Overdue` carries out of
+    /// `crates/pty`. Never the byte silence: nothing about this reading is a
+    /// claim about when the child last printed, and a run overdue at all has
+    /// been overdue for at least its declared deadline, so it is never a zero.
+    #[serde(rename_all = "camelCase")]
+    AwaitingOperator { unopened_for_ms: u64 },
 
     /// An unattended run has printed nothing for [`WEDGED`] and nothing has ever
     /// classified it. Nobody is watching this one and nothing is coming.
-    Silent,
+    ///
+    /// The elapsed here *is* the byte silence, because byte silence is the whole
+    /// of what this reading is derived from.
+    #[serde(rename_all = "camelCase")]
+    Silent { silent_for_ms: u64 },
+}
+
+/// An elapsed, as the milliseconds the chrome prints. Saturating, because a
+/// duration longer than half a billion years is not a reason to panic.
+fn millis(elapsed: Duration) -> u64 {
+    elapsed.as_millis().min(u128::from(u64::MAX)) as u64
 }
 
 /// The whole derivation, over six plain values and nothing else.
@@ -2783,6 +2811,11 @@ enum Wedge {
 /// the run's own history. It is deliberately not *does this adapter watch*:
 /// nothing anywhere may ask that, and every run is drained through a watch on
 /// identical terms so there is nothing to ask.
+///
+/// `quiet` is the byte silence and it is the elapsed on every reading here but
+/// one: the operator wedge prints the elapsed [`Readiness::Overdue`] brings with
+/// it, because *the session has not opened* is a claim about time since the
+/// spawn and the byte silence beside it may be nothing at all.
 fn silence(
     over: bool,
     seen: Option<NodeState>,
@@ -2791,7 +2824,7 @@ fn silence(
     readiness: Readiness,
     signalled: bool,
 ) -> Silence {
-    let silent_for_ms = quiet.as_millis().min(u128::from(u64::MAX)) as u64;
+    let silent_for_ms = millis(quiet);
 
     // The latch first, and in both columns, exactly as `ending` takes it.
     if seen == Some(NodeState::Resolved) {
@@ -2803,10 +2836,15 @@ fn silence(
     if over {
         return Silence::Nothing;
     }
-    if readiness == Readiness::Overdue {
+    // The reading brings its own elapsed, and it is not this one: how long the
+    // session has failed to open is a fact about time since the spawn, and the
+    // byte silence beside it can be nothing at all on a CLI that repaints while
+    // it waits.
+    if let Readiness::Overdue { unopened_for } = readiness {
         return Silence::Wedged {
-            why: Wedge::AwaitingOperator,
-            silent_for_ms,
+            why: Wedge::AwaitingOperator {
+                unopened_for_ms: millis(unopened_for),
+            },
         };
     }
     // The fallback, and the only branch with a number in it. Two conditions gate
@@ -2814,8 +2852,7 @@ fn silence(
     // nothing has ever been said about it.
     if kind.is_some_and(RunKind::unattended) && !signalled && quiet >= WEDGED {
         return Silence::Wedged {
-            why: Wedge::Silent,
-            silent_for_ms,
+            why: Wedge::Silent { silent_for_ms },
         };
     }
     // The floor, and last of all so that nothing above it is muted: a wedge is a
@@ -5258,19 +5295,21 @@ mod tests {
             ),
             (
                 Silence::Wedged {
-                    why: Wedge::AwaitingOperator,
-                    silent_for_ms: 1_000,
+                    why: Wedge::AwaitingOperator {
+                        unopened_for_ms: 12_000,
+                    },
                 },
                 "wedged",
-                Some("awaitingOperator"),
+                Some(("awaitingOperator", "unopenedForMs", 12_000)),
             ),
             (
                 Silence::Wedged {
-                    why: Wedge::Silent,
-                    silent_for_ms: 1_000,
+                    why: Wedge::Silent {
+                        silent_for_ms: 1_000,
+                    },
                 },
                 "wedged",
-                Some("silent"),
+                Some(("silent", "silentForMs", 1_000)),
             ),
         ] {
             let crossed = serde_json::to_value(RunReadout {
@@ -5281,7 +5320,13 @@ mod tests {
                 .clone();
             assert_eq!(crossed["kind"], kind);
             match why {
-                Some(why) => assert_eq!(crossed["why"], why),
+                // The wedge names why beside its own elapsed, flat and in the
+                // spelling the mirror reads: the two wedges carry different
+                // quantities, so they carry differently-named fields.
+                Some((why, field, elapsed)) => {
+                    assert_eq!(crossed["why"], why);
+                    assert_eq!(crossed[field], elapsed);
+                }
                 None => assert!(crossed["why"].is_null()),
             }
         }
@@ -5334,8 +5379,9 @@ mod tests {
         assert_eq!(
             unattended(WEDGED),
             Silence::Wedged {
-                why: Wedge::Silent,
-                silent_for_ms: 300_000,
+                why: Wedge::Silent {
+                    silent_for_ms: 300_000
+                },
             }
         );
     }
@@ -5374,19 +5420,25 @@ mod tests {
         );
 
         // The same nothing-elapsed, with the readiness rule run out: the floor
-        // is above the fall-through to quiet and below every wedge.
+        // is above the fall-through to quiet and below every wedge. And the
+        // wedge does not borrow the nothing-elapsed to print — a CLI repainting
+        // a spinner at a trust prompt printed a moment ago and has still not
+        // opened in twelve seconds, so twelve seconds is what it says.
         assert_eq!(
             silence(
                 false,
                 Some(NodeState::Claimed),
                 Some(RunKind::Work),
                 Duration::ZERO,
-                Readiness::Overdue,
+                Readiness::Overdue {
+                    unopened_for: Duration::from_secs(12)
+                },
                 true,
             ),
             Silence::Wedged {
-                why: Wedge::AwaitingOperator,
-                silent_for_ms: 0,
+                why: Wedge::AwaitingOperator {
+                    unopened_for_ms: 12_000,
+                },
             }
         );
     }
@@ -5398,7 +5450,13 @@ mod tests {
         for (kind, readiness, quiet) in [
             (RunKind::Work, Readiness::Ready, Duration::from_secs(3_600)),
             (RunKind::Research, Readiness::Ready, WEDGED * 2),
-            (RunKind::Research, Readiness::Overdue, Duration::ZERO),
+            (
+                RunKind::Research,
+                Readiness::Overdue {
+                    unopened_for: Duration::from_secs(10),
+                },
+                Duration::ZERO,
+            ),
         ] {
             assert_eq!(
                 silence(
@@ -5426,13 +5484,16 @@ mod tests {
                     false,
                     Some(NodeState::Claimed),
                     Some(kind),
-                    Duration::from_secs(11),
-                    Readiness::Overdue,
+                    Duration::from_secs(1),
+                    Readiness::Overdue {
+                        unopened_for: Duration::from_secs(11),
+                    },
                     true,
                 ),
                 Silence::Wedged {
-                    why: Wedge::AwaitingOperator,
-                    silent_for_ms: 11_000,
+                    why: Wedge::AwaitingOperator {
+                        unopened_for_ms: 11_000,
+                    },
                 }
             );
         }
@@ -5484,7 +5545,9 @@ mod tests {
                 Some(NodeState::Claimed),
                 Some(RunKind::Research),
                 WEDGED * 2,
-                Readiness::Overdue,
+                Readiness::Overdue {
+                    unopened_for: WEDGED * 2,
+                },
                 false,
             ),
             Silence::Nothing

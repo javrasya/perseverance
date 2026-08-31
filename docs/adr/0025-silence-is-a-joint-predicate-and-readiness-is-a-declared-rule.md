@@ -69,7 +69,14 @@ this run — and produces one tagged reading. The table, in order:
    the same readout, and saying it twice in two vocabularies is how the two come
    to disagree.
 3. Readiness overdue is a wedge of its own, with its own diagnosis: *something is
-   waiting for the operator, most likely a trust prompt.*
+   waiting for the operator, most likely a trust prompt.* It also carries its own
+   elapsed — how long since the spawn the session has not opened, which is what
+   `Readiness::Overdue` brings out of `crates/pty` — and never the byte silence
+   beside it. The two are different quantities: a CLI that repaints a spinner
+   while it waits on that prompt printed a millisecond ago, and
+   `waiting for you · 0s` beside a session ten seconds overdue is an observation
+   of the wrong thing. So the two wedges carry differently-named durations,
+   `unopenedForMs` and `silentForMs`, and each sentence prints the one it claims.
 4. An attended run silent with its ticket still open is `quiet`, carrying the
    elapsed, **for any elapsed and forever**. There is no length at which it
    becomes a fault, because there is somebody in front of it. Under a few

@@ -35,7 +35,15 @@ pub enum Readiness {
     /// an alternate screen has been measured to take, so what has run out is not
     /// a slow machine — it is most likely a prompt waiting for the operator. The
     /// reading crosses; what to say about it is the chrome's.
-    Overdue,
+    ///
+    /// The elapsed rides along because it is the only place it is knowable, and
+    /// because the sentence this reading becomes prints a number: **how long
+    /// since the spawn the declared rule has gone unsatisfied**, which is never
+    /// the byte silence beside it. A CLI that repaints a spinner while it waits
+    /// on a trust prompt has printed a moment ago and has still not opened in
+    /// ten seconds, and it is the ten seconds the operator needs to read. Always
+    /// at least the declared deadline, so this is never a zero.
+    Overdue { unopened_for: Duration },
 }
 
 /// What the drain loop learns about a run that is not bytes.
@@ -158,8 +166,9 @@ impl Pulse {
             Ready::AltScreen { timeout } => timeout,
             Ready::Quiet { max, .. } => max,
         };
-        if now.saturating_duration_since(self.started) >= deadline {
-            Readiness::Overdue
+        let unopened_for = now.saturating_duration_since(self.started);
+        if unopened_for >= deadline {
+            Readiness::Overdue { unopened_for }
         } else {
             Readiness::Waiting
         }
@@ -234,7 +243,9 @@ mod tests {
         );
         assert_eq!(
             pulse.readiness(started + Duration::from_secs(10)),
-            Readiness::Overdue
+            Readiness::Overdue {
+                unopened_for: Duration::from_secs(10)
+            }
         );
 
         // Overdue closes nothing: the operator answers the prompt, the agent
@@ -243,6 +254,30 @@ mod tests {
         assert_eq!(
             pulse.readiness(started + Duration::from_secs(31)),
             Readiness::Ready
+        );
+    }
+
+    /// The overdue elapsed is the run's own, and it is not the byte silence.
+    ///
+    /// A CLI that repaints while it waits — a spinner, a first-run install, an
+    /// animated banner — has printed a millisecond ago and has still not opened
+    /// in twelve seconds. The byte silence is ~0 and says nothing about the
+    /// verdict; what the reading claims is the twelve seconds since the spawn,
+    /// so that is what it carries.
+    #[test]
+    fn the_overdue_elapsed_is_measured_from_the_spawn_and_not_from_the_last_byte() {
+        let started = Instant::now();
+        let mut pulse = Pulse::opening(alt_screen(Duration::from_secs(10)), started);
+
+        pulse.read(b"|", started + Duration::from_secs(12));
+
+        let now = started + Duration::from_millis(12_001);
+        assert_eq!(pulse.quiet(now), Duration::from_millis(1));
+        assert_eq!(
+            pulse.readiness(now),
+            Readiness::Overdue {
+                unopened_for: Duration::from_millis(12_001)
+            }
         );
     }
 

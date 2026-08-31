@@ -75,7 +75,7 @@ const AWAITING_OPERATOR = a({
   ticket: 51,
   folder: "/work/perseverance",
   monitored: true,
-  silence: { kind: "wedged", why: "awaitingOperator", silentForMs: 12_000 },
+  silence: { kind: "wedged", why: "awaitingOperator", unopenedForMs: 12_000 },
 });
 
 /**

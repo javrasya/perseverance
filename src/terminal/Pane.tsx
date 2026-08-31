@@ -92,8 +92,11 @@ export function silenceSentence(readout: RunReadout): string | null {
     case "quiet":
       return `${QUIET_READING} · ${briefSpan(silence.silentForMs)}`;
     case "wedged":
+      // Each wedge prints its own quantity: how long the session has failed to
+      // open for one, and the byte silence for the other. They are different
+      // facts, and the sentence beside each states the one it is about.
       return silence.why === "awaitingOperator"
-        ? `${AWAITING_OPERATOR_READING} · ${briefSpan(silence.silentForMs)} — ${AWAITING_OPERATOR_DETAIL}`
+        ? `${AWAITING_OPERATOR_READING} · ${briefSpan(silence.unopenedForMs)} — ${AWAITING_OPERATOR_DETAIL}`
         : `${UNWATCHED_READING} · ${briefSpan(silence.silentForMs)} — ${UNWATCHED_DETAIL}`;
   }
 }
