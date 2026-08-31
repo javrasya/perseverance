@@ -32,9 +32,9 @@ classification is
 | 8 | No stored positions | codebase | structural | no | construction in `crates/store/src/schema.rs` | no slot |
 | 9 | Motion is rationed | rendering | asserted | yes | assertion over the fixture space (#43) | no slot |
 | 10 | Hover discloses nothing | reading | **judged** | yes | asserted floor (#43), then declaration | declared |
-| 11 | The field is not the label surface | reading | **judged** | yes | declaration only — no floor a machine can settle | declared, with deviation |
+| 11 | The field is not the label surface | reading | **judged** | yes | declaration only — no floor a machine can settle | declared |
 | 12 | Still-state equivalent | rendering | **judged** | yes | asserted floor (#43), then declaration | declared |
-| 13 | Resolved stays locatable | reading | **judged** | yes | asserted floor (#43), then declaration | declared, with deviation |
+| 13 | Resolved stays locatable | reading | **judged** | yes | asserted floor (#43), then declaration | declared |
 
 A view column reads `no slot` wherever the rule is structural or asserted.
 That is not an omission: deviation is a function of tier, and only a judged
@@ -49,22 +49,7 @@ below is work scheduled to be worked off — the declaration says what the
 view does today, and this list is what the contract is owed. Quoted from the
 declarations verbatim.
 
-### route — rule 11, The field is not the label surface
-
-Deviation: the O(1) reading argument in ADR 0006 is not implemented. The pane
-scrolls instead of capping, so at a large enough n the reader's cost is a scroll
-rather than a fixed rail, and the recorded justification for rule 11's immunity
-is ahead of the code. To work off: either build the cap and the `N more`, or
-restate the immunity from the layout kind alone and strike the cap from the ADR.
-
-### route — rule 13, Resolved stays locatable
-
-Deviation: older contract prose cites The Route as the exemplar for rule 13 on
-the strength of unread marks and a resolution-comment reading pane, and neither
-exists. The rule is kept at its floor and the exemplar claim is stale. To work
-off: either build the unread mark and the reading pane on top of a model that
-carries read state, or move the exemplar to whichever view earns it and leave
-this view declaring the ink-weight answer on its own terms.
+Nothing is declared as a deviation today.
 
 ## Open obligations that are not deviations
 

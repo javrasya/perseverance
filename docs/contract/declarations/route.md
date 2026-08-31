@@ -91,15 +91,16 @@ ADR 0006 argued that point partly from a cap — capped regions, an `N more`
 affordance and a rail height that stays O(1). None of that shipped. Nothing is
 capped, nothing is sliced, there is no `N more`, and every resolved row on a
 finished map is rendered; the pane is its own scrollport (`overflow-y: auto` on
-`.route`) and scrolling is what it does about length. The rule is still kept —
-labels cannot collide with a field that does not exist — but the argument
-recorded for it names a mechanism this view does not have.
+`.route`) and scrolling is what it does about length.
 
-Deviation: the O(1) reading argument in ADR 0006 is not implemented. The pane
-scrolls instead of capping, so at a large enough n the reader's cost is a scroll
-rather than a fixed rail, and the recorded justification for rule 11's immunity
-is ahead of the code. To work off: either build the cap and the `N more`, or
-restate the immunity from the layout kind alone and strike the cap from the ADR.
+The rule is kept without any of that, and kept the same way at any n: labels
+cannot collide with a field that does not exist, and the immunity is a property
+of the layout kind rather than of a row count, so the cap was never the thing
+earning it. What the missing cap changes is the reader's cost on a long map — a
+scroll rather than a fixed rail — which is a fact about the pane and not a
+different answer to rule 11. The stale half was the ADR's own, and ADR 0006 now
+records the cap, the `N more` and the O(1) rail as unbuilt. That is a note for
+whoever builds them, not a deviation.
 
 ## Rule 12 — Still-state equivalent
 
@@ -149,9 +150,13 @@ state and no comment body for a view to render — so the reasons the contract
 gives for resolved staying *worth locating* are not reasons this view can point
 at yet.
 
-Deviation: older contract prose cites The Route as the exemplar for rule 13 on
-the strength of unread marks and a resolution-comment reading pane, and neither
-exists. The rule is kept at its floor and the exemplar claim is stale. To work
-off: either build the unread mark and the reading pane on top of a model that
-carries read state, or move the exemplar to whichever view earns it and leave
-this view declaring the ink-weight answer on its own terms.
+The rule is kept, and the ink-weight answer is the answer: recession is carried
+by two ink steps and by nothing that removes a row, so a resolved ticket stays
+findable, focusable and counted where a reader would look for it. What is stale
+is a claim made elsewhere — older contract prose cites The Route as the exemplar
+for rule 13 on the strength of unread marks and a resolution-comment reading
+pane, and neither exists here or anywhere in `src/`. That is a citation to
+correct where it was made, and #10 now carries it; it is not a way this view
+answers the rule differently, and nothing about the floor or the ink weight
+waits on it. That is a note for whoever builds the reading pane, not a
+deviation.

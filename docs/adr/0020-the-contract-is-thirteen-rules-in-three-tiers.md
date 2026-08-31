@@ -222,9 +222,15 @@ route at all, and the tests assert that too — a declaration filed under one
 would be an appeal the ladder does not grant.
 
 **Three gates, each keyed to what changed.** Adding a state ships one fixture:
-the fixture space (fixtures × two themes × reduced-motion) is derived from
-`FIXTURE_NAMES`, and no second enumeration of fixture names may exist anywhere
-for a new one to have to be added to. Adding a view brings the fixture space and
+every `NodeState` value must appear on a node of some checked-in fixture, so the
+commit that names a fifth state is red until the fixture exercising it lands.
+The enumeration is borrowed from `STATE_NAMES`, the one `Record<NodeState, _>`
+in `src/`, because a union has no runtime form and a list of state names written
+beside it is the parallel list that stays one state behind. Around that gate sit
+two cost reductions, so the fixture the gate demands is cheap to add: the fixture
+space (fixtures × two themes × reduced-motion) is derived from `FIXTURE_NAMES`,
+and no second enumeration of fixture names may exist anywhere for a new one to
+have to be added to. Adding a view brings the fixture space and
 a declaration for every judged rule, and the gate is driven off `VIEWS`, so the
 commit that registers a second view is the commit that goes red. Adding a rule
 requires a tier, and a rule landing in *judged* retro-fits a section onto every

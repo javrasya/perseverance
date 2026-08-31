@@ -7,7 +7,9 @@ import {
   deviationFor,
   renderBoundRules,
 } from "../src/contract/rules";
-import { FIXTURE_NAMES } from "../src/snapshot/fixtures";
+import { FIXTURE_NAMES, FIXTURES } from "../src/snapshot/fixtures";
+import type { NodeState } from "../src/snapshot/model.generated";
+import { STATE_NAMES } from "../src/views/route/route";
 import { VIEWS } from "../src/views/views";
 import {
   DECLARATIONS_DIR,
@@ -16,6 +18,7 @@ import {
   parseDeclaration,
   readDeclaration,
   sectionFor,
+  type ViewDeclaration,
 } from "./support/contract";
 import { worklist } from "./support/matrix";
 import { REPO_ROOT, SRC_ROOT, collectFrom } from "./support/sources";
@@ -171,6 +174,25 @@ describe("presence is asserted, content is judged", () => {
 });
 
 describe("gate: adding a state ships one fixture", () => {
+  it("crosses the state union with the fixtures, so a fifth state lands red", () => {
+    // The union is erased before runtime, so the enumeration is borrowed from
+    // the one exhaustive witness `src/` already keeps: `STATE_NAMES` is a
+    // `Record<NodeState, string>`, which a fifth variant cannot compile
+    // without. Naming the state there is therefore forced, and this is what
+    // stays red from that commit until the fixture exercising it ships. The
+    // two checks below are the cost-reduction half — they keep the fixture
+    // cheap to add; this one is the gate.
+    const states = Object.keys(STATE_NAMES) as NodeState[];
+    const exercised = new Set(
+      Object.values(FIXTURES).flatMap((snapshot) =>
+        (snapshot.model.map?.nodes ?? []).map((node) => node.state),
+      ),
+    );
+
+    expect(states).not.toHaveLength(0);
+    expect(states.filter((state) => !exercised.has(state))).toEqual([]);
+  });
+
   it("derives the fixture space rather than keeping a list beside it", () => {
     const space = fixtureSpace(FIXTURE_NAMES);
 
@@ -252,22 +274,67 @@ describe("gate: adding a rule declares its tier, and a judged one retro-fits", (
 describe("declared deviations are a worklist, never a carve-out", () => {
   const declarations = VIEWS.map((view) => readDeclaration(view));
 
-  it("collects each declared deviation verbatim from the file that declares it", () => {
-    const items = worklist(RULES, declarations);
+  /*
+   * The mechanism is exercised on a declaration written here, because
+   * `Deviation:` is reserved for a view that does not comply and no registered
+   * view is out of compliance today. A test demanding a non-empty worklist
+   * would be a test asking the repo to keep a debt so that an assertion has
+   * something to read — the shape of the collection is what is under test, and
+   * that shape does not depend on the contract being owed anything.
+   */
+  const declaring: ViewDeclaration = {
+    view: "deep-field",
+    path: declarationPath("deep-field"),
+    parsed: parseDeclaration(
+      [
+        "## Rule 13 — Resolved stays locatable",
+        "",
+        "The field drops a resolved node once the map that held it is finished.",
+        "",
+        "Deviation: a resolved node leaves the field a day after it resolves.",
+        "",
+        "## Rule 9 — Motion is enumerated",
+        "",
+        "Deviation: the field animates every arrival.",
+      ].join("\n"),
+    ),
+  };
 
-    expect(items.length).toBeGreaterThan(0);
-    for (const item of items) {
+  it("collects a declared deviation verbatim from the section that declares it", () => {
+    const items = worklist(RULES, [declaring]);
+
+    expect(items.map((item) => `${item.view} × ${item.rule.id}`)).toEqual([
+      "deep-field × 13",
+    ]);
+    expect(items[0]?.text).toBe(
+      "Deviation: a resolved node leaves the field a day after it resolves.",
+    );
+  });
+
+  it("finds none under a rule whose tier grants no appeal", () => {
+    // Rule 9 is asserted, and the synthetic declaration files a deviation
+    // under it anyway: the collection drops it rather than scheduling an
+    // appeal the ladder does not grant. That such a section exists at all is
+    // the presence gate's business, not this one's.
+    expect(worklist(RULES, [declaring]).some((item) => item.rule.id === 9)).toBe(
+      false,
+    );
+
+    const withoutRoute = RULES.filter((rule) => !deviationFor(rule).declarable);
+
+    expect(worklist(withoutRoute, [declaring, ...declarations])).toEqual([]);
+  });
+
+  it("quotes the registered views without editing them, whatever they declare", () => {
+    // Empty today, and allowed to be: the worklist is what the contract is
+    // owed, so a view that complies contributes nothing. What is asserted is
+    // that anything it does contribute is the paragraph as written.
+    for (const item of worklist(RULES, declarations)) {
       expect(item.text.startsWith("Deviation:")).toBe(true);
       expect(deviationFor(item.rule).declarable).toBe(true);
 
       const body = sectionFor(readDeclaration(item.view), item.rule.id)?.body ?? "";
       expect(body).toContain(item.text);
     }
-  });
-
-  it("finds none under a rule whose tier grants no appeal", () => {
-    const withoutRoute = RULES.filter((rule) => !deviationFor(rule).declarable);
-
-    expect(worklist(withoutRoute, declarations)).toEqual([]);
   });
 });
