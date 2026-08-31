@@ -2203,14 +2203,24 @@ impl Terminals {
     /// it dropped with it.
     ///
     /// Reached from [`end_run`] and from nothing else; that command is where the
-    /// rule about who may call it is argued. The handle goes last and outside
-    /// the lock, because dropping it wakes the poller and a table three threads
-    /// read is not a thing to be holding while that happens.
+    /// rule about who may call it is argued.
+    ///
+    /// **Nothing expensive drops under a lock here.** The session is lifted out
+    /// of the registry with [`perseverance_pty::Runs::take`] and dropped once
+    /// the guard is gone, because that drop is what ends the child — a hangup, a
+    /// few looks, then a kill — and it can take a quarter of a second on one
+    /// that traps the hangup. The frame pump and the readout tick both read that
+    /// table several times a second, so a press that held it for that long would
+    /// stop bytes reaching the pane it just closed a neighbour of. The handle
+    /// goes last and outside the lock for the same shape of reason: dropping it
+    /// wakes the poller, and a table three threads read is not a thing to be
+    /// holding while that happens.
     pub fn ended(&self, run: RunId) {
-        self.held().close(run);
+        let session = self.held().take(run);
         self.staked_here().remove(&run);
         self.resolved_here().remove(&run);
         let counted = self.counted_here().remove(&run);
+        drop(session);
         drop(counted);
     }
 
@@ -2548,11 +2558,16 @@ fn run_readouts(terminals: State<'_, Terminals>) -> Vec<RunReadout> {
 /// the strength of a GitHub read, and the last thing an agent printed is exactly
 /// what a person goes looking for afterwards.
 ///
-/// The child is ended with the session, which is what dropping it through
-/// [`perseverance_pty::Runs::close`] means: a press is a decision to stop, and a
+/// The child is ended with the session, which is what lifting it out through
+/// [`perseverance_pty::Runs::take`] means: a press is a decision to stop, and a
 /// run left alive with nothing holding its bytes would be an orphan this app
 /// could not name at the next quit.
-#[tauri::command]
+///
+/// **Async, so the press leaves the main thread.** Ending the child is a hangup
+/// and then a wait, and a child that traps the hangup is killed a quarter of a
+/// second later; a synchronous command would spend that on the event loop, with
+/// the window frozen behind it.
+#[tauri::command(async)]
 fn end_run(terminals: State<'_, Terminals>, run: u64) {
     terminals.ended(RunId::from_u64(run));
 }

@@ -105,7 +105,14 @@ pub struct Telemetry {
     pub monitored: bool,
 }
 
-struct Run {
+/// One run as the registry holds it: the session that owns the child, and the
+/// tap its terminal reads through.
+///
+/// Public because [`Runs::take`] hands a removed one back, and a caller that
+/// owns the value is a caller that decides where the drop happens. Nothing can
+/// be done with it from outside — it has no members — which is the point: the
+/// only thing worth having is the drop.
+pub struct Run {
     session: Session,
     tap: Tap,
 }
@@ -276,18 +283,31 @@ impl Runs {
             .collect()
     }
 
-    /// Forget a run, which ends it: the session drops, and with it the guard
-    /// holding its process tree.
+    /// Forget a run and hand it back, so the caller owns the drop.
+    ///
+    /// The removal is the cheap half of forgetting a run; the drop is the
+    /// expensive one, because a session's `Drop` signals its child and waits on
+    /// it. Returning the run separates the two: this registry is out of the way
+    /// the moment the call returns, and whatever the value costs to drop, it
+    /// costs it wherever its new owner is rather than here.
     ///
     /// A run that has merely finished is **not** forgotten by this or anything
     /// else here. Its terminal stays readable until the ending is resolved,
     /// which is #49's, and a registry that reaped on end-of-file would take the
     /// last thing the agent said off the screen.
-    pub fn close(&mut self, run: RunId) {
-        self.runs.remove(&run);
+    pub fn take(&mut self, run: RunId) -> Option<Run> {
+        let taken = self.runs.remove(&run);
         if self.monitored == Some(run) {
             self.monitored = None;
         }
+        taken
+    }
+
+    /// Forget a run, which ends it here: the session drops inside this call, and
+    /// with it the guard holding its process tree. [`Runs::take`] is the same
+    /// removal for a caller that wants the drop to land somewhere else.
+    pub fn close(&mut self, run: RunId) {
+        drop(self.take(run));
     }
 
     /// Every session, ended. The third phase of [`Runs::shut_down`], and still
@@ -600,6 +620,28 @@ mod tests {
 
         runs.close(only);
 
+        assert_eq!(runs.monitored(), None);
+        assert_eq!(runs.live(), 0);
+        assert!(runs.telemetry().is_empty());
+    }
+
+    #[test]
+    fn taking_the_monitored_run_hands_it_back_and_leaves_nothing_monitored() {
+        let directory = TempDir::new().expect("temp dir");
+        let mut runs = Runs::new();
+
+        let only = runs
+            .open(a_run_that_waits(), directory.path(), &[])
+            .expect("a shell starts");
+        runs.monitor(Some(only));
+
+        let taken = runs.take(only);
+
+        assert!(taken.is_some(), "the removed run comes back to its caller");
+        assert!(
+            runs.take(only).is_none(),
+            "and it is gone from the registry, not shared with it"
+        );
         assert_eq!(runs.monitored(), None);
         assert_eq!(runs.live(), 0);
         assert!(runs.telemetry().is_empty());
