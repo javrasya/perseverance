@@ -74,9 +74,11 @@ export default defineConfig({
    * because a device descriptor carries its own viewport and would win.
    *
    * The widest view decides it. The Plate's floor is a floor on the *drawing*,
-   * and the map side has to hold the launcher, the rail and this view's own
-   * reserved margin before the drawing gets a pixel — `VIEW_FLOORS.plate`
-   * composes all of that and lands well past a 1280px laptop default. A suite
+   * and the map side has to hold the launcher, the rail, the shell's own
+   * padding and this view's reserved margin before the drawing gets a pixel —
+   * `VIEW_FLOORS.plate` composes all of that and lands at 2360px of map side,
+   * which no 1280px laptop default and no 1920px display can reach at any
+   * detent. ADR 0026 records why that is accepted rather than fixed. A suite
    * run in a window under it would meet the stand-down at every state and fail
    * loudly (`drive.ts` says so out loud rather than skipping), which is the
    * shell behaving correctly and the harness asking the wrong question. This is

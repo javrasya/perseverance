@@ -85,13 +85,41 @@ view that cannot reflow. Scaling the drawing below 1:1 would defeat the whole
 point of reserving label boxes in cells of 14px — the plates stop holding the
 words the solver reserved room for — so the field is drawn at its natural size
 and the view column is the scrollport. That leaves exactly one stand-down, the
-floor: `VIEW_FLOORS.plate` is `PLATE_FLOOR` (700px), and under it the shell's own
-`standDown` names the view, what it needs, what it has and two exits an operator
-can press. `plateStandDown` — this module's own second opinion, with a
+floor: `PLATE_FLOOR` (700px) is a floor on the **field** — the box the diagram is
+drawn in — and under it the shell's own `standDown` names the view, what it
+needs, what it has and two exits an operator can press. `plateStandDown` — this
+module's own second opinion, with a
 `narrowerThanPlate` reading for *above the floor but under this drawing's width*
 — is **deleted**. Its second reading has no remedy worth a stand-down now that
 the answer is scroll, and a second stand-down type would have been a second thing
 entitled to disagree with the registry about when a view is drawn.
+
+**700px of field is 2360px of map side, and the Plate is a monitor-class view.**
+The registry is read against the map side, so `VIEW_FLOORS.plate` is the floor
+composed the whole way out: 700 of field, plus the view's own 344 of chrome
+(`PLATE_CHROME` — an 18rem margin, a 24px gap, 16px of padding on each side),
+plus the 32px the shell pads every view column with (`VIEW_GUTTER`), which is
+1076px of view column; the launcher is `flex: 1` beside the view and takes an
+equal share, and the rail takes its fixed 208px strip, so 1076 × 2 + 208 = 2360.
+Written down here because the arithmetic in `panes/dial.ts` hides what it costs:
+a 1920×1080 laptop cannot draw the Plate at any detent, and a 2560px window
+draws it at the `map` detent and nowhere else. The conformance suite runs at
+2560×1440 for that reason and not by accident.
+
+This is accepted rather than overlooked, and the alternatives were both worse
+here. Making the launcher shed or stop taking an equal share beside a wide view
+would put the floor near 1250px of map side, but the launcher's presence beside
+the view is itself a decision (`App.module.css`: *the view stands beside the
+launcher rather than in place of it, because a surface that cannot be got back to
+is a surface that has been deleted*), and #48 argues the launcher may never be
+hidden for a view being open — width alone is allowed to shed it. Lowering
+`PLATE_FLOOR` would trade the acceptance criterion #63 was written around: a
+field carrying an 18rem margin, under 700px, is a drawing in three inches. So the
+cost is paid in reach rather than in legibility or in the way back.
+
+Falsifiable, and by measurement rather than argument: if operators are meeting
+the Plate's stand-down on the displays they actually own, this decision is wrong,
+and the fix is the launcher's share — not the floor, and not the stand-down.
 
 ## Consequences
 

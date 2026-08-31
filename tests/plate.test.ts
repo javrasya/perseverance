@@ -17,6 +17,7 @@ import {
 } from "../src/views/plate/plate";
 import {
   VIEW_FLOORS,
+  VIEW_GUTTER,
   floorOf,
   fractionOf,
   mapSideFor,
@@ -455,25 +456,30 @@ describe("the floor, as numbers", () => {
    * drawing can mean.
    *
    * #63 first compared `PLATE_FLOOR` against the map side, and the map side is a
-   * flex row: the launcher and the rail are drawn beside the view column, and
-   * this view spends `PLATE_CHROME` more of that column on its reserved margin.
-   * At 700px of map side the drawing was left under two hundred pixels — the
-   * three inches the floor exists to refuse. So the two numbers are held to each
-   * other here: at exactly the registered floor the field is worth `PLATE_FLOOR`
-   * and a pixel under it, it is not.
+   * flex row: the launcher and the rail are drawn beside the view column, the
+   * shell pads the column it hands over (`VIEW_GUTTER`), and this view spends
+   * `PLATE_CHROME` more of what is left on its reserved margin. At 700px of map
+   * side the drawing was left under two hundred pixels — the three inches the
+   * floor exists to refuse — and with the shell's own padding left out of the
+   * composition it was still 32px short of the promise. So every term is spent
+   * here: at exactly the registered floor the field is worth `PLATE_FLOOR`, and
+   * a pixel under it, it is not.
    */
   it("hands the field the pixels the floor promises", () => {
-    const field = (mapSide: number) => viewColumnAt(mapSide) - PLATE_CHROME;
+    const field = (mapSide: number) => viewColumnAt(mapSide) - VIEW_GUTTER - PLATE_CHROME;
 
     expect(field(floorOf("plate"))).toBeGreaterThanOrEqual(PLATE_FLOOR);
     expect(field(floorOf("plate") - 1)).toBeLessThan(PLATE_FLOOR);
   });
 
   /*
-   * And the chrome is read out of the stylesheet rather than asserted from the
-   * same comment that set it: `PLATE_CHROME` is three declarations in
-   * `Plate.module.css` and two tokens, and a sheet that widens the margin with
-   * this number left behind is exactly the drift this whole test exists for.
+   * And the chrome is read out of the stylesheets rather than asserted from the
+   * same comments that set it: `PLATE_CHROME` is three declarations in
+   * `Plate.module.css` and two tokens, `VIEW_GUTTER` is one declaration in
+   * `App.module.css`, and a sheet that widens either with these numbers left
+   * behind is exactly the drift this whole test exists for. Both sheets, because
+   * reading only the view's own is how the shell's padding went uncharged in the
+   * first place.
    */
   it("keeps the chrome it charges for and the chrome it draws in step", () => {
     const sheet = readFileSync(
@@ -501,6 +507,14 @@ describe("the floor, as numbers", () => {
     expect(semantic).toContain("--s-space-loose: var(--p-space-5)");
 
     expect(PLATE_CHROME).toBe(18 * 16 + 24 + 16 * 2);
+
+    /* And the gutter the shell draws around the view, out of the shell's own
+       sheet: `.view` is where the Plate is rendered, and its padding is on both
+       sides of the box the view is handed. */
+    const shell = readFileSync(new URL("../src/App.module.css", import.meta.url), "utf8");
+    const viewRule = shell.slice(shell.indexOf("\n.view {"));
+    expect(viewRule.slice(0, viewRule.indexOf("}"))).toContain("padding: var(--s-space-base)");
+    expect(VIEW_GUTTER).toBe(16 * 2);
   });
 
   /*

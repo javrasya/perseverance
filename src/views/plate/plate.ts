@@ -207,8 +207,9 @@ export const CELL_PIXELS = 14;
  * it stands down and says why.
  *
  * The field and not the map side, because the map side is not what the drawing
- * gets: the shell draws the launcher and the rail beside the view column, and
- * this view then spends [`PLATE_CHROME`] of that column on its own margin. Read
+ * gets: the shell draws the launcher and the rail beside the view column, pads
+ * the column it hands over (`VIEW_GUTTER` in `panes/dial.ts`), and this view
+ * then spends [`PLATE_CHROME`] of what is left on its own margin. Read
  * against the map side — which is where #63 first put it — 700 here left the
  * drawing under two hundred pixels, which is the three inches this number
  * exists to refuse. What the shell compares against the map side is this floor
@@ -226,6 +227,12 @@ export const PLATE_FLOOR = 700;
  * (`--s-space-base`, 16px). A stylesheet that moves one of them and leaves this
  * alone is caught by `tests/plate.test.ts`, which reads the numbers back out of
  * the sheet rather than trusting this comment.
+ *
+ * The view's *own* column, and only that. The padding the shell puts around
+ * every view lives in `App.module.css`, is charged once by `VIEW_GUTTER` in
+ * `panes/dial.ts`, and deliberately is not repeated here — a term counted in
+ * both places is a floor that is 32px too tall, exactly as leaving it out of
+ * both made one 32px too short.
  */
 export const PLATE_CHROME = 288 + 24 + 16 * 2;
 
