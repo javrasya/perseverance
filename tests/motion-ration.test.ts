@@ -154,6 +154,17 @@ describe("motion is rationed, and the ration is enumerable over the stylesheets"
     expect(
       stray("src/views/route/route.ts", `element.style.setProperty("animation-name", "ping");`),
     ).toHaveLength(1);
+    /* The Web Animations API writes no CSS text at all, which is what makes it
+       the widest way past the three patterns above. */
+    expect(
+      stray("src/views/route/route.ts", `element.animate([{ opacity: 1 }, { opacity: 0 }], 800);`),
+    ).toHaveLength(1);
+    expect(
+      stray("src/views/route/route.ts", `const pulse = new Animation(effect, document.timeline);`),
+    ).toHaveLength(1);
+    expect(
+      stray("src/views/route/route.ts", `element.getAnimations()[0]?.play();`),
+    ).toHaveLength(1);
   });
 
   it("the check leaves the rationed stylesheets and ordinary source alone", () => {

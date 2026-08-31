@@ -228,9 +228,13 @@ second animation anywhere, or that one moving to a selector carrying no claim,
 is red. *Anywhere* is checked rather than assumed: a companion guard in the same
 file walks the wider net `tests/no-smil.test.ts` uses — every `.ts`, `.tsx`,
 `.svg` and `.html` under `src/` plus the root `index.html` — and goes red on an
-`@keyframes` or an `animation` declaration written anywhere but a rationed
-stylesheet, so an inline style, a `<style>` block in an `.svg` or a keyframes
-block in `index.html` cannot spend motion the ration never sees. The fix for
+`@keyframes`, an `animation` declaration, an `animation` assigned onto a style
+attribute from script, or a call into the Web Animations API (an `animate` on an
+element, an `Animation` constructed by hand, a handle taken from
+`getAnimations`) written anywhere but a rationed stylesheet, so an inline style,
+a `<style>` block in an `.svg`, a keyframes block in `index.html` or motion
+started from JavaScript with no CSS text anywhere cannot spend motion the ration
+never sees. The fix for
 that red is to move the motion into a stylesheet and argue for its licence
 there. The same walk reads the `prefers-reduced-motion` guard, which is global
 and is the only one allowed to exist: what it kills is looping animation and
@@ -353,6 +357,23 @@ precondition read off the fixture's own snapshot and annotates the report with
 it. `tests/conformance/support/views.ts` is where a view declares how the
 contract reads in it — its root, whether a given fixture puts it on screen, its
 rows, its designated encoding — so the checks name no view's selectors.
+
+**The skips are counted, not just annotated** —
+`tests/conformance-coverage.test.ts`. An entry existing is not an entry firing.
+A check that skips at *every* point of the space is green exactly the way one
+that holds everywhere is green, with the difference living only in a report
+nobody opens on a passing run — so deleting the single fixture that carries a
+cut ticket would leave rule 6 asserting nothing anywhere and the suite still all
+green. Each entry's precondition is therefore separable from its assertion
+(`RuleEntry.applies`) and answerable without a browser: it reads the fixture's
+own `Snapshot`, the point's theme and motion, and what the view declares about
+mounting. This gate walks `VIEWS` × `fixtureSpace(FIXTURE_NAMES)` with those
+preconditions and goes red on any entry with a check and nowhere left to apply
+— today rule 6 applies at 4 of 68 points and rule 12 at 10, which is a margin
+worth knowing has not gone to zero. It is a vitest test rather than a
+browser one precisely so it runs inside `npm run verify` on a bare checkout, and
+like the other pure checks it is proved against known-bad input — a precondition
+met nowhere, and one met everywhere — before it is run over the table.
 
 Both stack-level checks test themselves against known-bad input as well as
 against the tree. A check nobody has ever seen fail is indistinguishable from a

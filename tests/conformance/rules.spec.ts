@@ -19,6 +19,14 @@
  * inferred from silence. Locally `list` (the default here) prints them; in CI
  * the `html` reporter writes them into `playwright-report/`, which the workflow
  * uploads on every run — see `playwright.config.ts`.
+ *
+ * An annotation is not a count, though, and a rule that skipped *everywhere*
+ * would read exactly like one that held everywhere. That is why the skip is
+ * decided by `applies` before the page is read rather than from inside the
+ * assertion: the same preconditions are walked over the whole space with no
+ * browser by `tests/conformance-coverage.test.ts`, which goes red when an
+ * entry has no point left to assert at. The annotations below say *why not
+ * here*; that gate says *and still somewhere*.
  */
 
 import { expect, test } from "@playwright/test";
@@ -70,18 +78,17 @@ for (const view of VIEWS) {
            those two from ever happening quietly. */
         if (entry === undefined || entry.check === null) continue;
 
-        const check = entry.check;
-        const verdict = await test.step(`rule ${rule.id} · ${rule.name}`, () =>
-          check(rendering));
-
-        if ("skipped" in verdict) {
-          test
-            .info()
-            .annotations.push({
-              type: `rule ${rule.id} not applicable`,
-              description: verdict.skipped,
-            });
+        const precondition = entry.applies(rendering);
+        if (precondition !== null) {
+          test.info().annotations.push({
+            type: `rule ${rule.id} not applicable`,
+            description: precondition,
+          });
+          continue;
         }
+
+        const check = entry.check;
+        await test.step(`rule ${rule.id} · ${rule.name}`, () => check(rendering));
       }
     });
   }

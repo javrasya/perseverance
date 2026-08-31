@@ -23,6 +23,17 @@
  * precondition is read off the fixture's own `Snapshot` — never off a list of
  * fixture names, which drifts the moment a fixture is added or edited.
  *
+ * The precondition is **separate from the assertion**, and that separation is
+ * what makes the skips countable. An entry that skipped from inside its own
+ * check could skip at every point of the space and be indistinguishable from
+ * one that held at every point: same green, and the reason only ever on a
+ * report nobody opens on a passing run. `applies` answers *is there a subject
+ * here* from the fixture's `Snapshot` and the point's own preferences alone —
+ * no browser — so `tests/conformance-coverage.test.ts` can walk the whole
+ * space under vitest and go red on a rule that has stopped covering anything.
+ * `check` is then only the assertion, and reaching it means the subject is
+ * there.
+ *
  * Where a check is scoped to the **page** rather than to the view root, that is
  * rule 7's corollary at work: the progress figures and the ledger are chrome,
  * the contract still binds them, and scoping their checks to a view root would
@@ -31,20 +42,22 @@
 
 import { expect, type Locator, type Page } from "@playwright/test";
 import type { RuleId } from "../../../src/contract/rules";
-import type { Cut, Node } from "../../../src/snapshot/model.generated";
+import type { Cut, Node, Snapshot } from "../../../src/snapshot/model.generated";
 import { describeModel } from "../../../src/snapshot/readout";
 import { readMotion } from "../../support/checks";
 import { collectStylesheets } from "../../support/sources";
-import type { Rendering } from "./drive";
+import type { Prospect, Rendering } from "./drive";
 
-/** Held, or not applicable here and why. There is no third answer. */
-export type Verdict = { readonly held: true } | { readonly skipped: string };
-
-export const HELD: Verdict = { held: true };
-
-export function skipped(precondition: string): Verdict {
-  return { skipped: precondition };
-}
+/**
+ * Whether an assertion has a subject at one point of the space, and the
+ * precondition it wants when it does not.
+ *
+ * `null` means *this applies here*; a string is the sentence that lands on the
+ * report as the skip reason. It reads a `Prospect` and never a `Rendering`,
+ * which is the whole discipline: the answer has to be available before a
+ * browser exists, or the coverage gate cannot count it.
+ */
+export type Precondition = (at: Prospect) => string | null;
 
 export interface RuleEntry {
   /**
@@ -53,8 +66,20 @@ export interface RuleEntry {
    * only for being non-empty; read by a person for everything else.
    */
   readonly why: string;
-  /** `null` where a machine settles nothing: a wholly judged rule. */
-  readonly check: ((rendering: Rendering) => Promise<Verdict>) | null;
+  /**
+   * Where this entry has a subject. Every early return a check used to make —
+   * *no map open here*, *no cut ticket in this fixture*, *motion is on at this
+   * point* — lives here instead, so the suite can count the points where the
+   * assertion actually runs rather than only annotate the ones where it did
+   * not.
+   */
+  readonly applies: Precondition;
+  /**
+   * The assertion, and nothing else: reaching it means `applies` said the
+   * subject is here. `null` where a machine settles nothing — a wholly judged
+   * rule — and then `applies` is never consulted.
+   */
+  readonly check: ((rendering: Rendering) => Promise<void>) | null;
 }
 
 /* ------------------------------------------------------------- helpers --- */
@@ -63,6 +88,52 @@ const NO_MAP = "no map is open in this fixture, so the view is not on screen";
 
 function isCut(node: Node): node is Node & { cut: Extract<Cut, { cut: "fromScope" }> } {
   return node.cut.cut === "fromScope";
+}
+
+/** A rule whose subject is the whole rendering, which every point of the space has. */
+const EVERYWHERE: Precondition = () => null;
+
+/**
+ * The precondition every view-rooted entry starts from: this fixture has a map
+ * and this view puts one on screen for it.
+ *
+ * Both halves are asked of the view's own declaration rather than assumed —
+ * `mounts` is what `surfaceOf` says about the fixture, and it is what decides
+ * whether `load` finds a root at all. A second view that mounted on something
+ * other than an open map would be answered correctly here without this being
+ * edited.
+ */
+const ON_SCREEN: Precondition = ({ surface, snapshot }) =>
+  snapshot.model.map === null || !surface.mounts(snapshot) ? NO_MAP : null;
+
+/** The map's nodes, or none — so a precondition can read them before the map is known to be there. */
+function nodesOf(at: Prospect): readonly Node[] {
+  return at.snapshot.model.map?.nodes ?? [];
+}
+
+function hasKind(snapshot: Snapshot, kind: string): boolean {
+  return snapshot.model.map?.nodes.some((node) => node.kind.kind === kind) ?? false;
+}
+
+/**
+ * The view root and the map, where the entry's precondition already settled
+ * that both are there.
+ *
+ * A `null` here is not a skip: it is a precondition that disagrees with the
+ * view it ran against, and the suite should say so loudly rather than quietly
+ * check nothing.
+ */
+function onScreen(rendering: Rendering): {
+  readonly root: Locator;
+  readonly map: NonNullable<Snapshot["model"]["map"]>;
+} {
+  const map = rendering.snapshot.model.map;
+  if (rendering.root === null || map === null) {
+    throw new Error(
+      `${rendering.view} has no root or no map for ${rendering.state.fixture}, though this rule's precondition said it applies`,
+    );
+  }
+  return { root: rendering.root, map };
 }
 
 /**
@@ -208,31 +279,44 @@ function animatedSelectors(): string[] {
  * `prefers-reduced-motion: reduce`. Keyed by the selector as authored: an
  * animation moving to another selector loses its entry and goes red.
  */
-const STILL_FORMS: Record<string, (rendering: Rendering) => Promise<Verdict>> = {
-  ".markClaimed::after": async ({ root, surface, snapshot }) => {
-    const map = snapshot.model.map;
-    if (root === null || map === null) return skipped(NO_MAP);
+interface StillForm {
+  /** Split from the assertion for the same reason a rule entry's is: so it can be counted. */
+  readonly applies: Precondition;
+  readonly check: (rendering: Rendering) => Promise<void>;
+}
 
-    const claimed = map.nodes.find((node) => node.state === "claimed");
-    const other = map.nodes.find((node) => node.state !== "claimed");
-    if (claimed === undefined || other === undefined) {
-      return skipped(
-        "this fixture renders no claimed node beside a node in another state, so no distinction here is carried by motion",
+const NO_CLAIM_BESIDE =
+  "this fixture renders no claimed node beside a node in another state, so no distinction here is carried by motion";
+
+const STILL_FORMS: Record<string, StillForm> = {
+  ".markClaimed::after": {
+    applies: (at) =>
+      ON_SCREEN(at) ??
+      (nodesOf(at).some((node) => node.state === "claimed") &&
+      nodesOf(at).some((node) => node.state !== "claimed")
+        ? null
+        : NO_CLAIM_BESIDE),
+    check: async (rendering) => {
+      const { surface } = rendering;
+      const { root, map } = onScreen(rendering);
+      /* Both are there: the precondition above is what found them. */
+      const claimed = map.nodes.find((node) => node.state === "claimed")!;
+      const other = map.nodes.find((node) => node.state !== "claimed")!;
+
+      const moving = await stillFormOf(
+        root.locator(surface.row(claimed.number)).locator(surface.glyph),
       );
-    }
+      const still = await stillFormOf(
+        root.locator(surface.row(other.number)).locator(surface.glyph),
+      );
 
-    const moving = await stillFormOf(
-      root.locator(surface.row(claimed.number)).locator(surface.glyph),
-    );
-    const still = await stillFormOf(root.locator(surface.row(other.number)).locator(surface.glyph));
-
-    expect(moving.animationName, "motion survived the media query").toBe("none");
-    expect(moving.content, "the halo is gone with the animation").not.toBe("none");
-    expect(Number(moving.opacity)).toBeGreaterThan(0);
-    expect(moving.borderStyle).not.toBe("none");
-    expect(moving.borderWidth).not.toBe("0px");
-    expect(moving, "the two states are the same thing with the motion off").not.toEqual(still);
-    return HELD;
+      expect(moving.animationName, "motion survived the media query").toBe("none");
+      expect(moving.content, "the halo is gone with the animation").not.toBe("none");
+      expect(Number(moving.opacity)).toBeGreaterThan(0);
+      expect(moving.borderStyle).not.toBe("none");
+      expect(moving.borderWidth).not.toBe("0px");
+      expect(moving, "the two states are the same thing with the motion off").not.toEqual(still);
+    },
   },
 };
 
@@ -241,9 +325,10 @@ const STILL_FORMS: Record<string, (rendering: Rendering) => Promise<Verdict>> = 
 export const RULE_CHECKS: Partial<Record<RuleId, RuleEntry>> = {
   2: {
     why: "Asserted, over the view root: the count of the designated encoding is the count the model designates — one where `map.frontier` names a node, none where it names none — and the row carrying it is that node's row. The negative half is the load-bearing one: a view that drew the offer on two rows, or on a row Rust never designated, is the failure this rule is about.",
-    check: async ({ root, surface, snapshot }) => {
-      const map = snapshot.model.map;
-      if (root === null || map === null) return skipped(NO_MAP);
+    applies: ON_SCREEN,
+    check: async (rendering) => {
+      const { surface } = rendering;
+      const { root, map } = onScreen(rendering);
 
       const designated = root.locator(surface.designated);
       const expected = map.frontier.frontier === "designated" ? 1 : 0;
@@ -253,23 +338,19 @@ export const RULE_CHECKS: Partial<Record<RuleId, RuleEntry>> = {
         const itsRow = root.locator(surface.row(map.frontier.number));
         await expect(designated.and(itsRow)).toHaveCount(1);
       }
-      return HELD;
     },
   },
 
   3: {
     why: "Asserted, over the view root, after every `--s-*` token at `:root` has been collapsed to one value — the retheme the rule names, taken to its limit. That the collapse landed is itself asserted first, and colour-sensitively: the unclassified row and the ticket row resolve one ink between them, so the channel this view normally tells kinds apart on is demonstrably gone before anything else is read. What is asserted afterwards is that unclassified is still *told apart* and still carries *no action*: the word is still on the row and is still not on a ticket's, and the row holds no control and no offer. The channel asserted is text, deliberately: with every ink and every surface the same colour, text and structure are the only channels left, and the shape a view draws is view identity the contract may not standardise.",
-    check: async ({ page, root, surface, snapshot }) => {
-      const map = snapshot.model.map;
-      if (root === null || map === null) return skipped(NO_MAP);
-
-      const hasUnclassified = map.nodes.some((node) => node.kind.kind === "unclassified");
-      const hasTicket = map.nodes.some((node) => node.kind.kind === "ticket");
-      if (!hasUnclassified || !hasTicket) {
-        return skipped(
-          "this fixture has no unclassified child beside a ticket, so there is nothing to tell apart",
-        );
-      }
+    applies: (at) =>
+      ON_SCREEN(at) ??
+      (hasKind(at.snapshot, "unclassified") && hasKind(at.snapshot, "ticket")
+        ? null
+        : "this fixture has no unclassified child beside a ticket, so there is nothing to tell apart"),
+    check: async (rendering) => {
+      const { page, surface } = rendering;
+      const { root } = onScreen(rendering);
 
       const unclassified = root.locator(surface.rowsOfKind("unclassified")).first();
       const ticket = root.locator(surface.rowsOfKind("ticket")).first();
@@ -305,42 +386,42 @@ export const RULE_CHECKS: Partial<Record<RuleId, RuleEntry>> = {
       } finally {
         await restore();
       }
-      return HELD;
     },
   },
 
   4: {
     why: "The floor of a judged rule, over the page rather than the view root: a fog region that moved to the chrome is still the region the rule binds (rule 7's corollary). Over a fixture nobody surveyed: the region renders no numeral at all — not the count slot, and not a digit anywhere in it — and stands its absence in a slot of its own. That is *form level* made checkable: a differently-styled numeral would still be a numeral, and this fails it. Whether the region also *names* what is missing is the judged residue and is not asserted here.",
-    check: async ({ page, surface, snapshot }) => {
+    applies: ({ surface, snapshot }) => {
       const map = snapshot.model.map;
-      if (map === null) return skipped("no map is open in this fixture, so no fog is rendered");
+      if (map === null) return "no map is open in this fixture, so no fog is rendered";
       if (surface.fog === null) {
-        return skipped(
-          "this view renders no fog region, so the fog is chrome's and the rule is delivered there",
-        );
+        return "this view renders no fog region, so the fog is chrome's and the rule is delivered there";
       }
       if (map.fog.fog !== "unsurveyed") {
-        return skipped("this fixture's fog was surveyed, so there is no absence to render");
+        return "this fixture's fog was surveyed, so there is no absence to render";
       }
+      return null;
+    },
+    check: async ({ page, surface }) => {
+      /* The precondition is what established this view has a fog region. */
+      const fog = surface.fog!;
 
-      const region = page.locator(surface.fog.region);
+      const region = page.locator(fog.region);
       await expect(region).toBeVisible();
-      await expect(region.locator(surface.fog.count)).toHaveCount(0);
-      await expect(region.locator(surface.fog.unsurveyed)).toBeVisible();
+      await expect(region.locator(fog.count)).toHaveCount(0);
+      await expect(region.locator(fog.unsurveyed)).toBeVisible();
       expect(await region.innerText()).not.toMatch(/\d/);
-      return HELD;
     },
   },
 
   5: {
     why: "Asserted in the positive form the registry restates, over the page: the figures reach the screen as the model's own numerals, spelled — `describeModel` is what the rendering has to agree with — and nothing continuous stands between or behind them. Three ways a proportion could be drawn are refused: a widget (`progress`, `meter`, a progressbar role, an `aria-valuenow`) anywhere in the rendering; a painted image on the figures, on anything inside them or on anything behind them up to the body; and an inline style, which is the only route this app has from a number in the model to an extent on screen — every other length here is authored in a stylesheet and cannot vary with a count.",
+    applies: ({ snapshot }) =>
+      snapshot.model.map === null
+        ? "no map is open in this fixture, so no progress figures are rendered"
+        : null,
     check: async ({ page, snapshot }) => {
-      const model = snapshot.model;
-      if (model.map === null) {
-        return skipped("no map is open in this fixture, so no progress figures are rendered");
-      }
-
-      const figures = page.getByText(describeModel(model), { exact: true });
+      const figures = page.getByText(describeModel(snapshot.model), { exact: true });
       await expect(figures).toHaveCount(1);
 
       await expect(
@@ -369,22 +450,19 @@ export const RULE_CHECKS: Partial<Record<RuleId, RuleEntry>> = {
         return found;
       });
       expect(continuous).toEqual([]);
-      return HELD;
     },
   },
 
   6: {
     why: "The asserted half, over the view root: for every node the map cut, the reason is *rendered* text on its row — `innerText`, so a reason parked in a hidden element fails — and the row carries no `title` and no disclosure control anywhere in it. The other half of the rule is structural and is settled off the model, not here: the cut is already out of both counts before a view sees it.",
-    check: async ({ root, surface, snapshot }) => {
-      const map = snapshot.model.map;
-      if (root === null || map === null) return skipped(NO_MAP);
+    applies: (at) =>
+      ON_SCREEN(at) ??
+      (nodesOf(at).some(isCut) ? null : "this fixture has no node the map cut from scope"),
+    check: async (rendering) => {
+      const { surface } = rendering;
+      const { root, map } = onScreen(rendering);
 
-      const cut = map.nodes.filter(isCut);
-      if (cut.length === 0) {
-        return skipped("this fixture has no node the map cut from scope");
-      }
-
-      for (const node of cut) {
+      for (const node of map.nodes.filter(isCut)) {
         const row = root.locator(surface.row(node.number));
         await expect(row).toBeVisible();
         expect(await row.innerText()).toContain(node.cut.reason);
@@ -394,12 +472,12 @@ export const RULE_CHECKS: Partial<Record<RuleId, RuleEntry>> = {
         );
         await expect(row.locator("details, summary, [aria-expanded]")).toHaveCount(0);
       }
-      return HELD;
     },
   },
 
   10: {
     why: "The floor of a judged rule, over the page. Two halves, and neither needs a pointer to be driven. Every `title` in the rendering must be recovering text that is already in the rendering — the carve-out, held to what it says. And no rule in the rendering's own stylesheets may reveal anything on `:hover`: the CSSOM is walked for hover selectors that touch a disclosure property, which catches a gradient-fade reveal and a `max-height` accordion as readily as `display: none`. What is not asserted is *load-bearing*: whether a fact the operator needs is reachable without a pointer is a claim about the task, and two views may answer it differently.",
+    applies: EVERYWHERE,
     check: async ({ page }) => {
       const rendered = (await page.locator("body").innerText()).replace(/\s+/g, " ");
       const titles = await page
@@ -453,17 +531,41 @@ export const RULE_CHECKS: Partial<Record<RuleId, RuleEntry>> = {
         return found;
       });
       expect(disclosing).toEqual([]);
-      return HELD;
     },
   },
 
   11: {
     why: "Declared only, and asserted nowhere. The claim is about misreading — a label read as a node, a boundary read as an edge — and misreading has no DOM signature to look for. The only checkable form would be a clearance figure, and the figure belongs to one view's layout: asserting it would cargo-cult that view's fix into the contract, which the meta-rule prohibits. The rule is judged in `docs/contract/declarations/<view>.md`, where a reader can weigh what the view says it did. This entry exists so that *nothing is asserted* is a sentence somebody wrote rather than a gap in a table.",
+    /* Never consulted — `check` is `null` — and stated anyway, so the table has
+       one shape and the gate below needs no exception written into it. */
+    applies: EVERYWHERE,
     check: null,
   },
 
   12: {
     why: "The floor of a judged rule, over the view root, and only at the reduced-motion half of the space — the still form is what the media query leaves standing, so the other half has nothing to read. What owes a still form is not named here: it is whatever rule 9's walk over the stylesheets finds an animation on, so an animation added anywhere under `src/` arrives with no still form registered and turns this rule red rather than passing unread. For each animated selector the entry asserts the pair its still form describes — today the claimed mark's halo, where with reduce on the animation is gone, the ring authored underneath it is still drawn, and a row in another state still does not wear it. Whether what survives is the *same* distinction the motion carried is the judged residue: a machine can prove the two renderings still differ, not that the surviving difference is the one that was being made.",
+    applies: (at) => {
+      if (at.state.motion !== "reduced") {
+        return "the still form is what `prefers-reduced-motion: reduce` leaves standing, and motion is on at this point of the space";
+      }
+      const blocked = ON_SCREEN(at);
+      if (blocked !== null) return blocked;
+
+      const animated = animatedSelectors();
+      if (animated.length === 0) {
+        return "no stylesheet under `src/` spends motion, so no distinction here is carried by it";
+      }
+
+      /* A selector with no still form registered is *not* a skip: it is the
+         red this entry exists to produce, so it has to reach the check. */
+      const unmet: string[] = [];
+      for (const selector of animated) {
+        const reason = STILL_FORMS[selector]?.applies(at) ?? null;
+        if (reason === null) return null;
+        unmet.push(reason);
+      }
+      return unmet[0] ?? null;
+    },
     check: async (rendering) => {
       const animated = animatedSelectors();
       expect(
@@ -475,37 +577,26 @@ export const RULE_CHECKS: Partial<Record<RuleId, RuleEntry>> = {
         "a still form is registered for an animation no stylesheet runs",
       ).toEqual([]);
 
-      if (rendering.state.motion !== "reduced") {
-        return skipped(
-          "the still form is what `prefers-reduced-motion: reduce` leaves standing, and motion is on at this point of the space",
-        );
-      }
-      if (rendering.root === null || rendering.snapshot.model.map === null) {
-        return skipped(NO_MAP);
-      }
-
-      const verdicts: Verdict[] = [];
       for (const selector of animated) {
-        verdicts.push(await STILL_FORMS[selector]!(rendering));
+        const still = STILL_FORMS[selector]!;
+        if (still.applies(rendering) !== null) continue;
+        await still.check(rendering);
       }
-      return (
-        verdicts.find((verdict) => "held" in verdict) ??
-        verdicts[0] ??
-        skipped("no stylesheet under `src/` spends motion, so no distinction here is carried by it")
-      );
     },
   },
 
   13: {
     why: "The floor of a judged rule, over the view root: for every resolved node the model carries, its row is rendered, nothing in the chain above it has faded it to nothing, the point at its centre belongs to it rather than to something on top of it, and it takes focus from the keyboard. Salience is the residue — a row can clear all four and still be gone to a reader — and is not asserted.",
-    check: async ({ root, surface, snapshot }) => {
-      const map = snapshot.model.map;
-      if (root === null || map === null) return skipped(NO_MAP);
+    applies: (at) =>
+      ON_SCREEN(at) ??
+      (nodesOf(at).some((node) => node.state === "resolved")
+        ? null
+        : "this fixture renders no resolved node"),
+    check: async (rendering) => {
+      const { surface } = rendering;
+      const { root, map } = onScreen(rendering);
 
-      const resolved = map.nodes.filter((node) => node.state === "resolved");
-      if (resolved.length === 0) return skipped("this fixture renders no resolved node");
-
-      for (const node of resolved) {
+      for (const node of map.nodes.filter((node) => node.state === "resolved")) {
         const row = root.locator(surface.row(node.number));
         await expect(row).toBeVisible();
         await row.scrollIntoViewIfNeeded();
@@ -529,7 +620,6 @@ export const RULE_CHECKS: Partial<Record<RuleId, RuleEntry>> = {
         expect(facts.hittable, `#${node.number} is not hit-testable`).toBe(true);
         expect(facts.focusable, `#${node.number} does not take focus`).toBe(true);
       }
-      return HELD;
     },
   },
 };

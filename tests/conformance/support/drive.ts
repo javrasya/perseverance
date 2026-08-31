@@ -49,13 +49,35 @@ export const ROUTE_VIEW = surfaceOf("route").root;
  * open. A rule whose subject is the view says so and skips; a rule whose
  * subject is the whole rendering carries on.
  */
-export interface Rendering {
-  readonly page: Page;
+export interface Prospect {
   readonly view: ViewName;
   readonly surface: ViewSurface;
   readonly state: FixtureState;
   readonly snapshot: Snapshot;
+}
+
+export interface Rendering extends Prospect {
+  readonly page: Page;
   readonly root: Locator | null;
+}
+
+/**
+ * One point of the space before any browser has seen it.
+ *
+ * Everything a *precondition* is allowed to read is here and nothing else is:
+ * which view, what that view declares about itself, which preferences are
+ * emulated, and the fixture's own `Snapshot`. That is the whole point of the
+ * split. A precondition that could read the rendering would be the rendering
+ * deciding whether it is worth checking, and it would only be answerable with
+ * a browser — where the coverage gate that counts preconditions
+ * (`tests/conformance-coverage.test.ts`) has none and must not need one.
+ *
+ * `load` builds one of these and then adds the page to it, so the two agree by
+ * construction rather than by two functions resolving a fixture the same way.
+ */
+export function prospect(view: ViewName, state: FixtureState): Prospect {
+  if (!isFixtureName(state.fixture)) throw new Error(`no such fixture: ${state.fixture}`);
+  return { view, surface: surfaceOf(view), state, snapshot: fixtureNamed(state.fixture) };
 }
 
 /**
@@ -71,9 +93,8 @@ export async function load(
   view: ViewName,
   state: FixtureState,
 ): Promise<Rendering> {
-  const surface = surfaceOf(view);
-  if (!isFixtureName(state.fixture)) throw new Error(`no such fixture: ${state.fixture}`);
-  const snapshot = fixtureNamed(state.fixture);
+  const at = prospect(view, state);
+  const { surface, snapshot } = at;
 
   await page.emulateMedia({
     colorScheme: state.theme,
@@ -95,7 +116,7 @@ export async function load(
 
   await page.evaluate(() => document.fonts.ready);
 
-  return { page, view, surface, state, snapshot, root };
+  return { ...at, page, root };
 }
 
 /** The Route, on screen, for a state that has a map open. */

@@ -431,10 +431,12 @@ export function findMotionViolations(
  *
  * `findMotionViolations` reads CSS text, and the ration is only ever as wide
  * as the walk that feeds it: the `.css` files under `src/`. Nothing in this
- * repo forbids an inline style, a `<style>` block inside an `.svg`, or a
- * `@keyframes` in the root `index.html`, so motion authored any of those ways
- * would be licensed by nobody and caught by nothing — and rule 12's still-form
- * obligation, which is derived from the same walk, would not reach it either.
+ * repo forbids an inline style, a `<style>` block inside an `.svg`, a
+ * `@keyframes` in the root `index.html`, or an animation started from script
+ * through the Web Animations API — which writes no CSS text at all — so motion
+ * authored any of those ways would be licensed by nobody and caught by nothing
+ * — and rule 12's still-form obligation, which is derived from the same walk,
+ * would not reach it either.
  *
  * This is the companion guard that closes the gap, over the same wider net
  * `tests/no-smil.test.ts` already establishes as this repo's motion surface
@@ -460,6 +462,20 @@ const STRAY_MOTION: readonly { readonly pattern: RegExp; readonly detail: string
   {
     pattern: /\.style\s*\.\s*animation(?:Name)?\b|setProperty\(\s*["']animation(?:-name)?["']/g,
     detail: "an `animation` assigned from script — motion written past the stylesheets entirely",
+  },
+  {
+    /* The Web Animations API, which spends motion with no CSS text anywhere:
+       `element.animate([...], {...})`, an `Animation` constructed by hand, or a
+       handle taken with `getAnimations()` and played. The three patterns above
+       all read as CSS in the end — a keyframes block, a declaration, a property
+       written onto a style attribute — and none of them sees this one. It is
+       the most idiomatic way to move something from script, so leaving it out
+       would be the widest hole in the net: motion unlicensed by rule 9, and
+       owing no still form under rule 12, whose obligation is derived from the
+       same stylesheet walk. */
+    pattern: /\.animate\s*\(|new\s+Animation\s*\(|getAnimations\s*\(/g,
+    detail:
+      "the Web Animations API driven from script — motion written past the stylesheets entirely",
   },
 ];
 
