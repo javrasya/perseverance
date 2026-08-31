@@ -12,7 +12,7 @@ import {
   pressable,
   type ChartPress,
 } from "./idea";
-import { adapterAtPress, CHECKING_LABEL } from "./sockets";
+import { adapterAtPress, CHECKING_LABEL, picking } from "./sockets";
 /* `Sockets.jsx` and not `Sockets`: on a case-insensitive filesystem the
    extensionless specifier resolves to `sockets.ts`, the derivation. */
 import { Picker } from "./Sockets.jsx";
@@ -133,7 +133,15 @@ export function IdeaBox({ folder, environment, readouts }: IdeaBoxProps) {
       >
         {box.fill === "checking" ? CHECKING_LABEL : CHART_LABEL}
       </button>
-      <Picker offered={box.adapters} chosen={adapter} onChoose={setChosen} />
+      {/* The same picker the crossing rail draws, in the same shape: the box
+          spawns a run, and *which agent* is one question with one answer. No
+          run of this window's can be going in the folder while the box is
+          armed — the box recesses itself for that — so nothing here locks. */}
+      <Picker
+        offered={box.adapters}
+        picking={picking(box.adapters, chosen, false)}
+        onChoose={setChosen}
+      />
       {/*
         The condition as visible text, never a `title`. Information behind a
         hover is information a screen and a keyboard cannot have.

@@ -6,6 +6,7 @@ import {
   type Chord,
   type KeyboardLike,
 } from "../panes/peek";
+import type { Surface } from "../stores/ui";
 import { readUi } from "../stores/ui";
 
 /**
@@ -27,8 +28,10 @@ import { readUi } from "../stores/ui";
  * inspected, not defaulted, not re-dispatched — and reaches the terminal the
  * way it would if this file did not exist.
  *
- * **Why `Esc` is not in the table.** Its destination is state-dependent, so any
- * static entry for it would be a lie in some state. Whenever the terminal holds
+ * **Why `Esc` has no binding of its own.** Its destination is state-dependent,
+ * so any single entry for it would be a lie in some state. The only rows it
+ * appears on are *dismiss* rows, each of which applies exactly while its own
+ * surface is in front. Whenever the terminal holds
  * the keys, `Esc` is unclaimed and is encoded and sent to the PTY like any
  * ordinary key — it is the interrupt of every agent CLI, and an app that
  * swallows it takes away the only way to stop a run. When a dismissible surface
@@ -53,7 +56,9 @@ export type ActionId =
   | "dial-next-detent"
   | "dial-previous-detent"
   | "dial-terminal"
-  | "dial-map";
+  | "dial-map"
+  | "palette"
+  | "palette-away";
 
 /**
  * What routing a key needs to know, and the whole of it.
@@ -83,6 +88,15 @@ export interface KeyState {
   monitored: number | null;
   /** Which node is selected, so a second press on it puts it back. */
   selection: number | null;
+  /**
+   * What stands in front of the terminal, straight off the store.
+   *
+   * The one reading of it there is. A dismiss row's `when` is this field and
+   * nothing else, which is what makes [`escDestination`] a lookup over the same
+   * table the press goes through rather than a second opinion about what is on
+   * screen.
+   */
+  inFront: Surface | null;
 }
 
 /**
@@ -141,6 +155,26 @@ function bare(pressed: Chord): boolean {
  */
 function crossing(os: string): Chord {
   return isMac(os) ? chord("e", { meta: true }) : chord("e", { alt: true });
+}
+
+/**
+ * The palette's chord: `⌘K` on macOS, `Alt+K` everywhere else.
+ *
+ * The same per-platform shape as the crossing and the peek, for the same
+ * reason: `⌘` never reaches the shell, and elsewhere `Alt` is the one modifier
+ * no shell reads as a control character. That rules out the whole `Ctrl`+letter
+ * row on its own — `Ctrl+K` is kill-line, `Ctrl+R` is reverse-i-search and
+ * `Ctrl+G` is `BEL` — so a lone `Ctrl`+letter is never a candidate here.
+ *
+ * `K` and not one of the letters already spent: `E` crosses, `G` summons the
+ * peek and the peek's rebind alternates are ⌥G, ⇧⌘G, Ctrl+Alt+G and Alt+Shift+G
+ * (`src/panes/peek.ts`), all of them on `G`. Nothing else in the table carries a
+ * modifier at all — `Ctrl+0` is home, and `Enter`, `Space` and the six dial keys
+ * are bare — so this chord cannot collide with a row in any state where both
+ * apply.
+ */
+function commanding(os: string): Chord {
+  return isMac(os) ? chord("k", { meta: true }) : chord("k", { alt: true });
 }
 
 /**
@@ -223,6 +257,28 @@ export const ENTRIES: readonly Entry[] = [
     verb: "give the whole window to the map",
     when: (state) => state.dialFocused,
   },
+  {
+    id: "palette",
+    chords: (state) => [commanding(state.os)],
+    verb: "open the command palette: everything this window binds, in one list",
+    // Only with nothing in front. The palette is what stands there, so a chord
+    // that raised it over itself would be raising a second answer to *what has
+    // the keys* — and the surfaces are one field with one value precisely so
+    // that cannot happen.
+    when: (state) => state.inFront === null,
+  },
+  {
+    id: "palette-away",
+    chords: () => [chord("Escape")],
+    verb: "put the command palette away",
+    when: (state) => state.inFront === "palette",
+    /* The first real user of the mechanism `escDestination` was built on: this
+       row is what the readout finds and prints, so the sentence beside the
+       terminal and the key that acts are one lookup apart. One dismiss row per
+       surface, never one row with a state-dependent `dismisses` — the readout
+       stays a lookup rather than a computation of its own. */
+    dismisses: "the command palette",
+  },
 ];
 
 /**
@@ -236,10 +292,22 @@ export function route(event: KeyboardLike, state: KeyState): Entry | null {
   for (const entry of ENTRIES) {
     if (!entry.when(state)) continue;
     for (const pressed of entry.chords(state)) {
-      // A bare key in a field is the field's. Nothing in this table may take an
-      // unmodified keystroke out from under something being typed into — xterm's
-      // helper textarea included, which is how ordinary typing stays ordinary.
-      if (state.typing && bare(pressed)) continue;
+      /*
+       * A bare key in a field is the field's. Nothing in this table may take an
+       * unmodified keystroke out from under something being typed into —
+       * xterm's helper textarea included, which is how ordinary typing stays
+       * ordinary.
+       *
+       * `Escape` is the one exemption, and it has to be: a surface in front of
+       * the terminal is a surface with a filter field in it, so the guard would
+       * make `Esc` un-dismissable from the very control the palette focuses on
+       * opening. It is safe because no field types an `Escape` *character* —
+       * the key edits nothing and inserts nothing — and it cannot take `Esc`
+       * from a warm terminal, because every row written with `Escape` requires
+       * a surface in front. With nothing in front no such row applies, `route`
+       * answers null, [`claims`] is false, and xterm is handed the key.
+       */
+      if (state.typing && bare(pressed) && pressed.key !== "Escape") continue;
       if (matches(pressed, event)) return entry;
     }
   }
@@ -328,6 +396,7 @@ export function currentState(target: EventTarget | null = null): KeyState {
     dialFocused: element !== null && element.closest("[data-dial]") !== null,
     monitored: ui.monitored,
     selection: ui.selection,
+    inFront: ui.inFront,
   };
 }
 

@@ -50,7 +50,16 @@ import {
 import { describeModel } from "./snapshot/readout";
 import { loadSnapshot, watchSnapshot } from "./snapshot/snapshot";
 import { replaceSnapshot, useSnapshot } from "./stores/snapshots";
-import { chooseDock, monitor, moveDial, readUi, select, useUi } from "./stores/ui";
+import {
+  chooseDock,
+  dismiss,
+  monitor,
+  moveDial,
+  raise,
+  readUi,
+  select,
+  useUi,
+} from "./stores/ui";
 /* `Dial.jsx` and `StandDown.jsx` for the same reason `Route.jsx` is spelled
    below: `panes/dial.ts` is the arithmetic and `panes/Dial.tsx` is the hand on
    it, and on a case-insensitive filesystem an extensionless specifier finds the
@@ -75,7 +84,7 @@ import {
   type Detent,
   type Move,
 } from "./panes/dial";
-import { install, type ActionId, type Handlers, type KeyState } from "./keys/router";
+import { currentState, install, type ActionId, type Handlers, type KeyState } from "./keys/router";
 import { clearance, peekWidth } from "./panes/peek";
 import { readPosition, writePosition } from "./panes/position";
 import { useBodyBox } from "./panes/useBodyBox";
@@ -118,6 +127,7 @@ import { Detail } from "./detail/Detail.jsx";
    boarding pass is, and `Dock.tsx` is one address on screen. */
 import { Dock } from "./detail/Dock.jsx";
 import { effectiveDock } from "./detail/docks";
+import { Palette } from "./keys/Palette.jsx";
 import { useDefaultView } from "./views/useDefaultView";
 import styles from "./App.module.css";
 
@@ -159,7 +169,14 @@ export function App() {
    * a hand was in the middle of — `tests/stores.test.ts` is the assertion.
    */
   const snapshot = useSnapshot();
-  const { selection: selectedNode, monitored, position, peeking, dock: chosenDock } = useUi();
+  const {
+    selection: selectedNode,
+    monitored,
+    position,
+    peeking,
+    dock: chosenDock,
+    inFront,
+  } = useUi();
   /*
    * The spring, bound at the window. It writes `peeking` and nothing else — not
    * the position, not the per-map memory, not a geometry — which is the whole
@@ -734,6 +751,22 @@ export function App() {
    * and it is the same table xterm's key handler asks, which is what makes the
    * key the terminal is refused the key the app acted on.
    */
+  /*
+   * Putting the palette away, and giving the keyboard back with it.
+   *
+   * Beside the crossing's own focus decision and answering it the same way: a
+   * warm run takes the keys back, and with nothing warm the keyboard is put down
+   * rather than left inside a surface that is no longer on screen. The palette
+   * does not do this itself — a surface that both took the keys and decided
+   * where they go afterwards would be deciding it twice, and the shell is the
+   * one that knows whether there is a terminal to hand them to.
+   */
+  const away = () => {
+    dismiss();
+    if (monitored !== null) terminals.for(monitored).focus();
+    else (document.activeElement as HTMLElement | null)?.blur();
+  };
+
   const pressed = useRef<Handlers>({ press: () => {}, release: () => {} });
   pressed.current = {
     press: (id: ActionId, state: KeyState) => {
@@ -749,6 +782,12 @@ export function App() {
           onChooseView(DEFAULT_VIEW);
           return;
         }
+        case "palette":
+          raise("palette");
+          return;
+        case "palette-away":
+          away();
+          return;
         case "cross": {
           /*
            * The room change `Esc` used to make, given its own chord.
@@ -1394,6 +1433,30 @@ export function App() {
         the effect above, and React only ever sees the one host.
       */}
       {createPortal(<Detail model={snapshot.model} selection={selectedNode} />, pass)}
+
+      {/*
+        The palette, over the body and under nothing.
+
+        Rendered from the shell rather than from either side of the dial, because
+        it is an account of *the window's* keyboard: a palette inside the map
+        column would go away with a stand-down, and one inside the terminal would
+        be clipped to nothing at the `map` detent. Every row it activates goes
+        back through `pressed.current.press`, which is the same handler the chord
+        goes through — there is one implementation of each verb and the palette
+        is not a second one.
+      */}
+      {inFront === "palette" ? (
+        <Palette
+          onRun={(id) => {
+            /* Put away first: the row acts on the state the operator will be
+               looking at, not on the one with the palette still over it — and
+               the palette's own filter field is what makes `typing` true. */
+            away();
+            pressed.current.press(id, currentState());
+          }}
+          onDismiss={away}
+        />
+      ) : null}
 
       <EnvironmentReadout readout={environment} shown={environmentShown} />
 

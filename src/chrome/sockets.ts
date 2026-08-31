@@ -646,6 +646,71 @@ export function railAt(crossing: Crossing): Rail {
   };
 }
 
+/**
+ * Why the agent cannot be picked, in the two ways it cannot be.
+ *
+ * Both are printed as visible text under the name the picker stands on, and
+ * neither is ever a `title`: information behind a hover is information a screen
+ * reader and a keyboard cannot have, which is the same rule the sockets'
+ * conditions already follow.
+ */
+export const RUN_IS_UP =
+  "a run is going in this folder — an agent cannot be swapped under one that is already talking";
+export const ONLY_ADAPTER = "this folder resolved one agent CLI, so there is nothing to choose";
+/** What the palette prints when there is no picker on screen for it to focus. */
+export const NO_PICKER =
+  "no picker is on screen — open a folder at the crossing to choose an agent";
+
+/**
+ * What the picker is right now: a control, a printed name, or nothing.
+ *
+ * Derived here rather than branched inside the component, for the reason every
+ * other word on the rail is: *unchangeable, and why* is a reading over the runs
+ * and the folder, and a component working it out inline would be a second place
+ * the answer could drift from — and the one place a unit test could not reach
+ * it.
+ */
+export interface Picking {
+  mode: "choice" | "printed" | "none";
+  /** The adapter a press would go out with, when there is one. */
+  chosen: string | null;
+  /** Why it cannot be changed, when it cannot. `null` while it can. */
+  fixed: string | null;
+}
+
+/**
+ * Whether a run this window started in this folder is still going.
+ *
+ * Joined on the folder as well as the id, the same pair [`liveRunOn`] matches
+ * on and for the same reason: this window holds every folder's runs, and a rail
+ * printing its picker as locked because some *other* repository has an agent up
+ * would be refusing a choice nothing is contending for.
+ */
+export function runningIn(
+  runs: readonly RunReadout[],
+  liveRuns: readonly number[],
+  folder: string | null,
+): boolean {
+  if (folder === null) return false;
+  return runs.some((run) => run.folder === folder && liveRuns.includes(run.run));
+}
+
+/** The picker, from what the folder offers and what is going in it. */
+export function picking(
+  offered: readonly string[],
+  chosen: string | null,
+  duringRun: boolean,
+): Picking {
+  const adapter = adapterAtPress(offered, chosen);
+  /* Nothing at all, and no sentence either: the recessed Start Working beside
+     it already prints `NO_ADAPTER`, and a second copy of that sentence under an
+     empty control would be the rail saying it twice. */
+  if (adapter === null) return { mode: "none", chosen: null, fixed: null };
+  if (duringRun) return { mode: "printed", chosen: adapter, fixed: RUN_IS_UP };
+  if (offered.length === 1) return { mode: "printed", chosen: adapter, fixed: ONLY_ADAPTER };
+  return { mode: "choice", chosen: adapter, fixed: null };
+}
+
 /** Whether a socket takes a press. The one place `checking…` is unpressable. */
 export function pressable(socket: Socket): boolean {
   return socket.fill === "filled";

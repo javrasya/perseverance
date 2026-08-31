@@ -29,6 +29,7 @@ function state(overrides: Partial<KeyState> = {}): KeyState {
     dialFocused: false,
     monitored: null,
     selection: null,
+    inFront: null,
     ...overrides,
   };
 }
@@ -65,7 +66,13 @@ describe("the one chord table", () => {
     expect(labelFor(ENTRIES.find((entry) => entry.id === "cross")!, state())).toBe("Alt+E");
   });
 
-  it("Esc is claimed by nothing, in any state", () => {
+  it("Esc is claimed by nothing while the terminal has the keys", () => {
+    /*
+     * The ticket's headline guarantee, and the one an operator would notice
+     * going wrong first: with nothing standing in front of the terminal, `Esc`
+     * is the agent CLI's interrupt and this app does not touch it — in any
+     * state, typing included.
+     */
     const states = [
       state(),
       state({ monitored: 7 }),
@@ -75,10 +82,62 @@ describe("the one chord table", () => {
     ];
     for (const each of states) expect(route(press("Escape"), each)).toBeNull();
 
-    // And nothing in the table is even written with it.
+    // And every row written with it requires a surface in front, which is what
+    // makes the exemption in `route` safe rather than a swallowed interrupt.
     for (const entry of ENTRIES) {
-      expect(entry.chords(state()).some((chord) => chord.key === "Escape"), entry.id).toBe(false);
+      const escapes = entry.chords(state()).some((chord) => chord.key === "Escape");
+      if (escapes) expect(entry.when(state()), entry.id).toBe(false);
     }
+  });
+
+  it("the palette is a chord no shell reads, and it is per-platform", () => {
+    expect(route(press("k", { altKey: true }), state())?.id).toBe("palette");
+    expect(route(press("k", { metaKey: true }), state({ os: MAC, summon: chordFor(MAC) }))?.id).toBe(
+      "palette",
+    );
+    const palette = ENTRIES.find((entry) => entry.id === "palette")!;
+    expect(labelFor(palette, state({ os: MAC }))).toBe("⌘K");
+    expect(labelFor(palette, state())).toBe("Alt+K");
+
+    // Never a lone Ctrl+letter: the whole readline row is the shell's, and
+    // `Ctrl+K` is kill-line in every one of them.
+    expect(route(press("k", { ctrlKey: true }), state())).toBeNull();
+    for (const entry of ENTRIES) {
+      const chords = entry.chords(state({ os: MAC, summon: chordFor(MAC) }));
+      const lone = chords.some(
+        (chord) => chord.ctrl && !chord.alt && /^[a-z]$/.test(chord.key),
+      );
+      expect(lone, entry.id).toBe(false);
+    }
+  });
+
+  it("no other row answers the palette's chord, in any state both apply", () => {
+    /* The collision check spelled out rather than argued: every other row is
+       asked for the palette's chord in the state that arms it. */
+    const armed = [
+      state(),
+      state({ os: MAC, summon: chordFor(MAC) }),
+      state({ focusedNode: 4 }),
+      state({ dialFocused: true }),
+      state({ typing: true, monitored: 7 }),
+    ];
+    for (const each of armed) {
+      expect(route(press("k", { metaKey: each.os === MAC, altKey: each.os !== MAC }), each)?.id).toBe(
+        "palette",
+      );
+    }
+  });
+
+  it("Esc dismisses the surface in front, and only while one is", () => {
+    const up = state({ inFront: "palette", typing: true, monitored: 7 });
+    /* Typing is true because the palette's filter field has the keyboard — and
+       `Esc` is exempt from the typing guard for exactly that reason. Without the
+       exemption the palette could not be dismissed from its own input. */
+    expect(route(press("Escape"), up)?.id).toBe("palette-away");
+    expect(route(press("Escape"), state({ typing: true, monitored: 7 }))).toBeNull();
+
+    // The chord that opens it does not apply over it: one surface in front.
+    expect(route(press("k", { altKey: true }), up)).toBeNull();
   });
 
   it("Enter and Space open the row under the keyboard, and only there", () => {
@@ -124,6 +183,14 @@ describe("the Esc readout is computed from that table", () => {
 
   it("says so plainly when there is no run to reach", () => {
     expect(escDestination(state())).toContain("nothing is bound to this window");
+  });
+
+  it("names the palette while the palette is in front", () => {
+    expect(escDestination(state({ inFront: "palette", monitored: 4 }))).toBe(
+      "dismisses the command palette",
+    );
+    // And the run has the key back the moment it is gone.
+    expect(escDestination(state({ monitored: 4 }))).toBe("reaches the agent CLI");
   });
 
   it("prints whatever a dismissible row declares, without being edited", () => {

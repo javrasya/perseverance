@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it } from "vitest";
  */
 import { EscReadout } from "../src/keys/EscReadout.jsx";
 import { install } from "../src/keys/router";
-import { monitor } from "../src/stores/ui";
+import { dismiss, monitor, raise } from "../src/stores/ui";
 
 /**
  * The one key an operator cannot work out by looking, written down.
@@ -43,6 +43,7 @@ afterEach(async () => {
     mounted = null;
   }
   monitor(null);
+  dismiss();
 });
 
 describe("the Esc readout", () => {
@@ -59,6 +60,25 @@ describe("the Esc readout", () => {
       monitor(null);
     });
     expect(host.textContent).not.toContain("reaches the agent CLI");
+  });
+
+  it("names the surface in front, without this component being edited", async () => {
+    /*
+     * The palette declares `dismisses` on its own row and this readout picks it
+     * up: nothing in `EscReadout.tsx` knows a palette exists. That is the whole
+     * design — one table, read by the router and by the sentence beside it.
+     */
+    const host = await paint();
+    await act(async () => {
+      monitor(9);
+      raise("palette");
+    });
+    expect(host.textContent).toContain("dismisses the command palette");
+
+    await act(async () => {
+      dismiss();
+    });
+    expect(host.textContent).toContain("reaches the agent CLI");
   });
 
   it("is one line that cannot become two", async () => {
