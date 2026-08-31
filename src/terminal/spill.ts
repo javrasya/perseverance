@@ -3,13 +3,20 @@ import { readable } from "../stores/readable";
 import type { RunReadout } from "./runs";
 
 /**
- * What was typed at a run whose child has stopped.
+ * What was typed at a run that was never going to read it.
  *
  * A stopped child is a write that goes nowhere: the descriptor may still take
  * bytes and nothing on the far side will ever read one. So the keystrokes stop
  * here instead — captured, counted, and readable back verbatim beside the run
  * they were aimed at — because what is worth recovering is the sentence the
  * operator had already typed before they knew the run was over.
+ *
+ * A refused write is the same loss by another route, and lands in the same
+ * register: the harness turns away keystrokes aimed at a research run, which is
+ * spawned unattended and whose brief forbids it to wait for anybody. Such a run
+ * is watchable — it binds the pane like every other — so it is a run somebody
+ * can type at, and typing that vanished with no word about it is the thing this
+ * file exists to prevent. `reason` is how the two are told apart in the reading.
  *
  * **Only printable text is kept.** An escape sequence or a control byte aimed at
  * a run that has ended means nothing: `Ctrl+C` interrupts no child, `Enter`
@@ -79,6 +86,23 @@ export interface Spill {
    * telling the operator something untrue about their own typing.
    */
   readonly elided: boolean;
+  /**
+   * Why these characters stopped here, in the words of whoever refused them, or
+   * `null` for the case this register was built for — a child that has stopped,
+   * which the pane's own reading already says.
+   *
+   * A second reason exists because a second refusal does: the harness turns away
+   * keystrokes aimed at a research run, which runs unattended, and it answers
+   * with a sentence rather than a silent drop. That sentence is carried here so
+   * the pane prints the operator's words under the reason they were kept, and
+   * never under the wrong one — a register that said *this run has ended* over a
+   * run that is still going would be telling the operator something untrue about
+   * their own session.
+   *
+   * The latest reason wins, because the register holds a sentence being typed
+   * and the last press is the one the operator is in the middle of.
+   */
+  readonly reason: string | null;
 }
 
 /**
@@ -122,7 +146,7 @@ function whollyPrintable(text: string): boolean {
  * that said otherwise would be reading a keystroke back to the person who made
  * it.
  */
-export function spillAtRun(run: number, text: string): void {
+export function spillAtRun(run: number, text: string, reason?: string): void {
   if (text === "" || !whollyPrintable(text)) return;
 
   const held = store.read();
@@ -134,6 +158,7 @@ export function spillAtRun(run: number, text: string): void {
     text: kept.join(""),
     characters: kept.length,
     elided: (previous?.elided ?? false) || kept.length < grown.length,
+    reason: reason ?? previous?.reason ?? null,
   });
   replace(next);
 }

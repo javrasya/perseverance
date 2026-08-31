@@ -2252,12 +2252,15 @@ impl Terminals {
     /// **A research run never may**, and it is refused here rather than left to
     /// the chrome to remember. The keyboard invariant is *at most one keyed
     /// run*, and a research run is not one of the runs that can be it: it is
-    /// spawned unattended and its brief forbids waiting for input, so a pane
-    /// bound to one would be a person typing at a session that was never going
-    /// to read them — and the keystroke that did land would derail the one run
-    /// in this app nobody is watching. A convention in the UI would hold only
-    /// until the second surface that binds a pane; a refusal in the process
-    /// holds for every one of them.
+    /// spawned unattended and its brief forbids waiting for input, so keys sent
+    /// to one would be typed at a session that was never going to read them —
+    /// and the keystroke that did land would derail the one run in this app
+    /// nobody is watching. A convention in the UI would hold only until the
+    /// second surface that sends a key; a refusal in the process holds for
+    /// every one of them.
+    ///
+    /// This is about the keyboard and not about the pane. Watching a research
+    /// run is allowed and [`Terminals::monitoring`] says why.
     ///
     /// A run this app was never told the stakes of is keyed, which is
     /// [`what_it_loses`]'s posture: not knowing what a run is errs towards the
@@ -2268,17 +2271,26 @@ impl Terminals {
             .is_none_or(|stakes| stakes.kind != RunKind::Research)
     }
 
-    /// Which run the pane is bound to, with a run that never holds the keys
-    /// binding nothing at all.
+    /// Which run the pane is bound to — **every kind of run, a research run
+    /// included**.
     ///
-    /// Nothing rather than the run before it: a refusal that left the previous
-    /// binding in place would answer *show me this one* by going on showing
-    /// another, and a pane whose bytes are somebody else's is worse than a blank
-    /// one. The two locks are taken one after the other and never nested, as
-    /// everywhere else on this type.
+    /// Watching and typing are two permissions and only the second one is
+    /// refused. A research run is the one run in this window nobody is
+    /// attending, which makes seeing it worth more here than anywhere else, not
+    /// less; and refusing the binding would not be a smaller behaviour but a
+    /// larger one. [`Runs::frame`] writes bytes for the monitored run and for no
+    /// other, so a declaration this side quietly dropped would leave the chrome
+    /// bound to a run nothing is written to — a terminal that stays blank
+    /// forever while the ring behind it fills unacknowledged until `truncated`
+    /// flips and promises a replay that can never come. That is the failure
+    /// `src/chrome/Sockets.tsx`'s resume comment exists to prevent, and it is
+    /// not worth spending to say something the keyboard already says.
+    ///
+    /// The rule lands on the keys instead, in [`Terminals::typed`], because the
+    /// keys are the thing a research run cannot survive. The two locks are taken
+    /// one after the other and never nested, as everywhere else on this type.
     pub fn monitoring(&self, run: Option<RunId>) {
-        let bound = run.filter(|run| self.keyed(*run));
-        self.held().monitor(bound);
+        self.held().monitor(run);
     }
 
     /// Keystrokes, or the sentence saying why they went nowhere.
@@ -2286,7 +2298,12 @@ impl Terminals {
     /// The refusal is a sentence and not a silent drop, because the socket the
     /// keys came from is a surface that can print it — an operator whose typing
     /// vanishes learns nothing, and this is exactly the case where the answer
-    /// *nobody is meant to be typing here* is the whole explanation.
+    /// *nobody is meant to be typing here* is the whole explanation. The one
+    /// caller does print it: `src/App.tsx` catches this rejection and hands the
+    /// text, with this sentence, to the run's own spill register, which the pane
+    /// reads back beside the run it was aimed at. A research run binds the pane
+    /// like any other, so an operator can type at one and this is what they are
+    /// told when they do.
     pub fn typed(&self, run: RunId, bytes: &[u8]) -> Result<(), String> {
         if !self.keyed(run) {
             return Err(UNKEYED.to_string());
@@ -3762,10 +3779,10 @@ fn booked(terminals: &Terminals, claims: &Claims, poker: &Poker, run: RunId, sta
         claims.claimed(ticket);
     }
     terminals.counting(run, poker.run_started());
-    // The operator watches what they started — unless what they started is a
-    // research run, which holds the keys of nothing and binds no pane. That is
-    // [`Terminals::monitoring`]'s refusal and not a second copy of the rule
-    // here, so every other caller that binds a pane inherits it.
+    // The operator watches what they started, whatever kind it is — a research
+    // run included, because being unattended is a reason to be visible rather
+    // than a reason to be hidden. What that run refuses is the keyboard, in
+    // [`Terminals::typed`], and no caller here carries a copy of that rule.
     terminals.monitoring(Some(run));
 }
 
@@ -9056,10 +9073,11 @@ mod tests {
     /// of the chrome.**
     ///
     /// Two real runs through the registry, because the property is about the
-    /// join between the stakes and the pane: a work run binds and takes bytes,
-    /// a research run does neither, and a run nobody staked is treated as the
-    /// ordinary case. Asserted as what an operator can do rather than on the
-    /// predicate behind it — the predicate is private and the refusal is not.
+    /// join between the stakes and the keyboard: every kind binds the pane and
+    /// only a research run is refused the keys, and a run nobody staked is
+    /// treated as the ordinary case. Asserted as what an operator can do rather
+    /// than on the predicate behind it — the predicate is private and the
+    /// refusal is not.
     #[test]
     fn a_research_run_never_holds_the_keys_and_every_other_run_does() {
         let directory = TempDir::new().expect("temp dir");
@@ -9076,14 +9094,14 @@ mod tests {
         assert_eq!(terminals.held().monitored(), Some(work));
         assert!(terminals.typed(work, b"y\r").is_ok());
 
-        // The pane is left bound to nothing rather than to whoever held it
-        // before: answering *show me this one* by going on showing another is
-        // the worse failure.
+        // Watched like any other run: a pane the harness is not writing to is
+        // the failure this crate is most careful about, and being unattended is
+        // a reason to be visible rather than a reason to be hidden.
         terminals.monitoring(Some(research));
         assert_eq!(
             terminals.held().monitored(),
-            None,
-            "a research run was bound to the pane"
+            Some(research),
+            "a research run could not be watched"
         );
 
         let refused = terminals

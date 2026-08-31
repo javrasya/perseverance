@@ -162,7 +162,12 @@ export function spillSentence(spill: Spill | null): string | null {
   const counted = `${spill.characters} character${spill.characters === 1 ? "" : "s"}`;
   const held = spill.elided ? `${counted} kept, the most recent` : counted;
   const words = spill.elided ? `…${spill.text}` : spill.text;
-  return `${SPILL_READING} · ${held} — “${words}”`;
+  /* The register's own reason where it has one — the harness's sentence about a
+     run it refused the keys to — and the ended-child reading where it does not.
+     Read off the register rather than re-derived from a readout here: the reason
+     belongs to the keystroke that was kept, and a second opinion assembled at
+     paint time would be free to disagree with it. */
+  return `${spill.reason ?? SPILL_READING} · ${held} — “${words}”`;
 }
 
 /**

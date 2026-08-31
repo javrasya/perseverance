@@ -18,12 +18,16 @@
  *
  * Three rules, over the non-test Rust of the whole workspace:
  *
- * 1. **No mutating `git` subcommand**, except `worktree add` in
- *    `crates/worktree/`. The verb is read out of the argv literals of each
+ * 1. **No mutating `git` subcommand**, except the pair `worktree add` in
+ *    `crates/worktree/` — *that* pair, in that order, and with no other mutating
+ *    verb beside it. The verbs are read out of the argv literals of each
  *    `Command::new("git")` chain, and only verbs that cannot be read-only are
  *    named — `branch` and `remote` are absent because their listing spellings
  *    are ordinary and this check would rather miss a `git branch -f` (which the
- *    next rule catches anyway) than fire on a `git remote get-url`.
+ *    next rule catches anyway) than fire on a `git remote get-url`. The
+ *    worktree verbs that write are named too: `remove`, `move`, `lock`,
+ *    `unlock` and `repair` are how a second worktree command gets in, and ADR
+ *    0022 gave this app exactly one.
  * 2. **No forcing flag in any `git` argv**, anywhere, including the crate that
  *    is allowed to run git. `--force`, `-f`, `-B`, `--hard`, `-D`: every one of
  *    them is git being told that something already there does not matter, and
@@ -74,12 +78,16 @@ const MUTATING = [
   "fetch",
   "gc",
   "init",
+  "lock",
   "merge",
+  "move",
   "mv",
   "prune",
   "pull",
   "push",
   "rebase",
+  "remove",
+  "repair",
   "reset",
   "restore",
   "rm",
@@ -87,11 +95,24 @@ const MUTATING = [
   "submodule",
   "switch",
   "tag",
+  "unlock",
   "update-ref",
   "worktree",
 ];
 
-/** The one pair a crate is allowed to say, and the crate allowed to say it. */
+/**
+ * The one pair a crate is allowed to say, in order, and the crate allowed to say
+ * it.
+ *
+ * **In order, and nothing else with it.** The mutating verbs of an allowed argv
+ * must be exactly this sequence — not a subset of it, which is what a per-crate
+ * allowance would come to. A subset admits `git add .`, whose only mutating verb
+ * is `add`: staging the operator's checkout, inside the one crate this check
+ * exists to bound, passing because half of the allowed pair happens to spell a
+ * verb of its own. `worktree` alone is admitted by nothing either, which is what
+ * keeps `git worktree remove` and `git worktree move` out — ADR 0022 gives this
+ * app one worktree verb, and removal is #60's.
+ */
 const ALLOWED = { crate: `crates${sep}worktree${sep}`, verbs: ["worktree", "add"] };
 
 /** Git being told that what is already there does not matter. */
@@ -247,8 +268,16 @@ export function trespassesIn(file, source) {
     const argv = literalsIn(code.slice(from, to), from);
     const verbs = argv.filter((word) => MUTATING.includes(word.text));
 
+    const said = verbs.map((word) => word.text);
+    /* The whole argv is judged once, not each verb against the allowance on its
+       own: what is permitted is the command `git worktree add`, and a command is
+       its verbs in the order it says them. */
+    const allowed =
+      inside &&
+      said.length === ALLOWED.verbs.length &&
+      said.every((verb, index) => verb === ALLOWED.verbs[index]);
+
     for (const word of verbs) {
-      const allowed = inside && verbs.every((other) => ALLOWED.verbs.includes(other.text));
       if (!allowed) {
         found.push({ file, line: lineOf(word.at), said: `git ${word.text}` });
       }
@@ -308,6 +337,21 @@ const KNOWN_BAD = [
     name: "a forced worktree in the crate allowed to make one",
     file: "crates/worktree/src/lib.rs",
     source: 'Command::new("git").arg("worktree").arg("add").arg("--force").arg(path).output()?;\n',
+  },
+  {
+    name: "staging the operator's checkout from the crate allowed to run git",
+    file: "crates/worktree/src/lib.rs",
+    source: 'Command::new("git").arg("-C").arg(folder).arg("add").arg(".").output()?;\n',
+  },
+  {
+    name: "a worktree removed by the crate that may only add one",
+    file: "crates/worktree/src/lib.rs",
+    source: 'Command::new("git").arg("worktree").arg("remove").arg(path).output()?;\n',
+  },
+  {
+    name: "a worktree moved out from under the operator",
+    file: "crates/worktree/src/lib.rs",
+    source: 'Command::new("git").arg("worktree").arg("move").arg(path).arg(to).output()?;\n',
   },
   {
     name: "a prune the operator did not ask for",

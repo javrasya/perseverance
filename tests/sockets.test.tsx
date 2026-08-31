@@ -465,6 +465,34 @@ describe("a press", () => {
     expect(promptFor(9)).toEqual(prompt);
   });
 
+  /* A research run is spawned unattended, and it is watched all the same. The
+     harness binds the pane to every kind it starts — the refusal it makes is of
+     the keyboard, in `Terminals::typed` — so this side declares the binding for a
+     research spawn exactly as it does for a work one. If it ever stopped, the
+     store would be pointing at a run `Runs::frame` writes no byte for: a terminal
+     that stays blank while the ring behind it fills unacknowledged, which is the
+     failure the resume path is written against. */
+  it("binds the pane for a research spawn on the same terms as any other", async () => {
+    const answer = {
+      kind: "spawned",
+      run: 21,
+      prompt: { text: "research #58", characters: 12, origin: "stock" },
+    } satisfies Started;
+    invoke.mockResolvedValue(answer);
+    const host = paint();
+
+    await act(async () => {
+      button(host, "start").click();
+    });
+
+    expect(readUi().monitored).toBe(21);
+    expect(promptFor(21)).toEqual(answer.prompt);
+    /* And the answer carries nothing this side could have read to bind less: the
+       kind of the run is not in it, which is what keeps the decision in one
+       place instead of two that can disagree. */
+    expect(Object.keys(answer).sort()).toEqual(["kind", "prompt", "run"]);
+  });
+
   it("shows the refusal, re-arms on the frontier it named, and waits to be pressed again", async () => {
     invoke.mockResolvedValueOnce({
       kind: "refused",

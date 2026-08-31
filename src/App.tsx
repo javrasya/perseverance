@@ -381,7 +381,16 @@ export function App() {
         spillAtRun(monitored, text);
         return;
       }
-      void typedAtRun(monitored, text);
+      /* And a refusal is the same loss by another route. The harness answers a
+         keystroke aimed at a research run with a sentence saying why nothing was
+         sent — that run is watchable, so it can be typed at — and a rejection
+         nobody caught would be that sentence reaching no surface at all, which
+         is the silent drop it was written to avoid. It goes into the same
+         register the parked caret uses, carrying the harness's own words, so the
+         pane prints what was typed under the reason it was kept. */
+      void typedAtRun(monitored, text).catch((refusal: unknown) => {
+        spillAtRun(monitored, text, typeof refusal === "string" ? refusal : String(refusal));
+      });
     });
   }, [terminals, monitored]);
 
