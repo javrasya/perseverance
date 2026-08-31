@@ -117,6 +117,14 @@ and truncation is printed in the chrome and never into the stream.
 [ADR 0013](docs/adr/0013-lag-drop-cannot-mean-dropping-bytes.md) records the
 decision, what it costs, and the property test that falsifies it.
 
+**What a run was told is chrome beside its terminal.** The prompt a press was
+answered with is kept per run for as long as the window is open and printed
+above the emulator as a collapsed block that unfolds in place, its summary line
+carrying the character count Rust gave and a **stock/custom** badge — whose
+prose this run was started on is the first thing a bug report needs, and ~1.5K
+of it unfolded would be the whole first screen. A run this window did not start
+has no block at all.
+
 There is one xterm.js instance per run and it is moved between the pane and a
 hidden stow by relocating its DOM node — the same imperative-reparent primitive
 the boarding pass needs, so the app has one such mechanism rather than two. There

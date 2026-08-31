@@ -1,6 +1,8 @@
 import { useEffect, useRef } from "react";
 import { gesture, type Occasion } from "../panes/geometry";
 import { useUi } from "../stores/ui";
+import { promptFor } from "./prompts";
+import { PromptBlock } from "./PromptBlock";
 import type { RunReadout } from "./runs";
 import type { Terminals } from "./terminals";
 import styles from "./Pane.module.css";
@@ -84,6 +86,15 @@ export function Pane({
 
   const readout = readouts.find((run) => run.run === monitored) ?? null;
 
+  /*
+   * Read during render rather than held in state: the prompt is written once,
+   * by the press that produced the run, and it is already on record before that
+   * run is ever the monitored one. A run this window did not start — a window
+   * opened after the spawn, a fixture boot — has none, and that is a block that
+   * is absent rather than an empty one.
+   */
+  const prompt = monitored === null ? null : promptFor(monitored);
+
   return (
     <section className={styles.pane} aria-label="Terminal">
       {/*
@@ -112,6 +123,8 @@ export function Pane({
           ) : null}
         </div>
       )}
+
+      {prompt === null ? null : <PromptBlock prompt={prompt} />}
 
       {/*
         The terminal's node is appended here by `Terminals.bind` and is not a
