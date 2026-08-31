@@ -96,6 +96,16 @@
 }
 
 /*
+ * The same box below the view column's floor, where the only thing in it is the
+ * stand-down saying so. The padding is trimmed rather than the words: at a
+ * hundred-odd pixels of map side, a gutter is the difference between a sentence
+ * that wraps and a sentence that cannot be read at all.
+ */
+.narrow {
+  padding: var(--s-space-snug);
+}
+
+/*
  * The map side: the share of the window the dial has given the map, and the box
  * whose measured width sheds the columns inside it.
  *

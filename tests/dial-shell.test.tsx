@@ -331,6 +331,40 @@ describe("a view below its floor stands down, in words", () => {
     expect(theFooter()).toMatch(/\d+ nodes/);
   });
 
+  /*
+   * The band under the view column's own floor, where every column of the map
+   * side has been shed — launcher, view and rail all at once. The stand-down
+   * lives outside the column for exactly this: the alternative here is a map
+   * side with nothing in it and no reason given, which is the one thing #28's
+   * story 29 says never happens. Free positions land in this band on any normal
+   * window, so it is not a corner.
+   */
+  it("still stands down under the width the view column itself needs", async () => {
+    await boot();
+
+    for (const map of [1, 120, 259]) {
+      // jsdom's body is 1024 wide, so the position is the width, exactly.
+      await put(map / 1024);
+
+      const standing = theStandDown();
+      expect(standing, `nothing said at ${map}px`).not.toBeNull();
+      const said = standing?.textContent ?? "";
+      expect(said, `no view named at ${map}px`).toContain("The Route");
+      expect(said, `no requirement at ${map}px`).toContain("needs 420px of map");
+      expect(said, `no actual at ${map}px`).toContain(`this position gives ${map}px`);
+      // The three integers and the frontier are not a casualty of the width
+      // either — the stand-down carries them wherever it is drawn.
+      expect(said, `no model line at ${map}px`).toMatch(/\d+\/\d+ tickets open/);
+      // Two exits, still the operator's to press and never taken by the app.
+      expect(standing?.querySelectorAll("button"), `no exits at ${map}px`).toHaveLength(2);
+      expect(readUi().position).toBeCloseTo(map / 1024, 5);
+      expect(readUi().view).toBe("route");
+      // And the columns really are gone: this is the stand-down speaking for a
+      // map side that has nothing else left in it.
+      expect(document.querySelector('[aria-label="Folders"]'), `launcher at ${map}px`).toBeNull();
+    }
+  });
+
   it("offers exactly two exits and takes neither by itself", async () => {
     await boot();
     await put("glance");

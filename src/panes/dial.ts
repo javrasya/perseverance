@@ -233,8 +233,18 @@ export const VIEW_FLOORS: Record<ViewName, number> = {
   route: 420,
 };
 
+/**
+ * What a view needs, floored by the column it has to be drawn in.
+ *
+ * A view's own floor is never the whole answer: the view column is shed at
+ * `COLUMN_FLOORS.view` by measurement alone, so below that width *no* view can
+ * be drawn however modest its own appetite. Taking the maximum here is what
+ * keeps [`standDown`] and [`columnsAt`] from ever disagreeing — a view that is
+ * not on screen is a view that is standing down, at every width, including the
+ * ones a future view with a floor under 260 would otherwise slip through.
+ */
 export function floorOf(view: ViewName, floors: Record<string, number> = VIEW_FLOORS): number {
-  return floors[view] ?? 0;
+  return Math.max(COLUMN_FLOORS.view, floors[view] ?? 0);
 }
 
 export function honours(floor: number, mapWidth: number): boolean {

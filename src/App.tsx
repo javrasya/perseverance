@@ -678,6 +678,23 @@ export function App() {
    * the whole reason a peek shows the real view instead of a plate.
    */
   const standing = standDown(view, peeked ? fractionOf("map") : position, bodyWidth, VIEWS);
+  /*
+   * Whether the map side draws anything where a view would go — and it is two
+   * questions, because the stand-down is not part of the view column.
+   *
+   * The column is shed by width like every other column, and its floor is
+   * *narrower* than any view's own floor. Gating the stand-down on the column
+   * would therefore switch the stand-down off exactly where it is needed most:
+   * from `COLUMN_FLOORS.view` down the open view is further below its floor
+   * than it has ever been, the column that would have said so is gone, and what
+   * is left is the blank rectangle #28's story 29 says never happens. So the
+   * stand-down is gated on the map side being worth any pixels at all — four
+   * lines of text and two buttons degrade where a rendering cannot — and the
+   * view itself is gated on the column being there.
+   */
+  const viewColumn = columns.includes("view");
+  const mapSideDraws =
+    snapshot.model.map !== null && mapWidth > 0 && (viewColumn || standing !== null);
   /* The run whose bytes are on the pane, as the map side knows it — so a map
      rendered during a run and the run bar cannot disagree about which run. */
   const monitoredRun = runs.find((run) => run.run === monitored) ?? null;
@@ -950,8 +967,8 @@ export function App() {
         </DropRegion>
         ) : null}
 
-        {snapshot.model.map === null || !columns.includes("view") ? null : (
-          <div className={styles.view}>
+        {!mapSideDraws ? null : (
+          <div className={viewColumn ? styles.view : `${styles.view} ${styles.narrow}`}>
             {/*
               Which run's bytes are on the pane, said on the map side too. A map
               drawn while a run is going has the run's presence on it, so the
