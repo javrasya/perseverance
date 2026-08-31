@@ -4,7 +4,12 @@ import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "../src/App";
 import { keyedRun, monitor, readUi } from "../src/stores/ui";
-import { NOWHERE_TO_OFFER, SPILL_READING, spillSentence } from "../src/terminal/Pane";
+import {
+  NOWHERE_TO_OFFER,
+  NO_FOLDER_TO_JOIN,
+  SPILL_READING,
+  spillSentence,
+} from "../src/terminal/Pane";
 import type { RunReadout } from "../src/terminal/runs";
 import {
   KEPT_CHARACTERS,
@@ -460,6 +465,31 @@ describe("the register, offered", () => {
     expect(chrome()).toContain("nowhere to go");
     expect(chrome()).toContain(SPILL_READING);
     expect(spilledAtRun(7)?.characters).toBe(13);
+  });
+
+  it("says the folder was never told, and never that the folder came out empty", async () => {
+    // The two absences of `offeredTo` are two facts about the world, and the
+    // node panel's rule holds here: a fact the harness was never told is
+    // form-level distinct from a count that is genuinely nought. There is a live
+    // work run one line away — what is missing is the join, not the run.
+    const nameless = (over: boolean): RunReadout[] => [
+      { ...a(7, over), folder: null, ticket: null },
+      { ...a(8, false), ticket: 123 },
+    ];
+
+    await boot();
+    await readouts(nameless(false));
+    act(() => monitor(7));
+    await readouts(nameless(true));
+
+    await types("staked nowhere");
+
+    expect(button("Send to #123 work")).toBeUndefined();
+    expect(chrome()).toContain(NO_FOLDER_TO_JOIN);
+    expect(chrome()).not.toContain(NOWHERE_TO_OFFER);
+    // Verbatim, counted and held — which absence it is changes none of that.
+    expect(chrome()).toContain("staked nowhere");
+    expect(spilledAtRun(7)?.characters).toBe(14);
   });
 
   it("offers nothing at all until something has been caught", async () => {

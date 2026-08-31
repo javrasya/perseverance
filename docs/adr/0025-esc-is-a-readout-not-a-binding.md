@@ -1,6 +1,7 @@
 # 25. `Esc` is a readout, not a binding
 
-Status: accepted (2026-08-31)
+Status: accepted (2026-08-31), amended by ADR 0027 (2026-08-31) in the one
+place marked *Amended* below.
 Context: [#53 The keys are one table](https://github.com/javrasya/perseverance/issues/53),
 under the spec [#28](https://github.com/javrasya/perseverance/issues/28). It
 rests on
@@ -41,7 +42,17 @@ unclaimed by the router: it is encoded and sent to the PTY like any ordinary
 key, and the custom key handler at the xterm seam returns `true` for it the way
 it does for a letter. When a dismissible surface stands in front of the
 terminal, the CLI is not being typed at, that surface holds the keys, and `Esc`
-takes it away. Those are the only two destinations there are.
+takes it away. Those are the only two destinations there are. [Amended by
+[ADR 0027](0027-watching-and-typing-are-two-paths.md): there are three, and #57
+is what made the third reachable. Watching and typing came apart there, so a run
+can be on the monitor with the keys on the map — cold and monitored, one press
+away at any time. Nothing holds `Esc` in that state: no surface is in front and
+no run is warm, so the key is claimed by nobody and reaches nothing at all.
+`escDestination` says exactly that — *reaches nothing — the keys are on the map*
+— and it reads `warm` rather than `monitored` to know it. Naming the agent CLI
+over a cold run would promise an interrupt that never arrives, which is this
+ADR's own failure one state over. The mechanism is untouched: whatever holds the
+keys holds `Esc`, and here nothing does.]
 
 **`Esc` never changes room.** Not the view, not the dial, not which run is on
 the pane. Crossing between the map and the terminal is a chord of its own —

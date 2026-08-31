@@ -189,9 +189,30 @@ export function offerLabel(work: RunReadout): string {
  * says nothing about the words themselves — they are still held, still counted
  * and still printed beside this, and a sentence hinting they were lost would be
  * the pane contradicting the register an inch to its left.
+ *
+ * **There are two of these, because [`offeredTo`] has two absences.** This one
+ * is the counted absence: the folder is known and no live work run is going in
+ * it. [`NO_FOLDER_TO_JOIN`] is the other, and the split is the one the node
+ * panel draws for its three unlit fields — a fact the harness was never told is
+ * form-level distinct from a count that is genuinely nought, so the two may not
+ * share a sentence.
  */
 export const NOWHERE_TO_OFFER =
   "no work run is going in this folder, so there is nowhere to send these yet";
+
+/**
+ * Why there is no press when the window was never told where the run was staked.
+ *
+ * The other absence, and a different fact about the world. A parked run whose
+ * `folder` is `null` is a run this window was never told the folder of, and the
+ * join an offer is made on is the folder — so there is no folder here to be
+ * empty of live work runs, and printing [`NOWHERE_TO_OFFER`] over it would name
+ * a folder the window does not have and report a search that was never run.
+ * `src/terminal/fixtures.ts` boots one such run on purpose, so the reading is on
+ * screen in `dev:web` rather than only in a test.
+ */
+export const NO_FOLDER_TO_JOIN =
+  "this window was never told which folder this run was staked in, so no offer can be joined";
 
 export function Pane({
   terminals,
@@ -481,13 +502,21 @@ export function Pane({
             And where they can go, beside the words themselves. A real button
             for the same reason `End this run` is one — this is a decision and
             the keyboard has to reach it — and in the chrome rather than in the
-            host node, which is xterm's. With no work run in this folder there is
-            a sentence here instead: never a disabled button, whose reason is
+            host node, which is xterm's. With nobody to offer to there is a
+            sentence here instead: never a disabled button, whose reason is
             reachable only by a hover, and never a word about the words being
             gone, which the register beside it would contradict.
+
+            Which sentence is the absence's own. A known folder with no live work
+            run in it is a count that came out nought; a run this window was
+            never told the folder of is a fact it does not hold, and the two are
+            not the same reading — the pick is off `readout.folder` and never off
+            `work` alone, which cannot tell them apart.
           */}
           {held === null ? null : work === null ? (
-            <span className={styles.unoffered}>{NOWHERE_TO_OFFER}</span>
+            <span className={styles.unoffered}>
+              {readout === null || readout.folder === null ? NO_FOLDER_TO_JOIN : NOWHERE_TO_OFFER}
+            </span>
           ) : (
             <button
               type="button"
