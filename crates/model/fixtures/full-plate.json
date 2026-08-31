@@ -1,0 +1,405 @@
+{
+  "_why": "The size the Plate claims and nothing in the set had reached: fifteen children, which is the middle of the twelve-to-twenty band the view says it is competent at. Five ranks deep and four wide at the widest, so the router draws corners rather than one straight run. Two fan stems, and only one of them is an offer \u2014 #201 is finished and four children descend from it, #202 is the one thing here that can be started and three more wait on it. Three sidings, each a different mark: a resolved chore, a takeable one nothing waits on, and the spec child. Nothing closes a cycle: `awkward-children.json` owns that reading and a second one would cost this map its own.",
+  "data": {
+    "repository": {
+      "nameWithOwner": "o/r",
+      "maps": {
+        "pageInfo": { "hasNextPage": false },
+        "nodes": [
+          {
+            "number": 200,
+            "title": "Spec: cut a signed desktop release",
+            "state": "OPEN",
+            "url": "https://github.com/o/r/issues/200",
+            "updatedAt": "2026-08-27T13:05:00Z"
+          }
+        ]
+      },
+      "issue": {
+        "number": 200,
+        "title": "Spec: cut a signed desktop release",
+        "state": "OPEN",
+        "url": "https://github.com/o/r/issues/200",
+        "updatedAt": "2026-08-27T13:05:00Z",
+        "labels": { "nodes": [{ "name": "wayfinder:map" }] },
+        "subIssues": {
+          "pageInfo": { "hasNextPage": false },
+          "nodes": [
+            {
+              "number": 201,
+              "title": "Write down what a signed release actually contains",
+              "state": "CLOSED",
+              "stateReason": "COMPLETED",
+              "url": "https://github.com/o/r/issues/201",
+              "updatedAt": "2026-08-27T09:00:00Z",
+              "labels": { "nodes": [{ "name": "wayfinder:task", "color": "1d76db" }] },
+              "assignees": { "nodes": [] },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 0,
+                "blocking": 4,
+                "totalBlocking": 4
+              },
+              "blockedBy": { "pageInfo": { "hasNextPage": false }, "nodes": [] }
+            },
+            {
+              "number": 202,
+              "title": "Move the signing key onto the build machine",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/202",
+              "updatedAt": "2026-08-27T09:15:00Z",
+              "labels": { "nodes": [{ "name": "wayfinder:task", "color": "1d76db" }] },
+              "assignees": { "nodes": [] },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 1,
+                "blocking": 3,
+                "totalBlocking": 3
+              },
+              "blockedBy": {
+                "pageInfo": { "hasNextPage": false },
+                "nodes": [
+                  {
+                    "number": 201,
+                    "title": "Write down what a signed release actually contains",
+                    "state": "CLOSED",
+                    "repository": { "nameWithOwner": "o/r" }
+                  }
+                ]
+              }
+            },
+            {
+              "number": 203,
+              "title": "Reproduce the notarisation failure on a clean machine",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/203",
+              "updatedAt": "2026-08-27T09:30:00Z",
+              "labels": { "nodes": [{ "name": "wayfinder:task", "color": "1d76db" }] },
+              "assignees": { "nodes": [{ "login": "javrasya" }] },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 1,
+                "blocking": 1,
+                "totalBlocking": 1
+              },
+              "blockedBy": {
+                "pageInfo": { "hasNextPage": false },
+                "nodes": [
+                  {
+                    "number": 201,
+                    "title": "Write down what a signed release actually contains",
+                    "state": "CLOSED",
+                    "repository": { "nameWithOwner": "o/r" }
+                  }
+                ]
+              }
+            },
+            {
+              "number": 213,
+              "title": "Somebody filed a crash report against this map",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/213",
+              "updatedAt": "2026-08-27T09:45:00Z",
+              "labels": { "nodes": [{ "name": "bug", "color": "d73a4a" }] },
+              "assignees": { "nodes": [] },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 1,
+                "blocking": 0,
+                "totalBlocking": 0
+              },
+              "blockedBy": {
+                "pageInfo": { "hasNextPage": false },
+                "nodes": [
+                  {
+                    "number": 201,
+                    "title": "Write down what a signed release actually contains",
+                    "state": "CLOSED",
+                    "repository": { "nameWithOwner": "o/r" }
+                  }
+                ]
+              }
+            },
+            {
+              "number": 204,
+              "title": "Sign the macOS bundle in CI",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/204",
+              "updatedAt": "2026-08-27T10:00:00Z",
+              "labels": { "nodes": [{ "name": "wayfinder:task", "color": "1d76db" }] },
+              "assignees": { "nodes": [] },
+              "issueDependenciesSummary": {
+                "blockedBy": 1,
+                "totalBlockedBy": 1,
+                "blocking": 0,
+                "totalBlocking": 0
+              },
+              "blockedBy": {
+                "pageInfo": { "hasNextPage": false },
+                "nodes": [
+                  {
+                    "number": 202,
+                    "title": "Move the signing key onto the build machine",
+                    "state": "OPEN",
+                    "repository": { "nameWithOwner": "o/r" }
+                  }
+                ]
+              }
+            },
+            {
+              "number": 205,
+              "title": "Sign the Windows installer in CI",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/205",
+              "updatedAt": "2026-08-27T10:15:00Z",
+              "labels": { "nodes": [{ "name": "wayfinder:task", "color": "1d76db" }] },
+              "assignees": { "nodes": [] },
+              "issueDependenciesSummary": {
+                "blockedBy": 1,
+                "totalBlockedBy": 1,
+                "blocking": 0,
+                "totalBlocking": 0
+              },
+              "blockedBy": {
+                "pageInfo": { "hasNextPage": false },
+                "nodes": [
+                  {
+                    "number": 202,
+                    "title": "Move the signing key onto the build machine",
+                    "state": "OPEN",
+                    "repository": { "nameWithOwner": "o/r" }
+                  }
+                ]
+              }
+            },
+            {
+              "number": 206,
+              "title": "Publish the signed artefacts to the release page",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/206",
+              "updatedAt": "2026-08-27T10:30:00Z",
+              "labels": { "nodes": [{ "name": "wayfinder:task", "color": "1d76db" }] },
+              "assignees": { "nodes": [] },
+              "issueDependenciesSummary": {
+                "blockedBy": 1,
+                "totalBlockedBy": 1,
+                "blocking": 1,
+                "totalBlocking": 1
+              },
+              "blockedBy": {
+                "pageInfo": { "hasNextPage": false },
+                "nodes": [
+                  {
+                    "number": 202,
+                    "title": "Move the signing key onto the build machine",
+                    "state": "OPEN",
+                    "repository": { "nameWithOwner": "o/r" }
+                  }
+                ]
+              }
+            },
+            {
+              "number": 207,
+              "title": "Send the bundle to Apple and wait for the ticket",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/207",
+              "updatedAt": "2026-08-27T10:45:00Z",
+              "labels": { "nodes": [{ "name": "wayfinder:task", "color": "1d76db" }] },
+              "assignees": { "nodes": [] },
+              "issueDependenciesSummary": {
+                "blockedBy": 1,
+                "totalBlockedBy": 1,
+                "blocking": 1,
+                "totalBlocking": 1
+              },
+              "blockedBy": {
+                "pageInfo": { "hasNextPage": false },
+                "nodes": [
+                  {
+                    "number": 203,
+                    "title": "Reproduce the notarisation failure on a clean machine",
+                    "state": "OPEN",
+                    "repository": { "nameWithOwner": "o/r" }
+                  }
+                ]
+              }
+            },
+            {
+              "number": 208,
+              "title": "Point the updater feed at the published artefacts",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/208",
+              "updatedAt": "2026-08-27T11:00:00Z",
+              "labels": { "nodes": [{ "name": "wayfinder:task", "color": "1d76db" }] },
+              "assignees": { "nodes": [] },
+              "issueDependenciesSummary": {
+                "blockedBy": 1,
+                "totalBlockedBy": 1,
+                "blocking": 0,
+                "totalBlocking": 0
+              },
+              "blockedBy": {
+                "pageInfo": { "hasNextPage": false },
+                "nodes": [
+                  {
+                    "number": 206,
+                    "title": "Publish the signed artefacts to the release page",
+                    "state": "OPEN",
+                    "repository": { "nameWithOwner": "o/r" }
+                  }
+                ]
+              }
+            },
+            {
+              "number": 209,
+              "title": "Staple the notarisation ticket into the bundle",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/209",
+              "updatedAt": "2026-08-27T11:15:00Z",
+              "labels": { "nodes": [{ "name": "wayfinder:task", "color": "1d76db" }] },
+              "assignees": { "nodes": [] },
+              "issueDependenciesSummary": {
+                "blockedBy": 1,
+                "totalBlockedBy": 1,
+                "blocking": 1,
+                "totalBlocking": 1
+              },
+              "blockedBy": {
+                "pageInfo": { "hasNextPage": false },
+                "nodes": [
+                  {
+                    "number": 207,
+                    "title": "Send the bundle to Apple and wait for the ticket",
+                    "state": "OPEN",
+                    "repository": { "nameWithOwner": "o/r" }
+                  }
+                ]
+              }
+            },
+            {
+              "number": 210,
+              "title": "Install from the stapled bundle on a machine that has never seen it",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/210",
+              "updatedAt": "2026-08-27T11:30:00Z",
+              "labels": { "nodes": [{ "name": "wayfinder:task", "color": "1d76db" }] },
+              "assignees": { "nodes": [] },
+              "issueDependenciesSummary": {
+                "blockedBy": 1,
+                "totalBlockedBy": 1,
+                "blocking": 0,
+                "totalBlocking": 0
+              },
+              "blockedBy": {
+                "pageInfo": { "hasNextPage": false },
+                "nodes": [
+                  {
+                    "number": 209,
+                    "title": "Staple the notarisation ticket into the bundle",
+                    "state": "OPEN",
+                    "repository": { "nameWithOwner": "o/r" }
+                  }
+                ]
+              }
+            },
+            {
+              "number": 215,
+              "title": "Write the release notes for the first signed build",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/215",
+              "updatedAt": "2026-08-27T11:45:00Z",
+              "labels": { "nodes": [{ "name": "wayfinder:task", "color": "1d76db" }] },
+              "assignees": { "nodes": [{ "login": "javrasya" }] },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 1,
+                "blocking": 0,
+                "totalBlocking": 0
+              },
+              "blockedBy": {
+                "pageInfo": { "hasNextPage": false },
+                "nodes": [
+                  {
+                    "number": 201,
+                    "title": "Write down what a signed release actually contains",
+                    "state": "CLOSED",
+                    "repository": { "nameWithOwner": "o/r" }
+                  }
+                ]
+              }
+            },
+            {
+              "number": 211,
+              "title": "Delete the ad-hoc signing script nobody runs any more",
+              "state": "CLOSED",
+              "stateReason": "COMPLETED",
+              "url": "https://github.com/o/r/issues/211",
+              "updatedAt": "2026-08-27T12:00:00Z",
+              "labels": { "nodes": [{ "name": "wayfinder:task", "color": "1d76db" }] },
+              "assignees": { "nodes": [] },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 0,
+                "blocking": 0,
+                "totalBlocking": 0
+              },
+              "blockedBy": { "pageInfo": { "hasNextPage": false }, "nodes": [] }
+            },
+            {
+              "number": 212,
+              "title": "Update the screenshots in the read-me",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/212",
+              "updatedAt": "2026-08-27T12:15:00Z",
+              "labels": { "nodes": [{ "name": "wayfinder:task", "color": "1d76db" }] },
+              "assignees": { "nodes": [] },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 0,
+                "blocking": 0,
+                "totalBlocking": 0
+              },
+              "blockedBy": { "pageInfo": { "hasNextPage": false }, "nodes": [] }
+            },
+            {
+              "number": 214,
+              "title": "Spec: cut a signed desktop release, composed",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/214",
+              "updatedAt": "2026-08-27T12:30:00Z",
+              "labels": { "nodes": [{ "name": "wayfinder:spec", "color": "5319e7" }] },
+              "assignees": { "nodes": [] },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 0,
+                "blocking": 0,
+                "totalBlocking": 0
+              },
+              "blockedBy": { "pageInfo": { "hasNextPage": false }, "nodes": [] }
+            }
+          ]
+        }
+      }
+    },
+    "rateLimit": {
+      "cost": 2,
+      "nodeCount": 212,
+      "limit": 5000,
+      "remaining": 4327,
+      "resetAt": "2026-08-27T14:02:14Z"
+    }
+  }
+}

@@ -14,6 +14,7 @@ import { NO_MAP_OPEN } from "../src/snapshot/readout";
 import {
   FOG_HEADING,
   NOBODY_SURVEYED,
+  PIN_NOTE,
   Plate,
   UNCLASSIFIED_TAG,
 } from "../src/views/plate/Plate.jsx";
@@ -418,6 +419,27 @@ describe("the drawing is painted through the stylesheet", () => {
      */
     for (const literal of ['fill="#', 'stroke="#', "rgb(", "oklch(", "hsl("]) {
       expect([literal, source.text.includes(literal)]).toEqual([literal, false]);
+    }
+  });
+});
+
+describe("the gesture is in the margin before it is in anybody's hand", () => {
+  it("names the drag and the keyboard in words, on every map it draws", async () => {
+    /* Rule 10 the other way round. A station moves under a pointer and under an
+       arrow key, and neither the cursor nor a focus ring says so — so the words
+       are on screen from the first paint, on every map, before anything has
+       been hovered or focused. */
+    expect(PIN_NOTE).toMatch(/drag/i);
+    expect(PIN_NOTE).toMatch(/arrow keys/i);
+    expect(PIN_NOTE).toMatch(/backspace/i);
+
+    for (const { name, model } of mapped()) {
+      const view = await paint(model);
+      expect([name, view.textContent?.includes(PIN_NOTE)]).toEqual([name, true]);
+      /* And it is still not a tooltip: the sentence is a paragraph in the
+         margin, and nothing in this view discloses on hover. */
+      expect([name, view.querySelectorAll("[title]").length]).toEqual([name, 0]);
+      teardown();
     }
   });
 });

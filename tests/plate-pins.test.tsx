@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Map as MapModel, Model, Node } from "../src/snapshot/model.generated";
 /* `Plate.jsx` and not `Plate`, for the reason `tests/plate-view.test.tsx`
    gives: an extensionless `./Plate` resolves to the geometry module. */
-import { Plate } from "../src/views/plate/Plate.jsx";
+import { PUT_BACK, Plate } from "../src/views/plate/Plate.jsx";
 import { CELL_PIXELS, plateOf } from "../src/views/plate/plate";
 import { openPinsAt, readPins, readPinsOnScreen, writePins } from "../src/views/plate/pins";
 
@@ -23,6 +23,13 @@ import { openPinsAt, readPins, readPinsOnScreen, writePins } from "../src/views/
  * writes exactly once on the settled gesture and nothing per frame, and a pin
  * the graph has moved under stamps the plate provisional in the legend — which
  * until this slice was a path nothing could reach.
+ *
+ * Then the same three facts about the gesture with no pointer in it: an arrow
+ * key moves a focused station one cell and writes once, autorepeat and a
+ * modified arrow write nothing at all, and both undos — one station and the
+ * whole arrangement — go back through `plateOf` rather than patching what is
+ * drawn. A drag and a keystroke are one seam here, so what is asserted of one
+ * has to hold of the other.
  */
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT =
@@ -216,5 +223,114 @@ describe("a plate the graph has moved under says so", () => {
     const entry = view.querySelector('[data-legend-key="provisional"]');
     expect(entry).not.toBeNull();
     expect(entry?.textContent).toContain("no longer match the graph");
+  });
+});
+
+/** A keystroke on a focused station. jsdom's `KeyboardEvent` carries everything
+ *  this view reads off one: the key, the modifiers and whether the browser is
+ *  repeating itself. */
+function press(station: Element, key: string, over: KeyboardEventInit = {}) {
+  act(() => {
+    station.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, ...over }));
+  });
+}
+
+function cellOf(view: HTMLElement, number: number): Element {
+  const station = view.querySelector(`[data-node="${number}"]`);
+  if (station === null) throw new Error(`station ${number} is not drawn`);
+  return station;
+}
+
+describe("the arrangement is a gesture the keyboard can make too", () => {
+  it("moves one cell per press, writes once, and gives autorepeat nothing", async () => {
+    await act(async () => {
+      openPinsAt(FOLDER, MAP);
+    });
+    const view = await paint(MODEL);
+    const was = plateOf(MODEL.map).stations.find((station) => station.number === 2);
+    if (was === undefined) throw new Error("the fixture has no station 2");
+
+    press(cellOf(view, 2), "ArrowRight");
+    const east = { column: was.at.column + 1, row: was.at.row };
+    expect([...readPinsOnScreen()]).toEqual([[2, east]]);
+
+    /* A second press moves from where the first one left it: a nudge authors a
+       station, and the drawing under it stays the geometry's rather than
+       becoming a correction laid over one. */
+    await paint(MODEL);
+    press(cellOf(view, 2), "ArrowDown");
+    const southEast = { column: east.column, row: east.row + 1 };
+    expect([...readPinsOnScreen()]).toEqual([[2, southEast]]);
+    expect([...(await readPins(FOLDER, MAP))]).toEqual([[2, southEast]]);
+
+    /* Held down is the browser repeating itself. Rule 9 rations a write to the
+       gesture, and a key that never came up has made one. */
+    await paint(MODEL);
+    press(cellOf(view, 2), "ArrowDown", { repeat: true });
+    /* And a modified arrow is somebody else's shortcut, not this view's. */
+    press(cellOf(view, 2), "ArrowUp", { metaKey: true });
+    press(cellOf(view, 2), "ArrowLeft", { shiftKey: true });
+    expect([...readPinsOnScreen()]).toEqual([[2, southEast]]);
+  });
+
+  it("puts one station back where the plate drew it and leaves the rest arranged", async () => {
+    window.localStorage.setItem(
+      `perseverance.plate.${FOLDER}#${MAP}`,
+      '[{"node":2,"column":30,"row":2},{"node":3,"column":30,"row":12}]',
+    );
+    await act(async () => {
+      openPinsAt(FOLDER, MAP);
+    });
+    const view = await paint(MODEL);
+    expect(cellOf(view, 2).getAttribute("data-pinned")).toBe("");
+
+    press(cellOf(view, 2), "Backspace");
+
+    /* One pin dropped and the other kept — and what comes back for the station
+       let go of is the generated cell, not the last one it was dragged to. */
+    expect([...readPinsOnScreen()]).toEqual([[3, { column: 30, row: 12 }]]);
+    expect([...(await readPins(FOLDER, MAP))]).toEqual([[3, { column: 30, row: 12 }]]);
+
+    const again = await paint(MODEL);
+    expect(cellOf(again, 2).getAttribute("data-pinned")).toBeNull();
+    expect(cellOf(again, 3).getAttribute("data-pinned")).toBe("");
+
+    /* The gesture that undoes a pin never makes one: station 1 is where the
+       plate put it, and pressing it back leaves it exactly there. */
+    press(cellOf(again, 1), "Delete");
+    expect([...readPinsOnScreen()]).toEqual([[3, { column: 30, row: 12 }]]);
+  });
+
+  it("hands the whole arrangement back through the same path a pin took", async () => {
+    await act(async () => {
+      openPinsAt(FOLDER, MAP);
+    });
+    /* Nothing arranged is nothing to put back, so the control is not there to
+       be pressed. */
+    const before = await paint(MODEL);
+    expect(before.querySelector("button")).toBeNull();
+
+    press(cellOf(before, 2), "ArrowRight");
+    press(cellOf(await paint(MODEL), 3), "ArrowLeft");
+    expect(readPinsOnScreen().size).toBe(2);
+
+    const arranged = await paint(MODEL);
+    const button = arranged.querySelector("button");
+    expect(button?.textContent).toBe(PUT_BACK);
+    act(() => {
+      button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    /* An empty list and not a deleted key: the store reads one as nothing
+       pinned, so clearing lands as a fact somebody wrote rather than as an
+       absence somebody has to interpret. */
+    expect(readPinsOnScreen().size).toBe(0);
+    expect(window.localStorage.getItem(`perseverance.plate.${FOLDER}#${MAP}`)).toBe("[]");
+    expect((await readPins(FOLDER, MAP)).size).toBe(0);
+
+    /* And the plate that comes back is the generated one, down to the cell. */
+    const cleared = await paint(MODEL);
+    expect(cleared.querySelectorAll("[data-pinned]").length).toBe(0);
+    expect(cleared.querySelector("button")).toBeNull();
   });
 });

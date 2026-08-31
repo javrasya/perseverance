@@ -213,3 +213,40 @@ export function pinStation(node: number, cell: Cell): void {
   replace(next);
   void writePins(open.folder, open.map, next);
 }
+
+/**
+ * One station, put back: the pin dropped and the rest of the arrangement kept.
+ *
+ * The undo the pointer never had. A drag can move a station anywhere but cannot
+ * say *and now forget where I put this one* — there is no gesture for putting a
+ * thing back where you never chose to have it — so the keyboard carries it, and
+ * what it goes through is this same one seam and this same one write.
+ *
+ * Back to *generated* and not back to *where it was before the drag*: this
+ * module remembers arrangements, not histories, and the cell `plateOf` gives an
+ * unpinned station is the one the map itself would have drawn.
+ */
+export function unpinStation(node: number): void {
+  const current = store.read();
+  if (!current.has(node)) return;
+  const next = new Map(current);
+  next.delete(node);
+  replace(next);
+  void writePins(open.folder, open.map, next);
+}
+
+/**
+ * The whole arrangement, given back to the plate.
+ *
+ * An empty list rather than a deleted key: the store already reads *nothing
+ * pinned* off one, so clearing travels the same path a pin does and lands as a
+ * fact somebody wrote rather than as an absence somebody has to interpret. The
+ * drawing that comes back is `plateOf` with no pins in it, which is the picture
+ * the map would have had before any hand touched it — and clearing a plate that
+ * nobody arranged writes nothing at all.
+ */
+export function clearPins(): void {
+  if (store.read().size === 0) return;
+  replace(NOTHING_PINNED);
+  void writePins(open.folder, open.map, NOTHING_PINNED);
+}

@@ -28,7 +28,7 @@ import {
   type Station,
   type Track,
 } from "./plate";
-import { pinStation, usePins } from "./pins";
+import { clearPins, pinStation, unpinStation, usePins } from "./pins";
 import styles from "./Plate.module.css";
 
 /**
@@ -66,14 +66,44 @@ export const FOG_HEADING = "NOT YET SPECIFIED";
 export const NOBODY_SURVEYED = "—";
 export const FOG_ALL_CHARTED = "nothing left unspecified";
 /**
- * The drag, said out loud in the margin.
+ * The gesture, said out loud in the margin — both hands of it.
  *
- * Rule 10 the other way round: a station can be dragged, and an affordance that
+ * Rule 10 the other way round: a station can be moved, and an affordance that
  * only exists under a pointer is an affordance half the operators never find.
  * So the sentence is drawn beside the legend, before anything is hovered, and
- * the cursor is not carrying the news on its own.
+ * the cursor is not carrying the news on its own. The keyboard's half is named
+ * in the same sentence for exactly the same reason: an arrow key discloses even
+ * less than a cursor does, because nothing about a focused station suggests it
+ * would move if you pressed one.
  */
-export const PIN_NOTE = "Drag a station to put it where you want it. This map remembers.";
+export const PIN_NOTE =
+  "Drag a station to put it where you want it, or move the one you are on with the " +
+  "arrow keys. Backspace puts a station back where the plate drew it. This map remembers.";
+
+/**
+ * The arrangement's own undo, and the only control this view has.
+ *
+ * A button and not a further keystroke: putting every station back is the one
+ * gesture here with nothing behind it to undo, and a chord that did it would be
+ * a chord discovered by accident. It sits in the margin, reachable by tab like
+ * every station, and it says what it does rather than what it undoes.
+ */
+export const PUT_BACK = "Put every station back";
+
+/**
+ * The keyboard's four headings.
+ *
+ * The router draws eight and a hand can reach all of them, but a key event
+ * carries one heading and there is no second key to combine it with — so a
+ * diagonal here is two presses, which the four arrows already spell without a
+ * chord nobody would guess at.
+ */
+const NUDGE = new Map<string, Cell>([
+  ["ArrowLeft", { column: -1, row: 0 }],
+  ["ArrowRight", { column: 1, row: 0 }],
+  ["ArrowUp", { column: 0, row: -1 }],
+  ["ArrowDown", { column: 0, row: 1 }],
+]);
 
 /**
  * The eleven encodings this view draws.
@@ -230,6 +260,22 @@ export function Plate({ model, selected, onSelect }: ViewProps) {
     });
   }, []);
 
+  /*
+   * The same gesture, one cell at a time, from the keyboard.
+   *
+   * A press is already settled when it arrives — there is no equivalent of the
+   * hand still being down — so this is `pinStation` directly, once per press.
+   * A station that was never pinned is pinned where it already stands plus the
+   * heading, which is why nudging a generated station is the act that authors
+   * it: the plate cannot be asked to move a station and go on generating it.
+   */
+  const nudge = useCallback((node: number, from: Cell, by: Cell) => {
+    pinStation(node, {
+      column: Math.max(0, from.column + by.column),
+      row: Math.max(0, from.row + by.row),
+    });
+  }, []);
+
   /* A press that moved is a drag and nothing else. */
   const pick = useCallback(
     (number: number, already: boolean) => {
@@ -323,6 +369,8 @@ export function Plate({ model, selected, onSelect }: ViewProps) {
               receded={thread !== null && threads.get(station.number) !== thread}
               onPick={pick}
               onGrab={grab}
+              onNudge={nudge}
+              onUnpin={unpinStation}
               onLight={light}
             />
           ))}
@@ -338,6 +386,18 @@ export function Plate({ model, selected, onSelect }: ViewProps) {
       <aside className={styles.margin}>
         <Legend entries={plate.legend} />
         <p className={styles.note}>{PIN_NOTE}</p>
+        {/*
+          Only where there is an arrangement to put back. Not a disclosure —
+          rule 10 is about what a hover reveals, and this is a fact about the
+          map rather than about where anybody is pointing: a plate nobody
+          arranged has nothing to undo, and the sentence above it announces the
+          gesture long before there is anything to use it on.
+        */}
+        {pins.size === 0 ? null : (
+          <button className={styles.reset} type="button" onClick={() => clearPins()}>
+            {PUT_BACK}
+          </button>
+        )}
         <FogRegion fog={map.fog} />
       </aside>
     </section>
@@ -439,6 +499,8 @@ function StationMark({
   receded,
   onPick,
   onGrab,
+  onNudge,
+  onUnpin,
   onLight,
 }: {
   station: Station;
@@ -448,6 +510,8 @@ function StationMark({
   receded: boolean;
   onPick: (number: number, already: boolean) => void;
   onGrab: (number: number, from: Cell, event: ReactPointerEvent) => void;
+  onNudge: (number: number, from: Cell, by: Cell) => void;
+  onUnpin: (number: number) => void;
   onLight: (number: number | null) => void;
 }) {
   const { node } = station;
@@ -494,10 +558,32 @@ function StationMark({
       onClick={choose}
       onPointerDown={(event) => onGrab(node.number, station.at, event)}
       onKeyDown={(event) => {
-        if (event.key !== "Enter" && event.key !== " ") return;
-        // Space scrolls the pane otherwise, which moves the thing being picked.
+        if (event.key === "Enter" || event.key === " ") {
+          // Space scrolls the pane otherwise, which moves the thing being picked.
+          event.preventDefault();
+          choose();
+          return;
+        }
+        /* A modified key belongs to the browser or to the window manager, and
+           this view does not take one out of their hands. */
+        if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+        if (event.key === "Backspace" || event.key === "Delete") {
+          /* Nothing to put back is nothing to do, and the gesture that undoes a
+             pin must never be the one that makes one. */
+          if (!station.pinned) return;
+          event.preventDefault();
+          onUnpin(node.number);
+          return;
+        }
+        const by = NUDGE.get(event.key);
+        if (by === undefined) return;
+        // An arrow scrolls the pane otherwise, which moves what is being moved.
         event.preventDefault();
-        choose();
+        /* One press, one cell. A held arrow is the browser repeating itself and
+           not a hand making twenty gestures — and rule 9 rations a write to the
+           gesture, so autorepeat gets no writes at all. */
+        if (event.repeat) return;
+        onNudge(node.number, station.at, by);
       }}
       onMouseEnter={() => onLight(node.number)}
       onMouseLeave={() => onLight(null)}

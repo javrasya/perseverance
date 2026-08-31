@@ -411,3 +411,46 @@ describe("the floor, as numbers", () => {
     expect(flat.track).toEqual([]);
   });
 });
+
+/**
+ * The band, drawn rather than only computed.
+ *
+ * `COMPETENCE_BAND` is a claim this view makes about itself on screen, and
+ * until a map in the fixture set reached twelve stations it was a claim nothing
+ * rendered ever tested: every fixture drew *thin*, so the verdict the legend
+ * spells for a competent plate was a word no drawing had been asked for. What
+ * is asserted here is that the set now holds such a map and that it has the
+ * structures the band is a claim about — ranks with corners in them, a fan and
+ * a siding — because a fifteen-station map with no topology would satisfy the
+ * count and answer none of the question.
+ */
+describe("the band the plate claims is a map somebody can open", () => {
+  it("holds a fixture inside twelve to twenty, with the structures to go with it", () => {
+    const competent = fixtureMaps()
+      .map(([name, map]) => [name, plateOf(map)] as const)
+      .filter(([, plate]) => plate.competence.verdict === "competent");
+    expect(competent.length).toBeGreaterThan(0);
+
+    for (const [name, plate] of competent) {
+      expect([name, plate.competence.stations >= COMPETENCE_BAND.from]).toEqual([name, true]);
+      expect([name, plate.competence.stations <= COMPETENCE_BAND.to]).toEqual([name, true]);
+      expect([name, plate.stations.length]).toEqual([name, plate.competence.stations]);
+      /* A map this size that draws no track is a list with dots on it, and the
+         band would be a claim about nothing. */
+      expect([name, plate.competence.flat]).toEqual([name, false]);
+    }
+
+    const [name, band] = competent[0] ?? ["none", plateOf(null)];
+    /* Ranks: the rows the routed stations sit on, sidings excepted — those are
+       below the plate by construction and are not a rank. */
+    const ranks = new Set(
+      band.stations.filter((station) => !station.siding).map((station) => station.at.row),
+    );
+    expect([name, ranks.size >= 4]).toEqual([name, true]);
+    expect([name, band.sidings.length > 0]).toEqual([name, true]);
+    expect([name, band.fans.length > 0]).toEqual([name, true]);
+    /* Corners, and not one straight run: a route with more than two points has
+       bent at least once on the way. */
+    expect([name, band.track.some((one) => one.points.length > 2)]).toEqual([name, true]);
+  });
+});

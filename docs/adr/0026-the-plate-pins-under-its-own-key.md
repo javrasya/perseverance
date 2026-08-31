@@ -101,8 +101,33 @@ positions has to change the rule, not declare against it.
 The provisional path is reachable for the first time, which means the legend
 entry that explains it is drawn rather than theoretical.
 
-What is not decided here: whether a pin can be undone from the keyboard, and
-whether an operator can clear a whole arrangement back to generated. The store
-takes an empty list and reads it as *nothing pinned*, so the mechanism is there;
-the gesture is not, and it belongs with the slice that measures this view against
-real maps.
+Both undos are now decided, and both are gestures rather than mechanisms — the
+store already took an empty list and read it as *nothing pinned*, so what was
+missing was only a hand able to ask for one.
+
+A focused station moves one cell per arrow key, and the pin lands on the press:
+a keystroke arrives already settled, so there is no equivalent of the hand still
+being down and no reason for a second rule about when to write. Four headings
+and not the router's eight, because a key event carries one heading and there is
+no second key to combine it with — a diagonal is two presses, which the four
+arrows already spell without a chord nobody would guess at. Autorepeat writes
+nothing: a held arrow is the browser repeating itself and not a hand making
+twenty gestures, and rule 9 rations the write to the gesture. Nudging a station
+nobody had pinned is what authors it; the plate cannot be asked to move a
+station and go on generating it.
+
+Backspace on a focused station drops that one pin and keeps the rest — back to
+*generated*, and deliberately not back to *where it was before the drag*: this
+seam remembers arrangements, not histories. Putting the whole arrangement back
+is a button in the margin, drawn only where there is an arrangement to put back.
+A button and not a further keystroke, because it is the one act here with
+nothing behind it to undo and a chord that did it would be a chord found by
+accident; and it is in the margin because that is the channel this view already
+chose for saying what a drawing cannot say about itself. It writes the empty
+list rather than deleting the key, so clearing travels the path a pin takes and
+lands as a fact somebody wrote rather than as an absence somebody has to
+interpret.
+
+Neither undo touches the drawing. Both write through the one seam, and the
+picture that comes back is `plateOf` with fewer pins in it — a pin stays an
+input to the geometry, never a correction over it.

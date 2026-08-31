@@ -88,6 +88,18 @@ that a reader could fail to discover is announced in words rather than by a
 cursor that changes shape when a pointer happens to cross a station. The cursor
 still changes; it is the second channel and it carries nothing on its own.
 
+The same sentence names the gesture with no pointer in it. A focused station
+moves one cell per arrow key and goes back to where the plate drew it on
+Backspace, and neither of those is guessable from a focus ring — an arrow key
+discloses less than a cursor does, because nothing about a lit station suggests
+it would move if one were pressed. So both hands of the gesture are in the one
+paragraph, from the first paint, on every map this view draws. Putting the whole
+arrangement back is a button rather than a further keystroke, in that same
+margin and reachable by tab like every station: it is the one act here with
+nothing behind it to undo, and a chord that did it would be a chord found by
+accident. It is drawn only where there is an arrangement to put back, which is a
+fact about the map and not about where anybody is pointing.
+
 The floor asserted for this rule is that nothing hover-reveals is absent
 elsewhere, and this view meets it by revealing nothing at all. A long name is
 clipped by its plate, and the recovery for that is stated under rule 11 rather

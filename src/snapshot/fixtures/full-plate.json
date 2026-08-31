@@ -1,0 +1,281 @@
+{
+  "schemaVersion": 4,
+  "model": {
+    "map": {
+      "number": 200,
+      "title": "Spec: cut a signed desktop release",
+      "closed": false,
+      "phase": "wayfinding",
+      "counts": {
+        "tickets": 13,
+        "open": 11,
+        "specs": 1
+      },
+      "nodes": [
+        {
+          "number": 201,
+          "title": "Write down what a signed release actually contains",
+          "url": "https://github.com/o/r/issues/201",
+          "kind": {
+            "kind": "ticket",
+            "type": "task"
+          },
+          "state": "resolved",
+          "waitsOn": [],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
+        },
+        {
+          "number": 202,
+          "title": "Move the signing key onto the build machine",
+          "url": "https://github.com/o/r/issues/202",
+          "kind": {
+            "kind": "ticket",
+            "type": "task"
+          },
+          "state": "takeable",
+          "waitsOn": [
+            201
+          ],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
+        },
+        {
+          "number": 203,
+          "title": "Reproduce the notarisation failure on a clean machine",
+          "url": "https://github.com/o/r/issues/203",
+          "kind": {
+            "kind": "ticket",
+            "type": "task"
+          },
+          "state": "claimed",
+          "waitsOn": [
+            201
+          ],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
+        },
+        {
+          "number": 213,
+          "title": "Somebody filed a crash report against this map",
+          "url": "https://github.com/o/r/issues/213",
+          "kind": {
+            "kind": "unclassified"
+          },
+          "state": "takeable",
+          "waitsOn": [
+            201
+          ],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
+        },
+        {
+          "number": 204,
+          "title": "Sign the macOS bundle in CI",
+          "url": "https://github.com/o/r/issues/204",
+          "kind": {
+            "kind": "ticket",
+            "type": "task"
+          },
+          "state": "blocked",
+          "waitsOn": [
+            202
+          ],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
+        },
+        {
+          "number": 205,
+          "title": "Sign the Windows installer in CI",
+          "url": "https://github.com/o/r/issues/205",
+          "kind": {
+            "kind": "ticket",
+            "type": "task"
+          },
+          "state": "blocked",
+          "waitsOn": [
+            202
+          ],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
+        },
+        {
+          "number": 206,
+          "title": "Publish the signed artefacts to the release page",
+          "url": "https://github.com/o/r/issues/206",
+          "kind": {
+            "kind": "ticket",
+            "type": "task"
+          },
+          "state": "blocked",
+          "waitsOn": [
+            202
+          ],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
+        },
+        {
+          "number": 207,
+          "title": "Send the bundle to Apple and wait for the ticket",
+          "url": "https://github.com/o/r/issues/207",
+          "kind": {
+            "kind": "ticket",
+            "type": "task"
+          },
+          "state": "blocked",
+          "waitsOn": [
+            203
+          ],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
+        },
+        {
+          "number": 208,
+          "title": "Point the updater feed at the published artefacts",
+          "url": "https://github.com/o/r/issues/208",
+          "kind": {
+            "kind": "ticket",
+            "type": "task"
+          },
+          "state": "blocked",
+          "waitsOn": [
+            206
+          ],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
+        },
+        {
+          "number": 209,
+          "title": "Staple the notarisation ticket into the bundle",
+          "url": "https://github.com/o/r/issues/209",
+          "kind": {
+            "kind": "ticket",
+            "type": "task"
+          },
+          "state": "blocked",
+          "waitsOn": [
+            207
+          ],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
+        },
+        {
+          "number": 210,
+          "title": "Install from the stapled bundle on a machine that has never seen it",
+          "url": "https://github.com/o/r/issues/210",
+          "kind": {
+            "kind": "ticket",
+            "type": "task"
+          },
+          "state": "blocked",
+          "waitsOn": [
+            209
+          ],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
+        },
+        {
+          "number": 215,
+          "title": "Write the release notes for the first signed build",
+          "url": "https://github.com/o/r/issues/215",
+          "kind": {
+            "kind": "ticket",
+            "type": "task"
+          },
+          "state": "claimed",
+          "waitsOn": [
+            201
+          ],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
+        },
+        {
+          "number": 211,
+          "title": "Delete the ad-hoc signing script nobody runs any more",
+          "url": "https://github.com/o/r/issues/211",
+          "kind": {
+            "kind": "ticket",
+            "type": "task"
+          },
+          "state": "resolved",
+          "waitsOn": [],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
+        },
+        {
+          "number": 212,
+          "title": "Update the screenshots in the read-me",
+          "url": "https://github.com/o/r/issues/212",
+          "kind": {
+            "kind": "ticket",
+            "type": "task"
+          },
+          "state": "takeable",
+          "waitsOn": [],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
+        },
+        {
+          "number": 214,
+          "title": "Spec: cut a signed desktop release, composed",
+          "url": "https://github.com/o/r/issues/214",
+          "kind": {
+            "kind": "spec"
+          },
+          "state": "takeable",
+          "waitsOn": [],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
+        }
+      ],
+      "frontier": {
+        "frontier": "designated",
+        "number": 202
+      },
+      "fog": {
+        "fog": "unsurveyed"
+      }
+    }
+  },
+  "provenance": {
+    "source": "fixture",
+    "outcome": {
+      "kind": "ok"
+    },
+    "fetchedAt": "2026-08-05T08:00:00Z"
+  },
+  "ledger": {
+    "since": "firstOpen",
+    "entries": []
+  }
+}

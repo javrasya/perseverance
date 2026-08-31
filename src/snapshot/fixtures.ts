@@ -40,6 +40,17 @@
  * a morning's polling, and an entry that looked like one would reach four of
  * the sixteen words — which is why merging the two would lose both readings.
  *
+ * `full-plate` is the only map on disk big enough to be the one the plate view
+ * claims competence at. That view draws well between twelve and twenty stations
+ * and says so on screen; every other map here is eleven children or fewer, so
+ * without this one the band is a figure computed about a size no rendered
+ * drawing ever reaches. Fifteen children, five ranks deep and four wide, two
+ * stems that fan — one of them already finished, so the offer and the mere
+ * shape are distinguishable — and three children with no edge at either end,
+ * which is what puts a siding of each mark on screen. It closes no cycle:
+ * `awkward-map` is where a tangled map is read, and a second one would cost
+ * this fixture the reading it is here for.
+ *
  * The three fog fixtures are there because the fog is the one region whose
  * *absence* is the fact: a browser has no way to edit a map document, and
  * *nobody surveyed*, *surveyed and found nothing* and *surveyed and wrote four
@@ -94,6 +105,7 @@ import emptyMap from "./fixtures/empty-map.json" with { type: "json" };
 import fogCharted from "./fixtures/fog-charted.json" with { type: "json" };
 import fogEmpty from "./fixtures/fog-empty.json" with { type: "json" };
 import fogUnsurveyed from "./fixtures/fog-unsurveyed.json" with { type: "json" };
+import fullPlate from "./fixtures/full-plate.json" with { type: "json" };
 import ledgerSweep from "./fixtures/ledger-sweep.json" with { type: "json" };
 import mapClosed from "./fixtures/map-closed.json" with { type: "json" };
 import mapGone from "./fixtures/map-gone.json" with { type: "json" };
@@ -126,6 +138,7 @@ export const FIXTURES = {
   "fog-charted": AS_GENERATED(fogCharted),
   "fog-empty": AS_GENERATED(fogEmpty),
   "fog-unsurveyed": AS_GENERATED(fogUnsurveyed),
+  "full-plate": AS_GENERATED(fullPlate),
   "ledger-sweep": AS_GENERATED(ledgerSweep),
   "map-closed": AS_GENERATED(mapClosed),
   "map-gone": AS_GENERATED(mapGone),

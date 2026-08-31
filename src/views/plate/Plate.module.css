@@ -82,6 +82,33 @@
   font-size: var(--s-text-micro);
 }
 
+/*
+ * The arrangement's undo. One box, and never a second state of one: it is here
+ * when there is an arrangement and absent when there is not, because a control
+ * that greys out is a control still claiming space for a thing this plate has
+ * no way to do.
+ */
+.reset {
+  align-self: start;
+  padding: var(--s-space-tight) var(--s-space-snug);
+  border: var(--s-border-hairline) solid var(--s-line-strong);
+  border-radius: var(--s-radius-control);
+  background: var(--s-surface-raised);
+  color: var(--s-ink-primary);
+  font: inherit;
+  font-size: var(--s-text-micro);
+  cursor: pointer;
+}
+
+.reset:hover {
+  background: var(--s-surface-hover);
+}
+
+.reset:focus-visible {
+  outline: var(--s-border-emphasis) solid var(--s-focus-ring);
+  outline-offset: -2px;
+}
+
 .marginHeading {
   display: flex;
   align-items: baseline;
