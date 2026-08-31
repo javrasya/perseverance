@@ -128,7 +128,7 @@ line is behind no gesture at all — and this declaration records it as the form
 ## Rule 11 — The field is not the label surface
 
 The field is the canvas and the label surface is a column beside it. The rank
-rail is a fixed 56px column (`RANK_RAIL`, `src/views/bench/Bench.tsx`) that sits
+rail is a fixed 56px column (`RANK_RAIL`, `src/views/bench/bench.ts`) that sits
 outside the canvas box entirely: the canvas is sized to exactly the width
 `benchOf` laid the plates out in, and the rail is its sibling rather than an
 overlay on it, so the topology cannot grow into the annotation in the literal

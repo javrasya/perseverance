@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  BENCH_MAP_FLOOR,
   COLUMN_FLOORS,
   DEFAULT_DETENT,
   DETENTS,
@@ -31,7 +32,7 @@ import { readPosition, writePosition } from "../src/panes/position";
 import { replaceSnapshot } from "../src/stores/snapshots";
 import { OPENING, moveDial, readUi, startGesture } from "../src/stores/ui";
 import { FIXTURES } from "../src/snapshot/fixtures";
-import { BENCH_WIDTH_FLOOR } from "../src/views/bench/bench";
+import { BENCH_WIDTH_FLOOR, RANK_RAIL } from "../src/views/bench/bench";
 import { VIEWS, type ViewName } from "../src/views/views";
 import { REPO_ROOT } from "./support/sources";
 
@@ -375,16 +376,55 @@ describe("a view below its floor stands down, and nothing switches by itself", (
     expect(honours(VIEW_FLOORS.route, VIEW_FLOORS.route)).toBe(true);
   });
 
-  it("takes the Bench's floor from the Bench's own arithmetic", () => {
+  it("converts the Bench's canvas floor into the map side it costs", () => {
     /*
-     * One number and not two that happen to agree today. `benchOf` returns a
-     * stood-down canvas below `BENCH_WIDTH_FLOOR`, so a dial carrying its own
-     * copy would drift into putting the Bench on screen at a width where the
-     * Bench itself refuses to draw — a view column with a stand-down inside it
-     * and nothing in the shell saying why.
+     * The two are different boxes, and the whole point of the entry is that the
+     * conversion happens. `benchOf` returns a stood-down canvas below
+     * `BENCH_WIDTH_FLOOR`, and the canvas is the view column's content less the
+     * rank rail — while `standDown` compares the *map side*, which also carries
+     * the rail column and the launcher. A dial that copied the canvas number
+     * would find the floor honoured at a width where the Bench refuses to draw:
+     * a view column with a stand-down inside it and nothing in the shell saying
+     * why.
      */
-    expect(VIEW_FLOORS.bench).toBe(BENCH_WIDTH_FLOOR);
-    expect(floorOf("bench")).toBe(BENCH_WIDTH_FLOOR);
+    expect(VIEW_FLOORS.bench).toBe(BENCH_MAP_FLOOR);
+    expect(floorOf("bench")).toBe(BENCH_MAP_FLOOR);
+    expect(BENCH_MAP_FLOOR).toBeGreaterThan(BENCH_WIDTH_FLOOR);
+
+    // Walked back the other way: at exactly the floor, the canvas that reaches
+    // `benchOf` is exactly the canvas floor — not a pixel of margin either way.
+    const rail = 13 * 16;
+    const share = (BENCH_MAP_FLOOR - rail) / 2;
+    expect(share - 2 * 16 - RANK_RAIL).toBe(BENCH_WIDTH_FLOOR);
+
+    // And one pixel under it, the shell stands the Bench down rather than
+    // drawing a column for a canvas that will refuse.
+    expect(honours(floorOf("bench"), BENCH_MAP_FLOOR - 1)).toBe(false);
+  });
+
+  /*
+   * The two lengths the derivation mirrors are declared in CSS, and TypeScript
+   * cannot see them. Reading them here is what makes a change to either a red
+   * test rather than a floor that quietly stops describing the layout.
+   */
+  it("mirrors the two lengths the layout actually declares", () => {
+    const app = readFileSync(join(REPO_ROOT, "src", "App.module.css"), "utf8");
+    expect(app).toMatch(/--c-app-rail-width:\s*13rem;/);
+    // The rail is that width and the two flex children either side of it are
+    // the halving, both `flex: 1`.
+    expect(app).toMatch(/flex:\s*0 0 var\(--c-app-rail-width\);/);
+
+    const semantic = readFileSync(
+      join(REPO_ROOT, "src", "styles", "tokens", "semantic.css"),
+      "utf8",
+    );
+    const primitive = readFileSync(
+      join(REPO_ROOT, "src", "styles", "tokens", "primitive.css"),
+      "utf8",
+    );
+    const step = /--s-space-base:\s*var\((--p-space-\d+)\);/.exec(semantic)?.[1];
+    expect(step).toBeDefined();
+    expect(primitive).toMatch(new RegExp(`\\${step}:\\s*16px;`));
   });
 });
 

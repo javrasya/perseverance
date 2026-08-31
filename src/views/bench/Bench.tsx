@@ -25,6 +25,7 @@ import type { ViewProps } from "../views";
  */
 import {
   HOP_GAP,
+  RANK_RAIL,
   benchOf,
   beyondTheMapLabel,
   fanOutLabel,
@@ -79,22 +80,6 @@ import styles from "./Bench.module.css";
  * *type* — so an extensionless `./Bench` resolves to the arithmetic and this
  * component is never found. Exactly the landmine `Route.jsx` documents.
  */
-
-/**
- * The rank rail's own column, in pixels, outside the canvas.
- *
- * Rule 11: annotation gets reserved space the topology cannot grow into. The
- * rail is a fixed column beside the drawing, so a rank label never lands on a
- * plate and a plate never has to make room for one.
- *
- * It is a number here rather than only a length in the stylesheet because the
- * measurement and the drawing have to be the same number: `benchOf` is handed
- * the canvas width, which is the frame **less this rail**, and if the two ever
- * disagreed the columns arithmetic and the width floor would stop agreeing with
- * what is on screen. One constant, applied to the rail and subtracted from the
- * frame.
- */
-export const RANK_RAIL = 56;
 
 /** What the rail says beside a band. */
 export const rankLabel = (rank: number): string => `rank ${rank}`;

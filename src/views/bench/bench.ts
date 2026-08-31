@@ -141,6 +141,22 @@ export const HOP_GAP = 6;
 /** The margin around the whole canvas. */
 export const CANVAS_PADDING = 16;
 
+/**
+ * The rank rail's own column, in pixels, outside the canvas.
+ *
+ * Rule 11: annotation gets reserved space the topology cannot grow into. The
+ * rail is a fixed column beside the drawing, so a rank label never lands on a
+ * plate and a plate never has to make room for one.
+ *
+ * It is a number here rather than only a length in the stylesheet because three
+ * things have to agree on it: `Bench.tsx` draws the rail this wide and hands
+ * `benchOf` the frame **less this rail**, and `VIEW_FLOORS.bench` in
+ * `src/panes/dial.ts` adds it back when it works out how much *map side* a
+ * canvas of [`BENCH_WIDTH_FLOOR`] takes. It lives here, in the arithmetic,
+ * so the shell can reach it without reaching through a component.
+ */
+export const RANK_RAIL = 56;
+
 /** How many discrete lanes a gap of this height holds, never fewer than one. */
 export function lanesIn(height: number): number {
   return Math.max(1, Math.floor(height / LANE_PITCH) - 1);
@@ -150,7 +166,13 @@ export function lanesIn(height: number): number {
 export const LANES_PER_GAP = lanesIn(RANK_GAP);
 
 /**
- * The narrowest map side the Bench will draw on, in pixels.
+ * The narrowest **canvas** the Bench will draw on, in pixels.
+ *
+ * A canvas and not a map side: this is the box `benchOf` is handed, which is
+ * the view column's content less [`RANK_RAIL`], and the view column is only one
+ * of the boxes inside the map side. `VIEW_FLOORS.bench` in `src/panes/dial.ts`
+ * is the map-side number derived from this one, and the two are deliberately
+ * different numbers about different boxes.
  *
  * Three plates across, plus their gutters and the canvas margin:
  * `3 * 200 + 2 * 24 + 2 * 16`. The number is chosen from what the drawing has

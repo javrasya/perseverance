@@ -28,8 +28,11 @@ import { defineConfig, devices } from "@playwright/test";
  * canvas, and the canvas is a good deal narrower than the window: the dial opens
  * at `split`, so the map side is half the body; the rail takes 13rem off it; and
  * the launcher and the view are both `flex: 1`, so they halve what is left. A
- * little under a quarter of the body reaches the canvas, which is why this is
- * roughly four times a floor of 680 rather than near it.
+ * little under a quarter of the body reaches the canvas, which is the whole of
+ * why 680px of canvas is `VIEW_FLOORS.bench = 1744` of map side
+ * (`BENCH_MAP_FLOOR` in `src/panes/dial.ts` does that arithmetic) and why this
+ * viewport is roughly four times 680 rather than near it: at `split` the body
+ * has to be at least twice 1744, and 3840 clears that with a margin.
  *
  * The devices' own 1280 would put every fixture on a stood-down Bench, so this
  * is not a preference. The driver refuses to run against a mounted-but-undrawn

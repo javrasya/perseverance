@@ -1,5 +1,5 @@
 import { RACK_RESERVE } from "../rack/rack";
-import { BENCH_WIDTH_FLOOR } from "../views/bench/bench";
+import { BENCH_WIDTH_FLOOR, RANK_RAIL } from "../views/bench/bench";
 import { widthNeededFor } from "../views/deep-field/deepField";
 import type { ViewName } from "../views/views";
 
@@ -294,6 +294,42 @@ export function namesFit(width: number): boolean {
 }
 
 /**
+ * The map side the shell has to hand the Bench before the Bench will draw, in
+ * pixels.
+ *
+ * `BENCH_WIDTH_FLOOR` is a **canvas** and the map side is the whole flex line,
+ * so the two are different boxes and equating them would stand nothing down
+ * where it matters: the shell would find the floor honoured, draw the view
+ * column, and the Bench would put its own stood-down canvas inside it with
+ * nothing in the shell saying why. This walks the boxes between the two,
+ * outermost in — every length named against the stylesheet that owns it:
+ *
+ * - the rail column is `flex: 0 0 var(--c-app-rail-width)` — 13rem, and the
+ *   root font size is the 16px default — so [`RAIL_COLUMN`] comes off the map
+ *   side before anything is shared out (`src/App.module.css`);
+ * - the launcher and the view are then both `flex: 1` with a zero basis, so
+ *   they halve what is left and the view column's share is a *half*;
+ * - the view column pads itself by `--s-space-base` on each side, and the
+ *   Bench's frame is `width: 100%` of what that leaves;
+ * - and the Bench spends [`RANK_RAIL`] of its frame on the rank gutter before
+ *   `benchOf` is handed a canvas at all.
+ *
+ * There is no second regime to fold in: the widest entry in [`COLUMN_FLOORS`]
+ * is the rail's 500px and this number is far above it, so at every width that
+ * honours this floor all three columns are drawn and the share really is a
+ * half. `tests/dial.test.ts` pins the arithmetic against the two stylesheets so
+ * a change to either length is a red test rather than a silent drift, and
+ * `tests/dial-shell.test.tsx` mounts the shell either side of it.
+ */
+const RAIL_COLUMN = 13 * 16;
+const VIEW_COLUMN_PAD = 16;
+/** The launcher and the view, both `flex: 1`: the view column gets one of two. */
+const VIEW_COLUMN_SHARE = 2;
+
+export const BENCH_MAP_FLOOR =
+  VIEW_COLUMN_SHARE * (BENCH_WIDTH_FLOOR + RANK_RAIL + 2 * VIEW_COLUMN_PAD) + RAIL_COLUMN;
+
+/**
  * How much map side each view needs to be worth drawing.
  *
  * A `Record` over `ViewName` rather than a list, so a view added to `VIEWS`
@@ -301,16 +337,17 @@ export function namesFit(width: number): boolean {
  * fit anywhere. The Route is a single column of grouped rows; the wider views
  * (#63/#64) arrive as one entry each.
  *
- * The Bench's number is imported and never retyped. `benchOf` stands the canvas
- * down below the same constant, so the two have to be one number or the shell
- * would put the Bench on screen at a width at which the Bench itself refuses to
- * draw — a view column holding a stood-down canvas with nothing in the shell
- * saying why. The import runs view → dial, which is the direction that already
- * exists (`ViewName` above) and so adds no cycle.
+ * Every number here is a **map side**, because that is the box [`standDown`]
+ * compares against — so a view whose own floor is about a smaller box has to be
+ * converted rather than copied. The Route's floor is already a map side: it is
+ * one column of rows and it is drawn in the whole of what the view column gets.
+ * The Bench's is not, and [`BENCH_MAP_FLOOR`] is that conversion. The import
+ * runs view → dial, which is the direction that already exists (`ViewName`
+ * above) and so adds no cycle.
  */
 export const VIEW_FLOORS: Record<ViewName, number> = {
   route: 420,
-  bench: BENCH_WIDTH_FLOOR,
+  bench: BENCH_MAP_FLOOR,
   /*
    * Two rank columns' worth: the narrowest picture in which one ticket is drawn
    * releasing another, which is the whole of what this view is for. Asked of
