@@ -33,7 +33,7 @@ use perseverance_github::{
     TokenOutcome, Watched,
 };
 use perseverance_model::{
-    read_response, ChangeLog, ChildKind, Degraded, Frontier, Machine, Map, MapRead, Model,
+    read_response, ChangeLog, ChildKind, Degraded, Frontier, Machine, Map, MapRead, Model, Phase,
     Provenance, ReadOutcome, Snapshot, Source, TicketType,
 };
 use perseverance_pty::{Delivery, Geometry, RunId, Runs, GRACE};
@@ -2718,6 +2718,17 @@ fn kind_of(map: &Map, ticket: u64) -> RunKind {
     }
 }
 
+/// What a spawn with no credentials says, and what one with no operator says.
+///
+/// Written once because both spawns ask the same two questions in the same
+/// order and get to refuse for the same two reasons — the brief's step 1
+/// branches on *already assigned to you* and the compose brief names who the
+/// seam sketch goes to, so neither template can be rendered with a hole where
+/// the operator belongs.
+const NO_TOKEN: &str = "this run acquired no GitHub token, so no session can be started";
+const NO_OPERATOR: &str =
+    "this run never learned which GitHub account is signed in, and a brief names its operator";
+
 /// Everything between the guard and the run, and every way it can refuse.
 ///
 /// Split out so the command above is the *order* and this is the *chain*, and
@@ -2747,7 +2758,7 @@ fn spawn_at(
     })?;
 
     let Some(TokenOutcome::Acquired(token)) = ambient.token.get() else {
-        return Err("this run acquired no GitHub token, so no session can be started".to_string());
+        return Err(NO_TOKEN.to_string());
     };
     // The brief's step 1 branches on *already assigned to you*, so a prompt with
     // no operator in it is a brief a session cannot follow. Refused rather than
@@ -2758,26 +2769,15 @@ fn spawn_at(
     // network leaves the next one free to ask again. It is deliberately after
     // the token check: a run with no token has nothing to ask with.
     let Some(operator) = remembered_login(&ambient.login, || read_login(token)) else {
-        return Err(
-            "this run never learned which GitHub account is signed in, and a brief names its \
-             operator"
-                .to_string(),
-        );
+        return Err(NO_OPERATOR.to_string());
     };
 
     let question = read_ticket_body(token, &repo.owner, &repo.name, ticket)
         .map_err(|refusal| refusal.to_string())?;
 
     let rendered = render(app, &operator, &repo, map, node, question);
-    let (spawn, launch) = plan_in(harvests, registry, folder, adapter, &rendered.text)?;
-    let accepted = perseverance_pty::accept(launch).map_err(|refusal| refusal.to_string())?;
 
-    let run = terminals
-        .held()
-        .open(accepted, &spawn.directory, &spawn.environment)
-        .map_err(|refusal| refusal.to_string())?;
-
-    Ok((run, rendered))
+    start_child(terminals, harvests, registry, folder, adapter, rendered)
 }
 
 /// The login this process learned, asked once more if it has not learned it yet.
@@ -2921,6 +2921,255 @@ struct SpawnIn {
     environment: Vec<(OsString, OsString)>,
 }
 
+/// The last three hops of every spawn: plan the launch, accept the PTY, open the
+/// run.
+///
+/// Shared rather than copied, because from here down a run is a run — a compose
+/// press differs from a work press only in what it renders and in what it is
+/// allowed to render *from*. A second copy of this tail is where the two would
+/// quietly stop being the same foreground, monitored session.
+fn start_child(
+    terminals: &Terminals,
+    harvests: &Harvests,
+    registry: &Registry,
+    folder: &str,
+    adapter: &str,
+    rendered: prompt::Rendered,
+) -> Result<(RunId, prompt::Rendered), String> {
+    let (spawn, launch) = plan_in(harvests, registry, folder, adapter, &rendered.text)?;
+    let accepted = perseverance_pty::accept(launch).map_err(|refusal| refusal.to_string())?;
+
+    let run = terminals
+        .held()
+        .open(accepted, &spawn.directory, &spawn.environment)
+        .map_err(|refusal| refusal.to_string())?;
+
+    Ok((run, rendered))
+}
+
+/* ------------------------------------------------------ composing a spec --- */
+
+/// What one Compose press came to.
+///
+/// A second, smaller enum beside [`Started`] rather than a field added to it,
+/// for the reason [`prompt::MapCoordinates`] is a second struct beside
+/// [`prompt::Coordinates`]: a compose press has no frontier, so a `frontier`
+/// here could only ever be null, and a field that is always null is a lie the
+/// hand-mirrored TypeScript on the other side would have to keep reading. What
+/// a value cannot carry, nobody can misread.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+enum Composed {
+    Spawned {
+        run: u64,
+        /// The text the child was actually started with, its length, and whose
+        /// prose it came from — the same badge [`Started::Spawned`] carries and
+        /// for the same reason.
+        prompt: prompt::Rendered,
+    },
+    Refused {
+        detail: String,
+    },
+}
+
+impl Composed {
+    fn refused(detail: impl Into<String>) -> Composed {
+        Composed::Refused {
+            detail: detail.into(),
+        }
+    }
+}
+
+/// Why this map is not one a spec can be composed on, when it is not.
+///
+/// [`Phase::SpecReady`] is exactly *every ticket on the map is closed and no
+/// spec exists yet*, and it is the only rung a compose spawns from. The other
+/// four each get a sentence naming what is actually true, because a refusal
+/// that only says *not now* is one an operator cannot act on.
+///
+/// **Matched exhaustively, never with a wildcard.** A sixth rung on the ladder
+/// has to be a compile error here rather than a map silently offered a compose
+/// it has no business being offered.
+///
+/// A free function over the map alone, so all five rungs are ordinary tests
+/// with no Tauri app anywhere near them.
+fn why_the_spec_is_not_composable(map: &Map) -> Option<String> {
+    let number = map.number;
+    match map.phase {
+        Phase::SpecReady => None,
+        Phase::Wayfinding => Some(format!(
+            "#{number} still has open tickets, and a spec is composed from a map that is finished"
+        )),
+        Phase::Specced => Some(format!(
+            "#{number} already has a spec, so there is nothing left to compose"
+        )),
+        Phase::Unstarted => Some(format!(
+            "nothing has been charted on #{number} yet, so there is nothing to compose from"
+        )),
+        Phase::Done => Some(format!("#{number} is closed, so nothing is composed on it")),
+    }
+}
+
+/// The map's own URL, derived from a child's, exactly as [`render`] derives it.
+///
+/// The map's URL never crosses the seam — the graph carries the map's number
+/// and its children's URLs — so it is rebuilt from a sibling GitHub itself sent
+/// rather than from a template this file would have to keep true.
+///
+/// `None` is *this map sent no child to derive from*, which a
+/// [`Phase::SpecReady`] map cannot be: zero tickets and zero specs reads
+/// [`Phase::Unstarted`]. It is an `Option` and not an `unwrap` anyway, because
+/// the alternative to refusing is a brief naming a map by a URL this side
+/// invented, and a coordinate that points at nothing is one a session will
+/// still go and read.
+fn where_the_map_lives(map: &Map) -> Option<String> {
+    let node = map.nodes.first()?;
+
+    Some(match node.url.rsplit_once('/') {
+        Some((issues, _)) => format!("{issues}/{}", map.number),
+        None => node.url.clone(),
+    })
+}
+
+/// Compose Spec, from the press to the child.
+///
+/// The order is [`start_working`]'s and it is the same order for the same
+/// reason: revalidate, read the map, guard the phase, render, plan, spawn, and
+/// only then stake and count. Nothing is written down before the spawn has
+/// succeeded, so a refusal at any step leaves the graph and the ledger exactly
+/// as the revalidation left them. The re-read is the same awaited poll — the
+/// offer is checked against a fresh read and not against whatever the window
+/// last drew.
+///
+/// **No claim is taken.** [`Claims`] records the ticket this harness assigned,
+/// and a compose run has no ticket and does not assign the map — so `claimed`
+/// is deliberately not called and this command never asks for a [`Claims`]
+/// handle. What it stakes is the map's number, so the quit confirmation names
+/// `#<map>` rather than a run id.
+///
+/// **One run, in the foreground.** No reduce, no staged outline and no per-area
+/// pass: the child goes down the ordinary PTY path and is monitored like any
+/// work run, and the four harness rules it follows are prose in the template
+/// rather than anything this side drives.
+///
+/// **The harness surfaces only its own failures**, exactly as above: every
+/// refusal here is a sentence returned to the socket, none of them is a
+/// `Degraded` on the graph, and nothing the child prints is one either.
+// Nine, for [`start_working`]'s reason: managed state Tauri resolves by type,
+// plus the two facts about this press.
+#[allow(clippy::too_many_arguments)]
+#[tauri::command(async)]
+fn compose_spec(
+    app: AppHandle,
+    terminals: State<'_, Terminals>,
+    harvests: State<'_, Harvests>,
+    registry: State<'_, Registry>,
+    ambient: State<'_, Ambient>,
+    ledgers: State<'_, Ledgers>,
+    poker: State<'_, Poker>,
+    folder: String,
+    adapter: String,
+) -> Composed {
+    // `None` is a harvest that has not settled, and it is the only thing that
+    // tells a run still starting up apart from a folder watching no map.
+    let harvest_settled = ambient.token.get().is_some();
+    if let Some(refusal) = why_the_check_is_not_a_read(poker.revalidate(CHECKING), harvest_settled)
+    {
+        return Composed::refused(refusal);
+    }
+
+    let Some(map) = ledgers.held().model.map else {
+        return Composed::refused("no map is open, so there is nothing to compose");
+    };
+    if let Some(refusal) = why_the_spec_is_not_composable(&map) {
+        return Composed::refused(refusal);
+    }
+
+    match compose_at(
+        &app, &terminals, &harvests, &registry, &ambient, &map, &folder, &adapter,
+    ) {
+        Ok((run, rendered)) => {
+            // Two writes and a bind, and one fewer than a work press: what this
+            // run would lose, and that the ladder has a live run on it. No
+            // claim, because there is nothing here to claim.
+            terminals.staked(
+                run,
+                Stakes {
+                    ticket: Some(map.number),
+                    folder,
+                    kind: RunKind::Compose,
+                },
+            );
+            terminals.counting(run, poker.run_started());
+            // The operator watches what they started.
+            terminals.held().monitor(Some(run));
+
+            Composed::Spawned {
+                run: run.as_u64(),
+                prompt: rendered,
+            }
+        }
+        Err(refusal) => Composed::refused(refusal),
+    }
+}
+
+/// Everything between the phase guard and the run, and every way it can refuse.
+///
+/// [`spawn_at`]'s shape with the ticket hops removed, and the removal is the
+/// point: no ticket number, no ticket body and no `read_ticket_body`. The
+/// coordinates are the whole of what the template gets, and what a template is
+/// never given it cannot leak.
+#[allow(clippy::too_many_arguments)]
+fn compose_at(
+    app: &AppHandle,
+    terminals: &Terminals,
+    harvests: &Harvests,
+    registry: &Registry,
+    ambient: &Ambient,
+    map: &Map,
+    folder: &str,
+    adapter: &str,
+) -> Result<(RunId, prompt::Rendered), String> {
+    let repo = perseverance_store::bind_repo(Path::new(folder))
+        // The store's own sentence, unedited, exactly as `poll_once` carries it.
+        .map_err(|refusal| refusal.to_string())?;
+
+    let Some(TokenOutcome::Acquired(token)) = ambient.token.get() else {
+        return Err(NO_TOKEN.to_string());
+    };
+    let Some(operator) = remembered_login(&ambient.login, || read_login(token)) else {
+        return Err(NO_OPERATOR.to_string());
+    };
+
+    let map_url = where_the_map_lives(map).ok_or_else(|| {
+        format!(
+            "#{} lists no child to derive its own address from, so no brief could name it",
+            map.number
+        )
+    })?;
+
+    // Read at the moment of spawn and never cached, which is
+    // [`prompt::compose_spec_override`]'s rule and not one this file softens:
+    // an operator who edits it between two presses gets the text they wrote.
+    let overriding = app
+        .path()
+        .app_data_dir()
+        .ok()
+        .and_then(|directory| prompt::compose_spec_override(&directory));
+
+    let rendered = prompt::compose_spec(
+        overriding.as_deref(),
+        &prompt::MapCoordinates {
+            repo: format!("{}/{}", repo.owner, repo.name),
+            map_number: map.number,
+            map_url,
+            operator,
+        },
+    );
+
+    start_child(terminals, harvests, registry, folder, adapter, rendered)
+}
+
 /* --------------------------------------------------- what a quit costs --- */
 
 /// Whether losing a run costs a claim that can be picked back up, or everything
@@ -2944,6 +3193,12 @@ pub enum RunKind {
     /// A charting run, which is neither: it holds no claim because there is no
     /// ticket yet, and it is the run that creates the ones the other two work.
     Chart,
+    /// A spec being composed, which is no ticket at all.
+    ///
+    /// Chosen at the call site rather than mapped, because there is nothing to
+    /// map from: [`RunKind::of`] stays the only mapping *from a ticket*, and a
+    /// compose press has no ticket to hand it.
+    Compose,
 }
 
 impl RunKind {
@@ -2965,7 +3220,11 @@ impl RunKind {
 /// What one live run would lose if the app quit now.
 #[derive(Debug, Clone)]
 pub struct Stakes {
-    /// `None` is *this run is not working a ticket*, which today is exactly a
+    /// What the confirmation names: the ticket a work run took, or the map a
+    /// compose run is writing a spec for. A number an operator can find, and
+    /// never a claim — a compose run holds none.
+    ///
+    /// `None` is *this run names no issue at all*, which today is exactly a
     /// charting run — the one run that reaches a repository before any ticket
     /// exists. Optional rather than a sentinel number, because a run named
     /// `#0` is a run an operator would go looking for.
@@ -2999,6 +3258,15 @@ const RESEARCH_LOSS: &str =
 /// labels, the map and the tickets it managed to create are all already there.
 const CHART_LOSS: &str =
     "a charting session strands no claim, and keeps nothing it has not already pushed to GitHub";
+
+/// A composing run's loss, which is the document.
+///
+/// The spec is posted in one piece at the end, so a run ended before that has
+/// written nothing anywhere — and the sentence may not borrow [`WORK_LOSS`]'s
+/// promise, because there is no claim here for Resume to pick up and the map is
+/// left exactly as `SpecReady` as it was found.
+const COMPOSE_LOSS: &str =
+    "a compose run posts its spec in one piece, so a spec it has not posted yet goes with it";
 
 /// A live run this app cannot describe.
 ///
@@ -3037,6 +3305,7 @@ fn what_it_loses(run: RunId, stakes: Option<&Stakes>) -> String {
                 RunKind::Work => WORK_LOSS,
                 RunKind::Research => RESEARCH_LOSS,
                 RunKind::Chart => CHART_LOSS,
+                RunKind::Compose => COMPOSE_LOSS,
             }
         ),
         // `RunId`'s own `Display` is *run 7*, which is the most this side can
@@ -3467,7 +3736,8 @@ pub fn run() {
             settled_geometry,
             run_readouts,
             start_working,
-            start_charting
+            start_charting,
+            compose_spec
         ])
         .build(tauri::generate_context!())
         .expect("perseverance failed to start")
@@ -3626,6 +3896,154 @@ mod tests {
             serde_json::to_value(Started::refused("nothing landed", None)).expect("serialises");
 
         assert_eq!(unchecked["frontier"], serde_json::Value::Null);
+    }
+
+    use perseverance_model::{Counts, Cut, Fog, Node, NodeState};
+
+    fn a_child(url: &str) -> Node {
+        Node {
+            number: 66,
+            title: "a closed ticket".to_string(),
+            url: url.to_string(),
+            kind: ChildKind::Ticket(TicketType::Task),
+            state: NodeState::Resolved,
+            waits_on: Vec::new(),
+            bound_elsewhere: false,
+            cut: Cut::InScope,
+        }
+    }
+
+    fn a_map_of(phase: Phase, nodes: Vec<Node>) -> Map {
+        Map {
+            number: 28,
+            title: "a map".to_string(),
+            closed: matches!(phase, Phase::Done),
+            phase,
+            counts: Counts {
+                tickets: nodes.len(),
+                open: 0,
+                specs: 0,
+            },
+            nodes,
+            frontier: Frontier::NothingToStart,
+            fog: Fog::Unsurveyed,
+        }
+    }
+
+    fn a_map_in(phase: Phase) -> Map {
+        a_map_of(
+            phase,
+            vec![a_child(
+                "https://github.com/javrasya/perseverance/issues/66",
+            )],
+        )
+    }
+
+    /// The ladder, one rung at a time. `SpecReady` is the only rung a compose
+    /// spawns from, and the other four each have to say what is actually true:
+    /// a refusal that only says *not now* is one an operator cannot act on.
+    #[test]
+    fn a_spec_composes_on_a_finished_map_and_the_other_four_rungs_say_why_not() {
+        assert_eq!(
+            why_the_spec_is_not_composable(&a_map_in(Phase::SpecReady)),
+            None
+        );
+
+        let open = why_the_spec_is_not_composable(&a_map_in(Phase::Wayfinding)).expect("a refusal");
+        assert!(open.contains("#28"), "{open}");
+        assert!(open.contains("still has open tickets"), "{open}");
+
+        let twice = why_the_spec_is_not_composable(&a_map_in(Phase::Specced)).expect("a refusal");
+        assert!(twice.contains("already has a spec"), "{twice}");
+
+        let empty = why_the_spec_is_not_composable(&a_map_in(Phase::Unstarted)).expect("a refusal");
+        assert!(empty.contains("nothing has been charted"), "{empty}");
+
+        let done = why_the_spec_is_not_composable(&a_map_in(Phase::Done)).expect("a refusal");
+        assert!(done.contains("is closed"), "{done}");
+    }
+
+    /// The map's address is rebuilt from a sibling GitHub itself sent, because
+    /// the map's own URL never crosses the seam — and a map that sent no
+    /// sibling names nothing rather than having an address invented for it.
+    #[test]
+    fn a_map_names_itself_through_a_child_and_says_nothing_when_it_has_none() {
+        assert_eq!(
+            where_the_map_lives(&a_map_in(Phase::SpecReady)).as_deref(),
+            Some("https://github.com/javrasya/perseverance/issues/28")
+        );
+
+        // Nothing to replace the last segment of is carried across whole rather
+        // than mangled into an address that resolves somewhere else.
+        assert_eq!(
+            where_the_map_lives(&a_map_of(Phase::SpecReady, vec![a_child("66")])).as_deref(),
+            Some("66")
+        );
+
+        // Unreachable on a `SpecReady` map — zero tickets and zero specs reads
+        // `Unstarted` — and refused rather than unwrapped anyway.
+        assert_eq!(
+            where_the_map_lives(&a_map_of(Phase::SpecReady, Vec::new())),
+            None
+        );
+    }
+
+    /// #66's answer is hand-mirrored in TypeScript by the slice that presses
+    /// this button, so the shape is pinned from this side — including the
+    /// field count, which is how the *no frontier here* decision stays a
+    /// decision rather than an omission somebody later fills in.
+    #[test]
+    fn what_compose_spec_answers_crosses_in_the_shape_the_frontend_declares() {
+        let spawned = serde_json::to_value(Composed::Spawned {
+            run: 3,
+            prompt: prompt::Rendered {
+                text: "compose #28".to_string(),
+                characters: 11,
+                origin: prompt::Origin::Custom,
+            },
+        })
+        .expect("serialises");
+
+        assert_eq!(spawned["kind"], "spawned");
+        assert_eq!(spawned["run"], 3);
+        assert_eq!(spawned["prompt"]["text"], "compose #28");
+        assert_eq!(spawned["prompt"]["characters"], 11);
+        // The badge, and the only reason a run under an operator's own prose is
+        // diagnosable from a screenshot.
+        assert_eq!(spawned["prompt"]["origin"], "custom");
+        assert_eq!(spawned.as_object().expect("an object").len(), 3);
+
+        let refused = serde_json::to_value(Composed::refused(
+            "#28 already has a spec, so there is nothing left to compose",
+        ))
+        .expect("serialises");
+
+        assert_eq!(refused["kind"], "refused");
+        assert_eq!(
+            refused["detail"],
+            "#28 already has a spec, so there is nothing left to compose"
+        );
+        // Two fields and no third: a compose press has no frontier, so there is
+        // no null here for the other side to read as one.
+        assert_eq!(refused.as_object().expect("an object").len(), 2);
+    }
+
+    /// A compose run holds no claim, so it may not borrow the work run's
+    /// promise that Resume picks something back up. What it loses is the
+    /// document nobody has posted yet.
+    #[test]
+    fn a_compose_run_loses_the_unposted_document_and_never_names_a_claim() {
+        let loss = what_it_loses(
+            RunId::from_u64(3),
+            Some(&a_stake(28, "perseverance", RunKind::Compose)),
+        );
+
+        // The map, so the confirmation names something an operator can find
+        // rather than a run id.
+        assert!(loss.contains("#28"), "{loss}");
+        assert!(loss.contains("perseverance"), "{loss}");
+        assert!(loss.contains("has not posted yet"), "{loss}");
+        assert!(!loss.contains("claim"), "{loss}");
     }
 
     /// Every answer the awaited revalidation can give, told apart — which is
