@@ -73,8 +73,12 @@ export function findMarkupSinks(text: string): Violation[] {
 /**
  * Every way this stack has of binding a key.
  *
- * A React key prop, a key listener on any target, xterm's own custom key hook,
- * and xterm's `onKey` stream. There is one router (`src/keys/router.ts`) and
+ * A React key prop — bubble or capture, since `onKeyDownCapture` and its two
+ * siblings are ordinary props and fire *before* the target sees the key, which
+ * makes them the loose binding most able to take a chord out from under the
+ * router — a key listener on any target, a handler assigned straight onto an
+ * element's `onkeydown` property, xterm's own custom key hook, and xterm's
+ * `onKey` stream. There is one router (`src/keys/router.ts`) and
  * one seam into the emulator (`src/terminal/xterm.ts`); a fifth binding
  * anywhere else is a key the router's table does not know about, which is a
  * chord the command palette and the keys page would print the wrong answer for
@@ -82,10 +86,14 @@ export function findMarkupSinks(text: string): Violation[] {
  * saying so.
  */
 const KEY_BINDINGS: readonly { pattern: RegExp; what: string }[] = [
-  { pattern: /\bon(?:KeyDown|KeyUp|KeyPress)\b/g, what: "a React key prop" },
+  { pattern: /\bon(?:KeyDown|KeyUp|KeyPress)(?:Capture)?\b/g, what: "a React key prop" },
   {
     pattern: /addEventListener\s*\(\s*["'`]key(?:down|up|press)["'`]/g,
     what: "a key listener",
+  },
+  {
+    pattern: /\.on(?:keydown|keyup|keypress)\s*=/g,
+    what: "a key handler assigned onto an element",
   },
   { pattern: /\battachCustomKeyEventHandler\b/g, what: "xterm's custom key handler" },
   { pattern: /\.onKey\s*\(/g, what: "xterm's key stream" },

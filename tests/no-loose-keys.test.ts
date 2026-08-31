@@ -24,6 +24,15 @@ describe("one key router, enforced by a check", () => {
   it("the check catches every way this stack can bind a key", () => {
     expect(findKeyBindings(`<li tabIndex={0} onKeyDown={choose}>`)).toHaveLength(1);
     expect(findKeyBindings(`<div onKeyUp={up} onKeyPress={press} />`)).toHaveLength(2);
+    // The capture props are ordinary React props and they fire before the
+    // target sees the key, which makes them the one form of loose binding that
+    // could take a chord out from under the router's own capture listener.
+    expect(findKeyBindings(`<div onKeyDownCapture={down} />`)).toHaveLength(1);
+    expect(findKeyBindings(`<div onKeyUpCapture={up} onKeyPressCapture={press} />`)).toHaveLength(
+      2,
+    );
+    expect(findKeyBindings(`node.onkeydown = down;`)).toHaveLength(1);
+    expect(findKeyBindings(`node.onkeyup = up;\nnode.onkeypress = press;`)).toHaveLength(2);
     expect(findKeyBindings(`window.addEventListener("keydown", onDown, true);`)).toHaveLength(
       1,
     );
@@ -40,6 +49,8 @@ describe("one key router, enforced by a check", () => {
     expect(findKeyBindings(`const listening = terminal.onData(handler);`)).toEqual([]);
     expect(findKeyBindings(`export interface KeyboardLike { key: string }`)).toEqual([]);
     expect(findKeyBindings(`const monkeyDownstream = 1;`)).toEqual([]);
+    expect(findKeyBindings(`<Row onKeyDownstream={feed} />`)).toEqual([]);
+    expect(findKeyBindings(`el.onkeydownish = 1;`)).toEqual([]);
     expect(findKeyBindings(`route(event, currentState(event.target));`)).toEqual([]);
   });
 

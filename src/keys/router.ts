@@ -424,10 +424,22 @@ function typingInto(element: Element | null): boolean {
   return element.closest("[contenteditable]:not([contenteditable='false'])") !== null;
 }
 
+/**
+ * The route row under the keyboard, resolved by the row's own hook.
+ *
+ * `data-node-row` and not `data-node`: the latter means *this element is about
+ * node N*, and other things wear it — the change ledger draws each reference as
+ * a `<button data-node={n}>` whose activation *sets* the selection. This
+ * listener is at the window in the capture phase, so claiming `Enter` there
+ * would suppress that button's own activation and run the `open` row's
+ * *toggle* instead, leaving the keyboard and the mouse disagreeing about one
+ * control. Only the route's rows carry `data-node-row`, so only they are
+ * openable from here.
+ */
 function nodeUnder(element: Element | null): number | null {
-  const row = element?.closest("[data-node]") ?? null;
+  const row = element?.closest("[data-node-row]") ?? null;
   if (row === null) return null;
-  const number = Number(row.getAttribute("data-node"));
+  const number = Number(row.getAttribute("data-node-row"));
   return Number.isInteger(number) ? number : null;
 }
 
