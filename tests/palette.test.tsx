@@ -26,7 +26,8 @@ let mounted: { root: ReturnType<typeof createRoot>; host: HTMLElement } | null =
 interface Painted {
   host: HTMLElement;
   ran: ActionId[];
-  dismissed: number;
+  /** The one dismiss the palette makes itself: away, keyboard left where it is. */
+  handedOff: number;
 }
 
 async function paint(
@@ -36,15 +37,15 @@ async function paint(
   document.body.appendChild(host);
   const root = createRoot(host);
   mounted = { root, host };
-  const painted: Painted = { host, ran: [], dismissed: 0 };
+  const painted: Painted = { host, ran: [], handedOff: 0 };
   await act(async () => {
     root.render(
       <Palette
         table={options.table}
         focusPicker={options.focusPicker ?? (() => null)}
         onRun={(id) => painted.ran.push(id)}
-        onDismiss={() => {
-          painted.dismissed += 1;
+        onHandOff={() => {
+          painted.handedOff += 1;
         }}
       />,
     );
@@ -144,7 +145,11 @@ describe("the command palette", () => {
         ?.querySelector("button")
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
-    expect(painted.dismissed).toBe(1);
+    /* Away by the hand-off and never by the shell's own dismiss: that one also
+       *places* the keyboard, which for this row means off the picker it was
+       just put on. `tests/keys-shell.test.tsx` asserts where the keyboard
+       actually lands; this is the component's half of the same contract. */
+    expect(painted.handedOff).toBe(1);
   });
 
   it("says why when there is no picker to focus, rather than nothing at all", async () => {
@@ -158,7 +163,7 @@ describe("the command palette", () => {
       "no picker is on screen",
     );
     // And it stays up: the palette is where the sentence is being read.
-    expect(painted.dismissed).toBe(0);
+    expect(painted.handedOff).toBe(0);
   });
 
   it("filters by what a row says, and by the keys it is pressed with", async () => {

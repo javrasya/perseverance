@@ -773,6 +773,12 @@ export function App() {
     press: (id: ActionId, state: KeyState) => {
       switch (id) {
         case "home": {
+          /* Whatever was in front goes first. A view changed underneath a
+             surface that stayed up is a window nobody chose to be looking at,
+             and — with `cross` below — it is what keeps ADR 0025's invariant
+             true rather than assumed: while a surface stands in front, the
+             agent CLI is not being typed at, so `Esc` is the surface's. */
+          away();
           // Home is the default view at the default detent — and the detent is
           // only restored where it can actually hold that view, so *home* never
           // lands on a stand-down.
@@ -806,7 +812,14 @@ export function App() {
            * terminal puts the keyboard in it, and leaving takes the keyboard
            * off it — a window showing the map while every keystroke went to the
            * run underneath would be the worst of both rooms.
+           *
+           * And the surface in front goes before either happens. Crossing to
+           * the terminal with the palette still up would put the keyboard in a
+           * warm agent CLI while `Esc` was still the palette's dismiss row —
+           * the interrupt key stolen from a run being typed at, which is the
+           * one failure this whole table exists to make impossible.
            */
+          away();
           const toTerminal = position > fractionOf("terminal");
           moveTo(fractionOf(toTerminal ? "terminal" : "map"));
           if (toTerminal && monitored !== null) terminals.for(monitored).focus();
@@ -1464,7 +1477,10 @@ export function App() {
             away();
             pressed.current.press(id, currentState());
           }}
-          onDismiss={away}
+          /* The row that has already sent the keyboard somewhere: the surface
+             goes, and nothing here touches focus. `away` would take the keys
+             straight back off the picker the row exists to reach. */
+          onHandOff={dismiss}
         />
       ) : null}
 

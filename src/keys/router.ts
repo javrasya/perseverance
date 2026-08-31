@@ -250,42 +250,48 @@ export const ENTRIES: readonly Entry[] = [
    * structural claim (`tests/no-loose-keys.test.ts`), and an exception for a
    * focused widget is exactly the kind of second binding that would make the
    * palette's account of what a key does incomplete.
+   *
+   * `inFront === null` in every one of them, for ADR 0025's invariant: while a
+   * surface stands in front it is the only thing the keyboard may act on, so
+   * that *the CLI is not being typed at* stays a fact about the table rather
+   * than a hope about where the focus happens to be. A dial nudged from behind
+   * a page is the harmless end of the same hole `cross` opened at the other.
    */
   {
     id: "dial-wider",
     chords: () => [chord("ArrowRight")],
     verb: "give the map a little more of the window",
-    when: (state) => state.dialFocused,
+    when: (state) => state.dialFocused && state.inFront === null,
   },
   {
     id: "dial-narrower",
     chords: () => [chord("ArrowLeft")],
     verb: "give the terminal a little more of the window",
-    when: (state) => state.dialFocused,
+    when: (state) => state.dialFocused && state.inFront === null,
   },
   {
     id: "dial-next-detent",
     chords: () => [chord("PageUp")],
     verb: "go to the next detent toward the map",
-    when: (state) => state.dialFocused,
+    when: (state) => state.dialFocused && state.inFront === null,
   },
   {
     id: "dial-previous-detent",
     chords: () => [chord("PageDown")],
     verb: "go to the next detent toward the terminal",
-    when: (state) => state.dialFocused,
+    when: (state) => state.dialFocused && state.inFront === null,
   },
   {
     id: "dial-terminal",
     chords: () => [chord("Home")],
     verb: "give the whole window to the terminal",
-    when: (state) => state.dialFocused,
+    when: (state) => state.dialFocused && state.inFront === null,
   },
   {
     id: "dial-map",
     chords: () => [chord("End")],
     verb: "give the whole window to the map",
-    when: (state) => state.dialFocused,
+    when: (state) => state.dialFocused && state.inFront === null,
   },
   {
     id: "palette",

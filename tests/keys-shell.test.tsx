@@ -8,6 +8,8 @@ import { ENTRIES, claims, currentState } from "../src/keys/router";
 import { forgetStow } from "../src/terminal/reparent";
 import type { Terminal } from "../src/terminal/terminals";
 import { monitor, readUi } from "../src/stores/ui";
+import { Picker } from "../src/chrome/Sockets.jsx";
+import { picking } from "../src/chrome/sockets";
 import { App } from "../src/App";
 
 /**
@@ -91,7 +93,39 @@ async function boot(): Promise<void> {
   await act(async () => monitor(WARM));
 }
 
+/**
+ * The rail's own picker, on screen beside the shell, with a choice on it.
+ *
+ * The real `Picker`, and rendered rather than faked, because the seam the
+ * palette's row aims at is a `data-picker` attribute in the document — what the
+ * readout pipeline has to do to offer two adapters is `tests/sockets.test.tsx`'s
+ * subject, and what is under test here is what the *shell* does to the keyboard
+ * after the row has handed it over.
+ */
+let railed: { root: ReturnType<typeof createRoot>; host: HTMLElement } | null = null;
+
+async function rail(): Promise<HTMLSelectElement> {
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  railed = { root, host };
+  const offered = ["claude", "codex"] as const;
+  await act(async () => {
+    root.render(
+      <Picker offered={offered} picking={picking(offered, null, false)} onChoose={() => {}} />,
+    );
+  });
+  const select = host.querySelector("select[data-picker]");
+  return (select as HTMLSelectElement | null) ?? expect.fail("the rail offered no choice");
+}
+
 afterEach(() => {
+  if (railed !== null) {
+    const { root, host } = railed;
+    act(() => root.unmount());
+    host.remove();
+    railed = null;
+  }
   if (mounted !== null) {
     const { root, host } = mounted;
     act(() => root.unmount());
@@ -166,6 +200,31 @@ describe("the palette, raised and dismissed at the window", () => {
     expect(document.activeElement).toBe(theTerminal());
   });
 
+  it("leaves the keyboard on the picker its agent row focuses", async () => {
+    /*
+     * The acceptance criterion, at the window: *the palette focuses the adapter
+     * picker*. Asserted with no stand-in for the focusing itself, because the
+     * bug it guards was entirely in what the shell did **afterwards** — the
+     * dismiss that gives the keyboard back is right for every other row and
+     * wrong for this one, and a test that stubbed the focus would still have
+     * passed with the keyboard taken straight off the select again.
+     */
+    await boot();
+    const picker = await rail();
+
+    await press("palette");
+    await act(async () => {
+      document
+        .querySelector("[data-row='agent'] button")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(thePalette()).toBeNull();
+    expect(readUi().inFront).toBeNull();
+    // On the picker — not in the warm run, which is where `away` would put it.
+    expect(document.activeElement).toBe(picker);
+  });
+
   it("leaves the room exactly as it found it", async () => {
     await boot();
     const { view, position, selection, monitored } = readUi();
@@ -211,5 +270,40 @@ describe("with nothing in front, Esc is not the app's", () => {
 
     expect(event.defaultPrevented).toBe(false);
     expect(claims(event)).toBe(false);
+  });
+
+  /*
+   * And the same guarantee where it is easiest to lose: the crossing chord
+   * pressed while the palette is up. Crossing puts the keyboard back in the warm
+   * run, so a palette left standing behind it would be a run being typed at with
+   * `Esc` still claimed by a dismiss row — the interrupt key stolen from the
+   * agent, which is the exact failure this table exists to prevent. ADR 0025's
+   * invariant is that no surface stands in front of a terminal being typed at;
+   * this is the case that has to make it true rather than assume it.
+   */
+  it("does not leave Esc claimed when the crossing chord follows the palette", async () => {
+    await boot();
+    await press("palette");
+    expect(readUi().inFront).toBe("palette");
+
+    await press("cross");
+
+    expect(thePalette()).toBeNull();
+    expect(readUi().inFront).toBeNull();
+
+    const event = await escape();
+    expect(event.defaultPrevented).toBe(false);
+    expect(claims(event)).toBe(false);
+  });
+
+  /* Home has the milder shape of it: a view swapped under a surface that stayed. */
+  it("does not change the view under a palette that is still up", async () => {
+    await boot();
+    await press("palette");
+
+    await press("home");
+
+    expect(thePalette()).toBeNull();
+    expect(readUi().inFront).toBeNull();
   });
 });

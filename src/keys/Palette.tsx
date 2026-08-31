@@ -38,14 +38,22 @@ export const PICK_AGENT = "choose which agent a run starts with";
  */
 export function Palette({
   onRun,
-  onDismiss,
+  onHandOff,
   table = ENTRIES,
   focusPicker = focusTheOnePicker,
 }: {
   /** Press a row, through the app's one handler. Never a second verb. */
   onRun: (id: ActionId) => void;
-  /** Put the palette away, for the row that dismisses it without a keystroke. */
-  onDismiss: () => void;
+  /**
+   * Put the palette away and leave the keyboard exactly where it now is.
+   *
+   * Deliberately *not* the shell's ordinary dismiss, which also **places** the
+   * keyboard — into the warm run, or nowhere. The one row that reaches this has
+   * already sent the keyboard somewhere itself, so a dismiss that placed it
+   * again would take it straight back off the control the row exists to reach.
+   * Every other row goes out through `onRun`, and the shell's dismiss with it.
+   */
+  onHandOff: () => void;
   /** The table to print. A parameter so a test can prove it is not hard-coded. */
   table?: readonly Entry[];
   /** The seam onto the crossing rail's picker, injectable for the same reason. */
@@ -75,8 +83,12 @@ export function Palette({
     const why = focusPicker();
     setRefused(why);
     /* Silence would be the one unacceptable answer: a row that focused nothing
-       and said nothing is a row an operator presses twice. */
-    if (why === null) onDismiss();
+       and said nothing is a row an operator presses twice.
+
+       And the hand-off, never the plain dismiss: the picker has the keyboard as
+       of the line above, and the shell's dismiss would immediately move it into
+       the warm run — or blur the very select that was just focused. */
+    if (why === null) onHandOff();
   };
 
   return (
