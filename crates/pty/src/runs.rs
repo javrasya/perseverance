@@ -3,7 +3,10 @@ use std::ffi::OsString;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
+use perseverance_agent::{Signal, Watch};
+
 use crate::geometry::{Geometry, Panes};
+use crate::pulse::Readiness;
 use crate::ring::SCROLLBACK;
 use crate::session::{Session, SessionFailure};
 use crate::shim::Accepted;
@@ -103,6 +106,25 @@ pub struct Telemetry {
     /// The exit code, if the platform had one and the run is over.
     pub code: Option<u32>,
     pub monitored: bool,
+    /// How long this run has printed nothing, measured from its spawn for a
+    /// child that has printed nothing at all.
+    ///
+    /// A length and never a verdict. **Byte silence is not an ending and is not
+    /// a fault**: what an hour of it means depends on whether anybody is sitting
+    /// at the keyboard and on what the ticket says, and neither of those is
+    /// knowable here. The reading crosses and the join happens where the product
+    /// vocabulary lives.
+    pub quiet: Duration,
+    /// The last state a watch classified this run as, and `None` for a run no
+    /// signal has ever been observed for.
+    ///
+    /// **`None` is a fact about this run's history, not a question about its
+    /// adapter.** Every run is drained through a `Box<dyn Watch>` on identical
+    /// terms, so there is nothing here that could be asked whether an adapter
+    /// watches — only whether anything has ever been said about this run.
+    pub signal: Option<Signal>,
+    /// Whether the session has opened, against the rule its launch declared.
+    pub readiness: Readiness,
 }
 
 /// One run as the registry holds it: the session that owns the child, and the
@@ -155,11 +177,17 @@ impl Runs {
     /// **Nothing is resized here.** The pane's geometry is what the PTY is
     /// *opened* at, so there is no arrival-time reflow to aim at anything — which
     /// is the half of the never-resize-on-bind invariant that this side owns.
+    ///
+    /// `watching` is the run's classifier, minted by the adapter and handed over
+    /// here rather than asked for later: there is exactly one shape of answer, so
+    /// nothing in this registry — or above it — has a *does this adapter watch?*
+    /// to branch on.
     pub fn open(
         &mut self,
         accepted: Accepted,
         cwd: &Path,
         environment: &[(OsString, OsString)],
+        watching: Box<dyn Watch>,
     ) -> Result<RunId, SessionFailure> {
         let session = Session::spawn(
             accepted,
@@ -167,6 +195,7 @@ impl Runs {
             environment,
             self.panes.geometry(),
             SCROLLBACK,
+            watching,
         )?;
 
         self.issued += 1;
@@ -278,6 +307,9 @@ impl Runs {
                     over: run.session.over(),
                     code: run.session.ended().and_then(|ending| ending.code),
                     monitored: self.monitored == Some(*id),
+                    quiet: run.session.quiet(),
+                    signal: run.session.signal(),
+                    readiness: run.session.readiness(),
                 }
             })
             .collect()
@@ -382,7 +414,7 @@ mod tests {
 
     use std::time::{Duration, Instant};
 
-    use perseverance_agent::{Launch, Ready};
+    use perseverance_agent::{Launch, NoWatch, Ready};
     use tempfile::TempDir;
 
     use crate::shim::accept;
@@ -485,10 +517,10 @@ mod tests {
         let says = |what: &str| a_run_of(&format!("printf '{what}\\n'; sleep 30"));
 
         let first = runs
-            .open(says("first"), directory.path(), &[])
+            .open(says("first"), directory.path(), &[], Box::new(NoWatch))
             .expect("a shell starts");
         let second = runs
-            .open(says("second"), directory.path(), &[])
+            .open(says("second"), directory.path(), &[], Box::new(NoWatch))
             .expect("a shell starts");
 
         // Both are drained regardless — an unread PTY blocks its child — so both
@@ -528,10 +560,10 @@ mod tests {
         let line = "printf 'one\\n'; sleep 30";
 
         let first = runs
-            .open(a_run_of(line), directory.path(), &[])
+            .open(a_run_of(line), directory.path(), &[], Box::new(NoWatch))
             .expect("a shell starts");
         let second = runs
-            .open(a_run_that_waits(), directory.path(), &[])
+            .open(a_run_that_waits(), directory.path(), &[], Box::new(NoWatch))
             .expect("a shell starts");
 
         runs.monitor(Some(first));
@@ -568,9 +600,9 @@ mod tests {
         let directory = TempDir::new().expect("temp dir");
         let mut runs = Runs::new();
 
-        runs.open(a_run_that_waits(), directory.path(), &[])
+        runs.open(a_run_that_waits(), directory.path(), &[], Box::new(NoWatch))
             .expect("a shell starts");
-        runs.open(a_run_that_waits(), directory.path(), &[])
+        runs.open(a_run_that_waits(), directory.path(), &[], Box::new(NoWatch))
             .expect("a shell starts");
 
         assert_eq!(runs.geometry(), Geometry::opening());
@@ -589,7 +621,7 @@ mod tests {
 
         runs.settled(Geometry::new(50, 200));
         let late = runs
-            .open(a_run_that_waits(), directory.path(), &[])
+            .open(a_run_that_waits(), directory.path(), &[], Box::new(NoWatch))
             .expect("a shell starts");
 
         // Opened at it rather than resized to it, which is why arrival is not an
@@ -614,7 +646,7 @@ mod tests {
         let mut runs = Runs::new();
 
         let only = runs
-            .open(a_run_that_waits(), directory.path(), &[])
+            .open(a_run_that_waits(), directory.path(), &[], Box::new(NoWatch))
             .expect("a shell starts");
         runs.monitor(Some(only));
 
@@ -631,7 +663,7 @@ mod tests {
         let mut runs = Runs::new();
 
         let only = runs
-            .open(a_run_that_waits(), directory.path(), &[])
+            .open(a_run_that_waits(), directory.path(), &[], Box::new(NoWatch))
             .expect("a shell starts");
         runs.monitor(Some(only));
 
@@ -718,7 +750,7 @@ mod tests {
         };
 
         let mut runs = Runs::new();
-        runs.open(a_run_of(line), directory.path(), &[])
+        runs.open(a_run_of(line), directory.path(), &[], Box::new(NoWatch))
             .expect("a shell starts");
 
         wait_until("the grandchild started ticking", || ticked() > 0);
@@ -756,7 +788,7 @@ mod tests {
         let mut runs = Runs::new();
 
         for _ in 0..3 {
-            runs.open(a_run_that_waits(), directory.path(), &[])
+            runs.open(a_run_that_waits(), directory.path(), &[], Box::new(NoWatch))
                 .expect("a shell starts");
         }
         wait_until("all three runs started", || {
@@ -812,6 +844,7 @@ mod tests {
             ),
             directory.path(),
             &[],
+            Box::new(NoWatch),
         )
         .expect("a shell starts");
 
@@ -857,6 +890,7 @@ mod tests {
             a_run_of("echo up&& ping -n 31 127.0.0.1 >nul"),
             directory.path(),
             &[],
+            Box::new(NoWatch),
         )
         .expect("a shell starts");
         wait_until("the run started", || {
@@ -883,7 +917,7 @@ mod tests {
         #[cfg(not(windows))]
         let line = "printf 'over\\n'";
 
-        runs.open(a_run_of(line), directory.path(), &[])
+        runs.open(a_run_of(line), directory.path(), &[], Box::new(NoWatch))
             .expect("a shell starts");
         wait_until("the run ended by itself", || {
             runs.telemetry().iter().all(|run| run.over)

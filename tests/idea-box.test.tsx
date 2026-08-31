@@ -89,6 +89,8 @@ const reading = (run: number, finished: boolean): RunReadout => ({
   over: finished,
   code: finished ? 0 : null,
   monitored: false,
+  silence: { kind: "nothing" },
+  signal: null,
 });
 
 const running = (run: number): RunReadout => reading(run, false);

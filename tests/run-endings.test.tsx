@@ -5,7 +5,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { Pane } from "../src/terminal/Pane";
 import { forgetPrompts } from "../src/terminal/prompts";
 import { forgetStow } from "../src/terminal/reparent";
-import type { RunEnding, RunReadout } from "../src/terminal/runs";
+import type {
+  RunEnding,
+  RunReadout,
+  RunSignal,
+  RunSilence,
+} from "../src/terminal/runs";
 import { Terminals, type Terminal } from "../src/terminal/terminals";
 import { monitor, readUi } from "../src/stores/ui";
 
@@ -58,6 +63,8 @@ function readout(ending: RunEnding, code: number | null = null): RunReadout {
     over: ending === "exited" || ending === "exitedUnresolved",
     code,
     monitored: true,
+    silence: { kind: "nothing" },
+    signal: null,
     ticket: 49,
     folder: "/work/repo",
     ending,
@@ -199,5 +206,70 @@ describe("the press that ends a run", () => {
     expect(press(host)).not.toBe(null);
 
     unmount();
+  });
+});
+
+/* --------------------------------------------------------------- shape --- */
+
+/*
+ * The other half of a hand-written mirror. `RunReadout` is pinned from the Rust
+ * side by `a_run_readout_crosses_in_the_shape_the_frontend_declares`, which
+ * counts fifteen keys and asserts these spellings; this is the same count and
+ * the same tags read from the type this file consumes. A rename on either side
+ * is silent on the other, and two assertions is the whole of the defence.
+ *
+ * Nothing on screen reads either value yet — a later slice puts them there —
+ * so what is pinned is the crossing and not a rendering of it.
+ */
+describe("the silence reading crosses in the shape Rust writes", () => {
+  it("fifteen keys cross, and these fifteen", () => {
+    expect(Object.keys(readout("live")).sort()).toEqual([
+      "code",
+      "desynced",
+      "dropped",
+      "end",
+      "ending",
+      "folder",
+      "held",
+      "monitored",
+      "over",
+      "run",
+      "signal",
+      "silence",
+      "through",
+      "ticket",
+      "truncated",
+    ]);
+  });
+
+  it("carries the elapsed inside the reading rather than a number to compare", () => {
+    /*
+     * The tagged value is the whole of what this side may read: what an elapsed
+     * means is a joint predicate over who is waiting and what the ticket says,
+     * and a threshold written here would be a second, worse copy of it.
+     */
+    const quiet: RunSilence = { kind: "quiet", silentForMs: 90_000 };
+    const wedged: RunSilence = {
+      kind: "wedged",
+      why: "awaitingOperator",
+      silentForMs: 11_000,
+    };
+
+    expect(quiet.silentForMs).toBe(90_000);
+    expect(wedged.why).toBe("awaitingOperator");
+
+    // And the readings with nothing to print carry no elapsed at all, because a
+    // spent run is never quiet and an exited one is an ending.
+    const spent: RunSilence = { kind: "spent" };
+    const nothing: RunSilence = { kind: "nothing" };
+    expect(Object.keys(spent)).toEqual(["kind"]);
+    expect(Object.keys(nothing)).toEqual(["kind"]);
+  });
+
+  it("says nothing has classified a run by having no signal at all", () => {
+    const observed: RunSignal[] = ["ready", "busy", "idle"];
+
+    expect(observed).toHaveLength(3);
+    expect(readout("live").signal).toBe(null);
   });
 });

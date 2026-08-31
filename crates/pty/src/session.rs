@@ -2,11 +2,14 @@ use std::ffi::OsString;
 use std::io::{Read, Write};
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::time::{Duration, Instant};
 
+use perseverance_agent::{Signal, Watch};
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 
 use crate::geometry::Geometry;
 use crate::guard::{Guard, GuardRefusal};
+use crate::pulse::{Pulse, Readiness};
 use crate::queries::{Queries, ANSWER};
 use crate::ring::Ring;
 use crate::shim::Accepted;
@@ -140,6 +143,14 @@ pub struct Session {
     /// *That* it ended is all this is. What **kind** of ending it was — spent, or
     /// exited-but-unresolved — is #49's, and is deliberately not decided here.
     ended: Arc<Mutex<Option<Ending>>>,
+    /// Everything the drain loop learns that is not a byte: when the child last
+    /// printed, whether the declared readiness rule has been met, and the last
+    /// state a [`Watch`] classified this run as.
+    ///
+    /// Shared with the drain thread for the reason the ring is: that loop is the
+    /// only place bytes are read, so it is the only place any of this can be
+    /// known without a second reader inventing a second answer.
+    pulse: Arc<Mutex<Pulse>>,
     guard: Guard,
 }
 
@@ -157,13 +168,25 @@ impl Session {
     /// running in a GUI bundle's inherited `PATH` is the bug the harvest exists
     /// to fix, and inheriting it as well as the harvest would carry two
     /// environments' worth of history.
+    ///
+    /// `watching` is the run's own classifier, minted by the adapter and moved
+    /// to the drain thread. It arrives as a `Box<dyn Watch>` and never as an
+    /// `Option`, so nothing here — and nothing above here — can ask whether the
+    /// adapter watches: an adapter that classifies nothing hands over a watch
+    /// that says nothing, and the two are read on identical terms.
     pub fn spawn(
         accepted: Accepted,
         cwd: &Path,
         environment: &[(OsString, OsString)],
         geometry: Geometry,
         scrollback: usize,
+        watching: Box<dyn Watch>,
     ) -> Result<Session, SessionFailure> {
+        // Read before the launch is consumed below, and before the child exists:
+        // the readiness clock starts at the spawn, so a rule taken afterwards
+        // would be a rule whose deadline began late.
+        let rule = accepted.launch().ready();
+
         let pair = native_pty_system()
             .openpty(sized(geometry))
             .map_err(|error| SessionFailure::NoPty {
@@ -228,6 +251,10 @@ impl Session {
         let ring = Arc::new(Mutex::new(Ring::new(scrollback)));
         let ended = Arc::new(Mutex::new(None));
         let child = Arc::new(Mutex::new(child));
+        // The clock starts at the spawn and not at the first byte: a child that
+        // printed nothing at all is the case the readiness deadline is most
+        // there for.
+        let pulse = Arc::new(Mutex::new(Pulse::opening(rule, Instant::now())));
 
         let session = Session {
             master: pair.master,
@@ -235,6 +262,7 @@ impl Session {
             child: Arc::clone(&child),
             ring: Arc::clone(&ring),
             ended: Arc::clone(&ended),
+            pulse: Arc::clone(&pulse),
             guard,
         };
 
@@ -244,7 +272,7 @@ impl Session {
         // is what leaves the child reachable for the kill that escalates.
         std::thread::Builder::new()
             .name("perseverance-pty-drain".to_string())
-            .spawn(move || drain(reader, &ring, &writer))
+            .spawn(move || drain(reader, &ring, &writer, &pulse, watching))
             .map_err(|error| SessionFailure::Unreadable {
                 detail: error.to_string(),
             })?;
@@ -282,6 +310,42 @@ impl Session {
     /// Everything this run has printed that is still held.
     pub fn held(&self) -> MutexGuard<'_, Ring> {
         self.ring.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn pulse(&self) -> MutexGuard<'_, Pulse> {
+        self.pulse.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// How long this run has printed nothing, measured from its spawn for a
+    /// child that has printed nothing at all.
+    ///
+    /// **Byte silence is never an ending.** A child that has said nothing for an
+    /// hour is a child that has said nothing for an hour; whether it is still
+    /// running is [`Session::over`]'s answer and comes from the operating
+    /// system. What this is for is a reading somebody can act on, and what it
+    /// *means* is not this crate's to say.
+    pub fn quiet(&self) -> Duration {
+        self.pulse().quiet(Instant::now())
+    }
+
+    /// The last state a watch classified this run as, and `None` for a run no
+    /// signal has ever been observed for.
+    ///
+    /// The absence is a fact about this run and not about its adapter: `None`
+    /// says nothing has ever been classified here, which is the only thing
+    /// anybody is entitled to know.
+    pub fn signal(&self) -> Option<Signal> {
+        self.pulse().signal()
+    }
+
+    /// Whether the session has opened, against the rule its launch declared.
+    ///
+    /// Computed when asked rather than on a timer, which is why it takes the
+    /// lock: the *ready* reading latches the first time it is reached, so a
+    /// [`Ready::Quiet`](perseverance_agent::Ready::Quiet) rule cannot flap back
+    /// to waiting when the child prints again.
+    pub fn readiness(&self) -> Readiness {
+        self.pulse().readiness(Instant::now())
     }
 
     /// Keystrokes, or a prompt, or a cursor reply. Whatever the caller has, as
@@ -438,10 +502,17 @@ fn sized(geometry: Geometry) -> PtySize {
 /// it on the way to a quit. An emptied cell stops the answering and nothing
 /// else: reading continues to the end of the stream, because what the child said
 /// on its way out is the part worth keeping.
+///
+/// `pulse` is the same bytes read a second way — when they arrived, whether the
+/// alternate screen was among them, and what the run's own [`Watch`] made of
+/// them. It is written here because this is the only loop that reads the child
+/// at all: a second reader would be a second answer about the same silence.
 pub(crate) fn drain<R: Read, W: Write>(
     mut reader: R,
     ring: &Mutex<Ring>,
     replies: &Mutex<Option<W>>,
+    pulse: &Mutex<Pulse>,
+    mut watching: Box<dyn Watch>,
 ) {
     let mut buffer = vec![0u8; READ];
     let mut queries = Queries::default();
@@ -465,6 +536,17 @@ pub(crate) fn drain<R: Read, W: Write>(
             .unwrap_or_else(PoisonError::into_inner)
             .push(bytes);
 
+        // Classified outside the lock, because a watch is somebody else's code
+        // and this loop may not hold a lock the readout tick wants across it.
+        let signal = watching.classify(bytes);
+        {
+            let mut pulse = pulse.lock().unwrap_or_else(PoisonError::into_inner);
+            pulse.read(bytes, std::time::Instant::now());
+            if let Some(signal) = signal {
+                pulse.classified(signal);
+            }
+        }
+
         for _ in 0..queries.asked(bytes) {
             let mut replies = replies.lock().unwrap_or_else(PoisonError::into_inner);
             // Best effort, and deliberately so: a reply that cannot be written
@@ -486,13 +568,41 @@ mod tests {
     use std::io::Cursor;
     use std::time::{Duration, Instant};
 
-    use perseverance_agent::{Launch, Ready};
+    use perseverance_agent::{Launch, NoWatch, Ready};
     use tempfile::TempDir;
 
     use crate::ring::SCROLLBACK;
     use crate::shim::accept;
 
     const SCRUB: &[&str] = &["A_MARKER_THIS_HARNESS_MUST_NOT_PASS_ON"];
+
+    fn a_pulse() -> Mutex<Pulse> {
+        Mutex::new(Pulse::opening(
+            Ready::AltScreen {
+                timeout: Duration::from_secs(10),
+            },
+            Instant::now(),
+        ))
+    }
+
+    /// A watch that says what it is told to, in order, one answer per read.
+    ///
+    /// Every shipped adapter takes `NoWatch`, so the only way to exercise the
+    /// path a classifier's answers take is to write one — which is what this is,
+    /// and what it proves is that the drain feeds the watch it was handed and
+    /// keeps the last answer it gave.
+    struct AWatch {
+        says: Vec<Option<Signal>>,
+    }
+
+    impl Watch for AWatch {
+        fn classify(&mut self, _bytes: &[u8]) -> Option<Signal> {
+            if self.says.is_empty() {
+                return None;
+            }
+            self.says.remove(0)
+        }
+    }
 
     /// The platform's own shell, which is the one native image both runners are
     /// guaranteed to have. An agent CLI is not: the whole point of #44's gate is
@@ -597,6 +707,7 @@ mod tests {
             &[],
             Geometry::new(40, 120),
             4 * 1024,
+            Box::new(NoWatch),
         )
         .expect("a shell starts");
 
@@ -627,6 +738,7 @@ mod tests {
             &[],
             Geometry::new(40, 120),
             SCROLLBACK,
+            Box::new(NoWatch),
         )
         .expect("a shell starts");
 
@@ -680,6 +792,7 @@ mod tests {
             &[(OsString::from("TERM"), OsString::from("xterm-256color"))],
             Geometry::new(40, 120),
             SCROLLBACK,
+            Box::new(NoWatch),
         )
         .expect("a shell starts");
 
@@ -707,6 +820,7 @@ mod tests {
             )],
             Geometry::new(40, 120),
             SCROLLBACK,
+            Box::new(NoWatch),
         )
         .expect("a shell starts");
 
@@ -731,6 +845,7 @@ mod tests {
             &[(OsString::from("TERM"), OsString::from("xterm-256color"))],
             Geometry::new(40, 120),
             SCROLLBACK,
+            Box::new(NoWatch),
         )
         .expect("a shell starts");
 
@@ -758,6 +873,7 @@ mod tests {
             &[],
             Geometry::new(40, 120),
             SCROLLBACK,
+            Box::new(NoWatch),
         )
         .expect("a shell starts");
 
@@ -786,7 +902,13 @@ mod tests {
         let replies = Mutex::new(Some(Vec::new()));
         let wire = b"\x1b[6n\x1b[?9001h2.1.220 (Claude Code)\r\n".to_vec();
 
-        drain(Cursor::new(wire.clone()), &ring, &replies);
+        drain(
+            Cursor::new(wire.clone()),
+            &ring,
+            &replies,
+            &a_pulse(),
+            Box::new(NoWatch),
+        );
 
         assert_eq!(
             replies
@@ -810,7 +932,13 @@ mod tests {
         let replies = Mutex::new(Some(Vec::new()));
         let wire: Vec<u8> = (0..200_000u32).map(|byte| byte as u8).collect();
 
-        drain(Cursor::new(wire.clone()), &ring, &replies);
+        drain(
+            Cursor::new(wire.clone()),
+            &ring,
+            &replies,
+            &a_pulse(),
+            Box::new(NoWatch),
+        );
 
         let ring = ring.into_inner().expect("not poisoned");
         assert_eq!(ring.end(), wire.len() as u64);
@@ -828,7 +956,13 @@ mod tests {
         let replies: Mutex<Option<Vec<u8>>> = Mutex::new(None);
         let wire = b"before\x1b[6nafter\r\n".to_vec();
 
-        drain(Cursor::new(wire.clone()), &ring, &replies);
+        drain(
+            Cursor::new(wire.clone()),
+            &ring,
+            &replies,
+            &a_pulse(),
+            Box::new(NoWatch),
+        );
 
         assert!(replies.into_inner().expect("not poisoned").is_none());
         assert_eq!(
@@ -836,6 +970,81 @@ mod tests {
             wire,
             "the drain stopped at the query it could not answer"
         );
+    }
+
+    /// The same read is the ring's and the reading's, which is what makes the
+    /// two impossible to disagree: a run that has printed cannot look silent
+    /// since its spawn.
+    #[test]
+    fn the_bytes_the_ring_takes_are_the_bytes_the_silence_is_measured_from() {
+        let ring = Mutex::new(Ring::new(SCROLLBACK));
+        let replies = Mutex::new(Some(Vec::new()));
+        let pulse = a_pulse();
+        let started = Instant::now();
+
+        drain(
+            Cursor::new(b"working on it\r\n".to_vec()),
+            &ring,
+            &replies,
+            &pulse,
+            Box::new(NoWatch),
+        );
+
+        let printed = pulse
+            .lock()
+            .expect("not poisoned")
+            .quiet(started + Duration::from_secs(30));
+        assert!(
+            printed < Duration::from_secs(30),
+            "the silence was still being measured from the spawn after the child printed"
+        );
+    }
+
+    /// A run is classified by the watch it was opened with, and the last thing
+    /// that watch said is what is kept. Exercised with a fake because every v1
+    /// adapter takes `NoWatch` — the path is the thing under test, not any
+    /// shipped classifier.
+    #[test]
+    fn a_run_is_classified_by_the_watch_it_was_opened_with_and_keeps_the_last_answer() {
+        let ring = Mutex::new(Ring::new(SCROLLBACK));
+        let replies = Mutex::new(Some(Vec::new()));
+        let pulse = a_pulse();
+
+        drain(
+            // One answer per read, and the reader hands the whole thing over in
+            // one, so only the first is ever asked for here.
+            Cursor::new(b"busy then idle".to_vec()),
+            &ring,
+            &replies,
+            &pulse,
+            Box::new(AWatch {
+                says: vec![Some(Signal::Idle)],
+            }),
+        );
+
+        assert_eq!(
+            pulse.lock().expect("not poisoned").signal(),
+            Some(Signal::Idle)
+        );
+    }
+
+    /// A watch that says nothing leaves the run unclassified, and *unclassified*
+    /// is a fact about the run rather than an answer about its adapter.
+    #[test]
+    fn a_run_no_signal_has_ever_been_observed_for_says_so_rather_than_naming_a_state() {
+        let ring = Mutex::new(Ring::new(SCROLLBACK));
+        let replies = Mutex::new(Some(Vec::new()));
+        let pulse = a_pulse();
+
+        drain(
+            Cursor::new(b"plenty of output and not one signal".to_vec()),
+            &ring,
+            &replies,
+            &pulse,
+            Box::new(NoWatch),
+        );
+
+        assert_eq!(pulse.lock().expect("not poisoned").signal(), None);
     }
 
     #[test]
@@ -847,6 +1056,7 @@ mod tests {
             &[],
             Geometry::new(40, 120),
             SCROLLBACK,
+            Box::new(NoWatch),
         )
         .expect("a shell starts");
 

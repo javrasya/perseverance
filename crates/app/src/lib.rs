@@ -21,7 +21,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::time::Duration;
 
-use perseverance_agent::{agent, agent_named, AgentId, LaunchContext, Override, Platform, Scope};
+use perseverance_agent::{
+    agent, agent_named, AgentId, LaunchContext, Override, Platform, Scope, Signal, Watch,
+};
 use perseverance_env::{
     degradation_in, locate_in, probe_in, spawnable_form, Bounds, Degradation, Environment,
     FolderEnvironment, HarvestAttempt, Harvests, Located, ProbeOutcome, Shell, Stderr, StderrKind,
@@ -36,7 +38,7 @@ use perseverance_model::{
     read_response, ChangeLog, ChildKind, Degraded, Frontier, Machine, Map, MapRead, Model,
     NodeState, Phase, Provenance, ReadOutcome, Snapshot, Source, TicketType,
 };
-use perseverance_pty::{Delivery, Geometry, RunId, Runs, GRACE};
+use perseverance_pty::{Delivery, Geometry, Readiness, RunId, Runs, GRACE};
 use perseverance_store::{CachedBody, CachedGraph, Folder, RepoBindingError, Store, StoreError};
 use serde::{Deserialize, Serialize};
 use tauri::ipc::{Channel, InvokeResponseBody};
@@ -2085,6 +2087,16 @@ pub struct Terminals {
     /// read by a quit. Four small mutexes taken one after another cost less than
     /// one that every one of those has to queue on.
     resolution: Mutex<BTreeMap<RunId, NodeState>>,
+    /// The last signal each run was *seen* as by the readout tick, which is what
+    /// turns a level into an edge.
+    ///
+    /// A signal is a state and not an event — [`perseverance_agent::Watch`] says
+    /// so — so a run that has gone idle goes on being idle at every one of the
+    /// three readouts a second until something changes. Poking on each of those
+    /// would be three pokes a second for as long as an agent sat at a prompt.
+    /// This table is the whole of the difference between *it is idle* and *it
+    /// has just become idle*, and only the second buys a poll.
+    signals: Mutex<BTreeMap<RunId, RunSignal>>,
 }
 
 impl Terminals {
@@ -2095,6 +2107,7 @@ impl Terminals {
             stakes: Mutex::new(BTreeMap::new()),
             live: Mutex::new(BTreeMap::new()),
             resolution: Mutex::new(BTreeMap::new()),
+            signals: Mutex::new(BTreeMap::new()),
         }
     }
 
@@ -2186,6 +2199,37 @@ impl Terminals {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
+    fn signalled_here(&self) -> MutexGuard<'_, BTreeMap<RunId, RunSignal>> {
+        self.signals
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// Whether any run has *just* been classified idle, taken from the readout
+    /// the screen is drawn from.
+    ///
+    /// Called from the readout tick for the reason [`Terminals::let_go_of`] is:
+    /// it is the one thing in this process that already looks at every run
+    /// several times a second, and a second watcher would be entitled to
+    /// disagree with it about when a run went quiet.
+    ///
+    /// **What the poke buys is a poll and nothing else.** `Idle` means *ask
+    /// GitHub sooner*; it is not evidence that anything finished, and nothing
+    /// here reads it as one. `Ready` and `Busy` are recorded on the readout and
+    /// buy nothing at all.
+    fn newly_idle(&self, readouts: &[RunReadout]) -> bool {
+        let mut signals = self.signalled_here();
+        let mut idled = false;
+        for readout in readouts {
+            let Some(signal) = readout.signal else {
+                continue;
+            };
+            let before = signals.insert(RunId::from_u64(readout.run), signal);
+            idled |= signal == RunSignal::Idle && before != Some(RunSignal::Idle);
+        }
+        idled
+    }
+
     fn resolved_here(&self) -> MutexGuard<'_, BTreeMap<RunId, NodeState>> {
         self.resolution
             .lock()
@@ -2265,8 +2309,21 @@ impl Terminals {
         telemetry
             .iter()
             .map(|telemetry| {
-                let ending = ending(telemetry.over, resolution.get(&telemetry.run).copied());
-                RunReadout::of(telemetry, ending, staked.get(&telemetry.run))
+                let seen = resolution.get(&telemetry.run).copied();
+                let staked = staked.get(&telemetry.run);
+                let ending = ending(telemetry.over, seen);
+                let silence = silence(
+                    telemetry.over,
+                    seen,
+                    staked.map(|stakes| stakes.kind),
+                    telemetry.quiet,
+                    telemetry.readiness,
+                    // A fact about this run's own history: something classified
+                    // it once. Never a question about its adapter — there is no
+                    // call site anywhere that can ask one.
+                    telemetry.signal.is_some(),
+                );
+                RunReadout::of(telemetry, ending, silence, staked)
             })
             .collect()
     }
@@ -2291,6 +2348,7 @@ impl Terminals {
         let session = self.held().take(run);
         self.staked_here().remove(&run);
         self.resolved_here().remove(&run);
+        self.signalled_here().remove(&run);
         let counted = self.counted_here().remove(&run);
         drop(session);
         drop(counted);
@@ -2463,6 +2521,43 @@ struct RunReadout {
     /// Derived in this crate from the stakes a press wrote, exactly as `ending`
     /// is: `crates/pty` carries no folder a product would recognise.
     folder: Option<String>,
+    /// What this run's silence means, derived here from six facts and never from
+    /// a threshold — see [`silence`].
+    silence: Silence,
+    /// The last state a watch classified this run as, and `null` for a run no
+    /// signal has ever been observed for.
+    ///
+    /// **Recorded and nothing else.** `Idle` buys an off-cadence poke on its
+    /// falling edge and that happens on the readout tick; `Ready` and `Busy`
+    /// reach the chrome and stop there. A signal is never evidence in its own
+    /// right — it means *poll GitHub sooner* — so nothing downstream may treat
+    /// this as an answer about a ticket.
+    signal: Option<RunSignal>,
+}
+
+/// A live signal, as the WebView receives it.
+///
+/// A second spelling of [`perseverance_agent::Signal`] because that enum is the
+/// adapter contract's and carries no serialisation: a `Serialize` on it would
+/// make the wire format a thing an adapter author could change. Three variants
+/// and no fourth — completion is a GitHub state transition, and this vocabulary
+/// deliberately cannot say it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+enum RunSignal {
+    Ready,
+    Busy,
+    Idle,
+}
+
+impl From<Signal> for RunSignal {
+    fn from(signal: Signal) -> RunSignal {
+        match signal {
+            Signal::Ready => RunSignal::Ready,
+            Signal::Busy => RunSignal::Busy,
+            Signal::Idle => RunSignal::Idle,
+        }
+    }
 }
 
 impl RunReadout {
@@ -2478,6 +2573,7 @@ impl RunReadout {
     fn of(
         telemetry: &perseverance_pty::Telemetry,
         ending: Ending,
+        silence: Silence,
         stakes: Option<&Stakes>,
     ) -> RunReadout {
         RunReadout {
@@ -2494,6 +2590,8 @@ impl RunReadout {
             ending,
             ticket: stakes.and_then(|stakes| stakes.ticket),
             folder: stakes.map(|stakes| stakes.folder.clone()),
+            silence,
+            signal: telemetry.signal.map(RunSignal::from),
         }
     }
 }
@@ -2557,6 +2655,137 @@ fn ending(over: bool, seen: Option<NodeState>) -> Ending {
         (Some(NodeState::Claimed), true) => Ending::ExitedUnresolved,
         (_, true) => Ending::Exited,
     }
+}
+
+/* ------------------------------------------------------------- silence --- */
+
+/// How long an unattended run may print nothing before the silence is worth
+/// saying something about.
+///
+/// **A provisional guess with a stated basis, and nothing here has measured
+/// it.** The basis is the shape of the work rather than a number off a run: a
+/// research agent reading a repository, running a search and writing notes goes
+/// quiet in bursts of tens of seconds, and five minutes is an order of magnitude
+/// above the longest of those — far enough out that a run which hits it is doing
+/// something other than thinking.
+///
+/// It is reachable **only** by an unattended run that no signal has ever been
+/// observed for, which is the whole reason it can be this crude: it is the
+/// fallback for the case where nothing better is known, and an adapter that
+/// classifies its own session never reaches it. What would settle it is the
+/// distribution of real silences from a research run, per adapter. The revisit
+/// trigger is the first report of a working research run called wedged.
+const WEDGED: Duration = Duration::from_secs(300);
+
+/// What a run's silence means, or that it means nothing.
+///
+/// **A joint predicate over two independent facts, and never a shared
+/// threshold.** How long a run has printed nothing is one fact and who is
+/// waiting on it is another; the same ninety seconds is a person reading the
+/// screen on a work run and an agent that has stopped on a research one.
+/// `docs/adr/0025` is the argument. What it buys is that there is no single
+/// number anywhere for somebody to tune into being wrong for half the runs.
+///
+/// Derived in this crate, beside [`ending`] and for the same reason: `crates/pty`
+/// carries a length and a readiness reading and must not learn what a ticket or
+/// an attendance is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+enum Silence {
+    /// Nothing to say. The child has exited — an ending is what that is, and it
+    /// is on the same readout — or its ticket is in a state that makes silence
+    /// beside the point.
+    Nothing,
+
+    /// The ticket closed, so the silence is the silence of finished work.
+    ///
+    /// **The latch, and it outranks everything.** A spent run is never quiet and
+    /// never wedged, however long it has said nothing: the one ending that is
+    /// good news does not also get to be a complaint.
+    Spent,
+
+    /// Silent, with somebody at the keyboard and the ticket still open.
+    ///
+    /// **For any elapsed, and forever.** There is no length at which this
+    /// becomes a wedge, because a run whose operator is reading the screen, or
+    /// has gone to lunch mid-review, is a run behaving exactly as intended.
+    /// The elapsed is carried so the chrome can print it, not so anything can
+    /// judge it.
+    #[serde(rename_all = "camelCase")]
+    Quiet { silent_for_ms: u64 },
+
+    /// Silent in a way that wants somebody. The elapsed is carried for the same
+    /// reason it is on [`Silence::Quiet`]: it is what the copy prints.
+    #[serde(rename_all = "camelCase")]
+    Wedged { why: Wedge, silent_for_ms: u64 },
+}
+
+/// Why a run reads as wedged. Two, and they want different sentences.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+enum Wedge {
+    /// The readiness rule the adapter declared ran out before the session
+    /// opened. The diagnosis is *something is waiting for the operator, most
+    /// likely a trust prompt* — every declared timeout is an order of magnitude
+    /// above the ~223 ms an alternate screen has been measured to take, so what
+    /// expired is not a slow machine.
+    AwaitingOperator,
+
+    /// An unattended run has printed nothing for [`WEDGED`] and nothing has ever
+    /// classified it. Nobody is watching this one and nothing is coming.
+    Silent,
+}
+
+/// The whole derivation, over six plain values and nothing else.
+///
+/// A free function for [`ending`]'s reason: the table can be read and tested
+/// without a registry, a poller or a child process.
+///
+/// `kind` is `None` for a run this app was never told the stakes of. Those read
+/// as attended, which is the safe direction — the unattended branch is the only
+/// one that can call a working run wedged, and a run nobody staked is not one to
+/// guess about.
+///
+/// `signalled` is *has anything ever classified this run*, which is a fact about
+/// the run's own history. It is deliberately not *does this adapter watch*:
+/// nothing anywhere may ask that, and every run is drained through a watch on
+/// identical terms so there is nothing to ask.
+fn silence(
+    over: bool,
+    seen: Option<NodeState>,
+    kind: Option<RunKind>,
+    quiet: Duration,
+    readiness: Readiness,
+    signalled: bool,
+) -> Silence {
+    let silent_for_ms = quiet.as_millis().min(u128::from(u64::MAX)) as u64;
+
+    // The latch first, and in both columns, exactly as `ending` takes it.
+    if seen == Some(NodeState::Resolved) {
+        return Silence::Spent;
+    }
+    // A child that has exited is not silent, it is finished. Which kind of
+    // finished is the ending's to say, and saying it twice in two vocabularies
+    // is how the two come to disagree.
+    if over {
+        return Silence::Nothing;
+    }
+    if readiness == Readiness::Overdue {
+        return Silence::Wedged {
+            why: Wedge::AwaitingOperator,
+            silent_for_ms,
+        };
+    }
+    // The fallback, and the only branch with a number in it. Two conditions gate
+    // it and both are facts about this run: nobody is at the keyboard, and
+    // nothing has ever been said about it.
+    if kind.is_some_and(RunKind::unattended) && !signalled && quiet >= WEDGED {
+        return Silence::Wedged {
+            why: Wedge::Silent,
+            silent_for_ms,
+        };
+    }
+    Silence::Quiet { silent_for_ms }
 }
 
 /// Where the monitored run's bytes go.
@@ -2700,6 +2929,15 @@ fn start_terminals(app: AppHandle) -> std::io::Result<()> {
                 .map(|readout| RunId::from_u64(readout.run))
                 .collect();
             terminals.let_go_of(&over);
+            // The rising edge of a run going idle, off the same readout. All it
+            // buys is an off-cadence poll — the precedent is the handle dropped
+            // above, which sends `Poke::RunExited` — and the poller debounces it
+            // from there.
+            if terminals.newly_idle(&readouts) {
+                if let Some(poker) = app.try_state::<Poker>() {
+                    poker.poke(Poke::Idle);
+                }
+            }
             let _ = app.emit("run-readouts", readouts);
         })?;
 
@@ -3034,12 +3272,12 @@ fn chart_in(
     };
 
     let rendered = charting(app, &operator, &repo, idea);
-    let (spawn, launch) = plan_in(harvests, registry, folder, adapter, &rendered.text)?;
+    let (spawn, launch, watching) = plan_in(harvests, registry, folder, adapter, &rendered.text)?;
     let accepted = perseverance_pty::accept(launch).map_err(|refusal| refusal.to_string())?;
 
     let run = terminals
         .held()
-        .open(accepted, &spawn.directory, &spawn.environment)
+        .open(accepted, &spawn.directory, &spawn.environment, watching)
         .map_err(|refusal| refusal.to_string())?;
 
     Ok((run, rendered))
@@ -3409,7 +3647,7 @@ fn plan_in(
     folder: &str,
     adapter: &str,
     prompt: &str,
-) -> Result<(SpawnIn, perseverance_agent::Launch), String> {
+) -> Result<(SpawnIn, perseverance_agent::Launch, Box<dyn Watch>), String> {
     let agent = agent_named(adapter).ok_or_else(|| format!("no adapter is named {adapter}"))?;
     let settled = harvests.in_folder(Path::new(folder));
     let chosen = remembered_override(registry);
@@ -3451,12 +3689,20 @@ fn plan_in(
         None => planned,
     };
 
+    // Minted here because this is the one place in the app that resolves an
+    // adapter at all, and it is handed on rather than asked for again: there is
+    // exactly one shape of answer, so no call site downstream has a *does this
+    // adapter watch?* to branch on. Every v1 adapter takes the default, which is
+    // a watch that classifies nothing — not an absence of one.
+    let watching = agent.watch();
+
     Ok((
         SpawnIn {
             directory,
             environment: settled.environment.os_pairs(),
         },
         launch,
+        watching,
     ))
 }
 
@@ -3483,12 +3729,12 @@ fn start_child(
     adapter: &str,
     rendered: prompt::Rendered,
 ) -> Result<(RunId, prompt::Rendered), String> {
-    let (spawn, launch) = plan_in(harvests, registry, folder, adapter, &rendered.text)?;
+    let (spawn, launch, watching) = plan_in(harvests, registry, folder, adapter, &rendered.text)?;
     let accepted = perseverance_pty::accept(launch).map_err(|refusal| refusal.to_string())?;
 
     let run = terminals
         .held()
-        .open(accepted, &spawn.directory, &spawn.environment)
+        .open(accepted, &spawn.directory, &spawn.environment, watching)
         .map_err(|refusal| refusal.to_string())?;
 
     Ok((run, rendered))
@@ -3786,6 +4032,20 @@ impl RunKind {
         match ticket {
             TicketType::Research => RunKind::Research,
             TicketType::Prototype | TicketType::Grilling | TicketType::Task => RunKind::Work,
+        }
+    }
+
+    /// Whether this run is expected to be got on with unattended.
+    ///
+    /// The attendance line as a predicate rather than a second enum, and the
+    /// only place in Rust that reads it: [`silence`] asks this and nothing else
+    /// matches on the variants to decide who is waiting. A compose and a chart
+    /// are a press somebody is sitting in front of, so they are attended for the
+    /// same reason work is.
+    pub fn unattended(self) -> bool {
+        match self {
+            RunKind::Research => true,
+            RunKind::Work | RunKind::Chart | RunKind::Compose => false,
         }
     }
 }
@@ -4865,6 +5125,10 @@ mod tests {
             ending: Ending::ExitedUnresolved,
             ticket: Some(48),
             folder: Some("/work/repo".to_string()),
+            silence: Silence::Quiet {
+                silent_for_ms: 90_000,
+            },
+            signal: Some(RunSignal::Busy),
         };
 
         let json = serde_json::to_value(&readout).expect("serialises");
@@ -4889,7 +5153,16 @@ mod tests {
         // repository's `#48` from another repository's.
         assert_eq!(json["ticket"], 48);
         assert_eq!(json["folder"], "/work/repo");
-        assert_eq!(json.as_object().expect("an object").len(), 13);
+        // The silence reading is a tagged value with the elapsed inside it, and
+        // not a number plus a boolean: what an elapsed means is a joint
+        // predicate over six facts, and a WebView handed the parts would be a
+        // second place it is derived.
+        assert_eq!(json["silence"]["kind"], "quiet");
+        assert_eq!(json["silence"]["silentForMs"], 90_000);
+        // Recorded for the chrome and acted on nowhere: a signal means *poll
+        // GitHub sooner* and is never evidence about a ticket.
+        assert_eq!(json["signal"], "busy");
+        assert_eq!(json.as_object().expect("an object").len(), 15);
 
         for (ending, spelt) in [
             (Ending::Live, "live"),
@@ -4921,11 +5194,211 @@ mod tests {
         let unstaked = RunReadout {
             ticket: None,
             folder: None,
-            ..readout
+            // A run nothing has ever classified says so by having no signal,
+            // rather than by naming a state nobody observed.
+            signal: None,
+            ..readout.clone()
         };
         let crossed = serde_json::to_value(unstaked).expect("serialises");
         assert!(crossed["ticket"].is_null());
         assert!(crossed["folder"].is_null());
+        assert!(crossed["signal"].is_null());
+
+        // Every reading the silence predicate can produce, in the spelling
+        // `src/terminal/runs.ts` switches on. A wedge names why, because the two
+        // wedges want different sentences.
+        for (silence, kind, why) in [
+            (Silence::Nothing, "nothing", None),
+            (Silence::Spent, "spent", None),
+            (
+                Silence::Quiet {
+                    silent_for_ms: 1_000,
+                },
+                "quiet",
+                None,
+            ),
+            (
+                Silence::Wedged {
+                    why: Wedge::AwaitingOperator,
+                    silent_for_ms: 1_000,
+                },
+                "wedged",
+                Some("awaitingOperator"),
+            ),
+            (
+                Silence::Wedged {
+                    why: Wedge::Silent,
+                    silent_for_ms: 1_000,
+                },
+                "wedged",
+                Some("silent"),
+            ),
+        ] {
+            let crossed = serde_json::to_value(RunReadout {
+                silence,
+                ..readout.clone()
+            })
+            .expect("serialises")["silence"]
+                .clone();
+            assert_eq!(crossed["kind"], kind);
+            match why {
+                Some(why) => assert_eq!(crossed["why"], why),
+                None => assert!(crossed["why"].is_null()),
+            }
+        }
+    }
+
+    /// The predicate is joint, and these are the pairings that make it one.
+    ///
+    /// Two facts, and the same elapsed reads differently under each: ninety
+    /// seconds is a person reading the screen on a work run and nothing at all
+    /// on a research run, and an hour is still only quiet with somebody at the
+    /// keyboard. A shared threshold could not say both.
+    #[test]
+    fn the_same_silence_reads_differently_depending_on_who_is_waiting_for_the_run() {
+        let hour = Duration::from_secs(3_600);
+        let attended = |quiet| {
+            silence(
+                false,
+                Some(NodeState::Claimed),
+                Some(RunKind::Work),
+                quiet,
+                Readiness::Ready,
+                false,
+            )
+        };
+        let unattended = |quiet| {
+            silence(
+                false,
+                Some(NodeState::Claimed),
+                Some(RunKind::Research),
+                quiet,
+                Readiness::Ready,
+                false,
+            )
+        };
+
+        // Forever, and at any elapsed: there is no length at which a run with
+        // somebody in front of it becomes a fault.
+        assert_eq!(
+            attended(hour),
+            Silence::Quiet {
+                silent_for_ms: 3_600_000
+            }
+        );
+        assert_eq!(
+            unattended(WEDGED - Duration::from_secs(1)),
+            Silence::Quiet {
+                silent_for_ms: 299_000
+            }
+        );
+        assert_eq!(
+            unattended(WEDGED),
+            Silence::Wedged {
+                why: Wedge::Silent,
+                silent_for_ms: 300_000,
+            }
+        );
+    }
+
+    /// The latch, in the silence table as well as the ending one: a ticket seen
+    /// closed outranks every other reading, for the rest of the run's life.
+    #[test]
+    fn a_ticket_seen_closed_makes_a_silent_run_spent_rather_than_quiet_or_wedged() {
+        for (kind, readiness, quiet) in [
+            (RunKind::Work, Readiness::Ready, Duration::from_secs(3_600)),
+            (RunKind::Research, Readiness::Ready, WEDGED * 2),
+            (RunKind::Research, Readiness::Overdue, Duration::ZERO),
+        ] {
+            assert_eq!(
+                silence(
+                    false,
+                    Some(NodeState::Resolved),
+                    Some(kind),
+                    quiet,
+                    readiness,
+                    false,
+                ),
+                Silence::Spent,
+                "a spent run was called something else"
+            );
+        }
+    }
+
+    /// The declared timeout running out is its own diagnosis, and it reaches
+    /// attended runs too — a trust prompt is exactly the case where somebody is
+    /// sitting there and has not noticed.
+    #[test]
+    fn a_readiness_timeout_that_ran_out_is_a_wedge_of_its_own_whoever_is_waiting() {
+        for kind in [RunKind::Work, RunKind::Research, RunKind::Compose] {
+            assert_eq!(
+                silence(
+                    false,
+                    Some(NodeState::Claimed),
+                    Some(kind),
+                    Duration::from_secs(11),
+                    Readiness::Overdue,
+                    true,
+                ),
+                Silence::Wedged {
+                    why: Wedge::AwaitingOperator,
+                    silent_for_ms: 11_000,
+                }
+            );
+        }
+    }
+
+    /// The one number in the table is gated on the run's own history, and not on
+    /// a question about its adapter.
+    ///
+    /// An unattended run that something has classified never reaches the
+    /// fallback however long it says nothing: the byte-silence guess is what is
+    /// left when nothing better is known, and a run with a signal in its history
+    /// is a run something better is known about.
+    #[test]
+    fn the_byte_silence_fallback_is_out_of_reach_of_a_run_a_signal_has_been_observed_for() {
+        let long = WEDGED * 4;
+
+        assert_eq!(
+            silence(
+                false,
+                Some(NodeState::Claimed),
+                Some(RunKind::Research),
+                long,
+                Readiness::Ready,
+                true,
+            ),
+            Silence::Quiet {
+                silent_for_ms: 1_200_000
+            }
+        );
+
+        // And a run nobody staked reads as attended, which is the safe
+        // direction: the unattended branch is the only one that can call a
+        // working run wedged.
+        assert_eq!(
+            silence(false, None, None, long, Readiness::Ready, false),
+            Silence::Quiet {
+                silent_for_ms: 1_200_000
+            }
+        );
+    }
+
+    /// Byte silence is never an ending, and an ending is never a silence: a
+    /// child that has exited has an `ending` and nothing to say here.
+    #[test]
+    fn a_child_that_has_exited_says_nothing_about_silence_and_leaves_that_to_the_ending() {
+        assert_eq!(
+            silence(
+                true,
+                Some(NodeState::Claimed),
+                Some(RunKind::Research),
+                WEDGED * 2,
+                Readiness::Overdue,
+                false,
+            ),
+            Silence::Nothing
+        );
     }
 
     /// The framing is a header and then the bytes, and the header is ten bytes.
@@ -5966,10 +6439,11 @@ mod tests {
     /// is noticed.
     #[test]
     fn nothing_inside_the_terminal_can_raise_a_condition_on_the_graph() {
-        const PTY_SOURCES: [(&str, &str); 9] = [
+        const PTY_SOURCES: [(&str, &str); 10] = [
             ("geometry.rs", include_str!("../../pty/src/geometry.rs")),
             ("guard.rs", include_str!("../../pty/src/guard.rs")),
             ("lib.rs", include_str!("../../pty/src/lib.rs")),
+            ("pulse.rs", include_str!("../../pty/src/pulse.rs")),
             ("queries.rs", include_str!("../../pty/src/queries.rs")),
             ("ring.rs", include_str!("../../pty/src/ring.rs")),
             ("runs.rs", include_str!("../../pty/src/runs.rs")),
@@ -7656,7 +8130,12 @@ mod tests {
 
         terminals
             .held()
-            .open(accepted, directory, &[])
+            .open(
+                accepted,
+                directory,
+                &[],
+                Box::new(perseverance_agent::NoWatch),
+            )
             .expect("a shell starts")
     }
 
@@ -7727,6 +8206,50 @@ mod tests {
         // The falling edge, exactly as the readout tick takes it.
         terminals.let_go_of(&[run]);
         assert_eq!(poker.runs_live(), 0);
+    }
+
+    /// A signal is a state and not an event, so the poke is on the edge.
+    ///
+    /// Every shipped adapter takes `NoWatch`, so the run here is classified by
+    /// hand — which is the whole of what a fake watch would give this side, and
+    /// the readout is what the tick actually reads either way. What is asserted
+    /// is that three readouts a second of *still idle* buy one poll and not
+    /// three, and that `Ready` and `Busy` buy none at all.
+    #[test]
+    fn a_run_that_has_just_gone_idle_buys_one_poll_and_a_run_that_is_still_idle_buys_none() {
+        let terminals = Terminals::new();
+        let readout = |signal| {
+            vec![RunReadout {
+                run: 1,
+                held: 0,
+                dropped: 0,
+                through: 0,
+                end: 0,
+                truncated: false,
+                desynced: false,
+                over: false,
+                code: None,
+                monitored: true,
+                ending: Ending::Live,
+                ticket: Some(50),
+                folder: Some("perseverance".to_string()),
+                silence: Silence::Quiet { silent_for_ms: 0 },
+                signal,
+            }]
+        };
+
+        assert!(!terminals.newly_idle(&readout(None)));
+        assert!(!terminals.newly_idle(&readout(Some(RunSignal::Busy))));
+        assert!(terminals.newly_idle(&readout(Some(RunSignal::Idle))));
+        assert!(
+            !terminals.newly_idle(&readout(Some(RunSignal::Idle))),
+            "a run that was already idle poked the poller again"
+        );
+
+        // Busy and back: the next idle is a new edge, because something happened
+        // in between.
+        assert!(!terminals.newly_idle(&readout(Some(RunSignal::Busy))));
+        assert!(terminals.newly_idle(&readout(Some(RunSignal::Idle))));
     }
 
     /// The second press, and the only evidence there is for it to be refused on.

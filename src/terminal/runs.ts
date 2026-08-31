@@ -84,6 +84,53 @@ export function readDelivery(frame: ArrayBuffer): Delivery | null {
  */
 export type RunEnding = "live" | "spent" | "exitedUnresolved" | "exited";
 
+/**
+ * Why a run reads as wedged. Two, and they want different sentences.
+ *
+ * - `awaitingOperator` — the readiness rule the adapter declared ran out before
+ *   the session opened. Every declared timeout is an order of magnitude above
+ *   the ~223 ms an alternate screen has been measured to take, so what expired
+ *   is not a slow machine: something is waiting for the operator, most likely a
+ *   trust prompt.
+ * - `silent` — an unattended run has printed nothing for five minutes and
+ *   nothing has ever classified it. Nobody is watching and nothing is coming.
+ */
+export type Wedge = "awaitingOperator" | "silent";
+
+/**
+ * What a run's silence means, or that it means nothing — as Rust derives it.
+ *
+ * **A joint predicate over two independent facts, never a shared threshold.**
+ * How long a run has printed nothing is one fact and who is waiting on it is
+ * another: the same ninety seconds is a person reading the screen on a work run
+ * and an agent that has stopped on a research one. `docs/adr/0025` is the
+ * argument, and nothing on this side may re-derive it — the elapsed is here to
+ * be printed, not to be compared against a number this file invented.
+ *
+ * - `nothing` — no reading. The child has exited, and what that means is the
+ *   `ending` beside this.
+ * - `spent` — the ticket closed. Outranks everything: a spent run is never quiet
+ *   and never wedged, however long it has said nothing.
+ * - `quiet` — silent with somebody at the keyboard and the ticket still open.
+ *   For any elapsed, and forever.
+ * - `wedged` — silent in a way that wants somebody, and `why` says which way.
+ */
+export type RunSilence =
+  | { kind: "nothing" }
+  | { kind: "spent" }
+  | { kind: "quiet"; silentForMs: number }
+  | { kind: "wedged"; why: Wedge; silentForMs: number };
+
+/**
+ * A live signal, as Rust writes it.
+ *
+ * Three and no fourth: there is deliberately no `completed`, because completion
+ * is a GitHub state transition and nothing else. A signal means exactly *poll
+ * GitHub sooner* and is never evidence in its own right, so nothing here may
+ * read one as an answer about a ticket.
+ */
+export type RunSignal = "ready" | "busy" | "idle";
+
 /** One run's readout, as Rust writes it. Counts and flags, never bytes. */
 export interface RunReadout {
   run: number;
@@ -116,6 +163,17 @@ export interface RunReadout {
    * so does `liveRunOn`.
    */
   folder: string | null;
+  /** What this run's silence means, or that it means nothing. */
+  silence: RunSilence;
+  /**
+   * The last state a watch classified this run as, or `null` for a run no signal
+   * has ever been observed for.
+   *
+   * `null` is a fact about the run's history and never an answer about its
+   * adapter: every run is drained through a watch on identical terms, so there
+   * is nothing here to ask whether one produces signals.
+   */
+  signal: RunSignal | null;
 }
 
 /**
