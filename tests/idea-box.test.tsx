@@ -83,6 +83,8 @@ const reading = (run: number, finished: boolean): RunReadout => ({
   end: 0,
   truncated: false,
   desynced: false,
+  ending: finished ? "exited" : "live",
+  ticket: null,
   over: finished,
   code: finished ? 0 : null,
   monitored: false,

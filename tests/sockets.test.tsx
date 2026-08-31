@@ -15,7 +15,8 @@ import {
   COMPOSE_LABEL,
   NOTHING_TAKEABLE,
   NO_ADAPTER,
-  RESUME_ARRIVES,
+  NOTHING_SELECTED,
+  RESUME_LABEL,
   START_LABEL,
   TO_FRONTIER_LABEL,
   alreadyComposing,
@@ -29,6 +30,7 @@ import {
 import type { Frontier } from "../src/snapshot/model.generated";
 import { monitor, readUi } from "../src/stores/ui";
 import { forgetPrompts, promptFor } from "../src/terminal/prompts";
+import type { RunReadout } from "../src/terminal/runs";
 
 /**
  * The rail, mounted.
@@ -58,6 +60,25 @@ const readout = (adapters: readonly AdapterReading[]): FolderReadout =>
 
 const AT_75: Frontier = { frontier: "designated", number: 75 };
 
+/** A run of this window's, cut down to the two fields the rail joins on. */
+const staked = (run: number, ticket: number, over: boolean): RunReadout => ({
+  run,
+  held: 0,
+  dropped: 0,
+  through: 0,
+  end: 0,
+  truncated: false,
+  desynced: false,
+  over,
+  code: null,
+  monitored: false,
+  ending: over ? "exitedUnresolved" : "live",
+  ticket,
+});
+
+/** #41 selected and read as a claim: the crossing Resume is offered at. */
+const CLAIM = { selection: 41, selectionReads: "claimed" } as const;
+
 let mounted: { root: ReturnType<typeof createRoot>; host: HTMLElement } | null = null;
 let selected: number | null = null;
 
@@ -78,6 +99,8 @@ function paint(props: Partial<Parameters<typeof Sockets>[0]> = {}): HTMLElement 
         phase={null}
         map={null}
         liveRuns={[]}
+        selectionReads={null}
+        runs={[]}
         onSelect={(node) => {
           selected = node;
         }}
@@ -136,7 +159,7 @@ describe("the rail on screen", () => {
     const host = paint({ environment: readout([]) });
 
     expect(socket(host, "start").textContent).toContain(NO_ADAPTER);
-    expect(socket(host, "resume").textContent).toContain(RESUME_ARRIVES);
+    expect(socket(host, "resume").textContent).toContain(NOTHING_SELECTED);
     expect(socket(host, "ask").textContent).toContain(ASK_ARRIVES);
     expect(host.querySelectorAll("[title]")).toHaveLength(0);
   });
@@ -155,6 +178,128 @@ describe("the rail on screen", () => {
 
     const settled = paint({ selection: 75 });
     expect(button(settled, "toFrontier").getAttribute("aria-disabled")).toBe("true");
+  });
+});
+
+describe("Resume", () => {
+  it("prints its own number, and never the one Start Working is armed on", () => {
+    const host = paint(CLAIM);
+
+    expect(socket(host, "resume").textContent).toContain(RESUME_LABEL);
+    expect(socket(host, "resume").textContent).toContain("#41");
+    expect(socket(host, "resume").textContent).not.toContain("#75");
+    expect(socket(host, "start").textContent).toContain("#75");
+    expect(button(host, "resume").getAttribute("aria-disabled")).toBe("false");
+  });
+
+  it("starts a cold run on a stale claim, and nothing in the payload names the verb", async () => {
+    invoke.mockResolvedValue({
+      kind: "spawned",
+      run: 12,
+      prompt: { text: "work #41", characters: 8, origin: "stock" },
+    } satisfies Started);
+    const host = paint(CLAIM);
+
+    await act(async () => {
+      button(host, "resume").click();
+    });
+
+    expect(invoke).toHaveBeenCalledWith("resume_working", {
+      folder: "/work/repo",
+      ticket: 41,
+      adapter: "claude",
+    });
+    /* The whole of the acceptance criterion: three values and no fourth. A verb
+       flag, a template name or an origin marker here would be a way for a
+       resumed session's prompt to differ from a started one's. */
+    expect(Object.keys(invoke.mock.calls[0]?.[1] as object)).toEqual([
+      "folder",
+      "ticket",
+      "adapter",
+    ]);
+    // And the spawn owes the same two writes a start does.
+    expect(readUi().monitored).toBe(12);
+    expect(promptFor(12)).toEqual({ text: "work #41", characters: 8, origin: "stock" });
+  });
+
+  it("reaches a live claim by moving the pane onto it, and spawns nothing", async () => {
+    const host = paint({ ...CLAIM, runs: [staked(7, 41, false)] });
+
+    await act(async () => {
+      button(host, "resume").click();
+    });
+
+    expect(readUi().monitored).toBe(7);
+    // One crossing is one pane: a second agent on a ticket already running here
+    // is not a resume of anything, so no command is sent at all.
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("treats a run that is over as no run at all, and starts a cold one", async () => {
+    invoke.mockResolvedValue({
+      kind: "spawned",
+      run: 13,
+      prompt: { text: "work #41", characters: 8, origin: "stock" },
+    } satisfies Started);
+    const host = paint({ ...CLAIM, runs: [staked(7, 41, true)] });
+
+    await act(async () => {
+      button(host, "resume").click();
+    });
+
+    expect(invoke).toHaveBeenCalledWith("resume_working", {
+      folder: "/work/repo",
+      ticket: 41,
+      adapter: "claude",
+    });
+  });
+
+  it("prints its refusal under its own button, and leaves Start Working's alone", async () => {
+    invoke.mockResolvedValue({
+      kind: "refused",
+      detail: "#41 already has a run in this window and it is still live",
+      frontier: null,
+    } satisfies Started);
+    const host = paint(CLAIM);
+
+    await act(async () => {
+      button(host, "resume").click();
+    });
+
+    expect(socket(host, "resume").textContent).toContain("already has a run in this window");
+    expect(socket(host, "start").textContent).not.toContain("already has a run in this window");
+    expect(readUi().monitored).toBeNull();
+  });
+
+  it("says `checking…` on the socket under the hand and not on the one beside it", async () => {
+    let answer: (started: Started) => void = () => {};
+    invoke.mockReturnValue(
+      new Promise<Started>((resolve) => {
+        answer = resolve;
+      }),
+    );
+    const host = paint(CLAIM);
+
+    await act(async () => {
+      button(host, "resume").click();
+    });
+
+    expect(button(host, "resume").textContent).toContain(CHECKING_LABEL);
+    expect(button(host, "start").textContent).toContain(START_LABEL);
+
+    // And the button beside it is not a second way to make the press that is out.
+    await act(async () => {
+      button(host, "start").click();
+    });
+    expect(invoke).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      answer({
+        kind: "spawned",
+        run: 12,
+        prompt: { text: "work #41", characters: 8, origin: "stock" },
+      });
+    });
   });
 });
 

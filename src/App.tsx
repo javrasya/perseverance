@@ -722,11 +722,21 @@ export function App() {
           the folder's environment or a command to invoke. The rail reads the
           frontier off `model.map` — the one resolver's answer — and never off a
           row of whatever is on screen beside it.
+
+          Two tickets cross, because two of the verbs are armed on different
+          nodes: Start Working on the frontier, Resume on the selection, and only
+          while the selection reads `claimed`. The state crosses rather than a
+          verdict — the four states are derived once, in `derive.rs`, and the
+          rail is not entitled to a softer opinion about what a claim is.
         */}
         <div className={styles.rail}>
           <Sockets
             frontier={snapshot.model.map?.frontier ?? null}
             selection={selectedNode}
+            selectionReads={
+              snapshot.model.map?.nodes.find((node) => node.number === selectedNode)?.state ??
+              null
+            }
             environment={folderEnvironment}
             folder={selectedPath ?? null}
             phase={snapshot.model.map?.phase ?? null}
@@ -735,6 +745,7 @@ export function App() {
                draws — so the rail and the terminal beside it cannot disagree
                about whether the compose an operator is watching has ended. */
             liveRuns={runs.filter((readout) => !readout.over).map((readout) => readout.run)}
+            runs={runs}
             onSelect={select}
           />
         </div>

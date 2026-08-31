@@ -9,12 +9,15 @@ import {
   NO_ADAPTER,
   NO_FOLDER_OPEN,
   NO_MAP_OPEN,
-  RESUME_ARRIVES,
+  NOTHING_SELECTED,
+  NOT_A_CLAIM,
+  RESUME_LABEL,
   STILL_READING,
   START_LABEL,
   TO_FRONTIER_LABEL,
   adapterAtPress,
   alreadyComposing,
+  liveRunOn,
   offerable,
   pressable,
   railAt,
@@ -24,7 +27,7 @@ import {
   type Socket,
   type SocketId,
 } from "../src/chrome/sockets";
-import { NO_HARNESS, startWorking } from "../src/chrome/started";
+import { NO_HARNESS, resumeWorking, startWorking } from "../src/chrome/started";
 import type { HarvestState } from "../src/environment/environment";
 import {
   readoutFrom,
@@ -34,6 +37,7 @@ import {
 import { FIXTURES } from "../src/snapshot/fixtures";
 import type { Frontier } from "../src/snapshot/model.generated";
 import { forgetPrompts, promptFor, recordPrompt } from "../src/terminal/prompts";
+import type { RunReadout } from "../src/terminal/runs";
 
 /**
  * The rail, as arithmetic.
@@ -68,10 +72,30 @@ const readout = (
 
 const DESIGNATED: Frontier = { frontier: "designated", number: 75 };
 
+/** A claim under the hand: the selection, and what the one derivation calls it. */
+const CLAIMED: Partial<Crossing> = { selection: 41, selectionReads: "claimed" };
+
+/** A readout the way `runs.ts` mirrors one, cut down to what the rail reads. */
+const staked = (run: number, ticket: number | null, over: boolean): RunReadout => ({
+  run,
+  held: 0,
+  dropped: 0,
+  through: 0,
+  end: 0,
+  truncated: false,
+  desynced: false,
+  over,
+  code: null,
+  monitored: false,
+  ending: over ? "exitedUnresolved" : "live",
+  ticket,
+});
+
 function crossing(over: Partial<Crossing> = {}): Crossing {
   return {
     frontier: DESIGNATED,
     selection: null,
+    selectionReads: null,
     environment: readout([resolved("claude")]),
     folder: "/work/repo",
     phase: "wayfinding",
@@ -95,9 +119,10 @@ describe("the rail", () => {
       crossing({ frontier: null, environment: readout([]), folder: null }),
       crossing({ frontier: { frontier: "nothingToStart" } }),
       crossing({ frontier: { frontier: "notOnThisMachine" } }),
-      crossing({ press: { kind: "checking" } }),
-      crossing({ press: { kind: "refused", detail: "no", frontier: null } }),
+      crossing({ press: { kind: "checking", socket: "start" } }),
+      crossing({ press: { kind: "refused", socket: "start", detail: "no", frontier: null } }),
       crossing({ selection: 75 }),
+      crossing(CLAIMED),
     ];
 
     for (const state of everyState) {
@@ -114,16 +139,76 @@ describe("the rail", () => {
     }
   });
 
-  it("keeps Resume and Ask recessed with their condition printed and no behaviour", () => {
-    const resume = socketOf("resume");
+  it("keeps Ask recessed with its condition printed and no behaviour", () => {
     const ask = socketOf("ask");
 
-    expect(resume.fill).toBe("recessed");
-    expect(resume.condition).toBe(RESUME_ARRIVES);
     expect(ask.fill).toBe("recessed");
     expect(ask.condition).toBe(ASK_ARRIVES);
-    expect(pressable(resume)).toBe(false);
     expect(pressable(ask)).toBe(false);
+  });
+});
+
+describe("Resume", () => {
+  it("arms on the selected claim, and never on the number Start Working is armed on", () => {
+    const rail = railAt(crossing(CLAIMED));
+    const resume = rail.sockets[1];
+
+    expect(resume?.label).toBe(RESUME_LABEL);
+    expect(resume?.fill).toBe("filled");
+    expect(rail.claim).toBe(41);
+    /* The frontier is the first *takeable* node by construction, so a claim is
+       never what it designates: two armed numbers, and they cannot collide. */
+    expect(rail.target).toBe(75);
+  });
+
+  it("recesses with the reason there is no claim under the hand", () => {
+    expect(socketOf("resume", { frontier: null }).condition).toBe(NO_MAP_OPEN);
+    expect(socketOf("resume").condition).toBe(NOTHING_SELECTED);
+    // A ticket nobody has taken, and one this app is not the picker of.
+    expect(socketOf("resume", { selection: 41, selectionReads: "takeable" }).condition).toBe(
+      NOT_A_CLAIM,
+    );
+    /* A claim with an open blocker in its way reads `blocked` in the one
+       derivation, and this rail does not get a softer second opinion. */
+    expect(socketOf("resume", { selection: 41, selectionReads: "blocked" }).condition).toBe(
+      NOT_A_CLAIM,
+    );
+    expect(socketOf("resume", { selection: 41, selectionReads: null }).condition).toBe(
+      NOT_A_CLAIM,
+    );
+  });
+
+  it("says the same things Start Working says about the folder, in the same words", () => {
+    expect(socketOf("resume", { ...CLAIMED, folder: null }).condition).toBe(NO_FOLDER_OPEN);
+    expect(socketOf("resume", { ...CLAIMED, environment: null }).condition).toBe(STILL_READING);
+    expect(socketOf("resume", { ...CLAIMED, environment: readout([]) }).condition).toBe(
+      NO_ADAPTER,
+    );
+  });
+
+  it("wears `checking…` and its refusal on its own socket, and never on Start Working's", () => {
+    const checking: Press = { kind: "checking", socket: "resume" };
+    const refused: Press = {
+      kind: "refused",
+      socket: "resume",
+      detail: "#41 already has a run in this window and it is still live",
+      frontier: null,
+    };
+
+    expect(socketOf("resume", { ...CLAIMED, press: checking }).label).toBe(CHECKING_LABEL);
+    expect(socketOf("start", { ...CLAIMED, press: checking }).label).toBe(START_LABEL);
+    expect(socketOf("resume", { ...CLAIMED, press: refused }).note).toBe(refused.detail);
+    expect(socketOf("start", { ...CLAIMED, press: refused }).note).toBeNull();
+  });
+
+  it("finds the live run staked on a claim, and nothing for one that is over", () => {
+    const runs = [staked(7, 41, false), staked(8, 42, true), staked(9, null, false)];
+
+    expect(liveRunOn(runs, 41)).toBe(7);
+    // Over is over: there is no child left in that pane to be moved back to.
+    expect(liveRunOn(runs, 42)).toBeNull();
+    // A run the harness was never told a ticket for joins to no claim at all.
+    expect(liveRunOn(runs, 99)).toBeNull();
   });
 });
 
@@ -169,7 +254,7 @@ describe("Start Working", () => {
   });
 
   it("says checking while the revalidation is in flight, and takes no press", () => {
-    const start = socketOf("start", { press: { kind: "checking" } });
+    const start = socketOf("start", { press: { kind: "checking", socket: "start" } });
 
     expect(start.label).toBe(CHECKING_LABEL);
     expect(start.fill).toBe("checking");
@@ -183,6 +268,7 @@ describe("Start Working", () => {
   it("re-arms on the frontier a refusal named, and demands a second press", () => {
     const moved: Press = {
       kind: "refused",
+      socket: "start",
       detail: "#75 is not what this map offers to start any more",
       frontier: { frontier: "designated", number: 76 },
     };
@@ -199,7 +285,12 @@ describe("Start Working", () => {
     const rail = railAt(
       crossing({
         frontier: { frontier: "designated", number: 75 },
-        press: { kind: "refused", detail: "moved", frontier: { frontier: "nothingToStart" } },
+        press: {
+          kind: "refused",
+          socket: "start",
+          detail: "moved",
+          frontier: { frontier: "nothingToStart" },
+        },
       }),
     );
 
@@ -222,7 +313,12 @@ describe("Start Working", () => {
   it("re-arms on nothing when the refusal learned nothing, and only prints the sentence", () => {
     const rail = railAt(
       crossing({
-        press: { kind: "refused", detail: "the check did not land in time", frontier: null },
+        press: {
+          kind: "refused",
+          socket: "start",
+          detail: "the check did not land in time",
+          frontier: null,
+        },
       }),
     );
 
@@ -269,10 +365,11 @@ describe("the adapter", () => {
 });
 
 describe("a window with no Rust behind it", () => {
-  it("refuses in a sentence rather than faking a spawn", async () => {
-    const answer = await startWorking("/work/repo", 75, "claude");
+  it("refuses in a sentence rather than faking a spawn, on either verb", async () => {
+    const refusal = { kind: "refused", detail: NO_HARNESS, frontier: null };
 
-    expect(answer).toEqual({ kind: "refused", detail: NO_HARNESS, frontier: null });
+    expect(await startWorking("/work/repo", 75, "claude")).toEqual(refusal);
+    expect(await resumeWorking("/work/repo", 41, "claude")).toEqual(refusal);
   });
 });
 
@@ -399,7 +496,7 @@ describe("Compose Spec", () => {
   });
 
   it("reads checking while a compose press is in flight, and takes no press", () => {
-    const pressed = primary({ press: { kind: "checking" } });
+    const pressed = primary({ press: { kind: "checking", socket: "start" } });
 
     expect(pressed.label).toBe(CHECKING_LABEL);
     expect(pressable(pressed)).toBe(false);
