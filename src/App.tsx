@@ -1555,8 +1555,11 @@ export function App() {
                 `map` detent what is left of this side is the rack in studs,
                 which is the width at which supervising N runs still works.
 
-                Which run the pane shows is #57's, so nothing in the rack is
-                pressable and the monitored binding is untouched by all of it.
+                Which run the pane shows is the rack's to change (#57): a row
+                is pressable and the press patches `monitored`, Rust first and
+                the store after. It moves what the terminal shows and never
+                where the keystrokes go — watching and typing are two paths, and
+                the rack is only on the watching one (ADR 0027).
               */}
               <Rack readouts={runs} spentElsewhere={rationHeldByMapSide} />
               <Dock

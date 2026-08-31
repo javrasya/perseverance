@@ -444,6 +444,15 @@ export function Pane({
    * leaving the run it is parked on — which is the whole reason this can be
    * offered at all under the parking rule.
    *
+   * Moving nothing is not something this handler achieves by leaving state
+   * alone — the *press* would move the caret on its own. A parked run is warm
+   * by the parking rule, so the keys are sitting in xterm's helper textarea; a
+   * mouse press that focused the button would take them out of the host node,
+   * and the pane's `focusout` watcher above would believe the browser and write
+   * that back as cold. So the button refuses the focus (see its `onMouseDown`)
+   * and there is nothing to write back: the temperature after the press is the
+   * operator's, not the press's.
+   *
    * The order is load-bearing in the opposite direction to `end`'s. The register
    * is dropped only after the send has come back, because a register forgotten
    * on a send that threw would be the app losing the sentence it printed a
@@ -521,6 +530,18 @@ export function Pane({
             <button
               type="button"
               className={styles.offer}
+              onMouseDown={(event) => {
+                /* The press takes the words and not the keys. Focus landing on
+                   this button is focus leaving the host node, which the pane
+                   reads — correctly — as the keyboard having gone to the map,
+                   and a parked run is warm: the offer would cool the very run it
+                   was made for, on the one press documented as moving nothing
+                   but the words. Defaulting the *press* away is what keeps the
+                   caret; the click still fires, and reaching this button by
+                   `Tab` still moves the keys, because that one is the operator
+                   moving them. */
+                event.preventDefault();
+              }}
               onClick={() => {
                 /* A send that comes back refused leaves the register exactly as
                    it was, and this button beside it: the words are still here to

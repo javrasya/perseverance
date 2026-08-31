@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "../src/App";
-import { keyedRun, monitor, readUi } from "../src/stores/ui";
+import { keyedRun, monitor, readUi, setKeyed } from "../src/stores/ui";
 import {
   NOWHERE_TO_OFFER,
   NO_FOLDER_TO_JOIN,
@@ -62,6 +62,9 @@ vi.mock("../src/terminal/xterm", () => ({
           fake.handlers = fake.handlers.filter((held) => held !== handler);
         };
       },
+      // Really focuses its node, the way `tests/keys-shell.test.tsx` does it: a
+      // recorded call would pass with the pane's focusing deleted.
+      focus: () => fake.element.focus(),
       dispose: () => {
         fake.disposed += 1;
       },
@@ -430,10 +433,17 @@ describe("the register, offered", () => {
   it("sends what was caught to the work run, and moves nothing else", async () => {
     await boot();
     await readouts(both(false));
-    act(() => monitor(7));
+    /* Warm and not merely monitored, which is the only state the claim is about:
+       `monitor` puts the keys down on its way, so a press asserted from there
+       would be comparing cold to cold. The caret is on #7 when its child dies,
+       parks there, and has to still be there when the offer has been made. */
+    act(() => {
+      monitor(7);
+      setKeyed(true);
+    });
     await readouts(both(true));
+    expect(keyedRun(readUi())).toBe(7);
     await types("rerun the tests");
-    const keyed = keyedRun(readUi());
 
     const press = button("Send to #123 work");
     expect(press).toBeDefined();
@@ -447,7 +457,7 @@ describe("the register, offered", () => {
     // And the caret is exactly where the operator left it: a hand-off of text
     // is not a decision about where the next keystroke goes.
     expect(readUi().monitored).toBe(7);
-    expect(keyedRun(readUi())).toBe(keyed);
+    expect(keyedRun(readUi())).toBe(7);
     expect(onThePane().disposed).toBe(0);
   });
 

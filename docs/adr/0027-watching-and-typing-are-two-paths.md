@@ -95,6 +95,14 @@ comes back, and a send that fails leaves the words on screen to press again. The
 caret does not move, the monitor does not re-patch, nothing warms and no run
 ends. A hand-off of text is not a decision about where to type next.
 
+Keeping the caret takes more than a handler that touches no state: a parked run
+is warm, so its keys are in xterm's helper textarea, and a mouse press that
+focused the offer button would take them out of the pane's host node — which the
+pane's own `focusout` watcher would rightly read as the keyboard leaving, and
+cool the run the offer was made for. The button refuses the focus on
+`mousedown`, so the press has nothing to write back. Reaching the button by
+`Tab` does move the keys, and that is the operator moving them, not the offer.
+
 ## Consequences
 
 `Esc` gains a third destination, and it is a destination rather than a gap: with
@@ -147,4 +155,7 @@ looking cannot cost you a sentence typed into the wrong agent.
 - An offer that crosses folders, or one made for a parked run with no folder —
   `tests/parked-caret.test.tsx` holds both.
 - An offer that moves the caret, re-patches the monitor or ends a run, or one
-  that drops the register before the send has come back.
+  that drops the register before the send has come back — the caret included
+  when the press moves it by taking the focus, which no unit test can see:
+  jsdom's `.click()` moves no focus, so this one is held by the button refusing
+  the press's default and by nothing else.
