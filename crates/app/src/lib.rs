@@ -8063,7 +8063,7 @@ mod tests {
     /* ------------------------------------------------- resuming a claim --- */
 
     /// A map whose nodes are exactly the states a resume has to tell apart.
-    fn a_map_of(nodes: &[(u64, NodeState)]) -> Map {
+    fn a_map_reading(nodes: &[(u64, NodeState)]) -> Map {
         Map {
             number: 28,
             title: "The prompt is the product".to_string(),
@@ -8162,7 +8162,7 @@ mod tests {
     /// this machine is not allowed to take.
     #[test]
     fn a_resume_is_offered_over_a_claim_and_refused_over_every_other_node() {
-        let mut map = a_map_of(&[
+        let mut map = a_map_reading(&[
             (70, NodeState::Claimed),
             (71, NodeState::Takeable),
             (72, NodeState::Blocked),
