@@ -40,6 +40,13 @@
   --c-rack-lamp: 0.5rem;
   --c-rack-live: var(--s-live);
   --c-rack-patched: var(--s-accent);
+  /*
+   * The queue's ink and its rule. Neither is a hue of its own: the difference
+   * between *waiting* and *live* is carried by the word on the row and by a
+   * dashed rule against a solid one, so it survives the palette being taken
+   * away (rule 3) and needs nothing to move (rule 12).
+   */
+  --c-rack-waiting: var(--s-ink-secondary);
 
   /*
    * The strip the peek's stud hangs in, kept clear at the top of this region.
@@ -344,6 +351,80 @@
    whichever line it landed on, which is not the right edge of anything. */
 .narrow .liveness {
   margin-left: 0;
+}
+
+/*
+ * What is waiting, and what refused — both text in the flow, both under the
+ * rows rather than in the head band.
+ *
+ * The head is the runs' band: its count is `N of M still running` and a press
+ * that has not started is neither N nor M. Putting the queue's sentence there
+ * would have made the band say two things in one register; here it introduces
+ * the group it is about, which is where an operator is already looking.
+ */
+.waiting {
+  margin: 0;
+  padding: var(--s-space-tight) var(--s-space-hair) var(--s-space-hair);
+  color: var(--s-ink-secondary);
+  font-size: var(--s-text-micro);
+}
+
+/*
+ * The queue's own list, after the runs and never mixed into them.
+ *
+ * It does not take the runs' `flex: 1`: the rack's height is the runs' to fill,
+ * and a queue that grew into it would push live rows out of view for entries
+ * that are not doing anything. It gives instead, and scrolls if the window is
+ * short enough to make it.
+ */
+.queue {
+  display: flex;
+  flex-direction: column;
+  flex: 0 1 auto;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  list-style: none;
+}
+
+/*
+ * A waiting row: the run row's geometry exactly, so a tier's fields keep the
+ * boxes the width conformance measures, with three differences and no fourth.
+ *
+ * A dashed rule where a live run has a solid one and a landed one has a faint
+ * solid one — form, not hue. No pointer, because there is nothing to press:
+ * a queue entry has no run, so it is not a patchbay source, and a cursor that
+ * offered one would be the affordance arriving before the thing it affords.
+ * And nothing here animates: the window's whole ration is the lamp, and a queue
+ * entry is not liveness to spend it on.
+ */
+.rowWaiting {
+  color: var(--c-rack-waiting);
+  border-left: var(--s-border-emphasis) dashed var(--s-line-strong);
+  cursor: default;
+}
+
+/*
+ * The deferred refusals, as sentences.
+ *
+ * A left rule and its own indent rather than a colour: this is the only report
+ * a spawn that failed after its press was answered will ever get, and it has to
+ * read as such in a monochrome theme. It sits under the queue because that is
+ * what it is about — an entry that was in that list and has left it.
+ */
+.refusals {
+  margin: 0;
+  padding: var(--s-space-tight) 0 var(--s-space-tight) var(--s-space-snug);
+  border-left: var(--s-border-emphasis) solid var(--s-line-absent);
+  color: var(--s-ink-primary);
+  font-size: var(--s-text-micro);
+  list-style: none;
+  /* A folder path has no spaces to break at, and the region's width is not
+     content-driven — so a path that could not wrap would be drawn past an edge
+     it cannot widen. */
+  overflow-wrap: anywhere;
 }
 
 .empty {

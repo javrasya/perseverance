@@ -6011,6 +6011,11 @@ mod tests {
 
         // And what crosses for the rack names no run, because there is none.
         let waiting = serde_json::to_value(pending.waiting_now()).expect("serialises");
+        // The two the WebView keys and sorts nothing by, named here because the
+        // mirror in `src/rack/pending.ts` is hand-written: `id` is the entry's
+        // own identity and not a run's, and `queued` is on `RunReadout`'s clock.
+        assert!(waiting[0]["id"].is_u64());
+        assert!(waiting[0]["queued"].is_i64());
         assert_eq!(waiting[0]["ticket"], 59);
         assert_eq!(waiting[0]["kind"], "research");
         assert_eq!(waiting[0]["folder"], "/work/one");

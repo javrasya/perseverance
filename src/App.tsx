@@ -94,6 +94,13 @@ import { openPinsAt } from "./views/plate/pins";
 import { useBodyBox } from "./panes/useBodyBox";
 import { usePeek } from "./panes/usePeek";
 import { Rack } from "./rack/Rack.jsx";
+import {
+  loadPendingRuns,
+  refusalsOf,
+  waitingOf,
+  watchPendingRuns,
+  type PendingRun,
+} from "./rack/pending";
 import { ViewSwitcher } from "./views/ViewSwitcher.jsx";
 import { DEFAULT_VIEW, VIEWS, type ViewName, type ViewProps } from "./views/views";
 import { Pane } from "./terminal/Pane.jsx";
@@ -225,6 +232,23 @@ export function App() {
   const [outcome, setOutcome] = useState<LauncherOutcome>(nothingListedYet);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [runs, setRuns] = useState<readonly RunReadout[]>([]);
+  /*
+   * What has been accepted and has not started, and what refused on the way.
+   *
+   * Two states rather than one, because they have different lifetimes. The
+   * queue is a snapshot — every tick replaces it, and an entry leaves it by
+   * starting. A refusal is an event that crosses exactly once: `announced`
+   * drains it as it reads, the command carries none, and the press it came from
+   * was answered minutes ago, so this array is the only record there will ever
+   * be of a deferred spawn that failed. Dropping it on the next tick would be
+   * the silent drop the whole channel exists to avoid.
+   *
+   * Neither of them is on the snapshot, in `Model` or in `ViewProps` — a queue
+   * entry writes nothing to the graph in Rust, and `tests/views.test.ts` keeps
+   * it off the graph here.
+   */
+  const [queuedRuns, setQueuedRuns] = useState<readonly PendingRun[]>([]);
+  const [refusedRuns, setRefusedRuns] = useState<readonly PendingRun[]>([]);
   /*
    * The same readouts, reachable from a handler that was registered before they
    * arrived.
@@ -418,6 +442,55 @@ export function App() {
            here to move a caret onto. */
         const opening = fixtureRunToOpenOn(next);
         if (opening !== null && readUi().monitored === null) monitor(opening);
+      });
+    });
+
+    return () => {
+      live = false;
+      stop();
+    };
+  }, []);
+
+  /*
+   * The research queue, on the same tick the readouts arrive on.
+   *
+   * Subscribe and then ask, like every other channel here — but with an
+   * `arrived` flag rather than the readouts' *is it still empty* test, because
+   * an empty queue is a real answer and their test cannot tell it from a state
+   * nothing has landed in yet. The emission comes from the readouts thread
+   * immediately after the drain that starts whatever a landing made room for,
+   * so a tick that lands between the subscribe and the command's reply is the
+   * *newer* of the two, and letting the reply win would put a started run back
+   * in the queue for a third of a second.
+   */
+  useEffect(() => {
+    let live = true;
+    let arrived = false;
+    let stop: () => void = () => {};
+
+    watchPendingRuns((announced) => {
+      if (!live) return;
+      arrived = true;
+      setQueuedRuns(waitingOf(announced));
+      /* Kept rather than shown once: this is the only delivery. The id is the
+         entry's own, so a re-emission — which cannot happen today, and would be
+         a Rust-side defect if it did — cannot print the same failure twice. */
+      const spoken = refusalsOf(announced);
+      if (spoken.length > 0) {
+        setRefusedRuns((held) => [
+          ...held,
+          ...spoken.filter((one) => !held.some((was) => was.id === one.id)),
+        ]);
+      }
+    }).then((off) => {
+      if (!live) {
+        off();
+        return;
+      }
+      stop = off;
+      return loadPendingRuns().then((waiting) => {
+        if (!live || arrived) return;
+        setQueuedRuns(waiting);
       });
     });
 
@@ -1570,7 +1643,12 @@ export function App() {
                 where the keystrokes go — watching and typing are two paths, and
                 the rack is only on the watching one (ADR 0027).
               */}
-              <Rack readouts={runs} spentElsewhere={rationHeldByMapSide} />
+              <Rack
+                readouts={runs}
+                pending={queuedRuns}
+                refusals={refusedRuns}
+                spentElsewhere={rationHeldByMapSide}
+              />
               <Dock
                 dock="rack"
                 occupant={occupant}

@@ -304,10 +304,17 @@ async function pinTo(page: Page, floor: number): Promise<void> {
   await settled(page);
 }
 
-/** Every field of every row, measured — the row's own box is the frame. */
-async function fieldsOn(page: Page): Promise<Said[][]> {
-  return await page.locator(RACK).evaluate((rack) => {
-    const rows = [...rack.querySelectorAll("ol > li")];
+/**
+ * Every field of every row, measured — the row's own box is the frame.
+ *
+ * The selector is a parameter because the rack draws two kinds of row and both
+ * are under the same promise: `ol > li` is all of them, and `li:has(...)` picks
+ * out the queue, whose rows have to come out whole at a narrow floor exactly
+ * like a run's.
+ */
+async function fieldsOn(page: Page, select = "ol > li"): Promise<Said[][]> {
+  return await page.locator(RACK).evaluate((rack, selector) => {
+    const rows = [...rack.querySelectorAll(selector)];
     if (rows.length === 0) throw new Error("the rack drew no rows");
     return rows.map((row) => {
       const frame = row.getBoundingClientRect();
@@ -322,7 +329,7 @@ async function fieldsOn(page: Page): Promise<Said[][]> {
         };
       });
     });
-  });
+  }, select);
 }
 
 test.describe("what a tier claims, at that tier's floor", () => {
@@ -360,6 +367,47 @@ test.describe("what a tier claims, at that tier's floor", () => {
         );
         expect(said.below, `${said.field} is below the row`).toBeLessThanOrEqual(0.5);
         expect(said.beyond, `${said.field} is past the row's edge`).toBeLessThanOrEqual(0.5);
+      }
+    });
+  }
+
+  for (const narrow of NARROW) {
+    test(`draws a waiting entry whole, and claims no stream it has none of, at the ${narrow.tier} floor`, async ({
+      page,
+    }) => {
+      /*
+       * The queue under the same promise as the runs, and the two halves of the
+       * promise pull in opposite directions here. A field the tier keeps has to
+       * arrive whole — a queue row is drawn from the same `SHOWN[tier]` and gets
+       * no dispensation for being shorter — and a field the row has *nothing*
+       * for may not be drawn at all: a waiting entry has no stream, so `0 B` and
+       * `quiet 0m` would be rule 4's absence-as-a-number, this time in a browser
+       * where the box is real.
+       */
+      await page.setViewportSize({ width: 1280, height: 720 });
+      await load(page, DEFAULT_VIEW, LIT, { runs: "rack", pending: "waiting" });
+      await turnTo(page, "split");
+      await pinTo(page, narrow.floor);
+
+      // The tier is a function of width and never of what is in the rack: a
+      // queue that had moved it would be the world rearranging the window.
+      await expect(page.locator(RACK)).toHaveAttribute("data-tier", narrow.tier);
+
+      const queue = await fieldsOn(page, "ol > li:has([data-pending])");
+      for (const row of queue) {
+        const fields = row.map((said) => said.field);
+        expect(fields).not.toContain("unseen");
+        expect(fields).not.toContain("silence");
+        expect(fields).toContain("liveness");
+
+        for (const said of row) {
+          expect(said.clipped, `${said.field} came out clipped`).toBe(false);
+          expect(said.width, `${said.field} is too narrow to read`).toBeGreaterThanOrEqual(
+            LEGIBLE,
+          );
+          expect(said.below, `${said.field} is below the row`).toBeLessThanOrEqual(0.5);
+          expect(said.beyond, `${said.field} is past the row's edge`).toBeLessThanOrEqual(0.5);
+        }
       }
     });
   }

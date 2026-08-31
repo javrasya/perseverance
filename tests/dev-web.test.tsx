@@ -19,7 +19,13 @@ import {
 import { FIXTURES, FIXTURE_NAMES, type FixtureName } from "../src/snapshot/fixtures";
 import type { Snapshot } from "../src/snapshot/model.generated";
 import { NOTHING_FOR_THIS_MACHINE, NO_MAP_OPEN } from "../src/snapshot/readout";
-import { NO_STAKES } from "../src/rack/rack";
+import { NO_STAKES, WAITING, refusalLine } from "../src/rack/rack";
+import {
+  PENDING_FIXTURES,
+  pendingFixtureNamed,
+  refusalsOf,
+  waitingOf,
+} from "../src/rack/pending";
 import { hasRustBehindIt } from "../src/snapshot/snapshot";
 import { monitor } from "../src/stores/ui";
 import {
@@ -1677,6 +1683,62 @@ describe("the rack lists every run beside the pane, from the fixture behind dev:
     // paint. The rack answers `studs` — there is no tier that means gone.
     expect(theRack().getAttribute("data-tier")).toBe("studs");
     expect(theRack().querySelectorAll("li").length).toBeGreaterThan(0);
+  });
+
+  /**
+   * The queue, from a fixture — the state a browser is furthest from reaching.
+   *
+   * A pending entry only exists once the research ceiling is met, which is four
+   * agent CLIs and four worktrees away from anything `dev:web` can do, and the
+   * refusal further still: it wants a deferred spawn that failed after the
+   * press that ordered it had been answered.
+   */
+  it("draws a row for every waiting press, beside the runs and counted apart from them", async () => {
+    await boot("/?map=awkward-map&runs=rack&pending=waiting");
+    const rack = theRack();
+
+    expect(rack.querySelectorAll("[data-pending]")).toHaveLength(
+      PENDING_FIXTURES.waiting.length,
+    );
+    // The head's count is a count of runs, and a queue entry is not one: the
+    // sentence is the same one the same runs draw with nothing waiting.
+    expect(rack.textContent).toContain(
+      `${RUN_FIXTURES.rack.length - 1} of ${RUN_FIXTURES.rack.length} still running`,
+    );
+    expect(rack.textContent).toContain("2 presses are waiting to start.");
+    expect(rack.textContent).toContain(WAITING);
+
+    /* And nothing of them anywhere else in the window. The rack is the only
+       surface a queue entry is drawn on — it writes no model in Rust, so there
+       is nothing on the graph for it to appear on here. */
+    expect(document.querySelectorAll("[data-pending]")).toHaveLength(
+      rack.querySelectorAll("[data-pending]").length,
+    );
+  });
+
+  it("stands a deferred refusal on screen, and never as a waiting row", async () => {
+    await boot("/?map=awkward-map&runs=rack&pending=refused");
+    const rack = theRack();
+    const announced = pendingFixtureNamed("refused");
+
+    // The sentence crosses on one emission and is held on this side, because
+    // nothing will ever send it again and no socket is left to print it on.
+    expect(rack.textContent).toContain(refusalLine(refusalsOf(announced)[0]!));
+    // A refused entry has left the queue: the rows are the waiting ones only.
+    expect(rack.querySelectorAll("[data-pending]")).toHaveLength(
+      waitingOf(announced).length,
+    );
+    expect(rack.textContent).toContain("1 press is waiting to start.");
+  });
+
+  it("draws no queue when none was asked for, which is what `?runs=` alone means", async () => {
+    await boot("/?map=awkward-map&runs=rack");
+    const rack = theRack();
+
+    expect(rack.querySelectorAll("[data-pending]")).toHaveLength(0);
+    expect(rack.textContent).not.toContain("waiting to start");
+    // The runs are untouched by a channel that answered with nothing.
+    expect(rack.querySelectorAll("[data-run]")).toHaveLength(RUN_FIXTURES.rack.length);
   });
 
   it("fills no rack at all when nothing was asked for, which is what `?map=` alone means", async () => {

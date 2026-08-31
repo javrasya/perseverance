@@ -762,6 +762,43 @@ export function viewPropsFields(text: string): string[] | null {
     .filter((field) => field.length > 0);
 }
 
+/*
+ * The research queue's own word, wherever it is spelled.
+ *
+ * One pattern rather than a list, because every name the channel has is built
+ * out of it — `PendingRun`, `pending_runs`, the `pending-runs` event, the
+ * `src/rack/pending` module, `loadPendingRuns`. The lookbehind is what keeps
+ * *depending*, *appending* and *impending* out of it: those are English, and a
+ * check that failed on prose would be turned off within a week.
+ */
+const QUEUE_WORD = /(?<![A-Za-z])pending/gi;
+
+/**
+ * Every mention of the queue in a file that must not have one.
+ *
+ * *Nothing pending appears on the graph* is structural in Rust — a queue entry
+ * writes no model, no ledger and no claim — and this is what keeps it
+ * structural here. A view cannot draw what is not in `ViewProps`, but the field
+ * is only ever the *second* thing to arrive: the first is a name in the file,
+ * an import or a comment by somebody who has started reasoning about drawing
+ * it. `tests/views.test.ts` runs this over `src/views/`, the same way it
+ * already runs a word check for the change ledger.
+ */
+export function findQueueReferences(text: string): Violation[] {
+  const violations: Violation[] = [];
+  for (const [index, line] of text.split("\n").entries()) {
+    QUEUE_WORD.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = QUEUE_WORD.exec(line)) !== null) {
+      violations.push({
+        line: index + 1,
+        detail: `${match[0]} — the research queue is drawn in the rack and nowhere else`,
+      });
+    }
+  }
+  return violations;
+}
+
 export function format(path: string, violations: readonly Violation[]): string {
   return violations.map((v) => `${path}:${v.line}  ${v.detail}`).join("\n");
 }

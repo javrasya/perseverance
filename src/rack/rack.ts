@@ -1,5 +1,6 @@
 import { relativeAge, terseAge } from "../chrome/age";
 import type { RunReadout } from "../terminal/runs";
+import type { PendingRun } from "./pending";
 
 /**
  * The rack: every run this window holds, one row each, at one of three widths.
@@ -429,4 +430,133 @@ export function liveCount(rows: readonly RackRow[]): number {
  */
 export function lampPings(live: number, elsewhere: boolean): boolean {
   return live > 0 && !elsewhere;
+}
+
+/* --------------------------------------------------- what has not started --- */
+
+/**
+ * The word a waiting entry answers the `liveness` field with.
+ *
+ * A third word beside `live` and `landed` rather than a shade of either: a
+ * queue entry is not a run that has printed nothing yet and it is not a run
+ * that ended, and rule 3 wants that difference readable with the colour taken
+ * away. The form-level half of it is in `Rack.module.css` — a dashed rule where
+ * a run has a solid one — because rule 12 forbids spending motion on it and hue
+ * alone would not survive a retheme.
+ */
+export const WAITING = "waiting";
+
+/** One accepted press that has not started, as words. */
+export interface QueuedRow {
+  /** The queue entry's identity, and never a run's. See `PendingRun.id`. */
+  id: number;
+  kind: string;
+  /** `#61`. Never `null`: nothing is queued without a ticket to queue it on. */
+  ticket: string;
+  folder: string;
+  /** How long it has been waiting, in `relativeAge`'s words. */
+  waited: string;
+  /** The word every tier draws, so a row says for itself what it is. */
+  liveness: string;
+}
+
+/**
+ * A queue entry, read as a row.
+ *
+ * The same clock and the same phrasing as [`rowFor`], for that function's
+ * reason: one screen may not carry two spellings of *4 minutes ago*, and a
+ * queue entry is drawn directly under the runs it is waiting behind.
+ */
+export function queuedRowFor(entry: PendingRun, now: number): QueuedRow {
+  return {
+    id: entry.id,
+    kind: KIND_WORDS[entry.kind],
+    ticket: `#${entry.ticket}`,
+    folder: entry.folder,
+    waited: relativeAge(entry.queued, now),
+    liveness: WAITING,
+  };
+}
+
+/**
+ * Every entry, in the order the presses were made.
+ *
+ * No sort, and the same argument [`rowsFor`] carries: the queue arrives in
+ * press order because that is the order it will be drained in, and a row that
+ * moved for a reason nobody pressed is the defect either way. Here it would be
+ * worse than on a run — the position *is* the meaning, since the entry at the
+ * top is the one the next landing starts.
+ */
+export function queuedRowsFor(entries: readonly PendingRun[], now: number): readonly QueuedRow[] {
+  return entries.map((entry) => queuedRowFor(entry, now));
+}
+
+/**
+ * What one field says on a waiting row at this tier, or `null` where the row
+ * has nothing to say for it.
+ *
+ * [`SHOWN`] is still the one table a row is mapped from — a queue entry may not
+ * draw a field its tier dropped, or the tier would have come to mean two
+ * different racks — but two of those fields are about a run, and a waiting
+ * entry has none:
+ *
+ * - **`unseen`** is `end - through`, and there is no stream. `0 B` is rule 4's
+ *   exact failure: an absence rendered as a number, and a number an operator
+ *   reads as *this one has printed nothing yet* about a thing that was never
+ *   spawned.
+ * - **`silence`** is `now - spoke`, and nothing has ever spoken. `quiet 0m`
+ *   would report a run behaving itself.
+ *
+ * So they are not claimed rather than filled in, and the row draws no span for
+ * them at all. What the tier promised is still on the screen: the promise is
+ * over the rack rather than over each row, which is why
+ * `tests/conformance/rack-width.spec.ts` takes the union across rows — the same
+ * allowance a run staked on no ticket already relies on.
+ */
+export function queuedPhraseAt(tier: Tier, row: QueuedRow, field: Field): string | null {
+  if (!shows(tier, field)) return null;
+  switch (field) {
+    case "kind":
+      return row.kind;
+    case "ticket":
+      return row.ticket;
+    case "age":
+      return `queued ${row.waited}`;
+    case "unseen":
+    case "silence":
+      return null;
+    case "liveness":
+      return row.liveness;
+  }
+}
+
+/**
+ * What is waiting, said on its own — never folded into `N of M still running`.
+ *
+ * That sentence counts *runs*, and a queue entry is not one: no run number,
+ * nothing executing, nothing for the lamp to be lit by. Adding it to either
+ * half would make `M` mean two different things depending on what the ceiling
+ * was doing, and a rack saying `4 of 6 still running` with two of the six never
+ * spawned is a rack asserting two runs that do not exist. So the count stays
+ * runs-only and this stands beside it, saying the other fact plainly.
+ */
+export function waitingSentence(waiting: number): string | null {
+  if (waiting <= 0) return null;
+  return waiting === 1
+    ? "1 press is waiting to start."
+    : `${waiting} presses are waiting to start.`;
+}
+
+/**
+ * A deferred spawn's refusal, as the one line that will ever report it.
+ *
+ * The press it came from was accepted and answered minutes ago, so there is no
+ * socket left to print it on and no run to print it in: `Pending::announced`
+ * hands it over on exactly one emission and drains it as it reads, and the
+ * command carries none. Whoever holds it on this side is the whole record. It
+ * names the folder as well as the ticket because an issue number is unique
+ * inside one repository and this window holds several.
+ */
+export function refusalLine(entry: PendingRun): string {
+  return `#${entry.ticket} in ${entry.folder} was going to start and did not: ${entry.refused}`;
 }

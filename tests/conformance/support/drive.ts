@@ -92,6 +92,16 @@ export async function load(
   page: Page,
   view: ViewName,
   state: FixtureState,
+  /**
+   * The other `dev:web` parameters, for a spec that needs the chrome standing
+   * in a state the snapshot fixtures cannot reach — `?runs=` and `?pending=`.
+   *
+   * Optional and empty by default, so every existing call still opens the
+   * window it always opened: a rule measured over the fixture space is measured
+   * over the *snapshot*, and a spec that quietly gained runs would be a rule
+   * about a different screen.
+   */
+  also: Readonly<Record<string, string>> = {},
 ): Promise<Rendering> {
   const at = prospect(view, state);
   const { surface, snapshot } = at;
@@ -101,7 +111,8 @@ export async function load(
     reducedMotion: state.motion === "reduced" ? "reduce" : "no-preference",
   });
 
-  await page.goto(`/?${FIXTURE_PARAMETER}=${encodeURIComponent(state.fixture)}`);
+  const query = new URLSearchParams({ [FIXTURE_PARAMETER]: state.fixture, ...also });
+  await page.goto(`/?${query.toString()}`);
 
   /* The chrome is what is on screen in every state, including the one where no
      view is: waiting on it is what makes *the app booted* separable from *this

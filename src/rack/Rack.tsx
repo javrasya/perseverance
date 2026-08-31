@@ -2,14 +2,19 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObje
 import { useNow } from "../chrome/useNow";
 import { monitor, useUi } from "../stores/ui";
 import { monitorRun, type RunReadout } from "../terminal/runs";
+import type { PendingRun } from "./pending";
 import {
   SHOWN,
   droppedSentence,
   lampPings,
   liveCount,
   phraseAt,
+  queuedPhraseAt,
+  queuedRowsFor,
+  refusalLine,
   rowsFor,
   tierFor,
+  waitingSentence,
   type Field,
 } from "./rack";
 import styles from "./Rack.module.css";
@@ -56,9 +61,33 @@ import styles from "./Rack.module.css";
  */
 export function Rack({
   readouts,
+  pending,
+  refusals,
   spentElsewhere,
 }: {
   readouts: readonly RunReadout[];
+  /**
+   * What has been accepted and has not started, in press order.
+   *
+   * Waiting entries only — a refused one has left the queue and is not waiting,
+   * so it arrives on `refusals` instead. These are drawn as their own group
+   * after the runs, and nothing in this component may treat one as a run: no
+   * `monitorRun`, no place in the head's count, no lamp.
+   *
+   * Required rather than defaulted, for `spentElsewhere`'s reason: a prop with
+   * a default is a prop a second call site forgets, and what it would forget
+   * here is the whole of what an operator pressed and cannot see.
+   */
+  pending: readonly PendingRun[];
+  /**
+   * Deferred spawns that refused, held by the shell because nothing re-sends
+   * them.
+   *
+   * The rack prints them as text near the queue and never as a row: a refusal
+   * is not something that is waiting, and a row for one would be a queue entry
+   * that never drains.
+   */
+  refusals: readonly PendingRun[];
   /**
    * The map side is drawn, so the screen's one animation is its to spend.
    *
@@ -77,10 +106,21 @@ export function Rack({
   const width = useRegionWidth(region);
   const tier = tierFor(width);
 
-  const rows = rowsFor(readouts, useNow());
+  const now = useNow();
+  const rows = rowsFor(readouts, now);
+  /*
+   * The queue is read on the same clock and is otherwise kept apart from the
+   * runs, all the way down: `live` counts rows and never these, so a waiting
+   * entry cannot light the lamp or move `N of M still running`. The licence the
+   * lamp has under rule 9 is running-versus-stale liveness, and a queue entry
+   * is neither — nothing is executing for it to be alive, and nothing has
+   * stopped for it to have gone stale.
+   */
+  const queued = queuedRowsFor(pending, now);
   const live = liveCount(rows);
   const pinging = lampPings(live, spentElsewhere);
   const dropped = droppedSentence(tier);
+  const waiting = waitingSentence(queued.length);
 
   /*
    * The harness first, then the store, and no focus call anywhere in here.
@@ -148,9 +188,17 @@ export function Rack({
 
       {dropped === null ? null : <p className={styles.dropped}>{dropped}</p>}
 
-      {rows.length === 0 ? (
+      {/*
+        The empty sentence is about the whole rack, so a queue keeps it off the
+        screen: *nothing has been started* is true of two waiting presses — that
+        is exactly what they are — but printed directly above two rows saying
+        `waiting` it reads as a contradiction rather than as a distinction.
+      */}
+      {rows.length === 0 && queued.length === 0 ? (
         <p className={styles.empty}>Nothing has been started in this window yet.</p>
-      ) : (
+      ) : null}
+
+      {rows.length === 0 ? null : (
         <ol className={styles.rows}>
           {rows.map((row) => {
             const patched = row.run === monitored;
@@ -198,6 +246,67 @@ export function Rack({
             );
           })}
         </ol>
+      )}
+
+      {/*
+        What is waiting, in its own sentence beside the head's count rather than
+        inside it — `waitingSentence` in `rack.ts` argues why `M` may not grow
+        by a press nobody spawned. Text in the flow, like the dropped sentence
+        and for rule 10's reason: an operator who pressed six times has to be
+        able to see that two of them are still queued without going looking.
+      */}
+      {waiting === null ? null : <p className={styles.waiting}>{waiting}</p>}
+
+      {queued.length === 0 ? null : (
+        <ol className={styles.queue} aria-label="Waiting to start">
+          {queued.map((row) => (
+            /*
+              Not a button, and that is the load-bearing part. A row here is not
+              a patchbay source: there is no run to monitor, so a press that
+              called `monitorRun` would either declare a run number that does
+              not exist or — worse — leave the monitor on whatever it was while
+              marking this row as the one on screen. So the queue entry is inert
+              markup with no handler, no `data-run` and no `tabIndex`; there is
+              nothing here for a press to be wrong about.
+
+              Keyed by the entry's own id with a prefix, because run numbers and
+              entry ids are two number spaces: an unprefixed collision would
+              have React reuse a run's row for an entry, and nothing on screen
+              would say so.
+            */
+            <li key={`pending-${row.id}`} className={styles.slot}>
+              <div
+                className={`${styles.row} ${styles.rowWaiting}`}
+                data-pending={row.id}
+                data-waiting="true"
+              >
+                {SHOWN[tier].map((field) => {
+                  const said = queuedPhraseAt(tier, row, field);
+                  return said === null ? null : (
+                    <span key={field} className={INK[field]} data-field={field}>
+                      {said}
+                    </span>
+                  );
+                })}
+              </div>
+            </li>
+          ))}
+        </ol>
+      )}
+
+      {/*
+        The refusals, as sentences and never as rows. A refused entry has left
+        the queue — it is not waiting for anything — and a row for one would be
+        a queue entry that never drains. This is the only place a deferred
+        spawn's failure is ever reported: the press it came from was answered
+        long ago, and the sentence crosses on exactly one emission.
+      */}
+      {refusals.length === 0 ? null : (
+        <ul className={styles.refusals}>
+          {refusals.map((entry) => (
+            <li key={`refused-${entry.id}`}>{refusalLine(entry)}</li>
+          ))}
+        </ul>
       )}
     </section>
   );

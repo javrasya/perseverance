@@ -6,6 +6,7 @@ import {
   readDefaultView,
   writeDefaultView,
 } from "../src/views/views";
+import { findQueueReferences, format } from "./support/checks";
 import { collect } from "./support/sources";
 
 /**
@@ -221,6 +222,34 @@ describe("the prop type is the whole of what a view can see", () => {
       "selected: number | null",
       "onSelect: (number: number | null) => void",
     ]);
+  });
+
+  /**
+   * The research queue, kept off the graph the way the change ledger is.
+   *
+   * Its absence is structural in Rust — a queue entry takes no claim, writes no
+   * model and touches no ledger, so there is nothing on the graph for a view to
+   * find — and #59 asks for it to stay structural on this side too. `ViewProps`
+   * above is the first half: a view can draw nothing it is not handed. This is
+   * the half that catches the step before the prop, which is somebody naming
+   * the thing in a view file and then needing a way to reach it.
+   */
+  it("leaves no view with a name for the queue that is drawn in the rack", () => {
+    // The check itself, against known-bad input first: an import and a type in
+    // one line is two mentions, and the English words that contain the same
+    // letters are not mentions at all.
+    expect(
+      findQueueReferences('import type { PendingRun } from "../../rack/pending";'),
+    ).toHaveLength(2);
+    expect(findQueueReferences('listen("pending-runs")')).toHaveLength(1);
+    expect(findQueueReferences("a fetch still depending on an impending answer")).toEqual([]);
+
+    const offenders = viewSources()
+      .map((file) => ({ path: file.path, found: findQueueReferences(file.text) }))
+      .filter((file) => file.found.length > 0)
+      .map((file) => format(file.path, file.found));
+
+    expect(offenders).toEqual([]);
   });
 
   it("leaves no view with a word for the record it cannot reach", () => {

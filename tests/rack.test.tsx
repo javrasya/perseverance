@@ -13,15 +13,27 @@ import {
   SHOWN,
   TIERS,
   TIER_FLOORS,
+  WAITING,
   droppedAt,
   droppedSentence,
   phraseAt,
+  queuedPhraseAt,
+  queuedRowsFor,
+  refusalLine,
+  waitingSentence,
   regionFor,
   rowsFor,
   shows,
   tierFor,
   type Tier,
 } from "../src/rack/rack";
+import {
+  PENDING_FIXTURES,
+  pendingFixtureNamed,
+  refusalsOf,
+  waitingOf,
+  type PendingRun,
+} from "../src/rack/pending";
 import { fractionOf, sides, type Detent } from "../src/panes/dial";
 import { runFixtureNamed } from "../src/terminal/fixtures";
 import { keysGo } from "../src/keys/temperature";
@@ -69,7 +81,12 @@ function regionIs(width: number): void {
  * animation already being spent* — false unless a test is asking about the
  * ration itself, because every other test here is about width and words.
  */
-async function draw(readouts: readonly RunReadout[], elsewhere = false): Promise<Element> {
+async function draw(
+  readouts: readonly RunReadout[],
+  elsewhere = false,
+  pending: readonly PendingRun[] = [],
+  refusals: readonly PendingRun[] = [],
+): Promise<Element> {
   teardown();
   const host = document.createElement("div");
   document.body.appendChild(host);
@@ -77,7 +94,14 @@ async function draw(readouts: readonly RunReadout[], elsewhere = false): Promise
   mounted = { root, host };
 
   await act(async () => {
-    root.render(<Rack readouts={readouts} spentElsewhere={elsewhere} />);
+    root.render(
+      <Rack
+        readouts={readouts}
+        pending={pending}
+        refusals={refusals}
+        spentElsewhere={elsewhere}
+      />,
+    );
   });
 
   const rack = host.querySelector('[aria-label="The rack"]');
@@ -606,5 +630,214 @@ describe("the rack is the patchbay's selector, and the keys do not follow", () =
 
     expect(rack.getAttribute("data-tier")).toBe(before);
     expect([...rack.querySelectorAll("[data-field]")].length).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * The research queue, drawn in the one place it is drawn at all.
+ *
+ * A pending entry is an accepted press with no run behind it: no run number, no
+ * worktree, no claim, no PTY and no bytes. Everything below is a consequence of
+ * that absence — it is not counted as live, it does not light the lamp, it is
+ * not pressable onto the monitor, and the two fields that are about a stream
+ * are not claimed rather than drawn as zero.
+ */
+describe("the rack draws what has not started, and a queue entry is not a run", () => {
+  const waiting = (): PendingRun[] => pendingFixtureNamed("waiting");
+
+  /** The queue's rows, which carry the entry's own id and never a run's. */
+  const queueRows = (rack: Element) => [...rack.querySelectorAll("[data-pending]")];
+
+  it("mirrors the six fields Rust writes, and no seventh", () => {
+    /*
+     * `PendingRun` lives in `crates/app` rather than in the model crate, so
+     * nothing generates this type and no build fails when the two drift. The
+     * Rust half of the pin is `a_press_at_the_ceiling_is_queued_rather_than_refused`,
+     * which asserts the same names and that the object has six keys; this is
+     * the other half, over the fixture the `dev:web` path serves as that shape.
+     */
+    const entry = waiting()[0]!;
+    expect(Object.keys(entry).sort()).toEqual(
+      ["folder", "id", "kind", "queued", "refused", "ticket"].sort(),
+    );
+    // Every waiting row carries no refusal — a refused entry is not waiting.
+    expect(waiting().every((one) => one.refused === null)).toBe(true);
+    expect(waitingOf(pendingFixtureNamed("refused"))).toHaveLength(1);
+    expect(refusalsOf(pendingFixtureNamed("refused"))).toHaveLength(1);
+    expect(refusalsOf(waiting())).toEqual([]);
+  });
+
+  it("draws a row for every waiting press, after the runs and in press order", async () => {
+    regionIs(500);
+    const runs = await fixtureRuns();
+    const rack = await draw(runs, false, waiting());
+
+    const rows = [...rack.querySelectorAll("li")];
+    expect(rows).toHaveLength(runs.length + PENDING_FIXTURES.waiting.length);
+    // The queue is the tail of the rack, never interleaved with the runs.
+    expect(rows.slice(runs.length).every((row) => row.querySelector("[data-pending]"))).toBe(
+      true,
+    );
+
+    /* Press order and no sort, for `rowsFor`'s reason and one of its own: the
+       entry at the top is the one the next landing starts, so the position is
+       the meaning. */
+    expect(queueRows(rack).map((row) => row.getAttribute("data-pending"))).toEqual([
+      String(waiting()[0]!.id),
+      String(waiting()[1]!.id),
+    ]);
+    expect(rack.textContent).toContain("#61");
+    expect(rack.textContent).toContain("#62");
+  });
+
+  it("keys the queue apart from the runs, because the two ids are two spaces", async () => {
+    regionIs(500);
+    /* A run numbered the same as a waiting entry, which is not a coincidence to
+       be waited for: entry ids start at one and so do run numbers. An unprefixed
+       key would have React reuse one row's state for the other, silently. */
+    const runs = (await fixtureRuns()).map((run, index) => ({ ...run, run: index + 1 }));
+    const rack = await draw(runs, false, waiting());
+
+    expect(rack.querySelectorAll("[data-run]")).toHaveLength(runs.length);
+    expect(queueRows(rack)).toHaveLength(2);
+    // No queue row is a run row and no run row is a queue row.
+    expect(rack.querySelectorAll("[data-run][data-pending]")).toHaveLength(0);
+  });
+
+  it("counts nothing waiting among the runs, and lights nothing for it", async () => {
+    regionIs(500);
+    const runs = await fixtureRuns();
+
+    const without = await draw(runs);
+    const said = without.querySelector("[data-lamp]")?.parentElement?.textContent;
+    const withQueue = await draw(runs, false, waiting());
+
+    /* `N of M still running` counts runs. A queue entry is neither N nor M: it
+       has no run to be running, and folding it in would assert two runs that do
+       not exist. */
+    expect(withQueue.querySelector("[data-lamp]")?.parentElement?.textContent).toBe(said);
+    expect(said).toContain(`of ${runs.length} still running`);
+
+    // And nothing waiting is liveness to spend the window's one animation on.
+    const idle = await draw([], false, waiting());
+    expect(idle.textContent).toContain("no runs");
+    expect(idle.querySelectorAll('[data-animated="true"]')).toHaveLength(0);
+    expect(idle.querySelector("[data-lamp]")?.className).not.toContain("Live");
+  });
+
+  it("says what is waiting in its own sentence rather than in the head's count", async () => {
+    regionIs(500);
+    const rack = await draw(await fixtureRuns(), false, waiting());
+
+    expect(rack.textContent).toContain("2 presses are waiting to start.");
+    // Singular and absent, which is the whole of the function beside the plural.
+    expect(waitingSentence(1)).toBe("1 press is waiting to start.");
+    expect(waitingSentence(0)).toBeNull();
+    // The sentence is text in the flow and never a tooltip (rule 10).
+    expect(rack.querySelector("[title]")).toBeNull();
+  });
+
+  it("is not a patchbay source: nothing to press, and no run to press it onto", async () => {
+    regionIs(500);
+    const rack = await draw(await fixtureRuns(), false, waiting());
+    const row = queueRows(rack)[0]!;
+
+    /*
+     * The defect this forbids is putting the monitor on a run that does not
+     * exist. A queue entry has no run number at all, so a pressable row here
+     * would have to invent one or leave the monitor where it was while marking
+     * this row as what the terminal is showing.
+     */
+    expect(row.tagName).not.toBe("BUTTON");
+    expect(row.closest("button")).toBeNull();
+    expect(row.getAttribute("data-run")).toBeNull();
+    expect(row.getAttribute("tabindex")).toBeNull();
+    expect(row.getAttribute("aria-current")).toBeNull();
+  });
+
+  it("draws no zero for the absences a queue entry has", async () => {
+    regionIs(500);
+    const rack = await draw([], false, waiting());
+    const fields = [...queueRows(rack)[0]!.querySelectorAll("[data-field]")].map((span) =>
+      span.getAttribute("data-field"),
+    );
+
+    /*
+     * Rule 4: absence is never zero. There is no stream behind a waiting entry,
+     * so `0 B` and `quiet 0m` would render an absence as a number — and as a
+     * number an operator reads as *this run has printed nothing yet* about
+     * something that was never spawned. The fields are not claimed instead.
+     */
+    expect(fields).not.toContain("unseen");
+    expect(fields).not.toContain("silence");
+    expect(rack.textContent).not.toContain("0 B");
+    expect(rack.textContent).not.toContain("quiet 0m");
+    expect(rack.textContent).not.toContain("nothing unseen");
+
+    // What it does say is what it is, at every tier, in a word beside the runs'.
+    expect(rack.textContent).toContain(WAITING);
+    for (const tier of TIERS) {
+      const row = queuedRowsFor(waiting(), nowSeconds())[0]!;
+      expect(queuedPhraseAt(tier, row, "unseen")).toBeNull();
+      expect(queuedPhraseAt(tier, row, "silence")).toBeNull();
+      expect(queuedPhraseAt(tier, row, "liveness")).toBe(WAITING);
+      // And never a field the tier dropped: `SHOWN` is one table, not two.
+      for (const field of droppedAt(tier)) expect(queuedPhraseAt(tier, row, field)).toBeNull();
+    }
+  });
+
+  it("changes neither the tier nor the region's width when a queue arrives", async () => {
+    regionIs(TIER_FLOORS.boards);
+    const runs = await fixtureRuns();
+
+    const before = await draw(runs);
+    expect(before.getAttribute("data-tier")).toBe("boards");
+
+    // The tier is a function of width and never of N — of runs or of anything
+    // else in the rack. A queue is the newest way to have got that wrong.
+    const after = await draw(runs, false, waiting());
+    expect(after.getAttribute("data-tier")).toBe("boards");
+    expect(after.getAttribute("style")).toBeNull();
+    /* And the sentence is still derived from `SHOWN`, so a tier cannot come to
+       describe a rack that is drawing a queue it never mentions. */
+    expect(after.textContent).toContain(droppedSentence(tierFor(TIER_FLOORS.boards)));
+  });
+
+  it("prints a deferred refusal as a sentence, and never as a waiting row", async () => {
+    regionIs(500);
+    const announced = pendingFixtureNamed("refused");
+    const rack = await draw([], false, waitingOf(announced), refusalsOf(announced));
+
+    const refusal = refusalsOf(announced)[0]!;
+    expect(rack.textContent).toContain(refusalLine(refusal));
+    expect(rack.textContent).toContain(String(refusal.refused));
+    expect(rack.textContent).toContain(refusal.folder);
+
+    /* A refused entry has left the queue: a row for it would be an entry that
+       never drains, and the count beside it would be wrong by one forever. */
+    expect(queueRows(rack)).toHaveLength(1);
+    expect(queueRows(rack)[0]!.getAttribute("data-pending")).toBe(String(waitingOf(announced)[0]!.id));
+    expect(rack.textContent).toContain("1 press is waiting to start.");
+  });
+
+  it("spends no motion and no colour of its own on the queue", async () => {
+    const css = stylesheet(RACK_CSS);
+
+    /*
+     * Rule 12 and rule 3 together. The window's ration is one animated element
+     * and `lampPings` already arbitrates it, so a queue entry may not animate;
+     * and *waiting* has to be readable from *live* with the palette taken away,
+     * which is what the dashed rule and the word on the row are for.
+     */
+    expect(css).toContain("dashed");
+    const waitingRule = /\.rowWaiting \{([^}]*)\}/.exec(css)?.[1] ?? "";
+    expect(waitingRule).not.toContain("animation");
+    expect(waitingRule).not.toContain("transition");
+    /* The stylesheet still animates one selector and it is still the lamp's:
+       the queue added no second one. */
+    expect(readMotion(css).animations.map((one) => one.selector)).toEqual([".lampPing::after"]);
+
+    // No hue-only distinction, and nothing behind hover (rule 10).
+    expect(css).not.toContain(".rowWaiting:hover");
   });
 });
