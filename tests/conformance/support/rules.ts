@@ -579,7 +579,7 @@ export const RULE_CHECKS: Partial<Record<RuleId, RuleEntry>> = {
   },
 
   10: {
-    why: "The floor of a judged rule, over the page. Two halves, and neither needs a pointer to be driven. Every `title` in the rendering must be recovering text that is already in the rendering — the carve-out, held to what it says. And no rule in the rendering's own stylesheets may reveal anything on `:hover`: the CSSOM is walked for hover selectors that touch a disclosure property, and each one is judged against the *resting* state of what it restyles — a rule that paints something already on screen is emphasis, a rule whose subject rests invisible, unpainted, zero-area or without content is disclosure. That catches a gradient-fade reveal, a `max-height` accordion and a `::after` tooltip as readily as `display: none`, and it does not accuse a view of hiding a mark it draws the whole time. What is not asserted is *load-bearing*: whether a fact the operator needs is reachable without a pointer is a claim about the task, and two views may answer it differently.",
+    why: "The floor of a judged rule, over the page. Two halves, and neither needs a pointer to be driven. Every `title` in the rendering must be recovering text that is already in the rendering — the carve-out, held to what it says. And no rule in the rendering's own stylesheets may reveal anything on `:hover`: the CSSOM is walked for hover selectors that touch a disclosure property, and the property decides how it is judged. `clip-path`, `overflow` and any `transform` that is not a plain scale or rotate are refused outright, because a subject that is clipped, held inside an `overflow: hidden` parent or parked off-screen rests as a full-opacity, non-zero box — nothing about the resting state could tell an un-clip or a slide-in from emphasis. The properties whose hiding the resting state *does* show — `display`, `visibility`, `opacity`, a height, a width, a pseudo element's `content` — are judged against the resting state of what they restyle: a rule that paints something already on screen is emphasis, a rule whose subject rests invisible, unpainted, zero-area or without content is disclosure. That catches a gradient-fade reveal, a `max-height` accordion and a `::after` tooltip as readily as `display: none`, and it does not accuse a view of drawing a mark it has drawn the whole time louder. What is not asserted is *load-bearing*: whether a fact the operator needs is reachable without a pointer is a claim about the task, and two views may answer it differently.",
     applies: EVERYWHERE,
     check: async ({ page }) => {
       const rendered = (await page.locator("body").innerText()).replace(/\s+/g, " ");
@@ -605,11 +605,22 @@ export const RULE_CHECKS: Partial<Record<RuleId, RuleEntry>> = {
          * them apart is the *resting* state of what the rule paints — so the
          * walk asks the page, at rest, with no pointer anywhere near it.
          *
-         * A hover rule is refused when the thing it restyles is not already
-         * painted: display `none`, `visibility: hidden`, an opacity at or below
-         * the point where nothing is legible, a zero-area box, or a pseudo
-         * element with no content. That still catches the gradient fade (rests
-         * at opacity 0), the accordion (rests at height 0) and the tooltip
+         * But the resting state only answers for the properties whose hiding it
+         * can see. A subject sitting under `clip-path: inset(100%)`, inside an
+         * `overflow: hidden` parent, or parked at `translateY(-200%)` rests as
+         * a full-opacity, non-zero box that no probe here can distinguish from
+         * one honestly on screen, so those are refused outright rather than
+         * judged: hover may not un-clip, un-hide overflow, or move a subject.
+         * `transform` is admitted only in the scale/rotate form the transit
+         * convention needs, which is emphasis wherever it is written.
+         *
+         * The remainder — display, visibility, opacity, a height, a width, a
+         * pseudo element's `content` — is judged against how its subject rests,
+         * and refused when the thing it restyles is not already painted:
+         * display `none`, `visibility: hidden`, an opacity at or below the
+         * point where nothing is legible, a zero-area box, or a pseudo element
+         * with no content. That still catches the gradient fade (rests at
+         * opacity 0), the accordion (rests at height 0) and the tooltip
          * `::after` (rests at `content: none`), and it stops accusing a view of
          * hiding a thing it is drawing the whole time.
          *
@@ -620,7 +631,7 @@ export const RULE_CHECKS: Partial<Record<RuleId, RuleEntry>> = {
          * elements exist — which is a stronger reading than judging a selector
          * against a page that never had the elements.
          */
-        const DISCLOSURE = [
+        const JUDGED_AT_REST = [
           "display",
           "visibility",
           "opacity",
@@ -629,52 +640,86 @@ export const RULE_CHECKS: Partial<Record<RuleId, RuleEntry>> = {
           "max-height",
           "width",
           "max-width",
-          "clip-path",
-          "transform",
         ];
+        /* Hiding the resting probe cannot see: a clipped element, one inside a
+           clipping parent and one carried off-screen all report a painted,
+           non-zero box, so hover is refused these outright. */
+        const REFUSED_OUTRIGHT = [
+          "clip",
+          "clip-path",
+          "overflow",
+          "overflow-x",
+          "overflow-y",
+          "overflow-block",
+          "overflow-inline",
+          /* The individual property, which is `transform: translate(...)` under
+             another spelling and hides just as invisibly. */
+          "translate",
+        ];
+        /* `transform` is both kinds at once. Scale and rotate draw a mark
+           louder where it already is; anything else — `translate` above all —
+           can carry a subject in from somewhere the probe never looked. */
+        const EMPHASIS_ONLY = /^(none|(\s*(scale|scalex|scaley|rotate|rotatez)\([^()]*\))+\s*)$/i;
         /* Below this an element is not dimmed, it is gone. A view that recedes
            a thread to a third of its ink is still drawing it. */
         const LEGIBLE = 0.1;
 
-        const resting = (selector: string): string | null => {
+        /* `null` when the selector matches nothing in this rendering; otherwise
+           `hidden` is why its subject is not painted yet, or `null` if it is. */
+        const resting = (selector: string): { hidden: string | null } | null => {
           const pseudo = /::?(before|after)\b/.exec(selector);
           const host = selector.replace(/::?(before|after)\b/g, "").trim();
           let elements: Element[];
           try {
             elements = Array.from(document.querySelectorAll(host === "" ? ":root" : host));
           } catch {
-            return "unreadable selector";
+            return { hidden: "unreadable selector" };
           }
           if (elements.length === 0) return null;
           for (const element of elements) {
             const style = getComputedStyle(element, pseudo === null ? undefined : `::${pseudo[1]}`);
             if (pseudo !== null && (style.content === "none" || style.content === "")) {
-              return "its ::" + pseudo[1] + " has no content until hovered";
+              return { hidden: "its ::" + pseudo[1] + " has no content until hovered" };
             }
-            if (style.display === "none") return "it is display:none until hovered";
-            if (style.visibility === "hidden") return "it is visibility:hidden until hovered";
-            if (Number(style.opacity) <= LEGIBLE) return "it is invisible until hovered";
+            if (style.display === "none") return { hidden: "it is display:none until hovered" };
+            if (style.visibility === "hidden") {
+              return { hidden: "it is visibility:hidden until hovered" };
+            }
+            if (Number(style.opacity) <= LEGIBLE) {
+              return { hidden: "it is invisible until hovered" };
+            }
             const box = element.getBoundingClientRect();
             if (pseudo === null && (box.width === 0 || box.height === 0)) {
-              return "it has no area until hovered";
+              return { hidden: "it has no area until hovered" };
             }
           }
-          return null;
+          return { hidden: null };
         };
 
         const found: string[] = [];
         const walk = (rules: CSSRuleList): void => {
           for (const rule of Array.from(rules)) {
             if (rule instanceof CSSStyleRule && rule.selectorText.includes(":hover")) {
-              const touched = Array.from(rule.style).filter((property) =>
-                DISCLOSURE.includes(property),
+              const properties = Array.from(rule.style);
+              const refused = properties.filter(
+                (property) =>
+                  REFUSED_OUTRIGHT.includes(property) ||
+                  (property === "transform" &&
+                    !EMPHASIS_ONLY.test(rule.style.getPropertyValue("transform").trim())),
               );
+              const judged = properties.filter((property) => JUDGED_AT_REST.includes(property));
               for (const selector of rule.selectorText.split(",")) {
-                if (touched.length === 0) break;
+                if (refused.length === 0 && judged.length === 0) break;
                 if (!selector.includes(":hover")) continue;
-                const why = resting(selector.replaceAll(":hover", ""));
-                if (why !== null) {
-                  found.push(`${selector.trim()} { ${touched.join(", ")} }: ${why}`);
+                const subject = resting(selector.replaceAll(":hover", ""));
+                if (subject === null) continue;
+                if (refused.length > 0) {
+                  found.push(
+                    `${selector.trim()} { ${refused.join(", ")} }: hover un-clips or moves it, and a subject hidden that way rests fully painted`,
+                  );
+                }
+                if (judged.length > 0 && subject.hidden !== null) {
+                  found.push(`${selector.trim()} { ${judged.join(", ")} }: ${subject.hidden}`);
                 }
               }
             }

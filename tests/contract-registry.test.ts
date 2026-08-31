@@ -26,6 +26,7 @@ import { REPO_ROOT, collect } from "./support/sources";
  */
 
 const REGISTRY = "src/contract/rules.ts";
+const PINS = "src/views/plate/pins.ts";
 /* Two, since #63. Rule 8 was structural while nothing in the app could name a
    node position; the Plate's pins gave it a field, and a rule whose keeping is
    *who may use the field there is* is asserted — see `ruleById(8).check`. */
@@ -258,19 +259,45 @@ describe("the structural mechanisms are still where the registry points", () => 
   it("gives no view but the Plate a way to name a position (rule 8)", () => {
     /* The exception is one view's, and this is what makes that a fact about the
        tree rather than a convention: the command names, the storage prefix and
-       the pin-writing functions appear under `src/views/plate/` and nowhere
-       else on this side of the seam. */
-    const naming = collect([".ts", ".tsx"]).filter(
+       every way of reaching the pin module reach exactly three files, and two
+       of them are the Plate's own.
+
+       The names are read *off the module* rather than spelled here, so this
+       stays an assertion about who can write a position rather than about how
+       today's exports happen to be spelled: rename `writePins` and the set of
+       files that can call it is unchanged, and so is what goes red. */
+    const sources = collect([".ts", ".tsx"]).filter(
       (file) =>
         file.path.startsWith("src/") &&
         // The registry names the mechanism in prose, which is the one place
         // naming it is the point rather than a use of it.
-        file.path !== REGISTRY &&
-        /remember_map_pins|map_pins|perseverance\.plate\.|pinStation/.test(file.text),
+        file.path !== REGISTRY,
     );
+    const module = sources.find((file) => file.path === PINS);
+    if (!module) throw new Error(`missing ${PINS}`);
+
+    const handed = [...module.text.matchAll(/^export (?:async )?(?:function|const) (\w+)/gm)].map(
+      (match) => match[1]!,
+    );
+    // A regex that stopped matching would empty the reach and pass vacuously.
+    expect(handed.length).toBeGreaterThan(5);
+    expect(handed).toContain("writePins");
+
+    const reaching = new RegExp(
+      [
+        "views/plate/pins",
+        "remember_map_pins",
+        "map_pins",
+        "perseverance\\.plate\\.",
+        ...handed.map((name) => `\\b${name}\\b`),
+      ].join("|"),
+    );
+    const naming = sources.filter((file) => reaching.test(file.text));
     expect([...naming.map((file) => file.path)].sort()).toEqual([
+      // The one importer outside the view opens the store and writes nothing.
+      "src/App.tsx",
       "src/views/plate/Plate.tsx",
-      "src/views/plate/pins.ts",
+      PINS,
     ]);
 
     /* And nothing arrives by prop either: what every view is handed carries a

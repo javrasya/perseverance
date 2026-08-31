@@ -113,9 +113,14 @@ accident. It is drawn only where there is an arrangement to put back, which is a
 fact about the map and not about where anybody is pointing.
 
 The floor asserted for this rule is that nothing hover-reveals is absent
-elsewhere, and this view meets it by revealing nothing at all. A long name is
-clipped by its plate, and the recovery for that is stated under rule 11 rather
-than here, because it is a clipping question and not a disclosure one.
+elsewhere, and this view meets it by revealing nothing at all. The one hover
+rule this view writes is `transform: scale(1.35)` on a station glyph, which the
+floor admits as emphasis because a scale draws a mark louder where it already
+is; the floor refuses a hover that translates, un-clips or un-hides overflow
+outright, whatever the subject looks like at rest, and this view writes none of
+those. A long name is clipped by its plate, and that clip is never undone by a
+pointer: the recovery for it is stated under rule 11 rather than here, because
+it is a clipping question and not a disclosure one.
 
 ## Rule 11 — The field is not the label surface
 
