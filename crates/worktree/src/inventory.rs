@@ -36,7 +36,11 @@
 //! **A worktree whose directory the operator deleted by hand.** Listing one is
 //! ordinary: git keeps the registration, prints it with a `prunable` reason, and
 //! the entry comes back with [`Working::Gone`] in it and no error anywhere —
-//! that is the state, not a failure to read one. Clearing it is where the git on
+//! that is the state, not a failure to read one. The offer on it does not wait
+//! on pushedness: the pushed rule guards commits in a working copy, this entry
+//! has none, and withholding the offer would leave the abandoned unpushed run
+//! neither runnable — [`crate::worktree_for`] refuses to build over the stale
+//! registration — nor clearable from in here. Clearing it is where the git on
 //! the machine can differ. On the git this was built against (2.50) `git
 //! worktree remove <path>` clears such a registration by itself, which is why
 //! `git worktree prune` is still never run: prune is repository-wide and would
@@ -462,17 +466,34 @@ fn ticket_of(root: &Path, record: &Record) -> Option<u64> {
 ///   their disk back from, because everything in it is on a remote.
 /// - A lock is a no. The operator wrote that lock down in git themselves, and
 ///   the spelling that overrides it is `--force`, which this crate does not say.
-/// - A directory that is already gone is a **yes** where a clean one would be:
-///   there is nothing in it to lose, and the leftover registration is exactly
-///   the litter the operator opened this list to clear. Its branch is still
-///   checked for pushedness, because refs live in the shared git directory and
-///   outlive the working copy.
+/// - A directory that is already gone is a **yes**, pushed or not, and the lock
+///   is the only rule above that still reaches it. What the pushedness rule
+///   protects is commits sitting in a working copy — and a gone entry has no
+///   working copy, while `remove` leaves `refs/heads/<branch>` exactly where it
+///   was. Asking it for pushedness anyway would refuse the likeliest litter
+///   there is, the abandoned run whose branch nobody ever pushed, and refuse it
+///   into a dead end: [`crate::worktree_for`] will not build a working copy over
+///   a stale registration, and this crate does not say `prune`, so the ticket
+///   would be neither runnable nor clearable from in here. A gone worktree on no
+///   branch is still a no, for the reason [`Publication::Detached`] gives: there
+///   is no branch for the removal to leave its commits on.
 fn offer(record: &Record, probed: &Probed, ticket: u64) -> Option<Removal> {
     if record.locked.is_some() {
         return None;
     }
     match probed.working {
-        Working::Clean | Working::Gone => {}
+        Working::Clean => {}
+        Working::Gone => {
+            return match probed.publication {
+                Publication::Detached => None,
+                Publication::Pushed
+                | Publication::Unpushed { .. }
+                | Publication::Unknown { .. } => Some(Removal {
+                    path: record.path.clone(),
+                    ticket,
+                }),
+            }
+        }
         Working::Uncommitted { .. } | Working::Unreadable { .. } => return None,
     }
     match probed.publication {
@@ -820,15 +841,41 @@ locked in use
 
     /// A directory the operator deleted has nothing in it to lose, so the
     /// leftover registration is offered exactly as a clean one is — that
-    /// litter is what they opened this list to clear.
+    /// litter is what they opened this list to clear. Pushedness does not
+    /// gate it: the rule guards a working copy this entry does not have, and
+    /// the abandoned run nobody pushed is the entry most likely to be here.
     #[test]
     fn a_directory_already_gone_is_still_offered() {
+        for publication in [
+            Publication::Pushed,
+            Publication::Unpushed { commits: 3 },
+            Publication::Unknown {
+                detail: "git said nothing".to_string(),
+            },
+        ] {
+            assert!(
+                offer(
+                    &a_record("/repo/.perseverance/worktrees/60"),
+                    &probed(Working::Gone, publication.clone()),
+                    60,
+                )
+                .is_some(),
+                "{publication:?}"
+            );
+        }
+    }
+
+    /// The one publication that still says no to a gone directory: on no
+    /// branch, the commits of that run are on nothing the removal leaves
+    /// behind.
+    #[test]
+    fn a_gone_directory_on_no_branch_is_not_offered() {
         assert!(offer(
             &a_record("/repo/.perseverance/worktrees/60"),
-            &probed(Working::Gone, Publication::Pushed),
+            &probed(Working::Gone, Publication::Detached),
             60,
         )
-        .is_some());
+        .is_none());
     }
 
     /// A lock is the operator saying no in git's own vocabulary, and the only
@@ -939,7 +986,10 @@ locked in use
 
     /// A worktree whose directory the operator deleted by hand: it is in the
     /// list as an ordinary entry with `Gone` in it, listing it raises nothing,
-    /// and removing it raises nothing either.
+    /// and removing it raises nothing either. This repository has no remote, so
+    /// its branch is unpushed — the offer is there anyway, which is the whole
+    /// of the case: the abandoned run nobody pushed is the litter this list
+    /// exists to clear, and clearing it costs the operator no commit.
     #[test]
     fn a_hand_deleted_directory_lists_and_removes_without_an_error() {
         let Some(folder) = a_repository() else {
@@ -957,15 +1007,21 @@ locked in use
             ours.probed.as_ref().map(|probed| &probed.working),
             Some(&Working::Gone)
         );
+        assert!(
+            matches!(
+                ours.probed.as_ref().map(|probed| &probed.publication),
+                Some(Publication::Unpushed { .. })
+            ),
+            "{:?}",
+            ours.probed
+        );
+        let slip = ours
+            .removal
+            .clone()
+            .expect("a gone directory is offered whether or not its branch is pushed");
+        assert_eq!(slip.path(), made.path);
 
-        remove(
-            folder.path(),
-            &Removal {
-                path: made.path.clone(),
-                ticket: 60,
-            },
-        )
-        .expect("removes a registration whose directory is gone");
+        remove(folder.path(), &slip).expect("removes a registration whose directory is gone");
 
         let after = inventory(folder.path(), &known(&[60])).expect("a listing");
         assert!(

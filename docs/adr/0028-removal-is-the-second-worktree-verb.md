@@ -87,6 +87,19 @@ is zero: every commit is on a remote-tracking ref **this clone already has**. No
 `fetch` and no `ls-remote` — the readout says what this disk knows, and a listing
 that reached for the network would be a listing that hangs on a VPN.
 
+**Pushed is asked about a working copy, so a gone directory is not asked.** The
+rule protects commits sitting in a directory the operator would otherwise have to
+write again; a registration whose directory they have already deleted has no such
+directory, and `git worktree remove` leaves its branch untouched either way. So a
+gone entry is offered whether or not anybody pushed it, and the lock is the only
+rule above that still reaches it. Asking it for pushedness anyway would refuse
+the likeliest litter there is — the run abandoned on a Friday, on a branch nobody
+ever pushed — and refuse it into a dead end: `worktree_for` will not build a
+working copy over a stale registration, `prune` is still never run, and the
+ticket would be neither runnable nor clearable from inside this app. The one gone
+entry still refused is one on no branch at all, where the removal would leave the
+run's commits reachable from nothing it keeps.
+
 **Ours is a path, an orphan is a set lookup, and neither is stored.** *Ours* is a
 worktree under `<folder>/.perseverance/worktrees/` that names a ticket, by its
 directory name or by its `research/<ticket>-` branch; anything else, the
@@ -115,6 +128,13 @@ lines that made it absent are printed.
 **Removal offered on merged.** Rejected in the ticket and again here: waiting for
 a merge pins worktrees open indefinitely behind an unmerged pull request, which
 is the condition that fills the directory in the first place.
+
+**Gating the gone directory on pushedness too, for one rule with no
+exceptions.** It reads tidier and it strands the operator: the entry the rule
+would refuse is a registration with no working copy behind it, so the refusal
+buys no commit any safety, and the row would say *removing it clears the
+registration and nothing else* directly above a sentence declining to. The
+exception is written down here instead of being tidied away.
 
 **A `fetch` before judging pushedness.** It would make the answer current, at the
 price of a network round trip inside a listing, an authentication prompt with no
@@ -156,7 +176,9 @@ naming `prune` — the listing goes on showing the entry, and running the
 repository-wide command stays the operator's decision rather than becoming this
 app's escalation.
 
-A worktree with unpushed commits is never offered for removal, which means an
-operator who wants that disk space back has to push or delete it themselves. That
-is the intended asymmetry: this app is allowed to take away a copy of something,
-and never the last copy.
+A worktree whose directory is still there and whose commits are on no remote is
+never offered for removal, which means an operator who wants that disk space back
+has to push or delete it themselves. That is the intended asymmetry: this app is
+allowed to take away a copy of something, and never the last copy. Where the
+directory is already gone there is no copy left to take away, only git's
+registration of one, and that is offered on the lock alone.
