@@ -200,15 +200,22 @@
 }
 
 /*
- * Rule 10, and the whole of it: a pixel of lift and a brighter edge. Nothing is
- * revealed, because there is nothing held back — a schematic labels its parts,
- * so everything a plate has to say is already on it. The lift is a transform
- * rather than a shadow so a hovered plate cannot be told from a selected one by
- * its ink.
+ * Rule 10, and the whole of it: a brighter edge. Nothing is revealed, because
+ * there is nothing held back — a schematic labels its parts, so everything a
+ * plate has to say is already on it.
+ *
+ * The pixel of lift this rule used to carry is gone, and it went when the view
+ * was registered: rule 10's asserted floor walks the live CSSOM for `:hover`
+ * selectors touching a disclosure property, and `transform` is on that list
+ * because it is one of the ways a thing that was not on screen arrives on it.
+ * The floor is mechanical on purpose and reads the whole page, so an unregistered
+ * stylesheet costs nothing and a registered one turns the floor red for every
+ * view at once. An edge is not a weaker answer than a lift anyway — it is the
+ * half that survived a colour collapse, and the fill is left alone so a hovered
+ * plate still cannot be told from a selected one by its wash.
  */
 .plate:hover {
   border-color: var(--s-line-strong);
-  transform: translateY(-1px);
 }
 
 /* Inside, because the canvas is its own scrollport and a ring drawn outside the

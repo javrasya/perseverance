@@ -12,6 +12,7 @@ import {
   clamp,
   columnsAt,
   detentAt,
+  floorOf,
   fractionOf,
   fittingViews,
   honours,
@@ -30,6 +31,7 @@ import { readPosition, writePosition } from "../src/panes/position";
 import { replaceSnapshot } from "../src/stores/snapshots";
 import { OPENING, moveDial, readUi, startGesture } from "../src/stores/ui";
 import { FIXTURES } from "../src/snapshot/fixtures";
+import { BENCH_WIDTH_FLOOR } from "../src/views/bench/bench";
 import { VIEWS, type ViewName } from "../src/views/views";
 import { REPO_ROOT } from "./support/sources";
 
@@ -41,10 +43,13 @@ import { REPO_ROOT } from "./support/sources";
  * away from any DOM, so the shell has nothing left to get wrong except drawing
  * them. `tests/dial-shell.test.tsx` is the picture; this is the answer.
  *
- * The multi-view cases run on **synthetic floors**. There is one real view
- * today, and inventing a second component to test the switcher's arithmetic
- * would be building #62 early — so the second view here is a name and a number,
- * which is all the arithmetic ever knew about a view anyway.
+ * Most multi-view cases run on **synthetic floors**, and they stay that way now
+ * that a second view is real: a case written against `VIEW_FLOORS` is a case
+ * that changes meaning when somebody re-measures a view, and the arithmetic
+ * never knew more about a view than a name and a number anyway. The registry's
+ * own numbers are exercised where the claim *is* about them — that the Bench
+ * standing down is offered the Route, which is a fact about the two floors
+ * rather than about `standDown`.
  */
 
 const PLATE = "plate" as ViewName;
@@ -292,10 +297,29 @@ describe("a view below its floor stands down, and nothing switches by itself", (
     // The narrowest detent that honours the floor, not the widest: an exit that
     // took the whole window would be answering a question nobody asked.
     expect(standing?.exits[0]).toEqual({ kind: "widen", detent: "split", honoured: true });
-    // The `glance` map side is under every registered view's floor, so there is
-    // no view to offer here and the second exit is the other side of the dial
-    // rather than a view that would stand down the moment it opened.
+    // The `glance` map side is under every registered view's floor — the Route
+    // asks the least of anything registered and even that does not fit — so
+    // there is no view to offer here and the second exit is the other side of
+    // the dial rather than a view that would stand down the moment it opened.
+    expect(sides(fractionOf("glance"), WINDOW).map).toBeLessThan(VIEW_FLOORS.route);
     expect(standing?.exits[1]).toEqual({ kind: "terminal" });
+  });
+
+  it("offers the Route to a Bench that does not fit, from the real floors", () => {
+    // The one place the registry's own numbers are the claim: the Bench asks
+    // for more map side than the Route, so a window between the two floors is a
+    // window where the switcher's second exit is a view and not the terminal.
+    expect(VIEW_FLOORS.bench).toBeGreaterThan(VIEW_FLOORS.route);
+
+    const between = fractionOf("split");
+    const body = 2 * VIEW_FLOORS.route + 2;
+    expect(sides(between, body).map).toBeGreaterThanOrEqual(VIEW_FLOORS.route);
+    expect(sides(between, body).map).toBeLessThan(VIEW_FLOORS.bench);
+
+    const standing = standDown("bench", between, body, VIEWS);
+    expect(standing?.view).toBe("bench");
+    expect(standing?.needs).toBe(VIEW_FLOORS.bench);
+    expect(standing?.exits[1]).toEqual({ kind: "open", view: "route" });
   });
 
   it("offers a view that does fit here when there is one", () => {
@@ -349,6 +373,18 @@ describe("a view below its floor stands down, and nothing switches by itself", (
     expect(fittingViews(512, ["route", PLATE], floors)).toEqual([PLATE]);
     expect(fittingViews(1000, ["route", PLATE], floors)).toEqual(["route", PLATE]);
     expect(honours(VIEW_FLOORS.route, VIEW_FLOORS.route)).toBe(true);
+  });
+
+  it("takes the Bench's floor from the Bench's own arithmetic", () => {
+    /*
+     * One number and not two that happen to agree today. `benchOf` returns a
+     * stood-down canvas below `BENCH_WIDTH_FLOOR`, so a dial carrying its own
+     * copy would drift into putting the Bench on screen at a width where the
+     * Bench itself refuses to draw — a view column with a stand-down inside it
+     * and nothing in the shell saying why.
+     */
+    expect(VIEW_FLOORS.bench).toBe(BENCH_WIDTH_FLOOR);
+    expect(floorOf("bench")).toBe(BENCH_WIDTH_FLOOR);
   });
 });
 

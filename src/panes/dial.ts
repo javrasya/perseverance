@@ -1,4 +1,5 @@
 import { RACK_RESERVE } from "../rack/rack";
+import { BENCH_WIDTH_FLOOR } from "../views/bench/bench";
 import { widthNeededFor } from "../views/deep-field/deepField";
 import type { ViewName } from "../views/views";
 
@@ -298,10 +299,18 @@ export function namesFit(width: number): boolean {
  * A `Record` over `ViewName` rather than a list, so a view added to `VIEWS`
  * without a floor is a type error rather than a view that silently claims to
  * fit anywhere. The Route is a single column of grouped rows; the wider views
- * (#62/#63/#64) arrive as one entry each.
+ * (#63/#64) arrive as one entry each.
+ *
+ * The Bench's number is imported and never retyped. `benchOf` stands the canvas
+ * down below the same constant, so the two have to be one number or the shell
+ * would put the Bench on screen at a width at which the Bench itself refuses to
+ * draw — a view column holding a stood-down canvas with nothing in the shell
+ * saying why. The import runs view → dial, which is the direction that already
+ * exists (`ViewName` above) and so adds no cycle.
  */
 export const VIEW_FLOORS: Record<ViewName, number> = {
   route: 420,
+  bench: BENCH_WIDTH_FLOOR,
   /*
    * Two rank columns' worth: the narrowest picture in which one ticket is drawn
    * releasing another, which is the whole of what this view is for. Asked of

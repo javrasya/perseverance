@@ -17,6 +17,28 @@ import { defineConfig, devices } from "@playwright/test";
  * most likely to break first, so CI runs `webkit` and depends on it, and
  * `chromium` is there for a developer who wants the second reading.
  */
+/**
+ * One viewport for every project, and it overrides the device's own.
+ *
+ * The suite renders each registered view over the whole fixture space, so the
+ * window has to be wide enough for the *widest* floor in `VIEW_FLOORS` —
+ * otherwise `App` draws its stand-down where a view should be, or the view
+ * draws its own, and a rule that then found no rows would be going red for a
+ * reason that has nothing to do with the rule. The Bench asks for 680px of
+ * canvas, and the canvas is a good deal narrower than the window: the dial opens
+ * at `split`, so the map side is half the body; the rail takes 13rem off it; and
+ * the launcher and the view are both `flex: 1`, so they halve what is left. A
+ * little under a quarter of the body reaches the canvas, which is why this is
+ * roughly four times a floor of 680 rather than near it.
+ *
+ * The devices' own 1280 would put every fixture on a stood-down Bench, so this
+ * is not a preference. The driver refuses to run against a mounted-but-undrawn
+ * view (`tests/conformance/support/drive.ts`), which is what turns a layout
+ * change that eats this margin into a named failure rather than into a suite
+ * quietly asserting nothing.
+ */
+const WIDE_ENOUGH_FOR_EVERY_VIEW = { width: 3840, height: 1440 };
+
 export default defineConfig({
   /* Its own directory, and `vite.config.ts` excludes it from vitest: vitest's
      default include swallows `**​/*.spec.ts`, and these specs import a runner
@@ -40,8 +62,14 @@ export default defineConfig({
   },
 
   projects: [
-    { name: "webkit", use: { ...devices["Desktop Safari"] } },
-    { name: "chromium", use: { ...devices["Desktop Chrome"] } },
+    {
+      name: "webkit",
+      use: { ...devices["Desktop Safari"], viewport: WIDE_ENOUGH_FOR_EVERY_VIEW },
+    },
+    {
+      name: "chromium",
+      use: { ...devices["Desktop Chrome"], viewport: WIDE_ENOUGH_FOR_EVERY_VIEW },
+    },
   ],
 
   webServer: {
