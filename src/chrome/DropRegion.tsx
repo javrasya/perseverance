@@ -8,6 +8,15 @@ import {
 import { watchDroppedFolders } from "../launcher/launcher";
 import styles from "./DropRegion.module.css";
 
+/**
+ * What the region is, said in the document rather than left to the border.
+ *
+ * The dashed frame is a shape, and a shape is not a sentence: without this a
+ * reader has to drag something to find out what the body does with it.
+ */
+export const DROP_REGION_HINT =
+  "A folder dropped anywhere in here joins the list, the same as one picked through Open a new folder… It is the folder that is dropped, not the maps inside it.";
+
 interface DropRegionProps {
   /** Every folder dropped on the window, in the order the shell reports them. */
   onFoldersDropped: (paths: readonly string[]) => void;
@@ -73,6 +82,7 @@ export function DropRegion({ onFoldersDropped, children }: DropRegionProps) {
       onDrop={onDrop}
     >
       {children}
+      <p className={styles.hint}>{DROP_REGION_HINT}</p>
     </div>
   );
 }

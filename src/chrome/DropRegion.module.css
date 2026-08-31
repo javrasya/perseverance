@@ -42,3 +42,16 @@
 
   background: var(--s-surface-sunken);
 }
+
+/*
+ * The hint is static text, not a state. It says what the region is before
+ * anything is dragged and it reads the same once something is, so nothing here
+ * changes between armed and unarmed.
+ */
+.hint {
+  max-width: 46ch;
+  margin: 0;
+  color: var(--s-ink-faint);
+  font-family: var(--s-font-ui);
+  font-size: var(--s-text-small);
+}

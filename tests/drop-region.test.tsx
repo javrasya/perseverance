@@ -2,7 +2,7 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { DropRegion } from "../src/chrome/DropRegion";
+import { DROP_REGION_HINT, DropRegion } from "../src/chrome/DropRegion";
 
 /**
  * The body is a drop region, and it is one before anything is dragged.
@@ -60,6 +60,14 @@ describe("the body as a drop region", () => {
 
     expect(region.getAttribute("data-armed")).toBe("false");
     expect(region.textContent).toContain("nothing yet");
+  });
+
+  it("says what it is in words, with nothing dragged and nothing held", () => {
+    const region = paint();
+
+    expect(region.textContent).toContain(DROP_REGION_HINT);
+    expect(region.textContent).toContain("nothing yet");
+    expect(region.getAttribute("data-armed")).toBe("false");
   });
 
   it("arms on a drag and disarms when it leaves", () => {
