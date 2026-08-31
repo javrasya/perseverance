@@ -60,6 +60,13 @@
 
 import type { Counts, Fog, Frontier, Map, Node, NodeState } from "../../snapshot/model.generated";
 import { NOTHING_IN_THE_WAY, blockersOf, type BlockerTally } from "../graph";
+import {
+  FOG_ALL_CHARTED,
+  FOG_HEADING,
+  SPEC_TAG,
+  STATE_NAMES,
+  UNCLASSIFIED_TAG,
+} from "../vocabulary";
 
 const Lookup = globalThis.Map;
 
@@ -590,6 +597,16 @@ function fanOutOf(nodes: readonly Node[], marks: ReadonlyMap<number, Mark>): Fan
 
 /* ---------------------------------------------------------------- copy --- */
 
+/*
+ * This view's own voice, and only that.
+ *
+ * The words that *name* something in the model are one vocabulary in
+ * `../vocabulary` and are read from there, and the two sentences that report
+ * the blocker tally live with the tally in `../graph`. What is left here is
+ * what only Deep Field says: its name, its stand-down, and the tag for the one
+ * thing only a drawing view has to explain — an edge it refused to rank.
+ */
+
 /** The view, named, and the only place it is spelled on this side. */
 export const VIEW_NAME = "Deep Field";
 
@@ -606,22 +623,6 @@ export function tooNarrowFor(columns: number): string {
     : `${columns} rank columns and their annotation gutter need more width than this`;
 }
 
-/** What holds a plate up, as a number and never as a spray of edges. */
-export function blockedByLabel(count: number): string {
-  return `blocked by ${count}`;
-}
-
-/**
- * Said on the plate that waits, when one of the numbers it waits on has no row
- * here. The blocker is real, this map cannot judge it, and no edge is drawn for
- * it — so if the plate does not say it, nothing does.
- */
-export function beyondTheMapNote(count: number): string {
-  return count === 1
-    ? "1 blocker, not a child of this map, has no row here"
-    : `${count} blockers, each not a child of this map, have no row here`;
-}
-
 /**
  * Said on both ends of the edge the ranker refused.
  *
@@ -631,18 +632,6 @@ export function beyondTheMapNote(count: number): string {
  */
 export const CIRCULAR_TAG = "waits on something that waits on it";
 
-/** The word on the cold tag, and the only place the designation is named. */
-export const DESIGNATED_TAG = "designated";
-
-/** Names the ticket's binding — a fact about the reader's machine. */
-export const BOUND_ELSEWHERE_TAG = "not on this machine";
-
-export const SPEC_TAG = "spec";
-export const UNCLASSIFIED_TAG = "unclassified";
-
-/** The fog names itself here as it does on The Route: a region, not a figure. */
-export const FOG_HEADING = "Fog";
-
 /**
  * What stands where the count would be when the map's body never named the fog.
  *
@@ -651,20 +640,3 @@ export const FOG_HEADING = "Fog";
  * between two views for a character.
  */
 export const NOBODY_SURVEYED = "—";
-
-/** Said under the heading when the survey happened and turned up nothing. */
-export const FOG_ALL_CHARTED = "nothing left unspecified";
-
-/**
- * The on-screen word for each of the four states, unchanged from the model's.
- *
- * The palette here is doing less work than on a list — a mark is a disc of a few
- * pixels — so the word beside it on the plate is most of what says where a
- * ticket stands, and a synonym would be a second vocabulary.
- */
-export const STATE_NAMES: Record<NodeState, string> = {
-  resolved: "resolved",
-  blocked: "blocked",
-  claimed: "claimed",
-  takeable: "takeable",
-};

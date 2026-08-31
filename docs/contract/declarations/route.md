@@ -79,7 +79,7 @@ numeral would still be a numeral and would fail it. Whether the region also
 
 The fog is a region and not a section, and it names itself before it counts
 itself. `FogRegion` renders a `section` labelled by an `h2` whose first span is
-the word `Fog` (`FOG_HEADING`, `src/views/route/route.ts`), and the region is
+the word `Fog` (`FOG_HEADING`, `src/views/vocabulary.ts`), and the region is
 tied to that heading with `aria-labelledby`, so the name is what the region is
 announced as rather than a caption sitting near a number.
 

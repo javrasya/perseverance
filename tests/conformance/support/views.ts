@@ -23,8 +23,14 @@ import type {
   NodeState,
   Snapshot,
 } from "../../../src/snapshot/model.generated";
-import { UNCLASSIFIED_TAG as DEEP_FIELD_UNCLASSIFIED } from "../../../src/views/deep-field/deepField";
-import { UNCLASSIFIED_TAG } from "../../../src/views/route/route";
+/*
+ * One import for both surfaces, and it used to be two: each view declared the
+ * word and this file imported both spellings so the checks would notice if they
+ * ever disagreed. They cannot disagree now — the word a node is told apart by
+ * is the model's, and `src/views/vocabulary.ts` is where it is said once — so
+ * the second import would only be this file asserting a table against itself.
+ */
+import { UNCLASSIFIED_TAG } from "../../../src/views/vocabulary";
 import type { ViewName } from "../../../src/views/views";
 
 /**
@@ -128,7 +134,7 @@ const DEEP_FIELD: ViewSurface = {
      span inside it is the form itself — a cut composes onto that rather than
      replacing it. The field's `<svg>` is `aria-hidden` too and is not in a row. */
   glyph: 'span[aria-hidden="true"] > span',
-  unclassifiedWord: DEEP_FIELD_UNCLASSIFIED,
+  unclassifiedWord: UNCLASSIFIED_TAG,
   fog: { region: "[data-fog]", unsurveyed: "[data-unsurveyed]", count: "[data-count]" },
 };
 

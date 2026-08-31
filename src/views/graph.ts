@@ -85,3 +85,37 @@ export function blockersOf(nodes: readonly Node[]): ReadonlyMap<number, BlockerT
   }
   return tallies;
 }
+
+/* ------------------------------------------------- what the tally says --- */
+
+/*
+ * The two sentences the tally is reported in live with the tally, and not in
+ * the views. The arithmetic moved here because two walks are two answers; the
+ * words are the same hazard read one step later — `blocked by N` and *blocked
+ * by N others* would be one count reported as two claims, and nothing would go
+ * red. A number and the sentence it is printed in are one fact.
+ *
+ * What stays a view's own is how the sentence is *placed*: The Route hangs it
+ * off a row, Deep Field off a plate beside a picture that draws the edges it
+ * can. Neither of those is a wording.
+ */
+
+/** What holds a node up, as a number and never as a spray of edges. */
+export function blockedByLabel(count: number): string {
+  return `blocked by ${count}`;
+}
+
+/**
+ * Said on the node that waits, when one of the numbers it waits on has no row
+ * here. The blocker is real and this map cannot judge it either way, so it is
+ * said in words rather than counted into `blocked by N` — which would be this
+ * map asserting something it has nothing on screen to back. In a view that
+ * draws its edges there is a second reason and it is stronger: no edge can be
+ * drawn to a node that is not on the map, so if the sentence is missing,
+ * nothing says it at all.
+ */
+export function beyondTheMapNote(count: number): string {
+  return count === 1
+    ? "1 blocker, not a child of this map, has no row here"
+    : `${count} blockers, each not a child of this map, have no row here`;
+}

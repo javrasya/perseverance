@@ -10,7 +10,7 @@ import {
 import { FIXTURE_NAMES, FIXTURES } from "../src/snapshot/fixtures";
 import type { NodeState, Phase } from "../src/snapshot/model.generated";
 import { PHASE_NAMES } from "../src/snapshot/readout";
-import { STATE_NAMES } from "../src/views/route/route";
+import { STATE_NAMES } from "../src/views/vocabulary";
 import { VIEWS } from "../src/views/views";
 import {
   DECLARATIONS_DIR,
