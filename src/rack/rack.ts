@@ -62,6 +62,32 @@ export const TIERS: readonly Tier[] = ["studs", "boards", "bays"];
 export const RACK_FLOOR = 152;
 
 /**
+ * The gutter the terminal box keeps to the right of the rack, in pixels.
+ *
+ * `--s-space-base`, which `src/App.module.css` gives `.terminal` as padding.
+ * Box-sizing is `border-box` everywhere, so [`RACK_FLOOR`] already covers the
+ * region's own padding and border — but that padding is *outside* the region,
+ * on the box the dial hands the pixels to, and a side floored at the region's
+ * width alone clips the rack by a gutter at the detent that matters most.
+ *
+ * A number rather than a token read at runtime because the side it floors is
+ * arithmetic in `src/panes/dial.ts`, which measures nothing and reads no
+ * stylesheet; `tests/dial.test.ts` pins it against the token so the two cannot
+ * drift apart.
+ */
+export const RACK_GUTTER = 16;
+
+/**
+ * What the terminal side owes the rack, in pixels, at every position.
+ *
+ * The one number the dial reserves and the one number the shell's layout takes
+ * out of the map side's cap — spelled once here so the arithmetic and the
+ * flexbox cannot disagree. A width `sides()` prints that the layout does not
+ * produce is the exact failure every comment in that module exists to prevent.
+ */
+export const RACK_RESERVE = RACK_FLOOR + RACK_GUTTER;
+
+/**
  * The measured region width at which each tier starts.
  *
  * `studs` floors at zero, and that is the load-bearing entry: a box nobody has

@@ -58,9 +58,11 @@
  * containing-block chain, and an unpositioned map side is not in it.
  *
  * The peek's stud is positioned against this box for the same reason and one
- * more: this is the box the dial cannot collapse. The terminal can be worth no
- * pixels at all, and a stud hung there would be clipped away at exactly the
- * detent where the refusal it prints is the only feedback the operator gets.
+ * more: this is the box the dial cannot shrink. The terminal side narrows to the
+ * rack's floor and no further, and every one of those pixels is the rack's, so a
+ * stud hung there would be clipped to a strip that is already spoken for — at
+ * exactly the detent where the refusal it prints is the only feedback the
+ * operator gets.
  */
 .body {
   position: relative;
@@ -110,20 +112,24 @@
  * whose measured width sheds the columns inside it.
  *
  * The basis is inline, from the store, because it moves between frames of a
- * drag, and so is the cap on it — `max-width: calc(100% - reach)`, from the
- * measured dial. Both belong to the same sentence: the map side is worth
- * `position × body`, less the seam, which is exactly what `sides()` prints. Left
+ * drag, and so is the cap on it — `max-width: calc(100% - reach - RACK_RESERVE)`,
+ * from the measured dial and the rack's exported floor. All of it is one
+ * sentence: the map side is worth `position × body`, less the seam and less what
+ * the terminal side owes the rack, which is exactly what `sides()` prints. Left
  * uncapped, the `map` detent asks for a whole body plus a dial and this box is
  * `overflow: hidden`, so the dial's column — the one control that undoes every
  * position — would be laid out past the clip edge and there would be no pointer
- * way back from the detent the switcher and the stand-down both send you to.
+ * way back from the detent the switcher and the stand-down both send you to; and
+ * the rack would be clipped to nothing at the one position where reading what
+ * every run is doing is all the terminal side is for.
  *
  * No grow and no shrink: a side that grew as its neighbours came and went would
  * move the seam without a hand on it, and a side that shrank would drift from
  * the pixels the shell prints about it. The cap does the whole job — a flex item
  * whose basis exceeds its own max-width is frozen there before any free space is
- * shared out — so the seam stays put and the only thing clipped at the far
- * detent is the terminal's own padding, around a terminal worth no pixels.
+ * shared out — so the seam stays put and what the terminal side keeps at the far
+ * detent is exactly what the cap left it: the rack's floor and this box's own
+ * padding, with the pane worth no pixels.
  */
 .mapSide {
   display: flex;
@@ -206,16 +212,19 @@
  *
  * It takes the remainder rather than a basis of its own, so the two sides always
  * add up to the window and the seam is one number. At the `map` detent that
- * remainder is zero — the pane is collapsed, still mounted, and `Pane` refuses
- * to measure a box with no width, so a collapse reflows no live agent.
+ * remainder is `RACK_RESERVE` — the rack's floor plus this box's own right
+ * padding, kept out of the map side's cap by `sides()` — so what stands here at
+ * the far end is the rack in studs and what collapses is the pane. The pane is
+ * still mounted, and `Pane` refuses to measure a box with no width, so the
+ * collapse reflows no live agent.
  */
 .terminal {
   /* Nothing of the peek's chrome hangs here, and this box is deliberately not a
      containing block. It is `flex: 1 1 0` and clips its overflow, so at the
-     `map` detent it is worth its padding alone and anything positioned against
-     it is clipped to nothing — while a strip put in its flow to avoid that
-     would narrow the pane and reflow a live agent. The stud is positioned
-     against the body instead. */
+     `map` detent it is worth the rack and its own padding alone, and anything
+     positioned against it is clipped to a strip the rack already fills — while a
+     strip put in its flow to avoid that would narrow the pane and reflow a live
+     agent. The stud is positioned against the body instead. */
   display: flex;
   flex: 1 1 0;
   min-width: 0;

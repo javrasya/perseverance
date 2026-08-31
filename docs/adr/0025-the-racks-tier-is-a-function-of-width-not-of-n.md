@@ -57,9 +57,11 @@ declaration a long enough kind word would widen the region, and the width would
 have become a function of what arrived.
 
 **The region has a floor, and there is no tier below it.** `RACK_FLOOR` is
-exported from the same module the dial reads, so the terminal side knows what it
-owes the rack at every detent, and it is authored again as `--c-rack-floor` in
-pixels — the unit the region is measured in. `studs` floors at zero width, which
+exported from the same module the dial reads, and `sides()` takes it — as
+`RACK_RESERVE`, the floor plus the terminal box's own padding — out of the map
+end at every position, so the terminal side never closes to zero and the map
+side's `max-width` is capped by the same one number rather than a second copy of
+it. It is authored again as `--c-rack-floor` in pixels — the unit the region is measured in. `studs` floors at zero width, which
 is deliberate: a box nobody has laid out yet, a first paint and every jsdom test
 all measure zero, and the answer to all three has to be *draw the narrow rack*.
 A fourth tier meaning *nothing* would be the one state in which the rack
@@ -103,7 +105,14 @@ width — while the rack is always there and only a dial move changes what it is
 worth. It sits on the dial's side of the pane so that a narrowing terminal side
 takes the pane's pixels first: at the `map` detent what is left of that side is
 the rack against its floor, which is the width at which supervising N runs still
-works.
+works. The reservation degrades rather than inverting the dial — it never takes
+more than half of what the two sides share — so on a window too narrow to afford
+both, the `map` detent is still the map-most position it is named for.
+
+The peek is drawn at the detent's width and therefore stops short of the rack
+too, which is what keeps a glance and the detent shedding the same columns: a
+peek at the old full-body width would be a map no position of the dial can
+reach.
 
 Silence is printed as a duration and classified as nothing. Quiet-versus-wedged
 is #50's, and a rack that guessed would be asserting a diagnosis nobody made —

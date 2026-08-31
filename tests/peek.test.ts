@@ -22,6 +22,7 @@ import {
   type Peek,
   type PeekEvent,
 } from "../src/panes/peek";
+import { RACK_RESERVE } from "../src/rack/rack";
 
 /**
  * The spring, without a window.
@@ -222,10 +223,13 @@ describe("every release, including the ones no keyup ever arrives for", () => {
 
 describe("what the peek is worth", () => {
   it("is the map side at the map detent, dial's column and all", () => {
-    // The body less the dial: the same pixels the `map` detent gives, so no
-    // view stands down in a glance that the detent would have drawn — and the
-    // seam is out of it, because the dial is on screen behind the peek too.
-    expect(peekWidth(1_000, 12)).toBe(988);
+    // The body less the dial and less what the terminal side owes the rack: the
+    // same pixels the `map` detent gives, so no view stands down in a glance
+    // that the detent would have drawn and no column is shed in one that the
+    // detent keeps. The seam is out of it because the dial is on screen behind
+    // the peek too, and the rack's floor is out of it because the rack is still
+    // standing beside the glance.
+    expect(peekWidth(1_000, 12)).toBe(1_000 - 12 - RACK_RESERVE);
     expect(peekWidth(1_000, 12)).toBe(sides(fractionOf("map"), 1_000, 12).map);
     expect(peekWidth(0, 12)).toBe(0);
   });
