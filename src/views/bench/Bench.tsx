@@ -16,15 +16,23 @@ import { NO_MAP_OPEN } from "../../snapshot/readout";
  */
 import type { ViewProps } from "../views";
 /*
- * Two words, borrowed rather than respelled. *unclassified* and *spec* are what
- * a child **is**, decided in Rust and already spelled once for the Route; a
- * second spelling here would be a second vocabulary for one fact, and the day
- * one of them changed the two views would disagree about the same node. Nothing
- * else crosses from that view: the marks, the shapes, the layout and the
- * palette below are the Bench's own.
+ * The words a plate says, and the arithmetic that sizes the box they go in.
+ * *unclassified* and *spec* are still borrowed rather than respelled — they are
+ * what a child **is**, decided in Rust and already spelled once for the Route —
+ * and `bench.ts` is where that borrowing now happens, because the chip's width
+ * is part of the plate's height. Nothing else crosses from that view: the
+ * marks, the shapes, the layout and the palette below are the Bench's own.
  */
-import { SPEC_TAG, UNCLASSIFIED_TAG } from "../route/route";
-import { HOP_GAP, benchOf, type Edge, type Plate } from "./bench";
+import {
+  HOP_GAP,
+  benchOf,
+  beyondTheMapLabel,
+  fanOutLabel,
+  kindTag,
+  waitingOnLabel,
+  type Edge,
+  type Plate,
+} from "./bench";
 import styles from "./Bench.module.css";
 
 /**
@@ -91,20 +99,14 @@ export const RANK_RAIL = 56;
 /** What the rail says beside a band. */
 export const rankLabel = (rank: number): string => `rank ${rank}`;
 
-/** How many wait on this plate — the fact The Route has no room for. */
-export const fanOutLabel = (count: number): string => `unblocks ${count}`;
-
-/** Blockers this map holds a plate for, and has not seen closed. */
-export const waitingOnLabel = (count: number): string => `waiting on ${count}`;
-
-/**
- * Blockers with no plate here at all.
- *
- * Never added to the one above. This map cannot say whether an issue it does
- * not hold is done, so the two are different claims and a sum would print a
- * number the canvas has nothing to account for.
+/*
+ * The chips' words are `bench.ts`'s, and re-exported here because this is where
+ * they used to be. They moved with the box: a plate is reserved the height its
+ * own content needs, and the widths that wrap the chips onto two lines or three
+ * are the widths of these strings — so the arithmetic that sizes the plate and
+ * the element that prints the chip have to be reading one spelling.
  */
-export const beyondTheMapLabel = (count: number): string => `${count} off this map`;
+export { beyondTheMapLabel, fanOutLabel, waitingOnLabel } from "./bench";
 
 /** What the view says when the window is narrower than it can draw in. */
 export const standDownNote = (needs: number, has: number): string =>
@@ -361,27 +363,27 @@ function Wires({
  * are not.
  */
 function pathOf(edge: Edge): string {
-  const [start, turn, corner, end] = edge.points;
-  if (
-    start === undefined ||
-    turn === undefined ||
-    corner === undefined ||
-    end === undefined
-  ) {
-    return "";
-  }
+  const first = edge.points[0];
+  if (first === undefined) return "";
 
-  const forward = corner.x >= turn.x;
-  const hops = forward ? edge.hops : [...edge.hops].reverse();
   const half = HOP_GAP / 2;
+  let drawn = `M ${first.x} ${first.y}`;
 
-  let drawn = `M ${start.x} ${start.y} L ${turn.x} ${turn.y}`;
-  for (const hop of hops) {
-    const before = forward ? hop - half : hop + half;
-    const after = forward ? hop + half : hop - half;
-    drawn += ` L ${before} ${turn.y} M ${after} ${turn.y}`;
+  for (let leg = 0; leg + 1 < edge.points.length; leg += 1) {
+    const start = edge.points[leg];
+    const end = edge.points[leg + 1];
+    if (start === undefined || end === undefined) continue;
+
+    const forward = end.x >= start.x;
+    const on = edge.hops.filter((hop) => hop.leg === leg).map((hop) => hop.x);
+    for (const hop of forward ? on : [...on].reverse()) {
+      const before = forward ? hop - half : hop + half;
+      const after = forward ? hop + half : hop - half;
+      drawn += ` L ${before} ${start.y} M ${after} ${start.y}`;
+    }
+    drawn += ` L ${end.x} ${end.y}`;
   }
-  return `${drawn} L ${corner.x} ${corner.y} L ${end.x} ${end.y}`;
+  return drawn;
 }
 
 /**
@@ -546,13 +548,12 @@ function PlateCard({
 function KindTag({ node }: { node: Node }): ReactElement {
   switch (node.kind.kind) {
     case "ticket":
-      return <span className={styles.fact}>{node.kind.type}</span>;
     case "spec":
-      return <span className={styles.fact}>{SPEC_TAG}</span>;
+      return <span className={styles.fact}>{kindTag(node)}</span>;
     case "unclassified":
       return (
         <span className={`${styles.fact} ${styles.factLoud}`} data-unclassified>
-          {UNCLASSIFIED_TAG}
+          {kindTag(node)}
         </span>
       );
   }

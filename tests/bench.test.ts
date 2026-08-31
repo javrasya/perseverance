@@ -216,16 +216,88 @@ describe("edges", () => {
     expect(crossed.length).toBeGreaterThan(0);
 
     for (const edge of crossed) {
-      const lane = edge.points[1];
-      const turn = edge.points[2];
-      if (lane === undefined || turn === undefined) throw new Error("a polyline");
-      const left = Math.min(lane.x, turn.x);
-      const right = Math.max(lane.x, turn.x);
       for (const hop of edge.hops) {
-        expect(hop).toBeGreaterThan(left);
-        expect(hop).toBeLessThan(right);
+        const start = edge.points[hop.leg];
+        const end = edge.points[hop.leg + 1];
+        if (start === undefined || end === undefined) throw new Error("a polyline");
+        // A break only ever lands on a horizontal run, and strictly inside it.
+        expect(start.y).toBe(end.y);
+        expect(hop.x).toBeGreaterThan(Math.min(start.x, end.x));
+        expect(hop.x).toBeLessThan(Math.max(start.x, end.x));
       }
-      expect([...edge.hops].sort((one, other) => one - other)).toEqual(edge.hops);
+      const order = edge.hops.map((hop) => [hop.leg, hop.x]);
+      expect([...order].sort((one, other) => one[0]! - other[0]! || one[1]! - other[1]!)).toEqual(
+        order,
+      );
+    }
+  });
+
+  /**
+   * The invariant this file's routing comment states, asserted rather than
+   * asserted-in-prose. A wrapped band is rows deep, and a vertical that reaches
+   * a lane placed once for the whole band crosses every row above it — which is
+   * a line drawn through tickets that have nothing to do with the dependency.
+   *
+   * Both ends of the width range, because the two are different drawings: at
+   * the floor `wide-map`'s first rank wraps into a tall stack of three-column
+   * rows, and wide it wraps into a few long ones.
+   */
+  it("draws no vertical through a plate that is not one of its own ends", () => {
+    for (const width of [BENCH_WIDTH_FLOOR, 900, WIDE]) {
+      const bench = drawn(wide, width);
+      expect(bench.edges.length).toBeGreaterThan(0);
+
+      for (const edge of bench.edges) {
+        const ends = new Set([edge.from, edge.to]);
+        for (let leg = 0; leg + 1 < edge.points.length; leg += 1) {
+          const start = edge.points[leg];
+          const end = edge.points[leg + 1];
+          if (start === undefined || end === undefined) throw new Error("a polyline");
+          if (start.x !== end.x) continue;
+          const top = Math.min(start.y, end.y);
+          const bottom = Math.max(start.y, end.y);
+
+          for (const plate of bench.plates) {
+            if (ends.has(plate.node.number)) continue;
+            const through =
+              plate.x < start.x &&
+              start.x < plate.x + plate.width &&
+              plate.y < bottom &&
+              top < plate.y + plate.height;
+            if (through) {
+              throw new Error(
+                `at ${width}px, ${edge.from}->${edge.to} runs down x=${start.x} through #${plate.node.number}`,
+              );
+            }
+          }
+        }
+      }
+    }
+  });
+
+  /**
+   * The other half of the same claim: the lanes the horizontals run in are
+   * blank canvas, not the middle of a row.
+   */
+  it("runs no horizontal across a plate", () => {
+    for (const width of [BENCH_WIDTH_FLOOR, WIDE]) {
+      const bench = drawn(wide, width);
+      for (const edge of bench.edges) {
+        for (let leg = 0; leg + 1 < edge.points.length; leg += 1) {
+          const start = edge.points[leg];
+          const end = edge.points[leg + 1];
+          if (start === undefined || end === undefined) throw new Error("a polyline");
+          if (start.y !== end.y) continue;
+          for (const plate of bench.plates) {
+            const crosses =
+              plate.y < start.y &&
+              start.y < plate.y + plate.height &&
+              plate.x < Math.max(start.x, end.x) &&
+              Math.min(start.x, end.x) < plate.x + plate.width;
+            expect(crosses).toBe(false);
+          }
+        }
+      }
     }
   });
 });

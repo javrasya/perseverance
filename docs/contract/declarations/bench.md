@@ -154,17 +154,21 @@ running down the page. The band boundaries themselves are drawn as nothing at
 all: a rank is bounded by the gap of blank canvas below it, which is space
 rather than a mark, and space cannot be misread as a dependency.
 
-There is one place the field grows past what the arithmetic reserved for it, and
-it is named here so that a reader does not have to find it. `bench.ts` gives
-every plate a 64px box including the doubled plate a cut node gets, so a cut
-whose reason runs to forty words overhangs its reserved height into the rank
-gap below its band, painting above its neighbours (`z-index: 1`) so the words
-stay legible. That overhang stays inside its own column and never reaches the
-rail, so it is annotation growing into blank field rather than into the label
-surface, and this declaration does not record it against rule 11. It is the
-residue of rule 6, which is asserted rather than judged and gets no section
-here; the lasting fix is a taller box for a cut plate in the arithmetic, and it
-is written down in `Bench.module.css` where the overhang is licensed.
+Nothing on the field grows past what the arithmetic reserved for it. The box is
+per plate and it is computed from what that plate has to say: `heightOf` in
+`bench.ts` counts the title's two clamped lines, the lines the micro chips wrap
+onto at the plate's own content width, and — on the doubled plate a cut node
+gets — the lines the cut's reason takes at forty words. Rows are then laid out
+from those heights rather than from one constant, so a wrapped band's second row
+starts below the tallest plate on its first. `Bench.module.css` therefore needs
+no `z-index` on any plate and has none: nothing is painted over anything, which
+is also what keeps rule 13's floor honest for the plate that would otherwise
+have been underneath.
+
+The check on that is a measurement and not the arithmetic restating itself.
+`tests/conformance/bench-box.spec.ts` renders `wide-map` in a real browser at two
+widths and asserts that every plate's rendered height is inside the height the
+view reserved for it, and that no two plates overlap.
 
 ## Rule 12 — Still-state equivalent
 

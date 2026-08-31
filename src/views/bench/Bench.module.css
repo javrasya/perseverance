@@ -170,8 +170,12 @@
  * from it. The border is drawn on every plate and only recoloured by a mark, so
  * a designation arriving moves nothing on the plates around it.
  *
- * `min-height` and not `height`: the box is the arithmetic's, and the one plate
- * allowed to exceed it is the cut one below.
+ * `min-height` and not `height`: the box is the arithmetic's, and it is sized
+ * per plate from what that plate says — `heightOf` in `bench.ts` counts the
+ * title's clamped lines, the lines the chips wrap onto and, on a doubled plate,
+ * the lines the cut's reason takes. No plate on this canvas overhangs the
+ * height reserved for it, so none of them needs a `z-index` to stay legible
+ * over a neighbour, and there is none here.
  */
 .plate {
   --c-plate-fill: var(--s-surface-sunken);
@@ -222,22 +226,6 @@
    plate is a ring clipped at the edge of the scroll. */
 .plate:focus-visible {
   outline-offset: -3px;
-}
-
-/*
- * The doubled plate, and the one box on this canvas allowed to overhang the
- * height the arithmetic reserved for it.
- *
- * Rule 6 forbids every cheaper answer — no ellipsis, no smaller face, no hover,
- * no `title` — so a forty-word reason that needs a third line takes a third
- * line. `bench.ts` leaves a whole rank gap of blank canvas below every band,
- * which is where the overhang goes; it paints above its neighbours so the words
- * stay legible if a wrapped row is close underneath. The lasting fix belongs in
- * the arithmetic, as a taller box for a cut plate.
- */
-.plate[data-cut] {
-  z-index: 1;
-  height: auto;
 }
 
 /*

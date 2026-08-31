@@ -37,6 +37,13 @@
  */
 
 import type { Map as MapModel, Model, Node } from "../../snapshot/model.generated";
+/*
+ * Two words, borrowed rather than respelled — the same borrowing `Bench.tsx`
+ * states, and it moved here with the chip that prints them: *unclassified* and
+ * *spec* are what a child **is**, decided in Rust and already spelled once for
+ * the Route.
+ */
+import { SPEC_TAG, UNCLASSIFIED_TAG } from "../route/route";
 
 /*
  * `Map` from the model shadows the built-in one for the whole of this file, the
@@ -57,10 +64,33 @@ const Lookup = globalThis.Map;
  * wide as their own title is a schematic with no columns in it.
  */
 export const PLATE_WIDTH = 200;
+
+/**
+ * The shortest a plate is ever drawn, and no longer the height of every plate.
+ *
+ * The width is a constant because columns are the point; the height is not,
+ * because a plate's box has to *contain* what the plate says. A cut's reason
+ * runs to forty words and four micro chips do not fit on one 182px line, so a
+ * single reserved height was a box the content walked out of — which is a plate
+ * painted over the wrapped row beneath it, and, for a cut plate, a declaration
+ * about blank canvas that was not true. [`heightOf`] answers the box per plate
+ * from the plate's own content; this constant is the floor it never goes below,
+ * so a sparse plate still reads as the same kind of object as a full one.
+ */
 export const PLATE_HEIGHT = 64;
 
 /** Horizontal space between two plates in the same row. */
 export const PLATE_GAP = 24;
+
+/**
+ * The column pitch, and the grid every plate lands on.
+ *
+ * Plates are placed left to right from the margin at this pitch and a doubled
+ * plate swallows exactly one gutter, so the vertical strips *between* the
+ * columns are never covered by a standard plate. That is what makes them
+ * routable: see [`channelsAt`].
+ */
+export const COLUMN_PITCH = PLATE_WIDTH + PLATE_GAP;
 
 /**
  * The double plate, for a ticket the map document cut.
@@ -74,8 +104,16 @@ export const PLATE_GAP = 24;
  */
 export const CUT_PLATE_WIDTH = PLATE_WIDTH * 2 + PLATE_GAP;
 
-/** Vertical space between two wrapped rows of the same rank. */
-export const ROW_GAP = 16;
+/**
+ * Vertical space between two wrapped rows of the same rank.
+ *
+ * Wider than it needs to be to separate two rows, because it is not only
+ * separation: an edge that leaves a plate on a wrapped row descends into the
+ * gap *below that row* and runs along it, so an inter-row gap carries lanes the
+ * same way a rank gap does — see [`edgesOf`]. It stays well under [`RANK_GAP`]
+ * so that a wrapped band still reads as one rank rather than as several.
+ */
+export const ROW_GAP = 24;
 
 /**
  * The vertical space between two bands, and the whole of what the edges have to
@@ -103,8 +141,13 @@ export const HOP_GAP = 6;
 /** The margin around the whole canvas. */
 export const CANVAS_PADDING = 16;
 
+/** How many discrete lanes a gap of this height holds, never fewer than one. */
+export function lanesIn(height: number): number {
+  return Math.max(1, Math.floor(height / LANE_PITCH) - 1);
+}
+
 /** How many discrete lanes a rank gap holds. */
-export const LANES_PER_GAP = Math.floor(RANK_GAP / LANE_PITCH) - 1;
+export const LANES_PER_GAP = lanesIn(RANK_GAP);
 
 /**
  * The narrowest map side the Bench will draw on, in pixels.
@@ -237,6 +280,195 @@ function factsOf(nodes: readonly Node[]): ReadonlyMap<number, NodeFacts> {
   return facts;
 }
 
+/* ----------------------------------------------------------------- box --- */
+
+/**
+ * The words a plate carries, spelled here because they are what sizes its box.
+ *
+ * They used to live in `Bench.tsx`, next to the elements that print them, and
+ * that was the right place while every plate was the same 64px tall. It stopped
+ * being: the height of a plate is the height of its own content, and the
+ * content is four micro chips whose widths are the widths of *these strings*.
+ * A second spelling in the arithmetic would be a box measured against words the
+ * screen does not say, so there is one spelling and `Bench.tsx` imports it.
+ */
+
+/** How many wait on this plate — the fact The Route has no room for. */
+export const fanOutLabel = (count: number): string => `unblocks ${count}`;
+
+/** Blockers this map holds a plate for, and has not seen closed. */
+export const waitingOnLabel = (count: number): string => `waiting on ${count}`;
+
+/**
+ * Blockers with no plate here at all.
+ *
+ * Never added to the one above. This map cannot say whether an issue it does
+ * not hold is done, so the two are different claims and a sum would print a
+ * number the canvas has nothing to account for.
+ */
+export const beyondTheMapLabel = (count: number): string => `${count} off this map`;
+
+/** What this child is, in the model's own three words. */
+export function kindTag(node: Node): string {
+  switch (node.kind.kind) {
+    case "ticket":
+      return node.kind.type;
+    case "spec":
+      return SPEC_TAG;
+    case "unclassified":
+      return UNCLASSIFIED_TAG;
+  }
+}
+
+/** Every chip a plate prints, in the order the plate prints them. */
+export function chipsOf(node: Node, facts: NodeFacts): readonly string[] {
+  const chips = [fanOutLabel(facts.fanOut.length)];
+  if (facts.stillInTheWay > 0) chips.push(waitingOnLabel(facts.stillInTheWay));
+  if (facts.beyondTheMap > 0) chips.push(beyondTheMapLabel(facts.beyondTheMap));
+  chips.push(kindTag(node));
+  return chips;
+}
+
+/*
+ * The stylesheet's own numbers, restated as arithmetic.
+ *
+ * Every constant below is one declaration in `Bench.module.css` resolved
+ * through `src/styles/tokens/`: the hairline border, `--s-space-tight` padding,
+ * the `--s-space-hair` gaps, `--s-text-small` at 1.25 for the title and
+ * `--s-text-micro` at 1.3 for the reason. They are duplicated rather than
+ * measured because the canvas has to be laid out before anything is on screen
+ * to measure, and feeding a measurement back into the layout would make the
+ * Bench a function of the DOM instead of a function of the model.
+ *
+ * A duplicate is only as good as what checks it, so the check is not arithmetic:
+ * `tests/conformance/bench-box.spec.ts` renders the real page in a real browser
+ * and asserts that no plate's rendered height exceeds the box reserved here. If
+ * a token moves, that goes red rather than a plate quietly growing out of its
+ * box again.
+ *
+ * The advances are per-character widths, rounded **up** from the faces the
+ * stacks resolve to (a monospace face is 0.6em; `--s-tracking-label` adds
+ * 0.08em to a chip). Rounding up costs a few pixels of blank plate and buys the
+ * only error direction that is not a plate overlapping its neighbour.
+ */
+const PLATE_BORDER = 1;
+const PLATE_PADDING = 8;
+/** `gap: var(--s-space-hair) var(--s-space-tight)` — between flex lines, and along one. */
+const CONTENT_GAP = 4;
+const CONTENT_SPACE = 8;
+/** `.stud`, `flex: 0 0 14px`. */
+const STUD = 14;
+/** `--s-text-small` at `line-height: 1.25`, and the line `.id` sets in the same size. */
+const TEXT_LINE = 17;
+/** `-webkit-line-clamp: 2`, so a third line of title is never drawn. */
+const TITLE_CLAMP = 2;
+/** `--s-text-small` in the body face. */
+const TITLE_ADVANCE = 7.5;
+/** `--s-text-small` in `--s-font-mono`. */
+const SMALL_MONO_ADVANCE = 8.1;
+/** `--s-text-micro` in `--s-font-mono`. */
+const MICRO_MONO_ADVANCE = 6.9;
+/** The same, plus `--s-tracking-label`. */
+const CHIP_ADVANCE = 7.7;
+/** `.fact`'s padding and its hairline, both sides. */
+const CHIP_PADDING = 10;
+/** One chip's line box, its border included. */
+const CHIP_LINE = 17;
+/** `.reason` at `line-height: 1.3`. */
+const REASON_LINE = 15;
+
+/**
+ * How many lines a string takes in a box this wide.
+ *
+ * Word wrapping, because that is what the browser does, plus the one thing
+ * `overflow-wrap: break-word` adds: a word wider than the box is broken across
+ * as many lines as it needs rather than hanging out of it.
+ */
+function linesOf(text: string, width: number, advance: number): number {
+  const words = text.split(/\s+/).filter((word) => word.length > 0);
+  if (words.length === 0) return 0;
+
+  let lines = 1;
+  let used = 0;
+  for (const word of words) {
+    const wide = word.length * advance;
+    if (wide > width) {
+      if (used > 0) lines += 1;
+      const broken = Math.ceil(wide / width);
+      lines += broken - 1;
+      used = wide - (broken - 1) * width;
+      continue;
+    }
+    const space = used === 0 ? 0 : advance;
+    if (used > 0 && used + space + wide > width) {
+      lines += 1;
+      used = wide;
+    } else {
+      used += space + wide;
+    }
+  }
+  return lines;
+}
+
+/** How many lines the chips wrap onto, packed the way a wrapping flex row packs them. */
+function chipLines(chips: readonly string[], width: number): number {
+  let lines = 1;
+  let used = 0;
+  for (const chip of chips) {
+    const wide = chip.length * CHIP_ADVANCE + CHIP_PADDING;
+    const space = used === 0 ? 0 : CONTENT_GAP;
+    if (used > 0 && used + space + wide > width) {
+      lines += 1;
+      used = wide;
+    } else {
+      used += space + wide;
+    }
+  }
+  return lines;
+}
+
+function widthOfPlate(node: Node): number {
+  return node.cut.cut === "fromScope" ? CUT_PLATE_WIDTH : PLATE_WIDTH;
+}
+
+/**
+ * The box one plate is reserved, from what that plate has to say in it.
+ *
+ * Three stacked lines of content: the stud, the number and the clamped title;
+ * the chips; and, on a cut plate, the reason in the operator's own sentence.
+ * Rule 6 forbids every cheaper answer to a long reason — no ellipsis, no
+ * smaller face, no hover, no `title` — so the answer is the box, and the box is
+ * computed here rather than overflowed on screen. A cut plate is therefore
+ * taller as well as wider, and nothing on this canvas overhangs what the
+ * arithmetic reserved for it.
+ */
+export function heightOf(node: Node, facts: NodeFacts): number {
+  const content = widthOfPlate(node) - 2 * PLATE_BORDER - 2 * PLATE_PADDING;
+
+  const number = `#${node.number}`.length * SMALL_MONO_ADVANCE;
+  const forTitle = Math.max(
+    content * 0.4,
+    content - STUD - CONTENT_SPACE - number - CONTENT_SPACE,
+  );
+  const title = Math.min(TITLE_CLAMP, linesOf(node.title, forTitle, TITLE_ADVANCE));
+
+  const chips = chipLines(chipsOf(node, facts), content);
+  const reason =
+    node.cut.cut === "fromScope"
+      ? CONTENT_GAP + linesOf(node.cut.reason, content, MICRO_MONO_ADVANCE) * REASON_LINE
+      : 0;
+
+  return Math.max(
+    PLATE_HEIGHT,
+    2 * PLATE_BORDER +
+      2 * PLATE_PADDING +
+      Math.max(STUD, title * TEXT_LINE) +
+      CONTENT_GAP +
+      (chips * CHIP_LINE + (chips - 1) * CONTENT_GAP) +
+      reason,
+  );
+}
+
 /* --------------------------------------------------------------- plates --- */
 
 export type Plate = {
@@ -266,20 +498,38 @@ export type Band = {
 export type Point = { readonly x: number; readonly y: number };
 
 /**
+ * Where another edge's vertical crosses one of this edge's horizontal runs.
+ *
+ * `leg` is which run: the segment from `points[leg]` to `points[leg + 1]`. An
+ * edge has two horizontal runs when it had to change columns to get down the
+ * canvas without crossing a plate, so a bare list of x positions would no
+ * longer say which line the break belongs to.
+ */
+export type Hop = {
+  readonly leg: number;
+  readonly x: number;
+};
+
+/**
  * One drawn dependency: the blocker at `from`, the node that waits at `to`.
  *
- * `points` is an orthogonal polyline — down out of the blocker, along a lane,
- * down into the waiting plate — and never anything else. `hops` are the x
- * positions on the horizontal run where another edge's vertical crosses it, and
- * the break belongs to the horizontal line by convention so that a reader
- * following a line down the canvas never loses it.
+ * `points` is an orthogonal polyline and never anything else. In the ordinary
+ * case it is the three legs it always was — out of the blocker's face, along a
+ * lane, down into the waiting plate. When the two plates are more than one row
+ * apart it is five, because the straight run between them would pass through
+ * the rows in between: it steps sideways into a routing channel first, runs
+ * down that, and steps back out in the lane above the plate that waits. See
+ * [`edgesOf`].
+ *
+ * `hops` are the crossings, and the break belongs to the horizontal line by
+ * convention so that a reader following a line down the canvas never loses it.
  */
 export type Edge = {
   readonly from: number;
   readonly to: number;
   readonly lane: number;
   readonly points: readonly Point[];
-  readonly hops: readonly number[];
+  readonly hops: readonly Hop[];
 };
 
 /**
@@ -333,11 +583,32 @@ const EMPTY = (width: number, columns: number): Bench => ({
 /** How many standard plates fit across a map side this wide. */
 export function columnsAt(width: number): number {
   const usable = width - CANVAS_PADDING * 2;
-  return Math.max(1, Math.floor((usable + PLATE_GAP) / (PLATE_WIDTH + PLATE_GAP)));
+  return Math.max(1, Math.floor((usable + PLATE_GAP) / COLUMN_PITCH));
 }
 
-function widthOfPlate(node: Node): number {
-  return node.cut.cut === "fromScope" ? CUT_PLATE_WIDTH : PLATE_WIDTH;
+/**
+ * One laid row of the canvas, wrapped or not, in the order it is read down the
+ * page. Rows are what the router thinks in: a band is a run of them, and the
+ * space above each one is where its incoming edges are allowed to run.
+ */
+type Row = {
+  readonly top: number;
+  readonly height: number;
+  readonly plates: readonly Plate[];
+};
+
+/** The blank strip above one row, and the lanes it affords. */
+type Gap = {
+  readonly top: number;
+  readonly lanes: number;
+};
+
+function gapsBetween(rows: readonly Row[]): readonly Gap[] {
+  return rows.map((row, index) => {
+    const above = rows[index - 1];
+    const top = above === undefined ? CANVAS_PADDING : above.top + above.height;
+    return { top, lanes: lanesIn(row.top - top) };
+  });
 }
 
 /**
@@ -373,6 +644,12 @@ export function benchOf(model: Model, width: number): Bench {
   const plates: Plate[] = [];
   const platesByNumber = new Lookup<number, Plate>();
   const bands: Band[] = [];
+  /* Every row on the canvas, and which one each plate is on. The router works
+     in rows rather than in bands: a wrapped band is several rows deep, and an
+     edge that treats it as one box runs its verticals through the rows in
+     between. */
+  const rows: Row[] = [];
+  const rowOfPlate = new Lookup<number, number>();
 
   /*
    * The first band starts a whole rank gap down rather than at the margin. A
@@ -386,8 +663,14 @@ export function benchOf(model: Model, width: number): Bench {
 
   for (let rank = 0; rank <= lastRank; rank += 1) {
     const onRank = nodes.filter((node) => ranks.get(node.number) === rank);
-    const laid: Plate[] = [];
 
+    /*
+     * Wrapped first, measured second, placed third. A row's height is the
+     * tallest box on it and a plate's box is its own content's, so no `y` can
+     * be settled until the whole row is known — which is also why the
+     * arithmetic wraps the band itself rather than leaving it to CSS.
+     */
+    const wrapped: { node: Node; row: number; x: number; height: number }[] = [];
     let row = 0;
     let x = CANVAS_PADDING;
     for (const node of onRank) {
@@ -399,29 +682,59 @@ export function benchOf(model: Model, width: number): Bench {
         row += 1;
         x = CANVAS_PADDING;
       }
-      const plate: Plate = {
-        node,
-        rank,
-        row,
-        x,
-        y: top + row * (PLATE_HEIGHT + ROW_GAP),
-        width: plateWidth,
-        height: PLATE_HEIGHT,
-        reason: node.cut.cut === "fromScope" ? node.cut.reason : null,
-        facts: facts.get(node.number) ?? {
-          fanOut: [],
-          stillInTheWay: 0,
-          beyondTheMap: 0,
-        },
+      const nodeFacts = facts.get(node.number) ?? {
+        fanOut: [],
+        stillInTheWay: 0,
+        beyondTheMap: 0,
       };
-      laid.push(plate);
-      platesByNumber.set(node.number, plate);
+      wrapped.push({ node, row, x, height: heightOf(node, nodeFacts) });
       x += plateWidth + PLATE_GAP;
     }
 
-    const rows = onRank.length === 0 ? 0 : row + 1;
-    const height = rows === 0 ? 0 : rows * PLATE_HEIGHT + (rows - 1) * ROW_GAP;
-    bands.push({ rank, rows, top, height, plates: laid });
+    const rowCount = onRank.length === 0 ? 0 : row + 1;
+    const rowHeights = Array.from({ length: rowCount }, (_, index) =>
+      Math.max(
+        PLATE_HEIGHT,
+        ...wrapped.filter((one) => one.row === index).map((one) => one.height),
+      ),
+    );
+
+    const laid: Plate[] = [];
+    let rowTop = top;
+    for (let index = 0; index < rowCount; index += 1) {
+      const height = rowHeights[index] ?? PLATE_HEIGHT;
+      const onRow: Plate[] = [];
+      for (const placed of wrapped) {
+        if (placed.row !== index) continue;
+        const plate: Plate = {
+          node: placed.node,
+          rank,
+          row: index,
+          x: placed.x,
+          y: rowTop,
+          width: widthOfPlate(placed.node),
+          height: placed.height,
+          reason: placed.node.cut.cut === "fromScope" ? placed.node.cut.reason : null,
+          facts: facts.get(placed.node.number) ?? {
+            fanOut: [],
+            stillInTheWay: 0,
+            beyondTheMap: 0,
+          },
+        };
+        onRow.push(plate);
+        platesByNumber.set(placed.node.number, plate);
+        rowOfPlate.set(placed.node.number, rows.length);
+      }
+      laid.push(...onRow);
+      rows.push({ top: rowTop, height, plates: onRow });
+      rowTop += height + ROW_GAP;
+    }
+
+    const height =
+      rowCount === 0
+        ? 0
+        : rowHeights.reduce((sum, one) => sum + one, 0) + (rowCount - 1) * ROW_GAP;
+    bands.push({ rank, rows: rowCount, top, height, plates: laid });
     plates.push(...laid);
     top += height + RANK_GAP;
   }
@@ -450,7 +763,7 @@ export function benchOf(model: Model, width: number): Bench {
     columns,
     bands,
     plates,
-    edges: edgesOf(nodes, bands, platesByNumber),
+    edges: edgesOf(nodes, rows, rowOfPlate, platesByNumber, columns),
     beyondTheMap,
   };
 }
@@ -458,26 +771,91 @@ export function benchOf(model: Model, width: number): Bench {
 /* --------------------------------------------------------------- edges --- */
 
 /**
- * Every drawn dependency, routed in the lanes above the plate it points at.
+ * The vertical strips no plate can be standing in, at this width.
  *
- * One rule for every edge, including the ones a cut cycle leaves running
- * backwards: the horizontal run sits in the gap **above the waiting plate's
- * band**, the line leaves the blocker from whichever face the lane is on, and
- * it enters the waiting plate from the top. A backwards edge is then a line
- * that goes up, along and down again — visibly odd, which is correct, because
- * the map it came from is.
+ * Plates are placed from the margin on [`COLUMN_PITCH`], and the doubled plate
+ * is exactly two columns plus the gutter it swallows, so the centre line of
+ * every gutter between two columns is a strip of canvas a *standard* plate
+ * never covers. Those centre lines are the channels an edge drops down when it
+ * has rows to get past. A doubled plate does cover the one gutter it swallowed,
+ * which is why a channel is chosen per edge against the rows it actually
+ * crosses rather than once for the canvas.
+ */
+function channelsAt(columns: number): readonly number[] {
+  const channels: number[] = [];
+  for (let column = 0; column + 1 < columns; column += 1) {
+    channels.push(CANVAS_PADDING + column * COLUMN_PITCH + PLATE_WIDTH + PLATE_GAP / 2);
+  }
+  return channels;
+}
+
+/**
+ * Every drawn dependency, routed so that no line is drawn through a plate.
  *
- * Lanes are handed out in edge order and wrapped at [`LANES_PER_GAP`], so a
- * band with more incoming edges than lanes reuses one rather than routing
- * outside the gap. Two edges sharing a lane is a readable overlap; an edge
- * drawn through a plate is not.
+ * **The lane is the gap above the waiting plate's row**, not above its band. A
+ * band that wrapped into eight rows is eight rows deep, and a lane placed once
+ * for the whole band is a lane the incoming verticals reach by crossing every
+ * row above it — which was this file's stated invariant broken by its own
+ * headline feature.
+ *
+ * The line therefore leaves the blocker into the gap **beside its own row** —
+ * below it for an edge that runs down the canvas, above it for the backwards
+ * edge a cut cycle leaves — and enters the waiting plate from the top out of
+ * the gap above *its* row. When those two gaps are the same one, that is the
+ * three-leg polyline this view has always drawn. When they are not, the two
+ * lanes are joined down a routing channel ([`channelsAt`]) chosen to miss every
+ * plate on every row in between: sideways, down, sideways. Five legs, still
+ * orthogonal, still no diagonal and still no curve.
+ *
+ * Lanes are handed out in edge order and wrapped at the gap's own lane count,
+ * so a gap with more edges than lanes reuses one rather than routing outside
+ * it. Two edges sharing a lane is a readable overlap; an edge drawn through a
+ * plate is not — and now neither is the vertical that reaches it.
+ *
+ * **The one case that degrades.** If every channel is covered on some row in
+ * between — which takes cut plates stacked so their swallowed gutters between
+ * them leave nothing free — the least covered channel is taken. That is a line
+ * over a plate again, in the one arrangement where the canvas has no clear
+ * column left; it is deterministic and it is not silent, because
+ * `tests/bench.test.ts` asserts the clean case over the whole fixture.
  */
 function edgesOf(
   nodes: readonly Node[],
-  bands: readonly Band[],
+  rows: readonly Row[],
+  rowOfPlate: ReadonlyMap<number, number>,
   platesByNumber: ReadonlyMap<number, Plate>,
+  columns: number,
 ): readonly Edge[] {
+  const gaps = gapsBetween(rows);
+  const channels = channelsAt(columns);
   const laneCount = new Lookup<number, number>();
+
+  const laneIn = (gap: number): { lane: number; y: number } => {
+    const here = gaps[gap];
+    if (here === undefined) return { lane: 0, y: 0 };
+    const used = laneCount.get(gap) ?? 0;
+    laneCount.set(gap, used + 1);
+    const lane = used % here.lanes;
+    return { lane, y: here.top + LANE_PITCH * (lane + 1) };
+  };
+
+  /** The channel that crosses the fewest plates on the rows in between. */
+  const channelFor = (first: number, last: number, near: number): number => {
+    const crossed = rows.slice(first, last).flatMap((row) => row.plates);
+    let best = near;
+    let bestCover = Number.POSITIVE_INFINITY;
+    for (const channel of channels) {
+      const cover = crossed.filter(
+        (plate) => plate.x < channel && channel < plate.x + plate.width,
+      ).length;
+      if (cover < bestCover || (cover === bestCover && Math.abs(channel - near) < Math.abs(best - near))) {
+        best = channel;
+        bestCover = cover;
+      }
+    }
+    return best;
+  };
+
   const routed: {
     edge: Omit<Edge, "hops">;
     verticals: readonly { x: number; from: number; to: number }[];
@@ -485,25 +863,55 @@ function edgesOf(
 
   for (const node of nodes) {
     const to = platesByNumber.get(node.number);
-    if (to === undefined) continue;
+    const toRow = rowOfPlate.get(node.number);
+    if (to === undefined || toRow === undefined) continue;
     for (const before of node.waitsOn) {
       const from = platesByNumber.get(before);
-      if (from === undefined) continue;
-
-      const band = bands[to.rank];
-      if (band === undefined) continue;
-
-      const used = laneCount.get(to.rank) ?? 0;
-      laneCount.set(to.rank, used + 1);
-      const lane = used % LANES_PER_GAP;
-      const laneY = band.top - RANK_GAP + LANE_PITCH * (lane + 1);
+      const fromRow = rowOfPlate.get(before);
+      if (from === undefined || fromRow === undefined) continue;
 
       const fromX = from.x + from.width / 2;
       const toX = to.x + to.width / 2;
-      // The blocker is left from the face the lane is on: below it when the
-      // lane is below, above it when the cut cycle put the lane overhead.
-      const leavesBelow = laneY >= from.y + from.height;
-      const fromY = leavesBelow ? from.y + from.height : from.y;
+
+      /* The gap above the waiting plate's row is where the line arrives; the
+         gap beside the blocker's own row is where it sets off. */
+      const arrival = toRow;
+      const departure = toRow > fromRow ? fromRow + 1 : fromRow;
+
+      if (arrival === departure) {
+        const { lane, y } = laneIn(arrival);
+        // The blocker is left from the face the lane is on: below it when the
+        // lane is below, above it when the cut cycle put the lane overhead.
+        const fromY = y >= from.y + from.height ? from.y + from.height : from.y;
+        routed.push({
+          edge: {
+            from: before,
+            to: node.number,
+            lane,
+            points: [
+              { x: fromX, y: fromY },
+              { x: fromX, y },
+              { x: toX, y },
+              { x: toX, y: to.y },
+            ],
+          },
+          verticals: [
+            { x: fromX, from: Math.min(fromY, y), to: Math.max(fromY, y) },
+            { x: toX, from: y, to: to.y },
+          ],
+        });
+        continue;
+      }
+
+      const down = arrival > departure;
+      const leaving = laneIn(departure);
+      const { lane, y: arriveY } = laneIn(arrival);
+      const fromY = down ? from.y + from.height : from.y;
+      const channel = channelFor(
+        Math.min(departure, arrival),
+        Math.max(departure, arrival),
+        (fromX + toX) / 2,
+      );
 
       routed.push({
         edge: {
@@ -512,37 +920,50 @@ function edgesOf(
           lane,
           points: [
             { x: fromX, y: fromY },
-            { x: fromX, y: laneY },
-            { x: toX, y: laneY },
+            { x: fromX, y: leaving.y },
+            { x: channel, y: leaving.y },
+            { x: channel, y: arriveY },
+            { x: toX, y: arriveY },
             { x: toX, y: to.y },
           ],
         },
         verticals: [
-          { x: fromX, from: Math.min(fromY, laneY), to: Math.max(fromY, laneY) },
-          { x: toX, from: laneY, to: to.y },
+          { x: fromX, from: Math.min(fromY, leaving.y), to: Math.max(fromY, leaving.y) },
+          {
+            x: channel,
+            from: Math.min(leaving.y, arriveY),
+            to: Math.max(leaving.y, arriveY),
+          },
+          { x: toX, from: arriveY, to: to.y },
         ],
       });
     }
   }
 
   return routed.map(({ edge }, index) => {
-    const laneY = edge.points[1]?.y ?? 0;
-    const left = Math.min(edge.points[1]?.x ?? 0, edge.points[2]?.x ?? 0);
-    const right = Math.max(edge.points[1]?.x ?? 0, edge.points[2]?.x ?? 0);
+    const hops: Hop[] = [];
+    for (let leg = 0; leg + 1 < edge.points.length; leg += 1) {
+      const start = edge.points[leg];
+      const end = edge.points[leg + 1];
+      if (start === undefined || end === undefined || start.y !== end.y) continue;
+      const left = Math.min(start.x, end.x);
+      const right = Math.max(start.x, end.x);
 
-    const hops = new Set<number>();
-    routed.forEach((other, otherIndex) => {
-      if (otherIndex === index) return;
-      for (const vertical of other.verticals) {
-        // Strictly inside, at both ends: a vertical that stops on this lane is
-        // an edge sharing a corner with it, not a crossing, and breaking the
-        // line there would draw a gap where two lines meet.
-        if (vertical.x <= left || vertical.x >= right) continue;
-        if (vertical.from >= laneY || vertical.to <= laneY) continue;
-        hops.add(vertical.x);
-      }
-    });
+      const at = new Set<number>();
+      routed.forEach((other, otherIndex) => {
+        if (otherIndex === index) return;
+        for (const vertical of other.verticals) {
+          // Strictly inside, at both ends: a vertical that stops on this lane
+          // is an edge sharing a corner with it, not a crossing, and breaking
+          // the line there would draw a gap where two lines meet.
+          if (vertical.x <= left || vertical.x >= right) continue;
+          if (vertical.from >= start.y || vertical.to <= start.y) continue;
+          at.add(vertical.x);
+        }
+      });
+      for (const x of [...at].sort((one, other) => one - other)) hops.push({ leg, x });
+    }
 
-    return { ...edge, hops: [...hops].sort((one, other) => one - other) };
+    return { ...edge, hops };
   });
 }
