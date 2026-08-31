@@ -396,8 +396,22 @@ export function labelFor(entry: Entry, state: KeyState): string {
  * row added by a later ticket changes this answer without this function being
  * touched. The no-run case says so plainly rather than naming a destination
  * that is not there.
+ *
+ * `parked` — the warm run's child has stopped and the caret has stayed on it,
+ * ADR 0026 — is threaded in rather than read off [`KeyState`], because it is not
+ * a fact this module can reach: it arrives on the readout poll, beside the pane,
+ * and the UI store deliberately holds nothing a poll writes. The caller that has
+ * the readouts in hand answers it once and hands the answer to both sentences it
+ * prints, so the `Esc` line and the temperature under it cannot disagree about
+ * whether there is a child on the other end of the keyboard. The default is the
+ * honest one for the two callers with no readouts to hand — the palette and the
+ * keys page, where a surface is in front and its dismiss row answers first.
  */
-export function escDestination(state: KeyState, table: readonly Entry[] = ENTRIES): string {
+export function escDestination(
+  state: KeyState,
+  parked = false,
+  table: readonly Entry[] = ENTRIES,
+): string {
   const dismissing = table.find(
     (entry) =>
       entry.dismisses !== undefined &&
@@ -413,6 +427,19 @@ export function escDestination(state: KeyState, table: readonly Entry[] = ENTRIE
    * key reaches nothing at all, and saying *the agent CLI* there would promise
    * an interrupt that never arrives.
    */
+  /*
+   * And warm is not on its own enough to name the CLI, for the same reason
+   * again one state further in. A run whose child has stopped keeps the keys —
+   * the caret parks rather than moving, because moving it would drop the next
+   * keystroke into a different agent's conversation — so the temperature is
+   * true and there is still nobody to interrupt. What is typed at a parked run
+   * stops in its spill register, and `Esc` does not even do that: the register
+   * keeps words and drops a chunk with a control byte in it whole. So this key
+   * lands nowhere at all, and the line says that rather than promising an
+   * interrupt over the sentence below it that has already said the child is
+   * gone.
+   */
+  if (state.warm !== null && parked) return "reaches nothing — this run's child has stopped";
   if (state.warm !== null) return "reaches the agent CLI";
   if (state.monitored !== null) return "reaches nothing — the keys are on the map";
   return "reaches nothing yet — nothing is bound to this window";

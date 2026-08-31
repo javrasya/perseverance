@@ -61,6 +61,26 @@ export function nameOf(warm: WarmRun): string {
 }
 
 /**
+ * The warm run's own readout, picked out of the array the poll refreshes.
+ *
+ * The one place *which readout belongs to the run holding the keys* is
+ * answered, because two sentences printed one above the other are computed from
+ * it: the temperature, which names the run, and the `Esc` line, which has to
+ * know whether that run still has a child to take an interrupt. Both read
+ * `over` off this one matched readout, so *is the caret parked* has a single
+ * answer — two matches would be two answers, and a paragraph that contradicts
+ * itself between its lines is worse than either line alone.
+ *
+ * Matched rather than trusted: the array is refreshed several times a second
+ * and the warm run may have changed between two of them, so a readout for some
+ * other run answers nothing about this one.
+ */
+export function warmReadout(state: KeyState, readouts: readonly WarmRun[]): WarmRun | null {
+  if (state.warm === null) return null;
+  return readouts.find((readout) => readout.run === state.warm) ?? null;
+}
+
+/**
  * The destination, as the phrase that follows *keys go to*.
  *
  * The three cases are the three the model has, in the order they take
@@ -91,10 +111,11 @@ export function keysGo(
   }
 
   if (state.warm === null) return "the map";
-  /* A readout for some other run answers nothing about this one: it is matched
-     rather than trusted, because the array it came out of is refreshed several
-     times a second and the warm run may have changed between two of them. */
-  const named = warm !== null && warm.run === state.warm ? warm : null;
+  /* Through [`warmReadout`] and not a comparison written out here, so this
+     sentence and the `Esc` line above it agree on which readout is the warm
+     run's by construction rather than by two call sites being kept in step. A
+     caller that has already matched loses nothing by being matched again. */
+  const named = warmReadout(state, warm === null ? [] : [warm]);
   if (named === null) return `run ${state.warm}, on the monitor`;
   if (named.over) {
     return `${nameOf(named)} — its child has stopped, so keystrokes are held in its spill register`;

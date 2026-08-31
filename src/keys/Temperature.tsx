@@ -1,6 +1,6 @@
 import { useUi } from "../stores/ui";
 import { currentState } from "./router";
-import { keysGo, type WarmRun } from "./temperature";
+import { keysGo, warmReadout, type WarmRun } from "./temperature";
 import styles from "./Temperature.module.css";
 
 /**
@@ -22,7 +22,9 @@ export function Temperature({ readouts }: { readouts: readonly WarmRun[] }) {
   // this the sentence would be whatever it was at the last unrelated render.
   useUi();
   const state = currentState();
-  const warm = readouts.find((readout) => readout.run === state.warm) ?? null;
+  // Through the same matcher the `Esc` line above uses, so the two sentences
+  // are looking at one readout and cannot disagree about the run's child.
+  const warm = warmReadout(state, readouts);
 
   return (
     <p className={styles.readout} data-temperature>

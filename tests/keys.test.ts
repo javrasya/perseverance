@@ -255,6 +255,21 @@ describe("the Esc readout is computed from that table", () => {
     );
   });
 
+  it("does not promise the CLI over a run whose child has stopped", () => {
+    /* The caret parks on a dead run and stays warm — moving it would drop the
+       next keystroke into another agent's conversation — so *warm* is still
+       true here and there is still nobody to interrupt. The temperature under
+       this line already says the child is gone; naming the agent CLI above it
+       would be the window contradicting itself between two adjacent lines. */
+    expect(escDestination(state({ monitored: 4, warm: 4 }), true)).toBe(
+      "reaches nothing — this run's child has stopped",
+    );
+    // And the surface in front still answers first, parked or not.
+    expect(escDestination(state({ inFront: "palette", monitored: 4, warm: 4 }), true)).toBe(
+      "dismisses the command palette",
+    );
+  });
+
   it("names the palette while the palette is in front", () => {
     expect(escDestination(state({ inFront: "palette", monitored: 4, warm: 4 }))).toBe(
       "dismisses the command palette",
@@ -292,10 +307,10 @@ describe("the Esc readout is computed from that table", () => {
     };
     const table = [...ENTRIES, palette];
 
-    expect(escDestination(state({ monitored: 4, warm: 4 }), table)).toBe(
+    expect(escDestination(state({ monitored: 4, warm: 4 }), false, table)).toBe(
       "dismisses the command palette",
     );
     // And the moment that surface is not up, the CLI has the key back.
-    expect(escDestination(state(), table)).toContain("nothing is bound to this window");
+    expect(escDestination(state(), false, table)).toContain("nothing is bound to this window");
   });
 });

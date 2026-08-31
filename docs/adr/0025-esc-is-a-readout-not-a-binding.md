@@ -43,8 +43,8 @@ key, and the custom key handler at the xterm seam returns `true` for it the way
 it does for a letter. When a dismissible surface stands in front of the
 terminal, the CLI is not being typed at, that surface holds the keys, and `Esc`
 takes it away. Those are the only two destinations there are. [Amended by
-[ADR 0027](0027-watching-and-typing-are-two-paths.md): there are three, and #57
-is what made the third reachable. Watching and typing came apart there, so a run
+[ADR 0027](0027-watching-and-typing-are-two-paths.md): there are four, and #57
+is what made the third and the fourth reachable. Watching and typing came apart there, so a run
 can be on the monitor with the keys on the map — cold and monitored, one press
 away at any time. Nothing holds `Esc` in that state: no surface is in front and
 no run is warm, so the key is claimed by nobody and reaches nothing at all.
@@ -52,7 +52,31 @@ no run is warm, so the key is claimed by nobody and reaches nothing at all.
 — and it reads `warm` rather than `monitored` to know it. Naming the agent CLI
 over a cold run would promise an interrupt that never arrives, which is this
 ADR's own failure one state over. The mechanism is untouched: whatever holds the
-keys holds `Esc`, and here nothing does.]
+keys holds `Esc`, and here nothing does.
+
+The fourth destination is the same failure a second time, in the state reading
+`warm` does not by itself rule out: a run whose child has stopped, with the
+caret parked on it and still warm
+([ADR 0026](0026-the-caret-parks-and-the-keystrokes-spill.md)).
+The temperature there is true — the keys are that run's, and moving them would
+drop the next keystroke into a different agent's conversation — but the process
+that would have taken the interrupt is gone. What is typed at a parked run stops
+in its spill register, and `Esc` does not even do that: the register keeps words
+and drops a chunk with a control byte in it whole, so this key is captured by
+nobody and read by nobody. `escDestination` says *reaches nothing — this run's
+child has stopped*, and it says it above a temperature that has already told the
+operator the child is gone; the two lines are adjacent on screen, and the old
+answer made them a paragraph that contradicted itself.
+
+Which leaves the third and the fourth worth telling apart, because they are the
+same words for different reasons. Cold and monitored is *your keys are somewhere
+else* — they are on the map, and one press brings them back. Parked and warm is
+*your keys are here and there is nobody home* — nothing to press, because what is
+missing is a child rather than a caret. Whether the child has stopped is not in
+the UI store and cannot be: it arrives on the readout poll, and that store holds
+nothing a poll writes. So the pane hands the readouts to both sentences and they
+match the warm run out of them the same way, through one `warmReadout` — one
+answer to *is the caret parked*, printed twice rather than derived twice.]
 
 **`Esc` never changes room.** Not the view, not the dial, not which run is on
 the pane. Crossing between the map and the terminal is a chord of its own —

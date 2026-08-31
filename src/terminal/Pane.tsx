@@ -558,9 +558,14 @@ export function Pane({
         that could wrap would take a row off the terminal's box — a resize
         nobody asked for. #52's ledge at the terminal's edge is where this ends
         up, which is why it is a component of its own and knows nothing about
-        this pane.
+        this pane. The readouts are the exception and are not pane knowledge
+        either: whether the warm run's child has stopped arrives on the poll and
+        nowhere else, and it is what keeps this line from naming the agent CLI
+        directly above a temperature saying the child is gone. Both lines are
+        handed the same array and match the warm run out of it the same way, so
+        they answer *is the caret parked* once between them.
       */}
-      <EscReadout />
+      <EscReadout readouts={readouts} />
 
       {/*
         And where the keystrokes go, which `Esc` alone stopped being able to
