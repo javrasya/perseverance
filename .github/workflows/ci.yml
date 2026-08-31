@@ -65,6 +65,19 @@ jobs:
       - name: Conformance suite (WebKit)
         run: npm run test:conformance
 
+      # The skips are the record. A check that cannot apply to a state skips
+      # with its precondition annotated, and the `line` reporter prints none of
+      # that — without this artifact a rule that skipped everywhere and a rule
+      # that held everywhere look identical in CI. Uploaded even when the suite
+      # goes red, which is exactly when the record is worth reading.
+      - name: Conformance report (WebKit)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ matrix.os }}
+          path: playwright-report/
+          if-no-files-found: ignore
+
       - name: Rust formatting
         run: cargo fmt --all --check
 

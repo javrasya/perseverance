@@ -135,7 +135,7 @@ describe("the two restatements, and the enumeration", () => {
     expect(rule.check).toContain("src/views/views.ts");
   });
 
-  it("registers rule 9 as an enumeration over the stylesheets, tension and all", () => {
+  it("registers rule 9 as an enumeration over the stylesheets, settlement and all", () => {
     const rule = ruleById(9);
     expect(rule.tier).toBe("asserted");
     expect(rule.check).toMatch(/stylesheet/i);
@@ -144,10 +144,13 @@ describe("the two restatements, and the enumeration", () => {
 
     // The one animation in the tree rides on *claimed*, not on running-vs-stale,
     // and an asserted rule has no deviation route to file that under. #43
-    // settled it in the entry rather than deferring it, and the entry has to
-    // keep carrying both the tension and the settlement.
-    expect(rule.tension).toBeDefined();
-    expect(rule.tension).toMatch(/markClaimed/);
+    // settled it in the entry rather than deferring it, so the reasoning lives
+    // in `settlement` and not in `tension` — the matrix files the two under
+    // separate headings, and leaving it under the open one would make the page
+    // read as owing work that is done.
+    expect(rule.settlement).toBeDefined();
+    expect(rule.settlement).toMatch(/markClaimed/);
+    expect(rule.tension).toBeUndefined();
     expect(deviationFor(rule).declarable).toBe(false);
   });
 });

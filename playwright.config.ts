@@ -26,7 +26,13 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: 0,
-  reporter: process.env.CI ? "line" : "list",
+  /* CI gets two reporters, because the annotations are the record. A check
+     that cannot apply to a state skips with its precondition annotated, and
+     `line` prints none of that — so under `line` alone a rule that skipped
+     everywhere and a rule that held everywhere are the same output. `html`
+     writes those annotations into `playwright-report/`, which `ci.yml` uploads
+     even on a red run, since a red run is when the record matters most. */
+  reporter: process.env.CI ? [["line"], ["html", { open: "never" }]] : "list",
 
   use: {
     baseURL: "http://localhost:1421",

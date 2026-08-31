@@ -49,10 +49,10 @@ the only automated reading the tighter CSS floor (`browserslist`,
 `safari >= 16.4`) will ever get; Chromium is an optional second reading and is
 not what CI gates on.
 
-The spec's "forty-four encodings" is four views' worth of encodings. One view —
-The Route — is registered today, so 44 is not a count this branch reaches or
-should try to reach; the registry's own coverage gate is what keeps the number
-honest as views land.
+How that number relates to the spec's "forty-four encodings" is a contract-level
+accounting question rather than something this view declares, so it is settled
+in
+[ADR 0020](../../adr/0020-the-contract-is-thirteen-rules-in-three-tiers.md#the-specs-forty-four-encodings-and-what-one-registered-view-owes).
 
 The Route is a grouped list in one column — Now/Next, Frontier, Blocked,
 Resolved, Out of scope, Unclassified — with the fog and the destination beside

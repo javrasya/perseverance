@@ -173,11 +173,38 @@ export function renderMatrix(
     "here because leaving it off this page would make the page read as complete.",
     "",
   );
+  lines.push(...entries(rules, (rule) => rule.tension, "Nothing is open today."));
 
-  const tensions = rules.filter((rule) => rule.tension !== undefined);
-  for (const rule of tensions) {
-    lines.push(`### Rule ${rule.id}, ${rule.name} (${rule.tier})`, "", rule.tension!, "");
-  }
+  lines.push(
+    "## Settled, where an obligation was open",
+    "",
+    "The same facts, once the assertion that had to settle them was written.",
+    "They stay on the page rather than dissolving into a commit message: a",
+    "reader asking why a check is drawn where it is should find the answer here",
+    "rather than reconstruct it. An entry sits under exactly one of these two",
+    "headings, so *settled* is never read off silence in the section above.",
+    "",
+  );
+  lines.push(...entries(rules, (rule) => rule.settlement, "Nothing has been settled this way yet."));
 
   return `${lines.join("\n").trimEnd()}\n`;
+}
+
+/**
+ * One section per rule that has the field, or one honest sentence saying none
+ * does. A heading with nothing under it would read as a rendering bug rather
+ * than as the answer, which is the one thing an instrument may not do.
+ */
+function entries(
+  rules: readonly Rule[],
+  field: (rule: Rule) => string | undefined,
+  empty: string,
+): string[] {
+  const lines: string[] = [];
+  for (const rule of rules) {
+    const text = field(rule);
+    if (text === undefined) continue;
+    lines.push(`### Rule ${rule.id}, ${rule.name} (${rule.tier})`, "", text, "");
+  }
+  return lines.length === 0 ? [empty, ""] : lines;
 }

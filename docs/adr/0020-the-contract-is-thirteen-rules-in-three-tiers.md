@@ -153,7 +153,7 @@ mistaken for a ceiling because it is green.
 Rule 9 was the other candidate and was rejected as a residue on purpose — see
 below.
 
-### Rule 9: killing SMIL is what made the ration enumerable, and the tension is recorded rather than fixed
+### Rule 9: killing SMIL is what made the ration enumerable, and the tension was settled rather than fixed
 
 *Motion is rationed* is a claim about a set nobody could previously enumerate.
 SMIL animation lives in markup, ignores `prefers-reduced-motion`, and can be
@@ -173,13 +173,24 @@ on running-vs-stale — and `NodeState` is `resolved | blocked | claimed |
 takeable`, so rule 9's actual subject is not representable on this side of the
 seam at all.
 
-That is registered as a `tension` on the entry: an **open obligation**, whose
-settling belongs to whoever writes the assertion in #43. It is deliberately not
-three other things. It is not a weakening of the rule. It is not a fix applied
-here — changing what the one animation means is a view decision, not a
+That was registered as a `tension` on the entry: an **open obligation**, whose
+settling belonged to whoever wrote the assertion in [#43]. It was deliberately
+not three other things. It is not a weakening of the rule. It is not a fix
+applied here — changing what the one animation means is a view decision, not a
 classification one. And it is not a declared deviation: rule 9 is asserted, an
 asserted rule has no deviation route, and filing this under one would invent an
 appeal the ladder does not grant.
+
+**[#43] settled it, and the settlement moved fields.** The assertion decided
+that `claimed` is the liveness this half of the app can carry — of the four
+`NodeState` values it is the only one in progress rather than a settled fact
+about the graph — and the ration is spent telling that apart from the three
+that are not moving. So the entry no longer carries a `tension`; it carries a
+`settlement`, the same fact with the reasoning that closed it, and
+`docs/contract/matrix.md` files the two under separate headings. An obligation
+that stayed listed as open after the assertion that closed it would be the
+matrix going quietly stale about work that is done — which is the exact failure
+this ADR asks the registry to go red about.
 
 ### The meta-rule
 
@@ -249,12 +260,36 @@ pinned at thirteen so a fourteenth is a deliberate edit.
 **The matrix is the instrument and gates nothing.** `docs/contract/matrix.md`,
 regenerated from the registry and the declarations by `npm run contract:matrix`,
 carries one row per rule — tier, subject, where it is enforced, each view's
-declaration status — plus the worklist and the open obligations that have no
-deviation route. **Rows are rules, never rule × rendered state**: the unit of
+declaration status — plus the worklist, the open obligations that have no
+deviation route, and the ones an assertion has since settled, under a heading of
+their own so *open* and *settled* are never told apart by silence. **Rows are rules, never rule × rendered state**: the unit of
 conformance is the rule, and a grid of cells is an artifact that goes stale in a
 way nothing fails. The only thing any test asserts about it is that it is
 current. A test that read a cell for conformance would make the file the
 contract, and a rule would then be kept by whoever last regenerated it.
+
+### The spec's forty-four encodings, and what one registered view owes
+
+Spec [#28] costs the design at *four views, forty-four encodings*, and [#43]'s
+first acceptance criterion repeats the number. **Forty-four is a four-view
+total, and it is not a count this branch reaches or should try to reach.** One
+view is registered — The Route, [#34] — and the fixture space the floors
+actually run over is `FIXTURE_NAMES` × two themes × two motion settings, which
+is 17 × 2 × 2 = 68 states today. That arithmetic is written here and nowhere in
+code: every enumeration in the suite is derived from `FIXTURE_NAMES`, `VIEWS`
+and `renderBoundRules()`, so a hardcoded 44 or 68 anywhere would be the parallel
+list that goes one fixture stale.
+
+**Nothing is missing for The Route.** Every render-bound rule has an entry in
+`tests/conformance/support/rules.ts`, the fan-out gate goes red on a rule that
+has none, and rule 11's `check: null` is a decision with its reason written
+down rather than an omission. The encodings still unwritten are the other three
+views' — The Plate [#63], Deep Field [#64], and the map [#65] — and each of
+those tickets is where its own encodings land: registering a view in `VIEWS`
+turns the existing fan-out onto it and demands a declaration file for every
+judged rule, with no new test code. So the remainder is tracked by the view
+tickets, not by a count kept in a doc, and the number closes itself as the views
+land.
 
 ## Alternatives rejected
 
@@ -332,5 +367,10 @@ working. Widen `ViewProps` and rule 7 falls from structural to asserted. Land
 are code changes that go red first.
 
 [#10]: https://github.com/javrasya/perseverance/issues/10
+[#28]: https://github.com/javrasya/perseverance/issues/28
+[#34]: https://github.com/javrasya/perseverance/issues/34
+[#63]: https://github.com/javrasya/perseverance/issues/63
+[#64]: https://github.com/javrasya/perseverance/issues/64
+[#65]: https://github.com/javrasya/perseverance/issues/65
 [#23]: https://github.com/javrasya/perseverance/issues/23
 [#43]: https://github.com/javrasya/perseverance/issues/43

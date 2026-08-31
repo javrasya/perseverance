@@ -16,7 +16,9 @@
  *
  * A rule that cannot apply to a point of the space is annotated with the
  * precondition it skipped on, so the reason is on the report rather than
- * inferred from silence — `npx playwright test --reporter=list` prints them.
+ * inferred from silence. Locally `list` (the default here) prints them; in CI
+ * the `html` reporter writes them into `playwright-report/`, which the workflow
+ * uploads on every run — see `playwright.config.ts`.
  */
 
 import { expect, test } from "@playwright/test";
