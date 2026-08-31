@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { DEFAULT_DOCK, type Dock } from "../detail/docks";
 import { DEFAULT_DETENT, clamp, fractionOf } from "../panes/dial";
 import type { PeekSource } from "../panes/peek";
 import { readDefaultView, writeDefaultView, type ViewName } from "../views/views";
@@ -23,9 +24,11 @@ import { readable } from "./readable";
  * `position` — one number, because a detent is a named position rather than a
  * mode — and the peek arrived beside it as `peeking`, a *separate* field for the
  * reason the whole gesture exists: a glance borrows the dial and may not move
- * it. The warm surface and the rack binding are still not declared here — they
- * are #55's and #56's, and a field with one legal value invented now would be
- * making those tickets' decisions early. What the shape settles is only that
+ * it. `dock` arrived beside them both because the same argument holds a third
+ * time: which dock the boarding pass is at is a press and never an arrival, so
+ * a poll may not write it either. The warm surface and the rack *binding* are
+ * still not declared here — they are #55's and #56's, and a field with one legal
+ * value invented now would be making those tickets' decisions early. What the shape settles is only that
  * when they arrive, they arrive *here* rather than beside a snapshot.
  */
 export interface Ui {
@@ -52,6 +55,20 @@ export interface Ui {
    * nothing and springs back to exactly the room it borrowed.
    */
   peeking: Peeking;
+  /**
+   * Which dock the operator has sent the node panel to.
+   *
+   * The dock they *chose*, which is not always the dock the pass is at: a dial
+   * position that collapses the terminal side leaves a dock on it worth no
+   * pixels, and `effectiveDock` in `src/detail/docks.ts` borrows the pass onto
+   * the spine until the width comes back. The choice is kept here through all
+   * of that, which is what makes the return a spring rather than a second
+   * press — the same borrow-and-give-back `peeking` has beside `position`.
+   *
+   * Nothing automatic writes it. There is exactly one caller of `chooseDock`
+   * and it is a button.
+   */
+  dock: Dock;
   /** The pane, in characters. One geometry for every live run. */
   geometry: Geometry;
   /**
@@ -102,6 +119,7 @@ const [store, replace] = readable<Ui>({
    */
   position: fractionOf(DEFAULT_DETENT),
   peeking: NOT_PEEKING,
+  dock: DEFAULT_DOCK,
   geometry: OPENING,
   dragging: false,
 });
@@ -166,6 +184,19 @@ export function showPeek(peeking: Peeking): void {
       current.peeking.refused === peeking.refused;
     return same ? current : { ...current, peeking };
   });
+}
+
+/**
+ * Send the node panel to a dock.
+ *
+ * Nothing automatic calls this — no poll, no dial move, no arrival. A dial
+ * position that collapses the chosen dock is answered by *reading* this field
+ * through `effectiveDock` rather than by rewriting it, because a store that
+ * corrected the operator's choice on their behalf would have no choice left to
+ * spring back to.
+ */
+export function chooseDock(dock: Dock): void {
+  change((current) => (current.dock === dock ? current : { ...current, dock }));
 }
 
 export function select(selection: number | null): void {

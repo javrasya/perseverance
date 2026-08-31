@@ -1,0 +1,66 @@
+/*
+ * Tier 3 — component tokens, defined from semantic tokens only.
+ *
+ * No `transition`, no `animation`, no `@keyframes`. A re-dock is a press and
+ * not a sign of life, and encoding rule 9 rations motion to liveness: a panel
+ * that slid between docks would be spending the app's whole motion budget
+ * saying *the operator pressed a button*, which the operator already knows.
+ */
+
+.dock {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+/*
+ * Where the pass lands. It has no size of its own: the cap and the scrollbar
+ * are on the pass, because the pass is what moves and a scroll offset kept on
+ * the dock would be left behind by every re-dock.
+ */
+.host {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+/* What a dock says when it is holding a pass it borrowed rather than one it was
+   sent. Reading weight, not a whisper: a panel that moved on its own with
+   nothing said is a panel the operator will assume they lost. */
+.borrowed {
+  margin: 0;
+  padding: var(--s-space-hair) var(--s-space-base) 0;
+  color: var(--s-ink-faint);
+  font-size: var(--s-text-micro);
+}
+
+.away {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s-space-tight);
+  margin: 0;
+  padding: var(--s-space-hair) var(--s-space-base);
+  color: var(--s-ink-faint);
+  font-size: var(--s-text-micro);
+}
+
+/*
+ * A real button and not a click handler on the sentence: this app does no focus
+ * management, so every decision in it has to be something the keyboard reaches
+ * on its own.
+ */
+.press {
+  padding: 0 var(--s-space-hair);
+  border: var(--s-border-hairline) solid var(--s-line-quiet);
+  border-radius: var(--s-radius-chip);
+  background: none;
+  color: var(--s-ink-secondary);
+  font: inherit;
+  letter-spacing: var(--s-tracking-label);
+  cursor: pointer;
+}
+
+.press:hover {
+  color: var(--s-ink-primary);
+}

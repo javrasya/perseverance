@@ -70,9 +70,11 @@ import styles from "./Detail.module.css";
  *   document — is rendered by `./markdown`, which builds React elements and
  *   never an HTML string, so raw HTML in it is literal text by construction.
  *
- * #52 and #57 turn this into the relocatable boarding pass. What this slice
- * settles is *what it says*; where it lives is one address in `App.tsx` and one
- * element to move.
+ * This is the **boarding pass**, and nothing in this file knows it. It is
+ * rendered once, by a portal in `App.tsx`, into a node that is moved between
+ * three docks by `src/terminal/reparent.ts` — so the panel is never unmounted
+ * and never learns it was relocated, the same deal the terminals get. What
+ * belongs here is *what it says*; where it is belongs to `./docks.ts`.
  */
 export function Detail({ model, selection }: { model: Model; selection: number | null }) {
   const panel = panelOf(model, selection);

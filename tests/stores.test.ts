@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { readable } from "../src/stores/readable";
 import { readSnapshot, replaceSnapshot, watchSnapshotStore } from "../src/stores/snapshots";
 import {
+  chooseDock,
   monitor,
   readUi,
   select,
@@ -69,6 +70,7 @@ describe("a poll landing mid-drag", () => {
     // A hand on the divider, a node selected, a run on the pane.
     select(7);
     monitor(3);
+    chooseDock("rack");
     startGesture();
     const before: Ui = readUi();
     expect(before.dragging).toBe(true);
@@ -92,6 +94,43 @@ describe("a poll landing mid-drag", () => {
     select(9);
     expect(onSnapshot).not.toHaveBeenCalled();
     stop();
+  });
+});
+
+describe("where the boarding pass is", () => {
+  it("is a press, and nothing automatic can write it", () => {
+    chooseDock("spine");
+    const heard = vi.fn();
+    const off = watchUi(heard);
+
+    chooseDock("runBar");
+    expect(readUi().dock).toBe("runBar");
+    expect(heard).toHaveBeenCalledTimes(1);
+
+    // The same dock twice is not a change, so it notifies nobody and cannot
+    // re-render the window a panel is being read in.
+    chooseDock("runBar");
+    expect(heard).toHaveBeenCalledTimes(1);
+
+    // And a poll landing leaves it exactly where the press put it: `dock` is in
+    // this store rather than beside a snapshot for the same reason `position`
+    // is — a poll may not move something an operator chose.
+    replaceSnapshot(FIXTURES["two-maps-one-open"]);
+    expect(readUi().dock).toBe("runBar");
+    off();
+    chooseDock("spine");
+  });
+
+  it("is written by exactly one caller, and that caller is a button", () => {
+    // The dock is chosen by a press and by nothing else. `App.tsx` hands
+    // `chooseDock` to the docks' presses; no poller, no effect over a snapshot
+    // and no view has a way to reach it.
+    const callers = collect([".ts", ".tsx"])
+      .filter(({ path }) => path.startsWith("src/"))
+      .filter(({ path, text }) => path !== "src/stores/ui.ts" && text.includes("chooseDock"))
+      .map(({ path }) => path);
+
+    expect(callers).toEqual(["src/App.tsx"]);
   });
 });
 

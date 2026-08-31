@@ -245,26 +245,55 @@
 }
 
 /*
- * The node panel's address: a strip along the spine, under the body and over
- * the readout.
+ * The run side, as a column: the run bar's dock, the pane, the rack's dock.
  *
- * Under the body rather than inside it, and that is the whole of why it is
- * here. The dial's every answer is about *width* — what each side is worth,
- * which columns the map side can afford — so a panel given a column of the map
- * side would take pixels the stand-down has already promised to the view. A
- * strip below the split takes height from both sides equally and leaves every
- * number the dial prints exactly as true as it was.
- *
- * It is capped and scrolls its own box, for the same reason the view and the
- * drop region do: a cut reason is somebody's prose and has no length limit,
- * and a panel that grew with it would push the readout off the window — where
- * a stamp may never go.
- *
- * #52 and #57 relocate this. What stays true wherever it lands is that it is
- * one element with one model and one selection in it.
+ * The docks are strips in this flow rather than boxes positioned against
+ * anything, because `.terminal` is deliberately not a containing block — the
+ * same reason the peek stud hangs off the body. They cost the pane height and
+ * never width, so no dial position and no dock is ever the reason a live agent
+ * reflows sideways.
  */
-.detail {
-  max-height: 40%;
+.runSide {
+  display: flex;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  gap: var(--s-space-tight);
+}
+
+/* The pane's own share of that column, so the pane keeps growing into whatever
+   the two docks have not taken. */
+.paneSlot {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+/*
+ * The boarding pass: the node panel, and the element that moves.
+ *
+ * The cap and the scroll box are here rather than on any dock, and that is the
+ * whole of *a scroll position survives a re-dock*: the scroller is the thing
+ * that travels, so its offset travels with it. A dock that owned the scroll box
+ * would hand the next dock a fresh one every time.
+ *
+ * The cap is a viewport fraction rather than a percentage of the parent for the
+ * same reason. A percentage means a different height in each of the three
+ * docks, and the panel is one panel — while the promise it has to keep is the
+ * spine's: a cut reason is somebody's prose with no length limit, and a panel
+ * that grew with it would push the footer readout off the window, where a stamp
+ * may never go.
+ *
+ * Nothing here transitions and nothing animates. A re-dock is a press, and
+ * encoding rule 9 rations motion to liveness.
+ */
+.pass {
+  display: flex;
+  min-width: 0;
+  max-height: 40vh;
+  flex-direction: column;
   padding: var(--s-space-snug) var(--s-space-base);
   overflow: auto;
   border-top: var(--s-border-hairline) solid var(--s-line-quiet);

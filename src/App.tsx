@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { CacheStamp } from "./chrome/CacheStamp";
 import { DropRegion } from "./chrome/DropRegion";
 import { MapChip } from "./chrome/MapChip";
@@ -49,7 +50,7 @@ import {
 import { describeModel } from "./snapshot/readout";
 import { loadSnapshot, watchSnapshot } from "./snapshot/snapshot";
 import { replaceSnapshot, useSnapshot } from "./stores/snapshots";
-import { monitor, moveDial, readUi, select, useUi } from "./stores/ui";
+import { chooseDock, monitor, moveDial, readUi, select, useUi } from "./stores/ui";
 /* `Dial.jsx` and `StandDown.jsx` for the same reason `Route.jsx` is spelled
    below: `panes/dial.ts` is the arithmetic and `panes/Dial.tsx` is the hand on
    it, and on a case-insensitive filesystem an extensionless specifier finds the
@@ -88,6 +89,7 @@ import {
   type RunReadout,
 } from "./terminal/runs";
 import { fixtureRunToOpenOn } from "./terminal/fixtures";
+import { reparent } from "./terminal/reparent";
 import { spillAtRun } from "./terminal/spill";
 import { Terminals } from "./terminal/terminals";
 import { xterm } from "./terminal/xterm";
@@ -108,6 +110,10 @@ import { Sockets } from "./chrome/Sockets.jsx";
 import { IdeaBox } from "./chrome/IdeaBox.jsx";
 /* `Detail.jsx` for the fifth: `detail/detail.ts` is the join and the words. */
 import { Detail } from "./detail/Detail.jsx";
+/* `Dock.jsx` for the sixth: `detail/docks.ts` is the arithmetic of where the
+   boarding pass is, and `Dock.tsx` is one address on screen. */
+import { Dock } from "./detail/Dock.jsx";
+import { effectiveDock } from "./detail/docks";
 import { useDefaultView } from "./views/useDefaultView";
 import styles from "./App.module.css";
 
@@ -149,7 +155,7 @@ export function App() {
    * a hand was in the middle of — `tests/stores.test.ts` is the assertion.
    */
   const snapshot = useSnapshot();
-  const { selection: selectedNode, monitored, position, peeking } = useUi();
+  const { selection: selectedNode, monitored, position, peeking, dock: chosenDock } = useUi();
   /*
    * The spring, bound at the window. It writes `peeking` and nothing else — not
    * the position, not the per-map memory, not a geometry — which is the whole
@@ -729,6 +735,50 @@ export function App() {
     : sides(position, bodyWidth, dialReach).map;
   const columns = columnsAt(mapWidth);
   /*
+   * The boarding pass: one element, created once, outside React's reconciler.
+   *
+   * `useState` rather than `useRef` for the same reason `terminals` is —
+   * deliberate, not a slip. The panel is rendered *into* this node by a portal
+   * whose target never changes, so React never unmounts the subtree: after a
+   * move between docks the DOM nodes, their scroll offsets and any text
+   * selection inside them are the *same objects*. Whether a live text selection
+   * survives an `appendChild` is the browser's business and jsdom cannot
+   * exercise it; node identity and scroll offset are the assertable half, and
+   * `tests/boarding-pass.test.tsx` asserts those.
+   *
+   * The cap and the scrollbar are on this element rather than on the docks,
+   * because the scroller has to be the thing that travels — a scroll offset
+   * kept on a dock is an offset the next dock has never heard of.
+   */
+  const [pass] = useState(() => {
+    const held = document.createElement("div");
+    held.className = styles.pass ?? "";
+    return held;
+  });
+  const spineDock = useRef<HTMLDivElement>(null);
+  const runBarDock = useRef<HTMLDivElement>(null);
+  const rackDock = useRef<HTMLDivElement>(null);
+  /*
+   * Which dock actually holds the pass: the chosen one whenever it can be seen.
+   *
+   * Measured off the dial's *remembered* position and never off the peeked one.
+   * A glance promotes the map side over the terminal for as long as a key is
+   * held, and a pass that hopped docks and back on every glance would be a room
+   * the glance rearranged — the one thing the peek is built not to do.
+   */
+  const occupant = effectiveDock(chosenDock, sides(position, bodyWidth, dialReach).terminal);
+  /*
+   * The move itself, and the whole of it. One effect, depending on the dock
+   * alone — no snapshot, no readout, no geometry — the way `Pane`'s bind effect
+   * depends on `monitored` alone, so nothing a poll lands can reach the panel's
+   * address. `reparent` is the terminal's own primitive rather than a second
+   * one: the app has one imperative-reparent mechanism, not two that drift.
+   */
+  useEffect(() => {
+    const host = { spine: spineDock, runBar: runBarDock, rack: rackDock }[occupant];
+    reparent(pass, host.current);
+  }, [pass, occupant]);
+  /*
    * `null` means the open view can be drawn here. Anything else is the four
    * things the stand-down has to say, decided in the pure module and rendered
    * verbatim. A held peek is evaluated at the `map` detent, because that is
@@ -1133,7 +1183,38 @@ export function App() {
         />
 
         <div className={styles.terminal}>
-          <Pane terminals={terminals} readouts={runs} />
+          {/*
+            The run side, as a column: the run bar's dock, the pane, the rack's.
+            The two docks are strips in the flow rather than anything positioned,
+            because this box is deliberately not a containing block — and they
+            are the reason the pane now sits in a slot of its own rather than
+            directly in this box.
+
+            Both are the panel's *addresses* and neither is the surface around
+            them. The run bar's own contents are the pane's chrome strip, and the
+            region this rack dock sits in is #56's to build; what lands here now
+            is one dock apiece and the sentence a dock without the pass prints.
+          */}
+          <div className={styles.runSide}>
+            <Dock
+              dock="runBar"
+              occupant={occupant}
+              chosen={chosenDock}
+              hostRef={runBarDock}
+              onChoose={chooseDock}
+            />
+            <div className={styles.paneSlot}>
+              <Pane terminals={terminals} readouts={runs} />
+            </div>
+            {/* #56 builds the rack around this. */}
+            <Dock
+              dock="rack"
+              occupant={occupant}
+              chosen={chosenDock}
+              hostRef={rackDock}
+              onChoose={chooseDock}
+            />
+          </div>
         </div>
 
         {/*
@@ -1178,15 +1259,29 @@ export function App() {
         with an opinion of its own about what is selected is a second answer to
         a question that has one.
 
-        What this slice settles is *what the panel says* — nine fields, five
-        never-empty states, and markdown rendered and sanitised on this side.
-        Where it lives is the next slice's: #52's spine and #57's rack turn this
-        one element into the boarding pass that re-docks, and moving it is
-        moving this element.
+        What the panel says is nine fields and five never-empty states, with the
+        markdown rendered and sanitised on this side. Where it *is* is this
+        dock's answer and the two on the run side: the panel is one element that
+        moves between the three by `reparent`, never unmounted, so it arrives at
+        each one holding the scroll offset it left the last one with.
+
+        This dock is the one no dial position can take away, which is why it is
+        also the one a collapsed dock's pass is borrowed onto.
       */}
-      <div className={styles.detail}>
-        <Detail model={snapshot.model} selection={selectedNode} />
-      </div>
+      <Dock
+        dock="spine"
+        occupant={occupant}
+        chosen={chosenDock}
+        hostRef={spineDock}
+        onChoose={chooseDock}
+      />
+      {/*
+        The panel, rendered once into a target that never changes. The portal is
+        written here — beside the dock it starts at — but where it appears on
+        screen is not this line's doing and never can be: the pass is moved by
+        the effect above, and React only ever sees the one host.
+      */}
+      {createPortal(<Detail model={snapshot.model} selection={selectedNode} />, pass)}
 
       <EnvironmentReadout readout={environment} shown={environmentShown} />
 
