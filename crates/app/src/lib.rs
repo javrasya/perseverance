@@ -2339,6 +2339,15 @@ fn start_terminals(app: AppHandle) -> std::io::Result<()> {
 /// surfaces, and still lands in the graph and the ledger.
 const CHECKING: Duration = Duration::from_secs(6);
 
+/// A launch that has not finished starting up, in one sentence.
+///
+/// One string and two callers: the pre-guard [`why_the_check_is_not_a_read`]
+/// puts it in front of [`spawn_at`], and [`chart_in`] — which has no pre-guard
+/// — says it for itself. Two copies of a sentence this load-bearing would be
+/// two sentences the moment one of them was edited.
+const STILL_STARTING_UP: &str =
+    "this run has not finished starting up, so nothing was checked and nothing was started";
+
 /// Why a revalidation is not the fresh read a press may act on, or `None` when
 /// it is one.
 ///
@@ -2373,10 +2382,9 @@ fn why_the_check_is_not_a_read(answer: Revalidated, harvest_settled: bool) -> Op
         // press a second later is the whole of the remedy. The sentence is
         // about *this run* rather than about the folder, so nobody is sent to
         // look at a map that is being watched perfectly well.
-        Revalidated::Ticked(Tick::NotAttempted) if !harvest_settled => Some(
-            "this run has not finished starting up, so nothing was checked and nothing was started"
-                .to_string(),
-        ),
+        Revalidated::Ticked(Tick::NotAttempted) if !harvest_settled => {
+            Some(STILL_STARTING_UP.to_string())
+        }
         // Nothing failed and nothing was asked: no map is being watched, so the
         // pass had nothing to read. Naming a timeout here would send an
         // operator to look at their network for a state that is about the app.
@@ -2625,8 +2633,23 @@ fn chart_in(
 
     // Wanted for one thing only — learning who is signed in — but a chart brief
     // with no operator in it is as unfollowable as a work brief with none.
-    let Some(TokenOutcome::Acquired(token)) = ambient.token.get() else {
-        return Err("this run acquired no GitHub token, so no session can be started".to_string());
+    //
+    // Two refusals, because `Ambient::token` holds two different absences and a
+    // press can meet either. `None` is *the harvest is still out* — the folder
+    // read and the map poll can both be answered from cache while a Windows
+    // harvest is still 1.5 seconds of real work — and a press a second later is
+    // the whole of the remedy. A settled harvest that acquired nothing is the
+    // permanent one. There is no [`why_the_check_is_not_a_read`] ahead of this
+    // chain to tell them apart the way [`spawn_at`]'s caller does, so it is told
+    // here, in that function's sentence unedited.
+    let token = match ambient.token.get() {
+        Some(TokenOutcome::Acquired(token)) => token,
+        None => return Err(STILL_STARTING_UP.to_string()),
+        Some(_) => {
+            return Err(
+                "this run acquired no GitHub token, so no session can be started".to_string(),
+            );
+        }
     };
     let Some(operator) = remembered_login(&ambient.login, || read_login(token)) else {
         return Err(
@@ -2968,12 +2991,6 @@ const WORK_LOSS: &str = "the claim stays yours and Resume picks it up on the nex
 const RESEARCH_LOSS: &str =
     "a research run keeps nothing, so whatever it has not already posted goes with it";
 
-/// A live run this app cannot describe.
-///
-/// It is named anyway. A confirmation that quietly omitted a run because the
-/// side table had no row for it would be a confirmation that under-reports
-/// exactly when the app is most confused, and *I do not know what this costs* is
-/// a thing an operator can act on where silence is not.
 /// A charting run's loss, which is the session and nothing else.
 ///
 /// It strands no claim because it holds none — nothing is assigned until the
@@ -2983,6 +3000,12 @@ const RESEARCH_LOSS: &str =
 const CHART_LOSS: &str =
     "a charting session strands no claim, and keeps nothing it has not already pushed to GitHub";
 
+/// A live run this app cannot describe.
+///
+/// It is named anyway. A confirmation that quietly omitted a run because the
+/// side table had no row for it would be a confirmation that under-reports
+/// exactly when the app is most confused, and *I do not know what this costs* is
+/// a thing an operator can act on where silence is not.
 const UNKNOWN_LOSS: &str =
     "this app was not told what it is working on, so it cannot say what this one loses";
 
@@ -3638,6 +3661,13 @@ mod tests {
                 "this run has not finished starting up, so nothing was checked and nothing was \
                  started"
             )
+        );
+
+        // And it is the one sentence, not a copy of it: `chart_in` has no
+        // pre-guard ahead of it, so it says this for itself off the same const.
+        assert_eq!(
+            why_the_check_is_not_a_read(Revalidated::Ticked(Tick::NotAttempted), false).as_deref(),
+            Some(STILL_STARTING_UP)
         );
 
         // And the read that landed and was refused names the fault, so this

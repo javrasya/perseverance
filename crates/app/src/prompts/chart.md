@@ -93,6 +93,8 @@ reference each other:
 1. Create every ticket and attach it to the map as a GitHub **sub-issue**
    (`gh issue edit` cannot do this — use the sub-issue API, e.g.
    `gh api --method POST repos/{{repo}}/issues/<map>/sub_issues -F sub_issue_id=<id>`).
+   Attach them in the order they should be worked — the first attached is the
+   first the harness will offer — because the harness never re-ranks them.
 2. Then, in a second pass, record every *blocked-by* relationship as a native
    GitHub **dependency link** on the issue, never as a sentence. Parenthood is
    read from sub-issues and blocking from dependency links; prose saying an

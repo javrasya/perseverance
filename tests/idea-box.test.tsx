@@ -8,7 +8,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * specifier on a case-insensitive filesystem is a coin toss between the two.
  */
 import { IdeaBox } from "../src/chrome/IdeaBox.jsx";
-import { CHART_LABEL, IDEA_LABEL, NO_IDEA, boxAt } from "../src/chrome/idea";
+import {
+  ALREADY_CHARTING,
+  CHART_LABEL,
+  IDEA_LABEL,
+  NO_IDEA,
+  boxAt,
+} from "../src/chrome/idea";
 import {
   CHECKING_LABEL,
   NO_ADAPTER,
@@ -31,7 +37,6 @@ import {
 } from "../src/maps/maps";
 import { readUi } from "../src/stores/ui";
 import { monitor } from "../src/stores/ui";
-import { CUSTOM_BADGE, charactersLabel } from "../src/terminal/PromptBlock";
 import { forgetPrompts, promptFor } from "../src/terminal/prompts";
 
 /**
@@ -238,7 +243,7 @@ describe("a press", () => {
     });
   });
 
-  it("keeps the prompt and binds the pane to the run it started", async () => {
+  it("records the prompt for the pane and renders no second block of its own", async () => {
     invoke.mockResolvedValue({
       kind: "spawned",
       run: 4,
@@ -253,10 +258,38 @@ describe("a press", () => {
 
     expect(promptFor(4)).toEqual({ text: "chart it", characters: 8, origin: "custom" });
     expect(readUi().monitored).toBe(4);
-    // Through the one collapsed block, badge and count and all.
-    expect(host.textContent).toContain(CUSTOM_BADGE);
-    expect(host.textContent).toContain(charactersLabel(8));
-    expect(host.querySelector("details")).not.toBeNull();
+    /* The recorded prompt and the monitored run are the whole of what puts the
+       collapsed block on screen — the pane renders it. A block here would be a
+       second account of the text and the count that diagnose a misbehaving
+       run. */
+    expect(host.querySelector("details")).toBeNull();
+  });
+
+  it("recesses once it has started a session, so the folder gets one", async () => {
+    invoke.mockResolvedValue({
+      kind: "spawned",
+      run: 4,
+      prompt: { text: "chart it", characters: 8, origin: "custom" },
+    } satisfies Started);
+    const host = paint();
+    type(host, "chart it");
+
+    await act(async () => {
+      button(host).click();
+    });
+
+    /* The box stays mounted until a poll returns the map the run is writing,
+       which is minutes away. A repeatable press would be a second charting
+       session in the same folder — a second run creating the labels and
+       opening a second map issue. */
+    expect(host.textContent).toContain(ALREADY_CHARTING);
+    expect(button(host).getAttribute("aria-disabled")).toBe("true");
+
+    await act(async () => {
+      button(host).click();
+    });
+
+    expect(invoke).toHaveBeenCalledTimes(1);
   });
 
   it("prints a refusal's detail verbatim beside the box", async () => {

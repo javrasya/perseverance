@@ -19,7 +19,6 @@
  */
 
 import type { FolderReadout } from "../environment/folder";
-import type { Rendered } from "./started";
 import {
   NO_ADAPTER,
   NO_FOLDER_OPEN,
@@ -43,6 +42,17 @@ export const IDEA_LABEL = "What should be charted?";
 export const NO_IDEA = "type what you want charted";
 
 /**
+ * The other condition of its own, and the one that makes a press a single
+ * press. The box outlives the spawn — `MapList.tsx` only takes it away once a
+ * poll returns the map the run wrote, minutes later — so a `spawned` press that
+ * still read as pressable would be a second charting session in the same
+ * folder: a second run creating the `wayfinder:*` labels and opening a second
+ * map issue. The rail has no equivalent hole because a claimed frontier
+ * recesses its socket; nothing recesses this one but this.
+ */
+export const ALREADY_CHARTING = "a charting session is already running in this folder";
+
+/**
  * Where a charting press is.
  *
  * No frontier on the refusal, unlike `sockets.ts`'s `Press`: a charting run is
@@ -54,7 +64,7 @@ export const NO_IDEA = "type what you want charted";
 export type ChartPress =
   | { kind: "idle" }
   | { kind: "checking" }
-  | { kind: "spawned"; run: number; prompt: Rendered }
+  | { kind: "spawned"; run: number }
   | { kind: "refused"; detail: string };
 
 export interface Charting {
@@ -79,8 +89,6 @@ export interface Box {
   note: string | null;
   /** The adapter ids offerable at this press, in the order the folder read them. */
   adapters: readonly string[];
-  /** The prompt the last press came back with, for the collapsed block. */
-  prompt: Rendered | null;
 }
 
 /** The idea as it would go out. Whitespace is not an idea. */
@@ -92,10 +100,16 @@ export function ideaAtPress(idea: string): string {
 export function boxAt(charting: Charting): Box {
   const adapters = offerable(charting.environment?.adapters ?? []);
   const note = charting.press.kind === "refused" ? charting.press.detail : null;
-  const prompt = charting.press.kind === "spawned" ? charting.press.prompt : null;
 
   if (charting.press.kind === "checking") {
-    return { fill: "checking", condition: null, note, adapters, prompt };
+    return { fill: "checking", condition: null, note, adapters };
+  }
+
+  // A press that landed is not a press again. Read before the chain below,
+  // because every one of its conditions is still perfectly satisfiable while
+  // the session it already started is running.
+  if (charting.press.kind === "spawned") {
+    return { fill: "recessed", condition: ALREADY_CHARTING, note, adapters };
   }
 
   const condition =
@@ -114,7 +128,6 @@ export function boxAt(charting: Charting): Box {
     condition,
     note,
     adapters,
-    prompt,
   };
 }
 

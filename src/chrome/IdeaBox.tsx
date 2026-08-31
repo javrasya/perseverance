@@ -1,7 +1,6 @@
 import { useId, useRef, useState, useEffect } from "react";
 import type { FolderReadout } from "../environment/folder";
 import { monitor } from "../stores/ui";
-import { PromptBlock } from "../terminal/PromptBlock";
 import { recordPrompt } from "../terminal/prompts";
 import { startCharting } from "./charting";
 import {
@@ -70,12 +69,15 @@ export function IdeaBox({ folder, environment }: IdeaBoxProps) {
     const answer = await startCharting(folder, ideaAtPress(idea), adapter);
     if (!live.current) return;
     if (answer.kind === "spawned") {
-      /* The prompt is told to this side exactly once, on this answer. */
+      /* The prompt is told to this side exactly once, on this answer, and
+         recorded rather than rendered here: the collapsed block belongs to the
+         pane that shows the run, and a second renderer would be a second
+         account of the text and the count that diagnose a misbehaving run. */
       recordPrompt(answer.run, answer.prompt);
       /* The pane binds what was just started. Rust bound its own monitored run
          inside the command, so this is the declaration and not a second one. */
       monitor(answer.run);
-      setPress({ kind: "spawned", run: answer.run, prompt: answer.prompt });
+      setPress({ kind: "spawned", run: answer.run });
       return;
     }
     setPress({ kind: "refused", detail: answer.detail });
@@ -120,12 +122,6 @@ export function IdeaBox({ folder, environment }: IdeaBoxProps) {
       )}
       {/* What the harness said, verbatim and beside the box that said it. */}
       {box.note === null ? null : <p className={styles.note}>{box.note}</p>}
-      {/*
-        What the run was told, in the one collapsed block this app has for it.
-        A second prompt renderer would be a second account of the text and the
-        count that diagnose a misbehaving run.
-      */}
-      {box.prompt === null ? null : <PromptBlock prompt={box.prompt} />}
     </div>
   );
 }
