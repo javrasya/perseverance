@@ -10,8 +10,9 @@
  * reading the screen has.
  *
  * Everything here is a pure function of five facts — what the map says about
- * *what next*, what the operator has selected, what that selection is, what it
- * reads, and what this folder resolved — plus where the press in flight is. The
+ * *what next*, what the operator has selected, what that selection is and where
+ * it is bound, what it reads, and what this folder resolved — plus where the
+ * press in flight is and which button made it. The
  * rendering in `Sockets.tsx` picks nothing.
  *
  * **The frontier is singular and structural.** The target comes from
@@ -106,6 +107,23 @@ export interface Crossing {
    * has to cross here or the rail arms over a node no brief fits.
    */
   selectionIsTicket: boolean;
+  /**
+   * Whether the selection carries the label that binds it to another machine,
+   * and `false` when nothing is selected.
+   *
+   * The second of the two guards Resume does not inherit, and here for the same
+   * reason as the first: the frontier's resolver asks *is this bound elsewhere*
+   * before it designates anything, so Start Working can never meet one — while
+   * Resume is aimed at the selection, and `NodeState` is derived from state
+   * alone, so a ticket assigned to the operator and labelled for another
+   * platform reads `claimed` as plainly as any other. Without this the rail
+   * arms, and the press buys a full revalidation only to be told what the label
+   * already said. `docs/adr/0015` promises of that label family that nothing is
+   * hidden and nothing is launched; the node stays on the map and the socket
+   * stays in its box, and the refusal is printed before the press rather than
+   * after it.
+   */
+  selectionBoundElsewhere: boolean;
   /**
    * What this folder resolved, or `null` while nothing has come back for it.
    *
@@ -247,6 +265,29 @@ export const NOT_A_CLAIM = "the selected ticket is not claimed, so there is noth
  * a child carrying no recognised wayfinder type has no brief to hand an agent.
  */
 export const NOT_A_TICKET = "the selected node is not a ticket, so there is nothing to resume";
+/**
+ * The other guard Resume does not inherit, said in front of the press rather
+ * than after it. Rust asks it in this position too — after the kind and before
+ * the state — and would refuse the press with the same fact; the difference is
+ * only that the refusal there costs a whole revalidation to hear.
+ */
+export const CLAIM_ELSEWHERE =
+  "the selected ticket is bound to another machine, so it is not resumable here";
+
+/**
+ * What a socket says while the *other* spawning verb's press is out.
+ *
+ * Derived and never guarded: one crossing sends one command at a time, and a
+ * rail that enforced that in the handler would leave the socket beside the one
+ * under the hand filled, armed and silent, swallowing a press for the whole of a
+ * revalidation. So the fact travels as ink, in the pair of sentences that name
+ * whose press it is. Only the two spawning sockets take it — To Frontier sends
+ * no command, so a check in flight is nothing to it.
+ */
+export const START_IS_OUT =
+  "Start Working's press is still out, and one crossing sends one command at a time";
+export const RESUME_IS_OUT =
+  "Resume's press is still out, and one crossing sends one command at a time";
 
 /**
  * Ask is #55's. Its socket is here because the rail is four boxes rather than
@@ -262,15 +303,21 @@ export function designated(frontier: Frontier | null): number | null {
 }
 
 /**
- * The ticket Resume is armed on: the selection, while it is a ticket and a claim.
+ * The ticket Resume is armed on: the selection, while it is a ticket, is not
+ * bound to another machine, and is a claim.
  *
- * Both halves, and in that order, because the Route makes the destination and
- * the unclassified rows selectable too — and `claimed` is a reading of state
- * alone, so either of them arms this button the moment it is assigned.
+ * All three, and in that order, because the Route makes the destination and the
+ * unclassified rows selectable too — and `claimed` is a reading of state alone,
+ * so any of them arms this button the moment it is assigned. The two guards in
+ * front of the state are the two the frontier's resolver answers for Start
+ * Working and nobody answers for Resume; they are asked here in the order Rust
+ * asks them, so the rail and the command cannot disagree about which fact
+ * refuses first.
  */
 export function claimed(crossing: Crossing): number | null {
   return crossing.selection !== null &&
     crossing.selectionIsTicket &&
+    !crossing.selectionBoundElsewhere &&
     crossing.selectionReads === "claimed"
     ? crossing.selection
     : null;
@@ -288,6 +335,7 @@ export function whyNoClaim(crossing: Crossing): string | null {
   if (crossing.frontier === null) return NO_MAP_OPEN;
   if (crossing.selection === null) return NOTHING_SELECTED;
   if (!crossing.selectionIsTicket) return NOT_A_TICKET;
+  if (crossing.selectionBoundElsewhere) return CLAIM_ELSEWHERE;
   return crossing.selectionReads === "claimed" ? null : NOT_A_CLAIM;
 }
 
@@ -429,6 +477,26 @@ function sentenceOn(press: Press, socket: SocketId): string | null {
   return press.kind === "refused" && press.socket === socket ? press.detail : null;
 }
 
+/**
+ * Why this spawning socket takes no press while the other one's is out.
+ *
+ * The whole of *one crossing sends one command at a time*, and derived rather
+ * than guarded: a rail that turned the second press away in the handler would
+ * leave this socket filled, armed and silent for the length of a revalidation,
+ * which is a button lying about what it does. Asked only by the two verbs that
+ * send a command — To Frontier is a selection and nothing else, so a check in
+ * flight costs it nothing — and never about the socket's own press, which reads
+ * `checking…` and is a different sentence.
+ *
+ * Last of the conditions, because it is the only transient one: a socket with no
+ * folder under it says so whether or not a press is out.
+ */
+function pressOut(press: Press, socket: SocketId): string | null {
+  if (press.kind !== "checking" || press.socket === socket) return null;
+  if (press.socket === "start") return START_IS_OUT;
+  return press.socket === "resume" ? RESUME_IS_OUT : null;
+}
+
 function startSocket(
   crossing: Crossing,
   start: StartTarget | null,
@@ -470,7 +538,7 @@ function startSocket(
             ? STILL_READING
             : offered.length === 0
               ? NO_ADAPTER
-              : null;
+              : pressOut(crossing.press, "start");
 
   return {
     id: "start",
@@ -520,7 +588,7 @@ function resumeSocket(
           ? STILL_READING
           : offered.length === 0
             ? NO_ADAPTER
-            : null;
+            : pressOut(crossing.press, "resume");
 
   return {
     id: "resume",

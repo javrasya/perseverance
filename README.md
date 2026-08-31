@@ -396,6 +396,15 @@ check that cannot fail.
   compromise and the same remedy: app-global, survives restart, and belongs in
   the `app` table the day a command exposes it. The swap is one file
   (`src/views/views.ts`).
+- **A run only learns its ending while its own folder is the selected one.** The
+  poller reads the folder that is open, so a run staked in a folder you have
+  moved away from stops hearing about its ticket — and moving away is how you
+  reach a second one. If that ticket closes while you are elsewhere and the agent
+  then exits, the pane says the run stopped with its ticket still open and still
+  claimed, about work that finished. Selecting the folder again puts it right on
+  the next tick, and nothing was done on the strength of the wrong sentence:
+  either ending holds its slot until you end the run yourself. Polling every
+  folder a run is staked in is the remedy, and it is deliberately not in v1.
 - **A dependency on an issue in another repository is not an edge.** The derived
   `Node` carries `waitsOn` — the numbers of every blocker GitHub named, finished
   ones included, which is what a blocked row's `blocked by N` is computed from —

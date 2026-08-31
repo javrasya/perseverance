@@ -740,7 +740,10 @@ export function App() {
           rail is not entitled to a softer opinion about what a claim is. The
           kind crosses beside it because the derivation reads state and never
           kind: the destination and the unclassified children are selectable
-          rows too, and an assigned one of either reads `claimed`.
+          rows too, and an assigned one of either reads `claimed`. The label that
+          binds a ticket to another machine crosses for the same reason and in
+          the same breath — it is invisible to the state, and the frontier's
+          resolver asks it only for the node it designates.
         */}
         <div className={styles.rail}>
           <Sockets
@@ -748,6 +751,7 @@ export function App() {
             selection={selectedNode}
             selectionReads={selectedChild?.state ?? null}
             selectionIsTicket={selectedChild?.kind.kind === "ticket"}
+            selectionBoundElsewhere={selectedChild?.boundElsewhere ?? false}
             environment={folderEnvironment}
             folder={selectedPath ?? null}
             phase={snapshot.model.map?.phase ?? null}

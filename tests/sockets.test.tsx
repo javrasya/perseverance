@@ -17,6 +17,7 @@ import {
   NO_ADAPTER,
   NOTHING_SELECTED,
   NOT_A_TICKET,
+  RESUME_IS_OUT,
   RESUME_LABEL,
   START_LABEL,
   TO_FRONTIER_LABEL,
@@ -108,6 +109,7 @@ function paint(props: Partial<Parameters<typeof Sockets>[0]> = {}): HTMLElement 
         liveRuns={[]}
         selectionReads={null}
         selectionIsTicket={false}
+        selectionBoundElsewhere={false}
         runs={[]}
         onSelect={(node) => {
           selected = node;
@@ -230,17 +232,23 @@ describe("Resume", () => {
     expect(promptFor(12)).toEqual({ text: "work #41", characters: 8, origin: "stock" });
   });
 
-  it("reaches a live claim by moving the pane onto it, and spawns nothing", async () => {
+  it("reaches a live claim by moving the pane onto it, on both sides", async () => {
     const host = paint({ ...CLAIM, runs: [staked(7, 41, false)] });
 
     await act(async () => {
       button(host, "resume").click();
     });
 
+    /* The harness is told as well as the store. `Runs::frame` writes bytes for
+       the one monitored run, so a store that moved alone would bind a terminal
+       nothing is being written to — and the ring behind it would fill until
+       `truncated` promised a replay that could never arrive. */
+    expect(invoke).toHaveBeenCalledWith("monitor_run", { run: 7 });
     expect(readUi().monitored).toBe(7);
     // One crossing is one pane: a second agent on a ticket already running here
-    // is not a resume of anything, so no command is sent at all.
-    expect(invoke).not.toHaveBeenCalled();
+    // is not a resume of anything, so nothing is spawned.
+    expect(invoke).toHaveBeenCalledTimes(1);
+    expect(invoke).not.toHaveBeenCalledWith("resume_working", expect.anything());
   });
 
   /* The destination is selectable in the Route and reads `claimed` the moment
@@ -331,11 +339,22 @@ describe("Resume", () => {
     expect(button(host, "resume").textContent).toContain(CHECKING_LABEL);
     expect(button(host, "start").textContent).toContain(START_LABEL);
 
-    // And the button beside it is not a second way to make the press that is out.
+    /* And the spawning button beside it is not a second way to make the press
+       that is out — recessed, with the press named on it, rather than filled
+       and silently swallowing the click. To Frontier sends no command, so it is
+       pressable throughout. */
+    expect(socket(host, "start").getAttribute("data-fill")).toBe("recessed");
+    expect(socket(host, "start").textContent).toContain(RESUME_IS_OUT);
+    expect(button(host, "start").getAttribute("aria-disabled")).toBe("true");
+    expect(button(host, "toFrontier").getAttribute("aria-disabled")).toBe("false");
+
     await act(async () => {
       button(host, "start").click();
     });
     expect(invoke).toHaveBeenCalledTimes(1);
+
+    act(() => button(host, "toFrontier").click());
+    expect(selected).toBe(75);
 
     await act(async () => {
       answer({

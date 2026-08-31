@@ -104,6 +104,26 @@ turns *exited* into *spent* when the agent closed its ticket on the way out, so
 the falling edge of a run and the ending it gets are one round trip apart rather
 than a rung.
 
+**A run learns its ending only while its own folder is the one being watched,
+and v1 accepts that window.** `poll_once` reads exactly one map — the folder the
+`watching` command last named — and `Terminals::noticed` writes the resolution
+table for the runs staked in that folder and no other. A run staked in a folder
+the operator has since moved away from therefore stops hearing anything about its
+ticket, and selecting another folder is the ordinary way to reach a second one.
+So if that ticket closes while the operator is elsewhere and the child then
+exits, the table still holds the `Claimed` its last tick saw, and the pane prints
+*this run stopped with its ticket still open and still claimed* about work that
+in fact finished — the shape of wrong sentence this whole table exists to avoid,
+arrived at from the other side. Driving the ending off each run's own folder
+instead would multiply every tick by the number of folders the rack has runs in,
+against a rate limit this app already spends carefully, and it is out of scope
+here: this
+ticket accepts the window and writes it down rather than leaving it to be
+rediscovered. It closes itself — re-selecting the folder puts its map back under
+the poller, the next tick writes the resolution the ticket has had all along, and
+the run reads *spent* — and nothing acts on the wrong reading in the meantime,
+because both endings hold their slot until a press either way.
+
 **Two facts stay in two threads.** The poller writes the resolution table and the
 readout thread reads it; the locks are small, taken one after another and never
 nested, and the 3 Hz writer never queues behind the ledger's mutex. A run state

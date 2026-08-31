@@ -4,6 +4,7 @@ import {
   ANOTHER_MACHINE,
   ASK_ARRIVES,
   CHECKING_LABEL,
+  CLAIM_ELSEWHERE,
   COMPOSE_LABEL,
   NOTHING_TAKEABLE,
   NO_ADAPTER,
@@ -12,8 +13,10 @@ import {
   NOTHING_SELECTED,
   NOT_A_CLAIM,
   NOT_A_TICKET,
+  RESUME_IS_OUT,
   RESUME_LABEL,
   STILL_READING,
+  START_IS_OUT,
   START_LABEL,
   TO_FRONTIER_LABEL,
   adapterAtPress,
@@ -78,6 +81,7 @@ const CLAIMED: Partial<Crossing> = {
   selection: 41,
   selectionReads: "claimed",
   selectionIsTicket: true,
+  selectionBoundElsewhere: false,
 };
 
 /** A readout the way `runs.ts` mirrors one, cut down to what the rail reads. */
@@ -108,6 +112,7 @@ function crossing(over: Partial<Crossing> = {}): Crossing {
     selection: null,
     selectionReads: null,
     selectionIsTicket: false,
+    selectionBoundElsewhere: false,
     environment: readout([resolved("claude")]),
     folder: "/work/repo",
     phase: "wayfinding",
@@ -224,6 +229,31 @@ describe("Resume", () => {
     ).toBe(NOT_A_TICKET);
   });
 
+  /* `NodeState` is derived from state alone, so a ticket assigned to the
+     operator and labelled for another platform reads `claimed` here as plainly
+     as any other. Rust refuses that press with a sentence of its own — the rail
+     saying nothing would buy a whole revalidation to hear it, over a button that
+     printed the number and armed. */
+  it("refuses a claim that is bound to another machine, before the press is made", () => {
+    const elsewhere: Partial<Crossing> = {
+      selection: 41,
+      selectionReads: "claimed",
+      selectionIsTicket: true,
+      selectionBoundElsewhere: true,
+    };
+
+    expect(socketOf("resume", elsewhere).condition).toBe(CLAIM_ELSEWHERE);
+    expect(socketOf("resume", elsewhere).fill).toBe("recessed");
+    expect(railAt(crossing(elsewhere)).claim).toBeNull();
+    // The order Rust asks them in: kind first, then the binding, then the state.
+    expect(
+      socketOf("resume", { ...elsewhere, selectionIsTicket: false }).condition,
+    ).toBe(NOT_A_TICKET);
+    expect(
+      socketOf("resume", { ...elsewhere, selectionReads: "takeable" }).condition,
+    ).toBe(CLAIM_ELSEWHERE);
+  });
+
   it("says the same things Start Working says about the folder, in the same words", () => {
     expect(socketOf("resume", { ...CLAIMED, folder: null }).condition).toBe(NO_FOLDER_OPEN);
     expect(socketOf("resume", { ...CLAIMED, environment: null }).condition).toBe(STILL_READING);
@@ -245,6 +275,30 @@ describe("Resume", () => {
     expect(socketOf("start", { ...CLAIMED, press: checking }).label).toBe(START_LABEL);
     expect(socketOf("resume", { ...CLAIMED, press: refused }).note).toBe(refused.detail);
     expect(socketOf("start", { ...CLAIMED, press: refused }).note).toBeNull();
+  });
+
+  /* One crossing sends one command at a time, and that is a fill rather than a
+     guard in the handler: a socket left filled and armed beside the one under
+     the hand would swallow the press for the whole of a revalidation and say
+     nothing about why. To Frontier sends no command, so it is untouched. */
+  it("recesses the other spawning socket while a press is out, and names whose it is", () => {
+    const resuming = crossing({ ...CLAIMED, press: { kind: "checking", socket: "resume" } });
+    const starting = crossing({ ...CLAIMED, press: { kind: "checking", socket: "start" } });
+
+    expect(socketOf("start", { ...CLAIMED, press: resuming.press }).fill).toBe("recessed");
+    expect(socketOf("start", { ...CLAIMED, press: resuming.press }).condition).toBe(RESUME_IS_OUT);
+    expect(socketOf("resume", { ...CLAIMED, press: starting.press }).fill).toBe("recessed");
+    expect(socketOf("resume", { ...CLAIMED, press: starting.press }).condition).toBe(START_IS_OUT);
+
+    for (const state of [resuming, starting]) {
+      const toFrontier = railAt(state).sockets[3];
+      expect(toFrontier?.fill).toBe("filled");
+      expect(pressable(toFrontier as Socket)).toBe(true);
+    }
+
+    // And never about its own press, which is `checking…` and not a condition.
+    expect(socketOf("resume", { ...CLAIMED, press: resuming.press }).condition).toBeNull();
+    expect(socketOf("start", { ...CLAIMED, press: starting.press }).condition).toBeNull();
   });
 
   it("finds the live run staked on a claim, and nothing for one that is over", () => {

@@ -3,7 +3,7 @@ import type { FolderReadout } from "../environment/folder";
 import type { Frontier, NodeState, Phase } from "../snapshot/model.generated";
 import { monitor } from "../stores/ui";
 import { recordPrompt } from "../terminal/prompts";
-import type { RunReadout } from "../terminal/runs";
+import { monitorRun, type RunReadout } from "../terminal/runs";
 import {
   adapterAtPress,
   liveRunOn,
@@ -61,6 +61,14 @@ interface SocketsProps {
    * agent at. See `Crossing.selectionIsTicket`.
    */
   selectionIsTicket: boolean;
+  /**
+   * Whether the selection is labelled for another machine. The second guard
+   * Resume does not inherit, beside the first for the same reason: the
+   * derivation reads state alone, so a ticket assigned to the operator and bound
+   * elsewhere reads `claimed` here as plainly as any other, and the rail would
+   * arm on a press that could only be refused. See `Crossing.selectionBoundElsewhere`.
+   */
+  selectionBoundElsewhere: boolean;
   /**
    * Every run this window holds, live and finished.
    *
@@ -121,6 +129,7 @@ export function Sockets({
   liveRuns,
   selectionReads,
   selectionIsTicket,
+  selectionBoundElsewhere,
   runs,
   onSelect,
 }: SocketsProps) {
@@ -169,6 +178,7 @@ export function Sockets({
     map,
     selectionReads,
     selectionIsTicket,
+    selectionBoundElsewhere,
     composing,
     press,
   });
@@ -224,20 +234,28 @@ export function Sockets({
   const resume = (claim: number, at: string, agent: string) => {
     const already = liveRunOn(runs, claim, at);
     if (already !== null) {
-      monitor(already);
+      /* Both sides of the pane, and the harness first. `Runs::frame` emits
+         bytes for the one run the harness is monitoring and for no other, so a
+         store that moved on its own would bind a terminal nothing is being
+         written to — and the ring behind it would go on filling unacknowledged
+         until `truncated` flipped and the pane promised a replay that could
+         never come. Every other `monitor` on this side is safe because the
+         command it followed set Rust's own; this press sends no command, so it
+         is the one place the declaration has to be made here. */
+      void monitorRun(already).then(() => monitor(already));
       return;
     }
     void spawning("resume", null, () => resumeWorking(at, claim, agent));
   };
 
   const onPress = (socket: Socket) => {
-    // A recessed socket and a socket that is checking both take no press, and
-    // the second is why this is a guard rather than a `disabled` attribute.
+    /* A recessed socket and a socket that is checking both take no press, and
+       the second is why this is a guard rather than a `disabled` attribute.
+       It is also the only guard: *one command in flight at a time* is a fill
+       the derivation computes, so the socket beside the one under the hand is
+       recessed with the press named on it rather than left filled and silently
+       swallowing the click. To Frontier sends no command and stays pressable. */
     if (!pressable(socket)) return;
-    /* One command in flight at a time. The socket that is checking says so on
-       its own button; the ones beside it are not a second way to make the press
-       that is already out. */
-    if (press.kind === "checking") return;
     if (socket.id === "toFrontier") {
       if (rail.target !== null) onSelect(rail.target);
       return;
