@@ -29,10 +29,22 @@ function listed(inventory: Inventory): WorktreeEntry[] {
   return inventory.kind === "listed" ? inventory.entries : [];
 }
 
+/**
+ * The one at `index`, or a failure that names what was not there.
+ *
+ * `noUncheckedIndexedAccess` is right that an array index can be nothing, and
+ * the honest reading of a fixture that lost a row is a test that says which row
+ * it wanted — not a `TypeError` thrown a line later reading `.path` of
+ * `undefined`.
+ */
+function at<T>(items: T[], index: number, what: string): T {
+  const item = items[index];
+  if (item === undefined) throw new Error(`no ${what} at ${index}, in ${items.length}`);
+  return item;
+}
+
 function only(key: string): WorktreeEntry {
-  const entries = listed(fixtureWorktrees(key));
-  expect(entries.length).toBeGreaterThan(0);
-  return entries[0];
+  return at(listed(fixtureWorktrees(key)), 0, `entry of the ${key} listing`);
 }
 
 /* --------------------------------------------------------------- shape --- */
@@ -143,7 +155,11 @@ describe("nothing readable is claimed about anything", () => {
   });
 
   it("draws no button for anything it could not read", () => {
-    const entry = listed(inventoryFrom([{ path: "/tmp/x", removable: "yes" }]))[0];
+    const entry = at(
+      listed(inventoryFrom([{ path: "/tmp/x", removable: "yes" }])),
+      0,
+      "narrowed entry",
+    );
 
     expect(entry.removable).toBe(false);
     expect(entry.whose.kind).toBe("foreign");
@@ -152,7 +168,9 @@ describe("nothing readable is claimed about anything", () => {
   });
 
   it("keeps a lock with no reason apart from no lock at all", () => {
-    const [reasoned, silent] = listed(fixtureWorktrees("locked"));
+    const locked = listed(fixtureWorktrees("locked"));
+    const reasoned = at(locked, 0, "lock with a reason");
+    const silent = at(locked, 1, "lock with none");
 
     expect(lockedLine(reasoned)).toContain("keeping this one until the release goes out");
     expect(silent.locked).toBe("");

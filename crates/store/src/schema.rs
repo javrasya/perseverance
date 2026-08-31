@@ -237,6 +237,37 @@ mod tests {
         assert!(store.folders().expect("lists").is_empty());
     }
 
+    /// Every table this registry has, spelled out — and the point of spelling
+    /// them out is the one that is missing.
+    ///
+    /// Worktrees are derived from `git worktree list` on every call and written
+    /// down nowhere: a remembered worktree is a row that goes on offering to
+    /// remove a directory somebody has since put an hour of unsaved work into.
+    /// The claim is asserted as an exact set rather than as the absence of a
+    /// `worktrees` table, because an absence is a check the next migration
+    /// passes by naming its table `worktree_state` instead.
+    #[test]
+    fn the_registry_has_these_tables_and_keeps_no_worktree_among_them() {
+        let (_dir, path) = scratch();
+        let _store = Store::open(&path).expect("opens");
+
+        let connection = Connection::open(&path).expect("opens");
+        let mut statement = connection
+            .prepare(
+                "SELECT name FROM sqlite_master
+                 WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
+                 ORDER BY name",
+            )
+            .expect("prepares");
+        let tables: Vec<String> = statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .expect("queries")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("reads");
+
+        assert_eq!(tables, ["app", "folders", "graph_cache", "map_view"]);
+    }
+
     #[test]
     fn the_registry_file_is_kept_in_write_ahead_logging_mode() {
         let (_dir, path) = scratch();

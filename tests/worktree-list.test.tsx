@@ -64,6 +64,19 @@ function entriesOf(inventory: Inventory): WorktreeEntry[] {
   return inventory.kind === "listed" ? inventory.entries : [];
 }
 
+/**
+ * The one at `index`, or a failure that names what was not there.
+ *
+ * `noUncheckedIndexedAccess` is right that an array index can be nothing, and
+ * the honest reading of a fixture or a render that lost a row is a test that
+ * says which row it wanted — not a `TypeError` thrown a line later.
+ */
+function at<T>(items: T[], index: number, what: string): T {
+  const item = items[index];
+  if (item === undefined) throw new Error(`no ${what} at ${index}, in ${items.length}`);
+  return item;
+}
+
 describe("every worktree of the folder is on the list", () => {
   it("draws a row per entry, foreign ones included", () => {
     const inventory = fixtureWorktrees("everyState");
@@ -82,7 +95,7 @@ describe("every worktree of the folder is on the list", () => {
     );
 
     expect(orphans).toHaveLength(1);
-    expect(orphans[0].textContent).toContain("orphan");
+    expect(at(orphans, 0, "orphan row").textContent).toContain("orphan");
     // In the list, not beside it: one `ul`, and every row is in it.
     expect(drawn.querySelectorAll("ul li[data-whose]")).toHaveLength(rows(drawn).length);
   });
@@ -120,9 +133,9 @@ describe("the offer is drawn exactly where the wire said there was one", () => {
 
   it("prints every uncommitted line and draws no button at all beside them", () => {
     const inventory = fixtureWorktrees("uncommitted");
-    const entry = entriesOf(inventory)[0];
+    const entry = at(entriesOf(inventory), 0, "uncommitted entry");
     const drawn = draw(inventory);
-    const [row] = rows(drawn);
+    const row = at(rows(drawn), 0, "drawn row");
 
     expect(row.querySelectorAll("button")).toHaveLength(0);
     for (const line of uncommittedLines(entry)) {
@@ -158,7 +171,7 @@ describe("a press names a directory, and this side changes nothing", () => {
     const button = drawn.querySelector<HTMLButtonElement>("li[data-whose] button");
     act(() => button?.click());
 
-    expect(pressed).toEqual([entriesOf(inventory)[0].path]);
+    expect(pressed).toEqual([at(entriesOf(inventory), 0, "pressed entry").path]);
     // Nothing is spliced here. The row goes when the next listing says it is
     // gone, because the listing is derived from git and kept nowhere.
     expect(rows(drawn)).toHaveLength(1);

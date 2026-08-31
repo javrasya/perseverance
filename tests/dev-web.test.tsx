@@ -29,6 +29,11 @@ import {
   UNWATCHED_READING,
 } from "../src/terminal/Pane";
 import { RUN_FIXTURES, RUN_FIXTURE_NAMES } from "../src/terminal/fixtures";
+import {
+  FOREIGN_IS_NOT_OURS,
+  REMOVE_LABEL,
+  worktreeFixtureKeys,
+} from "../src/worktrees/worktrees";
 
 /**
  * `dev:web` boots the whole frontend from a checked-in snapshot with no Rust
@@ -1684,5 +1689,95 @@ describe("the rack lists every run beside the pane, from the fixture behind dev:
     // no runs behind it, it says so rather than disappearing.
     await boot("/?map=awkward-map");
     expect(theRack().querySelectorAll("li")).toHaveLength(0);
+  });
+});
+
+describe("the worktree panel is one query parameter away in a plain browser", () => {
+  /**
+   * The listing starts when a folder is opened and never before, so the panel
+   * is reached the way an operator reaches it: pick the top row and let the
+   * three promises behind it settle.
+   */
+  async function openTheTopFolder(): Promise<void> {
+    const folder = document.querySelector('[aria-label="Folders"] li button');
+    if (!(folder instanceof HTMLButtonElement)) {
+      throw new Error("the launcher has no folder to open");
+    }
+    await act(async () => {
+      folder.click();
+    });
+    await act(async () => {
+      for (let turn = 0; turn < 6; turn += 1) await Promise.resolve();
+    });
+  }
+
+  /** The panel itself, rather than the window it is a strip of. */
+  function thePanel(): HTMLElement {
+    const panel = document.querySelector('[aria-label="Worktrees of this folder"]');
+    if (!(panel instanceof HTMLElement)) throw new Error("no worktree panel on this screen");
+    return panel;
+  }
+
+  /** Every *Remove this worktree* the panel is currently drawing. */
+  function theOffers(): HTMLButtonElement[] {
+    return [...thePanel().querySelectorAll("button")].filter(
+      (button) => button.textContent === REMOVE_LABEL,
+    );
+  }
+
+  /**
+   * The claim no component test can make: `?worktrees=<key>` is a route, and a
+   * route is only a route once the whole app has been booted through it. The
+   * unit tests hand `WorktreeList` a fixture by name; this one types the name
+   * into the address bar and opens a folder, which is the whole of what a
+   * designer with no Rust on their machine actually does.
+   */
+  it("picks the fixture the query names, with nothing behind the window", async () => {
+    expect(hasRustBehindIt()).toBe(false);
+
+    await boot("/?map=awkward-map&folder=notFound&worktrees=uncommitted");
+    await openTheTopFolder();
+
+    /*
+     * Criterion 5, at the surface and through the route: every porcelain line
+     * git printed is on screen in the open, and the offer is *absent* rather
+     * than present and refusing. A disabled button here would be the app
+     * arguing with the operator about work only they can judge.
+     */
+    expect(thePanel().textContent).toContain("?? notes/what-the-shell-answered.md");
+    expect(thePanel().textContent).toContain(" M src/environment/folder.ts");
+    expect(theOffers()).toHaveLength(0);
+  });
+
+  it("draws the offer on the state that earns one, and on no stranger's row", async () => {
+    await boot("/?map=awkward-map&folder=notFound&worktrees=cleanAndPushed");
+    await openTheTopFolder();
+    expect(theOffers()).toHaveLength(1);
+
+    /* Criterion 2 the same way round: a foreign row gets a sentence and no
+       control of any kind, so there is nothing on it to press or to grey out. */
+    await boot("/?map=awkward-map&folder=notFound&worktrees=foreign");
+    await openTheTopFolder();
+    expect(theOffers()).toHaveLength(0);
+    expect(thePanel().textContent).toContain(FOREIGN_IS_NOT_OURS);
+  });
+
+  it("mounts every state the fixture carries, because a route nobody boots rots", async () => {
+    for (const key of worktreeFixtureKeys()) {
+      await boot(`/?map=awkward-map&folder=notFound&worktrees=${key}`);
+      await openTheTopFolder();
+      // Chrome at a fixed address: the panel is on screen for the empty listing
+      // too, saying so, rather than disappearing when there is nothing to say.
+      expect([key, thePanel().querySelector("[data-state]")?.getAttribute("data-state")]).toEqual([
+        key,
+        "listed",
+      ]);
+    }
+  });
+
+  it("falls back to the every-state listing when the query names nothing", async () => {
+    await boot("/?map=awkward-map&folder=notFound");
+    await openTheTopFolder();
+    expect(thePanel().textContent).toContain("9 worktrees · ");
   });
 });
