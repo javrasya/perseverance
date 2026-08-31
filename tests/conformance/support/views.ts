@@ -141,10 +141,11 @@ const BENCH: ViewSurface = {
      `aria-hidden` child, and the mark's geometry — square, hollow diamond,
      hatched bar, dashed circle — is the span it wraps. */
   glyph: 'span[aria-hidden="true"] > span',
-  /* An HTML glyph, like the Route's: the mark is a `<span>` whose form is
-     drawn in a border and a background over `color`, so those are the three
+  /* An HTML glyph, like the Route's, plus the stud's left edge: the mark is a
+     `<span>` whose form is drawn in borders and a background over `color`, and
+     the Bench tells a kind apart on `border-left` as well, so all four are
      properties an ink could hide in here. */
-  inks: ["color", "border-top-color", "background-color"],
+  inks: ["color", "border-top-color", "border-left-color", "background-color"],
   unclassifiedWord: UNCLASSIFIED_TAG,
   /* No fog region, and the omission is this view's decision rather than an
      oversight: the fog is not a node, has no rank and nothing waits on it, so

@@ -17,7 +17,6 @@ import { defineConfig, devices } from "@playwright/test";
  * most likely to break first, so CI runs `webkit` and depends on it, and
  * `chromium` is there for a developer who wants the second reading.
  */
-<<<<<<< HEAD
 /**
  * One viewport for every project, and it overrides the device's own.
  *
@@ -25,27 +24,24 @@ import { defineConfig, devices } from "@playwright/test";
  * window has to be wide enough for the *widest* floor in `VIEW_FLOORS` —
  * otherwise `App` draws its stand-down where a view should be, or the view
  * draws its own, and a rule that then found no rows would be going red for a
- * reason that has nothing to do with the rule. The Bench asks for 680px of
- * canvas, and the canvas is a good deal narrower than the window: the dial opens
- * at `split`, so the map side is half the body; the rail takes 13rem off it; and
- * the launcher and the view are both `flex: 1`, so they halve what is left. A
- * little under a quarter of the body reaches the canvas, which is the whole of
- * why 680px of canvas is `VIEW_FLOORS.bench = 1744` of map side
- * (`BENCH_MAP_FLOOR` in `src/panes/dial.ts` does that arithmetic) and why this
- * viewport is roughly four times 680 rather than near it: at `split` the body
- * has to be at least twice 1744, and 3840 clears that with a margin.
+ * reason that has nothing to do with the rule.
  *
- * The devices' own 1280 would put every fixture on a stood-down Bench, so this
+ * The Plate decides the number. Its floor is a floor on the *drawing*, and the
+ * map side has to hold the launcher, the rail, the shell's own padding and this
+ * view's reserved margin before the drawing gets a pixel — `VIEW_FLOORS.plate`
+ * composes all of that and lands at 2360px of map side. The Bench asks for
+ * 680px of canvas, which is `VIEW_FLOORS.bench = 1744` of map side by the same
+ * kind of arithmetic (`BENCH_MAP_FLOOR` in `src/panes/dial.ts`), and so is the
+ * second-widest rather than the widest. 3840 clears the Plate's with a margin
+ * at the detent the driver opens a view at.
+ *
+ * The devices' own 1280 would put every fixture on a stood-down view, so this
  * is not a preference. The driver refuses to run against a mounted-but-undrawn
  * view (`tests/conformance/support/drive.ts`), which is what turns a layout
  * change that eats this margin into a named failure rather than into a suite
  * quietly asserting nothing.
  */
 const WIDE_ENOUGH_FOR_EVERY_VIEW = { width: 3840, height: 1440 };
-=======
-/** The window every project runs in — see the note on `projects` below. */
-const WINDOW = { width: 2560, height: 1440 };
->>>>>>> 58a9f5d (The floor is what the field gets, and the router's field cannot run away (#63))
 
 export default defineConfig({
   /* Its own directory, and `vite.config.ts` excludes it from vitest: vitest's
@@ -85,7 +81,6 @@ export default defineConfig({
    * the desktop the view is competent on.
    */
   projects: [
-<<<<<<< HEAD
     {
       name: "webkit",
       use: { ...devices["Desktop Safari"], viewport: WIDE_ENOUGH_FOR_EVERY_VIEW },
@@ -94,10 +89,6 @@ export default defineConfig({
       name: "chromium",
       use: { ...devices["Desktop Chrome"], viewport: WIDE_ENOUGH_FOR_EVERY_VIEW },
     },
-=======
-    { name: "webkit", use: { ...devices["Desktop Safari"], viewport: WINDOW } },
-    { name: "chromium", use: { ...devices["Desktop Chrome"], viewport: WINDOW } },
->>>>>>> 58a9f5d (The floor is what the field gets, and the router's field cannot run away (#63))
   ],
 
   webServer: {

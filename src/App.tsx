@@ -48,7 +48,6 @@ import {
   type MapsView,
 } from "./maps/maps";
 import { describeModel } from "./snapshot/readout";
-import type { Model } from "./snapshot/model.generated";
 import { loadSnapshot, watchSnapshot } from "./snapshot/snapshot";
 import { replaceSnapshot, useSnapshot } from "./stores/snapshots";
 import {

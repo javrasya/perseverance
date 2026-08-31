@@ -420,6 +420,22 @@ describe("a pin outside the drawing is not a pin on it", () => {
   });
 });
 
+/**
+ * A window wide enough that the *map side* clears a floor, which is not the
+ * same number as the floor.
+ *
+ * The `map` detent stopped being the whole window when the rack arrived: the
+ * terminal side keeps `RACK_RESERVE` pixels of it at every position, so a
+ * window exactly as wide as the floor hands the map side less than the floor
+ * and the view stands down. Asked of `sides` rather than written down, so the
+ * reserve can move without this file learning a new constant.
+ */
+function windowClearing(floor: number): number {
+  let width = floor;
+  while (sides(fractionOf("map"), width).map < floor) width += 10;
+  return width;
+}
+
 describe("the floor, as numbers", () => {
   it("never asks for less than the hard floor", () => {
     for (const [name, map] of fixtureMaps()) {
@@ -448,7 +464,9 @@ describe("the floor, as numbers", () => {
     expect(standing?.exits).toHaveLength(2);
 
     /* And a window wide enough is drawn rather than explained. */
-    expect(standDown("plate", fractionOf("map"), floorOf("plate") + 10, VIEWS)).toBeNull();
+    expect(
+      standDown("plate", fractionOf("map"), windowClearing(floorOf("plate")), VIEWS),
+    ).toBeNull();
   });
 
   /*
@@ -529,7 +547,9 @@ describe("the floor, as numbers", () => {
     expect(wide.requiredWidth).toBe(
       Math.max(PLATE_FLOOR, wide.extent.columns * CELL_PIXELS),
     );
-    expect(standDown("plate", fractionOf("map"), floorOf("plate") + 10, VIEWS)).toBeNull();
+    expect(
+      standDown("plate", fractionOf("map"), windowClearing(floorOf("plate")), VIEWS),
+    ).toBeNull();
   });
 
   it("carries the competence band rather than a comment about it", () => {

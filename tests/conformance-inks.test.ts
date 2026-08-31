@@ -41,6 +41,16 @@ const COMPUTED: Record<string, string> = {
   "border-color": "border-top-color",
   "border-top": "border-top-color",
   "border-top-color": "border-top-color",
+  /* An edge painted on its own side lands on that side's colour, which is a
+     different computed property from `border-top-color` and a different
+     question for the probe: the Bench tells a kind apart on the stud's left
+     edge alone. */
+  "border-left": "border-left-color",
+  "border-left-color": "border-left-color",
+  "border-right": "border-right-color",
+  "border-right-color": "border-right-color",
+  "border-bottom": "border-bottom-color",
+  "border-bottom-color": "border-bottom-color",
 };
 
 /** Every property one view's stylesheets paint the glyph token in. */
