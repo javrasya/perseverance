@@ -220,6 +220,11 @@ export function Pane({
       if (fits !== null) gestured.measured(occasion, fits);
     };
 
+    /* Every change to the box, whichever hand moved it: a divider drag, and a
+       dock press that takes height off the pane for the node panel. The
+       observer cannot tell those apart and does not have to — both are the
+       operator's own gesture, and `"drag"` is the occasion that settles into
+       exactly one resize. The enumeration is in `src/panes/geometry.ts`. */
     const watching = new ResizeObserver(() => measure("drag"));
     watching.observe(held);
 

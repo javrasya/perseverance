@@ -122,21 +122,51 @@ describe("one panel, three docks, never unmounted", () => {
     const panel = thePanel();
     const pass = thePass();
     expect(pass).not.toBeNull();
-    // A scroll the operator made. jsdom has no layout, but it does keep the
-    // number, which is enough to tell *the same scroller travelled* from *a new
-    // one was built at the far end*.
-    pass!.scrollTop = 40;
 
-    for (const dock of ["runBar", "rack", "spine"] as const) {
-      await send(dock);
+    /*
+     * jsdom keeps `scrollTop` as a plain number and lays nothing out, so on its
+     * own an offset assertion here is one nobody could ever watch fail — the
+     * shape `tests/no-raw-html.test.ts` refuses. So the environment is made to
+     * do what a real one does: a move is an `appendChild`, which detaches the
+     * node before it re-inserts it, and Blink and WebKit destroy the layout box
+     * the offset lives on the moment the node leaves the tree. Modelling that
+     * drop is what gives the check something to catch — take the restore out of
+     * `App.tsx`'s dock effect and this test goes red.
+     *
+     * What it still does not prove is that a real engine drops the offset
+     * exactly here and nowhere else, or that it accepts the value written back
+     * in the same task. That pin needs a layout, so it needs a browser: it
+     * belongs in `tests/conformance/`, and it is not written yet.
+     */
+    const insert = Element.prototype.appendChild;
+    const dropsLayout = function (this: Element, node: Node): Node {
+      const placed = insert.call(this, node);
+      if (node === pass) {
+        pass.scrollTop = 0;
+        pass.scrollLeft = 0;
+      }
+      return placed;
+    };
+    Element.prototype.appendChild = dropsLayout as typeof Element.prototype.appendChild;
 
-      expect(holding()).toBe(dock);
-      // Identity, not text: two renderings of the same fields would pass a
-      // `textContent` check and would still be two panels.
-      expect(thePanel()).toBe(panel);
-      expect(thePass()).toBe(pass);
-      expect(pass!.scrollTop).toBe(40);
-      expect(panels()).toHaveLength(1);
+    try {
+      // A scroll the operator made, set after the drop is armed so that the
+      // move is the only thing that could ever take it away.
+      pass!.scrollTop = 40;
+
+      for (const dock of ["runBar", "rack", "spine"] as const) {
+        await send(dock);
+
+        expect(holding()).toBe(dock);
+        // Identity, not text: two renderings of the same fields would pass a
+        // `textContent` check and would still be two panels.
+        expect(thePanel()).toBe(panel);
+        expect(thePass()).toBe(pass);
+        expect(pass!.scrollTop).toBe(40);
+        expect(panels()).toHaveLength(1);
+      }
+    } finally {
+      Element.prototype.appendChild = insert;
     }
   });
 

@@ -740,15 +740,18 @@ export function App() {
    * `useState` rather than `useRef` for the same reason `terminals` is —
    * deliberate, not a slip. The panel is rendered *into* this node by a portal
    * whose target never changes, so React never unmounts the subtree: after a
-   * move between docks the DOM nodes, their scroll offsets and any text
-   * selection inside them are the *same objects*. Whether a live text selection
-   * survives an `appendChild` is the browser's business and jsdom cannot
-   * exercise it; node identity and scroll offset are the assertable half, and
-   * `tests/boarding-pass.test.tsx` asserts those.
+   * move between docks the DOM nodes and any text selection inside them are the
+   * *same objects*. Node identity is the half a test can hold, and jsdom holds
+   * only that much: it lays nothing out, so what it proves is that the same
+   * nodes arrived, never that a real engine kept anything on them. Whether a
+   * live text selection survives an `appendChild` is the browser's business,
+   * and nothing on this side can vouch for it.
    *
    * The cap and the scrollbar are on this element rather than on the docks,
    * because the scroller has to be the thing that travels — a scroll offset
-   * kept on a dock is an offset the next dock has never heard of.
+   * kept on a dock is an offset the next dock has never heard of. That is
+   * necessary and not sufficient: the offset itself is carried across the move
+   * by hand, in the effect below.
    */
   const [pass] = useState(() => {
     const held = document.createElement("div");
@@ -776,7 +779,24 @@ export function App() {
    */
   useEffect(() => {
     const host = { spine: spineDock, runBar: runBarDock, rack: rackDock }[occupant];
+    /*
+     * The offset is carried by hand, because `reparent` is an `appendChild` and
+     * an `appendChild` detaches before it re-inserts. A scroll offset lives on
+     * the element's layout box, and an engine destroys that box the moment the
+     * node leaves the tree — so *the scroller is the thing that travels* buys
+     * one offset to carry and not the carrying.
+     *
+     * This is not the re-application ADR 0025 rejects. That one restores a
+     * number a frame after a remount, into a box that was never the one being
+     * read. These three lines are one task with no frame painted between them,
+     * and the node is never unmounted, so there is nothing for the operator to
+     * see happen.
+     */
+    const top = pass.scrollTop;
+    const left = pass.scrollLeft;
     reparent(pass, host.current);
+    pass.scrollTop = top;
+    pass.scrollLeft = left;
   }, [pass, occupant]);
   /*
    * `null` means the open view can be drawn here. Anything else is the four

@@ -40,10 +40,9 @@ different places want it: a strip along the spine under the body, the run bar
 beside a live agent, and the rack. Letting the operator choose is easy. Letting
 them choose *without losing their place* is not: a panel that is unmounted at one
 address and mounted at another is a new panel, and a new panel starts at the top
-of its scroller with nothing selected in its text. Nothing on this side can put
-either of those back — a scroll offset can be re-applied and a *text selection*
-cannot, and even the scroll offset re-applied a frame later is a flicker the
-operator sees.
+of its scroller with nothing selected in its text. A *text selection* is gone for
+good — nothing on this side can put one back — and a scroll offset re-applied a
+frame after a remount is a flicker the operator sees.
 
 The app already had this exact problem once, and had already solved it: an xterm
 instance *is* the terminal, and moving a terminal between panes is done by
@@ -64,8 +63,16 @@ away a reading position that nothing on this side could put back.
 **The scroller is what travels.** The height cap and `overflow: auto` are on the
 pass, not on any dock. A dock that owned the scroll box would hand the next dock
 a fresh one on every move, and "the scroll position survives a re-dock" would be
-false no matter how carefully the node was reparented. This one placement is the
-whole of that criterion.
+false no matter how carefully the node was reparented. It is necessary and not
+sufficient. A move is an `appendChild`, which detaches the node before it
+re-inserts it, and Blink and WebKit destroy the layout box — where a scroll
+offset lives — on detach. So the dock effect in `src/App.tsx` reads `scrollTop`
+and `scrollLeft` off the pass and writes them back around the move: one task, no
+frame painted between them, which is what separates this from the remount fix
+rejected below. Nobody has watched it happen in a real engine yet. The jsdom test
+models the drop rather than observing it (`tests/boarding-pass.test.tsx` makes
+the move destroy the offset, so the restore is what keeps it green), and only a
+browser — the Playwright suite — could observe the real thing.
 
 **Which dock is a press and never an arrival.** `dock` lives in the UI store
 beside `position`, written only by `chooseDock`, which nothing but a press calls
@@ -130,7 +137,10 @@ triples the DOM the page-scoped conformance walks have to be true of.
 
 **Re-applying the scroll offset after a remount.** It restores the number and not
 the position — the operator sees the jump, and a text selection is simply gone.
-This is the fix that looks like it works until somebody is reading.
+This is the fix that looks like it works until somebody is reading. Reading the
+offset back *inside* the move, as the decision above does, is a different animal:
+the node is never unmounted, the selection is never touched, and no frame is
+painted between the detach and the write.
 
 **A second reparent helper for the panel.** Rejected on the same grounds the
 first one exists: two mechanisms for *move this node* drift, and the one that
@@ -204,7 +214,8 @@ reaches the DOM byte for byte, which is what holds the renderer to the panel.
 `borrowedBecause` without mounting anything. `tests/boarding-pass.test.tsx` boots
 the shell and asserts there is exactly one panel in the document at every moment,
 that the node arriving at a dock is the **same object** that left the last one,
-that its scroll offset comes with it, that the selection it prints is unchanged
+that its scroll offset comes with it even when the move is made to destroy it,
+that the selection it prints is unchanged
 across a re-dock, that both docks without the pass name the occupant and offer a
 keyboard-reachable press, and that the `map` detent borrows the pass onto the
 spine with a sentence and springs it back when the width returns.

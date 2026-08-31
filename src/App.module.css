@@ -250,8 +250,16 @@
  * The docks are strips in this flow rather than boxes positioned against
  * anything, because `.terminal` is deliberately not a containing block — the
  * same reason the peek stud hangs off the body. They cost the pane height and
- * never width, so no dial position and no dock is ever the reason a live agent
- * reflows sideways.
+ * never width: no dial position and no dock is ever the reason a live agent
+ * reflows *sideways*.
+ *
+ * The height is not free, and that half is deliberate. Docking the pass here
+ * swaps a one-line sentence for a panel up to `max-height` tall in the pane's
+ * own column, so the pane is genuinely shorter afterwards and the run genuinely
+ * has fewer rows: a press settles into one `SIGWINCH`, the same as a divider
+ * drag does, and `src/panes/geometry.ts` names the press among the occasions a
+ * size arrives on. What the pane is protected from is a size nobody asked for —
+ * a bind, a poll, an arrival — not from the operator shrinking it on purpose.
  */
 .runSide {
   display: flex;
@@ -275,9 +283,13 @@
  * The boarding pass: the node panel, and the element that moves.
  *
  * The cap and the scroll box are here rather than on any dock, and that is the
- * whole of *a scroll position survives a re-dock*: the scroller is the thing
- * that travels, so its offset travels with it. A dock that owned the scroll box
- * would hand the next dock a fresh one every time.
+ * necessary half of *a scroll position survives a re-dock*: the scroller has to
+ * be the thing that travels, or a dock would hand the next dock a fresh scroll
+ * box every time. It is not the sufficient half. A move is an `appendChild`,
+ * which detaches the node before it re-inserts it, and an engine drops the
+ * layout box — and the offset that lives on it — the moment that happens. The
+ * dock effect in `App.tsx` reads the offset back onto the node in the same task
+ * as the move; this rule is only what makes there be one offset to carry.
  *
  * The cap is a viewport fraction rather than a percentage of the parent for the
  * same reason. A percentage means a different height in each of the three
