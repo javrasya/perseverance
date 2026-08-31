@@ -1,4 +1,4 @@
-# 22. Ask claims nothing, so it gates on nothing
+# 27. Ask claims nothing, so it gates on nothing
 
 Status: accepted (2026-08-31)
 Context: [#55 Ask, on any node of the open
@@ -6,6 +6,13 @@ map](https://github.com/javrasya/perseverance/issues/55), under the spec
 [#28](https://github.com/javrasya/perseverance/issues/28). ADR 0020 settled the
 revalidation a spawn is gated on, and ADR 0021 settled the rail the press
 arrives from. This settles what a press that writes nothing has to wait for.
+
+`0027` and not `0022`: `0022` was already written twice — the run's ending and
+the dial, each on its own branch — and the highest number on disk is `0026`. A
+third file under `0022` would have made a bare `docs/adr/0022` citation
+ambiguous, and this repo already has bare ones meaning *a run's ending is two
+independent facts*. So this ADR takes the next free number, and the code that
+cites it spells the whole slug rather than the digits.
 
 ## Context
 

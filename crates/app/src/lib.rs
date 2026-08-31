@@ -2650,7 +2650,7 @@ struct RunReadout {
     ///
     /// It is also the field the rack in #56 needs to draw a run as its own kind,
     /// which is why the whole kind crosses rather than the one bit `liveRunOn`
-    /// reads off it — see `docs/adr/0022-ask-claims-nothing-so-it-gates-on-nothing`.
+    /// reads off it — see `docs/adr/0027-ask-claims-nothing-so-it-gates-on-nothing`.
     kind: Option<RunKind>,
     /// What this run's silence means, derived here from six facts and never from
     /// a threshold — see [`silence`].
@@ -9784,10 +9784,12 @@ mod tests {
     /// **A question about a claim is not a run on it**, in the one join Resume
     /// asks.
     ///
-    /// The reachable collision `docs/adr/0022` never examined: Ask fills on a
-    /// `claimed` node deliberately, and it stakes that node's number in that
-    /// node's folder — the same pair a work run stakes. On the pair alone this
-    /// answered *yes*, and the two presses that follow both go wrong from it:
+    /// The reachable collision that
+    /// `docs/adr/0027-ask-claims-nothing-so-it-gates-on-nothing` never
+    /// examined: Ask fills on a `claimed` node deliberately, and it stakes
+    /// that node's number in that node's folder — the same pair a work run
+    /// stakes. On the pair alone this answered *yes*, and the two presses
+    /// that follow both go wrong from it:
     /// the rail takes its re-focus branch and binds the pane to the question
     /// session without sending a command, and `resume_working` refuses the press
     /// that races it over a run holding no claim. Both read this predicate, so
