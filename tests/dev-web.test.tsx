@@ -6,6 +6,7 @@ import { App } from "../src/App";
 import { CacheStamp } from "../src/chrome/CacheStamp";
 import { DROP_REGION_HINT } from "../src/chrome/DropRegion";
 import { OVERRIDE_REFUSED_COUNSEL } from "../src/environment/folder";
+import { COMPOSE_LABEL, START_LABEL } from "../src/chrome/sockets";
 import { CONDITIONS } from "../src/chrome/stamp";
 import { MapList } from "../src/maps/MapList";
 import {
@@ -1381,5 +1382,45 @@ describe("the stamp says the harness is yielding, and only while it is", () => {
 
     expect(said).not.toMatch(/\d+\s*(second|minute|hour)s?\b(?! ago)/);
     expect(said).not.toMatch(/\b\d{3,}\b/);
+  });
+});
+
+describe("the compose offer is on screen from a fixture, and only on the rung that has it", () => {
+  /*
+   * #66's offer, end to end from a booted app with no Rust behind it.
+   *
+   * The rung it stands on is the one a browser has no way to walk to — every
+   * ticket on a real map closed, and stopped there before a spec is attached —
+   * so `spec-ready` exists for exactly this: without it the only state where
+   * the button appears would be the only state nobody could look at, and the
+   * word on the primary socket would be pinned in a unit test and drawn
+   * nowhere. Its two neighbours are the same map one and two steps later, and
+   * they are here because *gone afterwards* is half the claim.
+   */
+  const theStart = (): HTMLElement => {
+    const found = document.querySelector<HTMLElement>('[data-socket="start"]');
+    if (found === null) throw new Error("no start socket in the document");
+    return found;
+  };
+
+  it("reads Compose Spec on the spec-ready map, aimed at the map itself", async () => {
+    await boot("/?map=spec-ready");
+    const map = FIXTURES["spec-ready"].model.map;
+
+    // The phase is the gate, and it is the fixture's own — nothing here
+    // re-derives it from the counts.
+    expect(map?.phase).toBe("specReady");
+    expect(theStart().textContent).toContain(COMPOSE_LABEL);
+    // Aimed at the map and not at a ticket: there is no takeable one left, and
+    // the number on the button is the map's.
+    expect(theStart().textContent).toContain(`#${map?.number}`);
+  });
+
+  it("reads Start Working again on the two rungs after it", async () => {
+    for (const name of ["spec-composed", "map-closed"] as const) {
+      await boot(`/?map=${name}`);
+      expect([name, theStart().textContent?.includes(START_LABEL)]).toEqual([name, true]);
+      expect([name, theStart().textContent?.includes(COMPOSE_LABEL)]).toEqual([name, false]);
+    }
   });
 });

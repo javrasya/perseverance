@@ -296,11 +296,28 @@ describe("the prompt a spawn answered with", () => {
  * two the ladder lands on afterwards.
  */
 describe("Compose Spec", () => {
+  /*
+   * The one rung that offers a compose, taken off the fixture the Rust
+   * derivation produced rather than assembled here. `spec-ready` is
+   * `spec-composed` with the `wayfinder:spec` child not written yet — every
+   * ticket closed, no spec, map still open — so the phase, the frontier and
+   * the map's number below are the model's own reading of a real recorded
+   * answer, and this file no longer asserts against a crossing it invented.
+   */
+  const SPEC_READY = FIXTURES["spec-ready"].model.map;
+  const SPEC_READY_MAP = SPEC_READY?.number ?? null;
+
+  it("is a fixture on the one rung, and not a crossing this file made up", () => {
+    expect(SPEC_READY?.phase).toBe("specReady");
+    expect(SPEC_READY?.frontier).toEqual({ frontier: "nothingToStart" });
+    expect(SPEC_READY_MAP).not.toBeNull();
+  });
+
   const composable = (over: Partial<Crossing> = {}): Crossing =>
     crossing({
-      frontier: { frontier: "nothingToStart" },
-      phase: "specReady",
-      map: 28,
+      frontier: SPEC_READY?.frontier ?? null,
+      phase: SPEC_READY?.phase ?? null,
+      map: SPEC_READY_MAP,
       ...over,
     });
 
@@ -323,8 +340,8 @@ describe("Compose Spec", () => {
     ]);
     expect(rail.sockets[0]?.label).toBe(COMPOSE_LABEL);
     expect(rail.sockets[0]?.fill).toBe("filled");
-    expect(rail.sockets[0]?.aimedAt).toBe(28);
-    expect(rail.start).toEqual({ kind: "compose", map: 28 });
+    expect(rail.sockets[0]?.aimedAt).toBe(SPEC_READY_MAP);
+    expect(rail.start).toEqual({ kind: "compose", map: SPEC_READY_MAP });
     // And To Frontier is still the frontier's, which on a finished map has
     // nothing to snap to. The two aimed sockets are not aimed at one number.
     expect(rail.target).toBeNull();
@@ -350,7 +367,7 @@ describe("Compose Spec", () => {
     // Recessed and still aimed: the box says what it would compose and why it
     // cannot, and both are text on the socket rather than an attribute.
     expect(primary({ folder: null }).fill).toBe("recessed");
-    expect(primary({ folder: null }).aimedAt).toBe(28);
+    expect(primary({ folder: null }).aimedAt).toBe(SPEC_READY_MAP);
   });
 
   it("reads checking while a compose press is in flight, and takes no press", () => {
@@ -358,7 +375,7 @@ describe("Compose Spec", () => {
 
     expect(pressed.label).toBe(CHECKING_LABEL);
     expect(pressable(pressed)).toBe(false);
-    expect(pressed.aimedAt).toBe(28);
+    expect(pressed.aimedAt).toBe(SPEC_READY_MAP);
   });
 
   it("is gone once the spec is composed, and gone on a map that is closed", () => {
