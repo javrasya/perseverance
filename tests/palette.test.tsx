@@ -31,7 +31,7 @@ interface Painted {
 }
 
 async function paint(
-  options: { table?: readonly Entry[]; focusPicker?: () => string | null } = {},
+  options: { table?: readonly Entry[]; onPickAgent?: () => string | null } = {},
 ): Promise<Painted> {
   const host = document.createElement("div");
   document.body.appendChild(host);
@@ -42,7 +42,7 @@ async function paint(
     root.render(
       <Palette
         table={options.table}
-        focusPicker={options.focusPicker ?? (() => null)}
+        onPickAgent={options.onPickAgent ?? (() => null)}
         onRun={(id) => painted.ran.push(id)}
         onHandOff={() => {
           painted.handedOff += 1;
@@ -157,7 +157,7 @@ describe("the command palette", () => {
   });
 
   it("focuses the one picker rather than opening a menu of its own", async () => {
-    const painted = await paint({ focusPicker: () => null });
+    const painted = await paint({ onPickAgent: () => null });
     // No second control for *which agent* anywhere in it: the row sends the
     // keyboard to the picker the crossing rail already draws.
     expect(painted.host.querySelector("select")).toBeNull();
@@ -174,7 +174,7 @@ describe("the command palette", () => {
   });
 
   it("says why when there is no picker to focus, rather than nothing at all", async () => {
-    const painted = await paint({ focusPicker: () => "no picker is on screen" });
+    const painted = await paint({ onPickAgent: () => "no picker is on screen" });
     await act(async () => {
       rowFor(painted.host, "agent")
         ?.querySelector("button")
@@ -204,7 +204,7 @@ describe("the command palette", () => {
   it("hides nothing behind a hover", async () => {
     // Everything it has to say is text on the surface: a `title` is a sentence a
     // screen reader and a keyboard cannot have.
-    const { host } = await paint({ focusPicker: () => "why not" });
+    const { host } = await paint({ onPickAgent: () => "why not" });
     expect(host.querySelectorAll("[title]")).toHaveLength(0);
   });
 

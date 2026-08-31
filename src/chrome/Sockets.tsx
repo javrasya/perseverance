@@ -392,6 +392,12 @@ export function Picker({
  * one sentence. The first *changeable* one wins: the idea box picks an adapter
  * in the same shape and for the same reason, and a keyboard sent to a control
  * that cannot be changed has been sent nowhere.
+ *
+ * It does *not* clear an `inert` standing over the picker, and it cannot see
+ * one: `querySelector` reaches into an inert subtree and `focus()` on a node in
+ * one moves nothing while still returning. Whoever put the mark on takes it off
+ * before calling this — the shell does, in `reachPicker` — because the element
+ * carrying it is the caller's and never this function's to find.
  */
 export function focusPicker(): string | null {
   const changeable = document.querySelector<HTMLElement>("[data-picker]:not([data-picker-fixed])");

@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import { focusPicker as focusTheOnePicker } from "../chrome/Sockets.jsx";
 import { useUi } from "../stores/ui";
 import {
   ENTRIES,
@@ -38,12 +37,23 @@ export const PICK_AGENT = "choose which agent a run starts with";
  */
 export function Palette({
   onRun,
+  onPickAgent,
   onHandOff,
   table = ENTRIES,
-  focusPicker = focusTheOnePicker,
 }: {
   /** Press a row, through the app's one handler. Never a second verb. */
   onRun: (id: ActionId) => void;
+  /**
+   * Send the keyboard to the picker, or answer with why it could not go.
+   *
+   * The shell's and not this file's, because the picker is *behind* this
+   * surface: everything back there is `inert` while the palette is up, and an
+   * inert control is findable but not focusable — a `focus()` from in here would
+   * report success and move nothing. The shell lifts its own mark, focuses, and
+   * puts the mark back if the answer is a refusal. Injectable for the reason
+   * `table` is: nothing about the row may be hard-coded here.
+   */
+  onPickAgent: () => string | null;
   /**
    * Put the palette away and leave the keyboard exactly where it now is.
    *
@@ -56,8 +66,6 @@ export function Palette({
   onHandOff: () => void;
   /** The table to print. A parameter so a test can prove it is not hard-coded. */
   table?: readonly Entry[];
-  /** The seam onto the crossing rail's picker, injectable for the same reason. */
-  focusPicker?: () => string | null;
 }) {
   /* Subscribed, not read: `currentState` is a plain read, and the `Esc` line
      would otherwise print whatever it said at the last unrelated render. */
@@ -88,7 +96,7 @@ export function Palette({
   const printed = table.filter((entry) => entry.dismisses === undefined);
 
   const pickAgent = () => {
-    const why = focusPicker();
+    const why = onPickAgent();
     setRefused(why);
     /* Silence would be the one unacceptable answer: a row that focused nothing
        and said nothing is a row an operator presses twice.

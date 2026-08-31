@@ -118,7 +118,7 @@ import { Route } from "./views/route/Route.jsx";
 import { Ledger } from "./chrome/Ledger.jsx";
 /* `Sockets.jsx` for the third time and the same reason: `chrome/sockets.ts` is
    the derivation and `chrome/Sockets.tsx` is the rendering. */
-import { Sockets } from "./chrome/Sockets.jsx";
+import { Sockets, focusPicker } from "./chrome/Sockets.jsx";
 /* `IdeaBox.jsx` for the fourth: `chrome/idea.ts` is the derivation. */
 import { IdeaBox } from "./chrome/IdeaBox.jsx";
 /* `Detail.jsx` for the fifth: `detail/detail.ts` is the join and the words. */
@@ -159,6 +159,9 @@ export function App() {
    * and it stays the only one.
    */
   const bodyRef = useRef<HTMLDivElement>(null);
+  /* The shell itself, because the one row that sends the keyboard *into* it has
+     to lift the `inert` this element carries before it can. */
+  const shellRef = useRef<HTMLDivElement>(null);
   const dialRef = useRef<HTMLDivElement>(null);
   const { width: bodyWidth, reach: dialReach } = useBodyBox(bodyRef, dialRef);
   /*
@@ -777,6 +780,32 @@ export function App() {
     else (document.activeElement as HTMLElement | null)?.blur();
   };
 
+  /*
+   * The palette's one row that aims *into* the shell, and the `inert` it has to
+   * get past.
+   *
+   * Everything behind a surface is out of the keyboard's reach while the surface
+   * is up — that is the modality above — and both pickers are behind it. An
+   * `inert` subtree is still perfectly findable by `querySelector`, so a
+   * `focusPicker()` called from under the palette finds the picker, focuses
+   * nothing, and reports success: the row an operator presses to send the
+   * keyboard somewhere would send it to `document.body` and print no sentence
+   * about it. So the mark comes off first and the focus happens second, in that
+   * order, and this is the shell's to do because the mark is the shell's.
+   *
+   * Refused, the mark goes straight back on: the palette stays up over a shell
+   * that has to stay out of reach, and the reason is what gets printed. Taken,
+   * the row hands off, and the dismiss that follows re-renders this element
+   * without the mark anyway.
+   */
+  const reachPicker = () => {
+    const behind = shellRef.current;
+    behind?.removeAttribute("inert");
+    const why = focusPicker();
+    if (why !== null) behind?.setAttribute("inert", "");
+    return why;
+  };
+
   const pressed = useRef<Handlers>({ press: () => {}, release: () => {} });
   pressed.current = {
     press: (id: ActionId, state: KeyState) => {
@@ -1119,8 +1148,11 @@ export function App() {
         the shell would go inert with it the moment it was raised. Both are
         `position: fixed`, so standing outside the shell's flex column costs them
         nothing.
+
+        The one thing that reaches back in is the palette's picker row, and it
+        goes through `reachPicker` above rather than around this mark.
       */}
-      <div className={styles.app} inert={inFront !== null}>
+      <div ref={shellRef} className={styles.app} inert={inFront !== null}>
         <header className={styles.chrome}>
           <span className={styles.brand}>perseverance</span>
           {/* The same `model` the footer readout spells and the Route is drawn
@@ -1571,6 +1603,10 @@ export function App() {
             away();
             pressed.current.press(id, currentState());
           }}
+          /* Into the shell, and past the shell's own `inert` on the way: the
+             palette cannot reach a picker that is behind it without the element
+             carrying the mark taking it off first. */
+          onPickAgent={reachPicker}
           /* The row that has already sent the keyboard somewhere: the surface
              goes, and nothing here touches focus. `away` would take the keys
              straight back off the picker the row exists to reach. */

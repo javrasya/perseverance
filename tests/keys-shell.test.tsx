@@ -9,7 +9,7 @@ import { forgetStow } from "../src/terminal/reparent";
 import type { Terminal } from "../src/terminal/terminals";
 import { monitor, readUi } from "../src/stores/ui";
 import { Picker } from "../src/chrome/Sockets.jsx";
-import { picking } from "../src/chrome/sockets";
+import { RUN_IS_UP, picking } from "../src/chrome/sockets";
 import { App } from "../src/App";
 
 /**
@@ -94,30 +94,42 @@ async function boot(): Promise<void> {
 }
 
 /**
- * The rail's own picker, on screen beside the shell, with a choice on it.
+ * The rail's own picker, drawn where the case under test needs it to be.
  *
  * The real `Picker`, and rendered rather than faked, because the seam the
  * palette's row aims at is a `data-picker` attribute in the document — what the
  * readout pipeline has to do to offer two adapters is `tests/sockets.test.tsx`'s
  * subject, and what is under test here is what the *shell* does to the keyboard
- * after the row has handed it over.
+ * around it. `into` says which side of the surface it stands on, which is the
+ * whole question for the row that reaches it; `duringRun` draws the printed,
+ * unchangeable one instead of the choice.
  */
 let railed: { root: ReturnType<typeof createRoot>; host: HTMLElement } | null = null;
 
-async function rail(): Promise<HTMLSelectElement> {
+async function rail({
+  into,
+  duringRun = false,
+}: { into?: HTMLElement; duringRun?: boolean } = {}): Promise<HTMLElement> {
   const host = document.createElement("div");
-  document.body.appendChild(host);
+  (into ?? document.body).appendChild(host);
   const root = createRoot(host);
   railed = { root, host };
   const offered = ["claude", "codex"] as const;
   await act(async () => {
     root.render(
-      <Picker offered={offered} picking={picking(offered, null, false)} onChoose={() => {}} />,
+      <Picker
+        offered={offered}
+        picking={picking(offered, null, duringRun)}
+        onChoose={() => {}}
+      />,
     );
   });
-  const select = host.querySelector("select[data-picker]");
-  return (select as HTMLSelectElement | null) ?? expect.fail("the rail offered no choice");
+  const control = host.querySelector<HTMLElement>(
+    duringRun ? "[data-picker]" : "select[data-picker]",
+  );
+  return control ?? expect.fail("the rail drew no picker");
 }
+
 
 afterEach(() => {
   if (railed !== null) {
@@ -175,6 +187,25 @@ async function escape(at: EventTarget | null = null): Promise<KeyboardEvent> {
 const thePalette = () => document.querySelector("[data-palette]");
 const theKeysPage = () => document.querySelector("[data-keys]");
 const theTerminal = () => document.querySelector("[data-stand-in='terminal']");
+
+/**
+ * The shell itself, named the way the keyboard finds it: the element carrying
+ * the `inert` while a surface is up. A class of its own is a CSS-module hash and
+ * a `data-` seam for a test only would be a second way to say the same thing.
+ */
+const theShell = (): HTMLElement =>
+  theTerminal()?.closest<HTMLElement>("[inert]") ??
+  expect.fail("nothing behind the surface is inert");
+
+/** A row of the palette, pressed the way a mouse presses it. */
+async function pressRow(id: string): Promise<void> {
+  const button = document.querySelector<HTMLButtonElement>(
+    `[data-palette] [data-row="${id}"] button`,
+  );
+  await act(async () => {
+    (button ?? expect.fail(`the palette prints no ${id} row`)).click();
+  });
+}
 
 describe("the palette, raised and dismissed at the window", () => {
   it("comes up on its chord with the keyboard in its filter field", async () => {
@@ -375,5 +406,66 @@ describe("home, with nothing in front", () => {
 
     expect(readUi().inFront).toBeNull();
     expect(document.activeElement).toBe(picker);
+  });
+});
+
+describe("the palette's picker row, against the real shell", () => {
+  /*
+   * The acceptance criterion's first half, end to end. The row aims at a control
+   * that is *behind* the palette, and everything behind a surface is `inert` —
+   * so the row cannot work unless the mark comes off before the focus and not
+   * after it. `querySelector` reaches into an inert subtree either way, which is
+   * how this once passed a unit test of its own while focusing nothing at all.
+   *
+   * jsdom implements no focus semantics for `inert`, so `document.activeElement`
+   * alone would agree with the broken order too. What is pinned instead is the
+   * fact a browser acts on: whether the picker had an `inert` ancestor *at the
+   * moment `focus()` was called*. The landing is asserted beside it.
+   */
+  it("focuses the picker with the shell's inert lifted, then hands off", async () => {
+    await boot();
+    await press("palette");
+
+    /* Behind the surface, which is where the rail draws it and the whole of what
+       this case is about — nothing can talk the readout pipeline into offering
+       two adapters in jsdom. */
+    const picker = await rail({ into: theShell() });
+    const markWhenFocused: (Element | null)[] = [];
+    const focus = picker.focus.bind(picker);
+    picker.focus = () => {
+      markWhenFocused.push(picker.closest("[inert]"));
+      focus();
+    };
+
+    await pressRow("agent");
+
+    expect(markWhenFocused).toEqual([null]);
+    expect(document.activeElement).toBe(picker);
+    /* The hand-off and not `away`: the surface goes, and nothing takes the
+       keyboard back off the control the row exists to reach. */
+    expect(thePalette()).toBeNull();
+    expect(readUi().inFront).toBeNull();
+    expect(document.querySelector("[data-refused]")).toBeNull();
+  });
+
+  /*
+   * The other half of it, and the behaviour the lift must not cost: a picker
+   * printed rather than offered refuses, the reason it carries is the sentence
+   * the palette prints, and the surface stays up over a shell that goes straight
+   * back out of the keyboard's reach. Silence is the one unacceptable answer.
+   */
+  it("prints the reason and puts the mark back when the picker is fixed", async () => {
+    await boot();
+    await press("palette");
+
+    const printed = await rail({ into: theShell(), duringRun: true });
+    expect(printed.getAttribute("data-picker-fixed")).toBe(RUN_IS_UP);
+
+    await pressRow("agent");
+
+    expect(document.querySelector("[data-refused]")?.textContent).toBe(RUN_IS_UP);
+    expect(thePalette()).not.toBeNull();
+    expect(readUi().inFront).toBe("palette");
+    expect(theTerminal()?.closest("[inert]")).not.toBeNull();
   });
 });
