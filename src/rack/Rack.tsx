@@ -45,9 +45,9 @@ import styles from "./Rack.module.css";
  *   window.
  *
  * The ration is the screen's and not this subtree's, which is why the shell
- * hands the rack [`spentElsewhere`]: the Route spends a ping of its own on a
- * claimed node, and a lamp that counted only its own children would animate a
- * second element beside it. [`lampPings`] is the arbitration, and the rack is
+ * hands the rack [`spentElsewhere`]: the Route holds a licence of its own for a
+ * halo on a claimed row, and a lamp that counted only its own children would
+ * animate a second element beside it. [`lampPings`] is the arbitration, and the rack is
  * the surface that yields — it keeps the fact and loses only the movement,
  * because the filled ring and `N of M still running` say the same thing
  * standing still.
@@ -58,7 +58,11 @@ export function Rack({
 }: {
   readouts: readonly RunReadout[];
   /**
-   * A licensed animation is already drawn somewhere on this screen.
+   * The map side is drawn, so the screen's one animation is its to spend.
+   *
+   * Not *a claim exists* and not *the Route is animating right now*: the shell
+   * reads it off the pressed arrangement of the window alone, so nothing the
+   * world does can start or stop this lamp. See `lampPings` and `src/App.tsx`.
    *
    * Required rather than defaulted: the shell is the only box that can see both
    * surfaces, and a prop with a default is a prop a second call site can forget

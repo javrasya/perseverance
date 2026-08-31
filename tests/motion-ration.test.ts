@@ -9,6 +9,8 @@ import {
   type LicensedMotion,
 } from "./support/checks";
 import { lampPings } from "../src/rack/rack";
+import type { Map, Node } from "../src/snapshot/model.generated";
+import { pingOf, routeOf } from "../src/views/route/route";
 import { collectMarkupAndStyles, collectStylesheets } from "./support/sources";
 
 /** The one file allowed to say what reduced motion means here. */
@@ -55,22 +57,35 @@ const RACK_PATH = "src/rack/Rack.module.css";
  * The fourth is why this list is two entries and still means *one animated
  * element*, and it is held to below. **The two licences are never spent at the
  * same time**: #56 rations motion by the screen and not by a subtree, and the
- * Route's ping and the rack's lamp are both drawn at `split`, at `glance` and at
+ * Route's halo and the rack's lamp are both drawn at `split`, at `glance` and at
  * `map` with a map open. So the rack yields — `lampPings` is the arbitration,
  * `src/App.tsx` is the only box that can see both surfaces and is what answers
  * it, and each animated element carries `data-animated` so the count is a query
- * over the document rather than a reading of two stylesheets. The rack is the
- * side that gives way rather than the Route because re-rationing a view's own
- * encoding belongs to the contract tickets; what it gives up is the movement and
- * never the fact, which the lit ring and `N of M still running` keep.
+ * over the document rather than a reading of two stylesheets.
+ *
+ * And each licence is one element rather than one per thing it is about. The
+ * rack spends its lamp once for the whole rack; the Route draws its halo on the
+ * row `pingOf` names and on no other, so a map staking three claims animates one
+ * mark and keeps the disc, the ring and the `Now` heading on the other two. That
+ * is what makes *at most one* a fact about the delivered window rather than a
+ * fact about the fixtures that happen to stake exactly one claim.
+ *
+ * The arbitration itself moves on presses only: `elsewhere` is *the map side is
+ * drawn*, read off which view is open and how the dial is set, never off whether
+ * the graph holds a claim. A claim landing on GitHub may therefore neither start
+ * this lamp nor stop it — the thing #56 forbids in as many words — and the price
+ * is a licence held unspent while the Route is up with nothing claimed on it.
+ * Zero animated elements is inside the ration; a lamp that starts because a
+ * ticket resolved is not. What the rack gives up is the movement and never the
+ * fact, which the lit ring and `N of M still running` keep.
  */
 const LICENSED_MOTION: readonly LicensedMotion[] = [
   {
     path: ROUTE_PATH,
-    selector: ".markClaimed::after",
+    selector: ".markPing::after",
     keyframes: "ping",
     carries:
-      "claimed — the one node state that is in progress rather than settled, and the only liveness this side of the seam can carry",
+      "claimed — the one node state that is in progress rather than settled, and the only liveness this side of the seam can carry — drawn once for the pane by `pingOf` and never once per claimed row, over a still ring on `.markClaimed::after` that every claim keeps",
   },
   {
     path: RACK_PATH,
@@ -103,6 +118,9 @@ const ROUTE_MOTION = `
   content: "";
   border: 1.5px solid var(--c-node-glyph);
   opacity: 0.5;
+}
+
+.markPing::after {
   animation: ping 2.1s var(--s-motion-ease) infinite;
 }
 
@@ -129,7 +147,7 @@ describe("motion is rationed, and the ration is enumerable over the stylesheets"
     const surface = readMotion(ROUTE_MOTION);
 
     expect(surface.animations.map((animation) => animation.selector)).toEqual([
-      ".markClaimed::after",
+      ".markPing::after",
     ]);
     expect(surface.animations[0]!.names).toEqual(["ping"]);
     expect(surface.keyframes.map((block) => block.name)).toEqual(["ping"]);
@@ -160,7 +178,10 @@ describe("motion is rationed, and the ration is enumerable over the stylesheets"
     const here = (text: string) => findMotionViolations({ path: ROUTE_PATH, text }, LICENSED_MOTION);
 
     expect(here(`.markBlocked { animation: ping 2s linear infinite; }`)).toHaveLength(1);
-    expect(here(`.markClaimed::after { animation: throb 2s linear infinite; }`)).toHaveLength(1);
+    // The still ring's own selector is not the licensed one: moving the
+    // animation back onto it is a ping per claimed row again.
+    expect(here(`.markClaimed::after { animation: ping 2s linear infinite; }`)).toHaveLength(1);
+    expect(here(`.markPing::after { animation: throb 2s linear infinite; }`)).toHaveLength(1);
     expect(here(`@keyframes throb { to { opacity: 0; } }`)).toHaveLength(1);
   });
 
@@ -258,6 +279,53 @@ describe("motion is rationed, and the ration is enumerable over the stylesheets"
   });
 });
 
+function ticket(number: number, claimed: boolean): Node {
+  return {
+    number,
+    title: `Ticket ${number}`,
+    url: `https://github.com/o/r/issues/${number}`,
+    kind: { kind: "ticket", type: "task" },
+    state: claimed ? "claimed" : "takeable",
+    waitsOn: [],
+    boundElsewhere: false,
+    cut: { cut: "inScope" },
+  };
+}
+
+function mapStaking(claims: number): Map {
+  const nodes = Array.from({ length: Math.max(claims, 1) }, (_, at) =>
+    ticket(at + 1, at < claims),
+  );
+  return {
+    number: 28,
+    title: "Spec: perseverance",
+    closed: false,
+    phase: "wayfinding",
+    counts: { tickets: nodes.length, open: nodes.length, specs: 0 },
+    nodes,
+    frontier: { frontier: "nothingToStart" },
+    fog: { fog: "unsurveyed" },
+  };
+}
+
+/**
+ * How many marks the Route would hand `data-animated` on a map staking this
+ * many claims — the view's real element count, from the view's own arithmetic.
+ *
+ * `pingOf` names the one row that moves and `Route.tsx` draws the attribute on
+ * exactly the row it names, so this is the same walk the DOM does — held to on
+ * the DOM itself in `tests/route-view.test.tsx`, which paints a multi-claim map
+ * and counts the attribute rather than deriving it.
+ */
+function routeElements(claims: number): number {
+  const route = routeOf(mapStaking(claims));
+  const ping = pingOf(route);
+  if (ping === null) return 0;
+  return route.sections
+    .flatMap((section) => section.rows)
+    .filter((row) => row.node.number === ping).length;
+}
+
 describe("the ration is one element on screen, and the rack is what yields", () => {
   it("spends the rack's licence only where the other one is not being spent", () => {
     for (const point of RATION) {
@@ -269,16 +337,34 @@ describe("the ration is one element on screen, and the rack is what yields", () 
   });
 
   it("never animates two elements at once, whatever the screen is showing", () => {
-    /* The screen's count, from the arithmetic: the Route's ping is on or it is
-       not, and the rack's is decided from that. Two at once is the defect a
-       list of two licences would otherwise be hiding, and there is no reading of
-       the two facts that produces it. */
-    for (const live of [0, 1, 2, 6, 12]) {
-      for (const elsewhere of [false, true]) {
-        const moving = (elsewhere ? 1 : 0) + (lampPings(live, elsewhere) ? 1 : 0);
-        expect(moving, `${live} live, elsewhere ${elsewhere}`).toBeLessThanOrEqual(1);
+    /*
+     * The screen's count, and the Route's half of it is *counted* rather than
+     * assumed: `routeElements` asks the view's own arithmetic how many marks
+     * would carry `data-animated` over a map staking that many claims. A 1
+     * written in here would assert the criterion under an assumption the view is
+     * free to break, which is exactly how a ping per claimed row survived a
+     * green test — the fixtures all staked one claim, so nothing counted two.
+     */
+    for (const claims of [0, 1, 2, 7]) {
+      for (const live of [0, 1, 2, 6, 12]) {
+        for (const elsewhere of [false, true]) {
+          const moving =
+            (elsewhere ? routeElements(claims) : 0) + (lampPings(live, elsewhere) ? 1 : 0);
+          expect(
+            moving,
+            `${claims} claimed, ${live} live, elsewhere ${elsewhere}`,
+          ).toBeLessThanOrEqual(1);
+        }
       }
     }
+  });
+
+  it("draws the map side's licence on one mark however many claims are staked", () => {
+    /* And the count is not vacuously small: the rows are there to animate, and
+       one of them does. */
+    expect(routeElements(0)).toBe(0);
+    expect(routeElements(1)).toBe(1);
+    expect(routeElements(7)).toBe(1);
   });
 
   it("lets no landing start the lamp, whatever else is on screen", () => {

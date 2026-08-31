@@ -6,6 +6,7 @@ import {
   NEXT_HEADING,
   NOW_HEADING,
   blockersOf,
+  pingOf,
   routeOf,
   type Route,
   type RouteRow,
@@ -875,5 +876,48 @@ describe("the fog is a region beside the sections and never one of them", () => 
 
     expect(route.sections).toEqual([]);
     expect(route.fog).toEqual({ fog: "unsurveyed" });
+  });
+});
+
+describe("the halo is the screen's, and not one per claimed row", () => {
+  /*
+   * #56 rations motion by the screen: at most one animated element however many
+   * runs are live, and a view that drew a ping per claim would blow that on a
+   * map staking two. So the pane asks *which row moves* once, and the answer is
+   * a number rather than a predicate over rows.
+   */
+  it("names one row however many rows are claimed", () => {
+    const route = routeOf(
+      mapOf([
+        node(1, { state: "claimed" }),
+        node(2, { state: "claimed" }),
+        node(3, { state: "claimed" }),
+      ]),
+    );
+    const claimed = route.sections
+      .flatMap((section) => section.rows)
+      .filter((row) => row.mark === "claimed");
+
+    // The mark is still on all three — what is rationed is the movement.
+    expect(claimed).toHaveLength(3);
+    expect(pingOf(route)).toBe(1);
+  });
+
+  it("names nothing when nothing on the map is in progress", () => {
+    const route = routeOf(mapOf([node(1), node(2, { state: "resolved" })]));
+
+    expect(pingOf(route)).toBeNull();
+  });
+
+  it("never lands on a row the pane does not mark claimed", () => {
+    /* `markOf` answers `destination` above the state, so a spec child holding a
+       session is not marked `claimed` and draws no halo — reading `node.state`
+       instead of the mark is how the shell came to suppress the rack's lamp
+       against a ping that was never on the screen. */
+    const route = routeOf(
+      mapOf([node(1), node(9, { kind: { kind: "spec" }, state: "claimed" })]),
+    );
+
+    expect(pingOf(route)).toBeNull();
   });
 });
