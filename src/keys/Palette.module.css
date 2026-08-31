@@ -51,6 +51,7 @@
 }
 
 .esc,
+.keysGo,
 .held {
   display: flex;
   gap: var(--s-space-snug);
@@ -58,7 +59,10 @@
   margin: 0;
 }
 
-.esc {
+/* The two readouts are one block — what Esc does, and where the keys are — so
+   the rule under them is drawn once, under the second, rather than between two
+   sentences that answer the same question about this surface. */
+.keysGo {
   padding-bottom: var(--s-space-tight);
   border-bottom: var(--s-border-hairline) solid var(--c-palette-line);
 }

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { useNow } from "../chrome/useNow";
-import type { RunReadout } from "../terminal/runs";
+import { monitor, useUi } from "../stores/ui";
+import { monitorRun, type RunReadout } from "../terminal/runs";
 import {
   SHOWN,
   droppedSentence,
@@ -19,9 +20,10 @@ import styles from "./Rack.module.css";
  *
  * The rack is **chrome**, not a view: it lives at a fixed address in the shell
  * beside the pane, like the ledger and the socket rail, and it is not in
- * `views.ts`, has no contract declaration and widens no `ViewProps`. It is also
- * a readout and nothing else — which run the terminal shows is the patchbay's
- * (#57), and no row here binds, monitors or ends anything.
+ * `views.ts`, has no contract declaration and widens no `ViewProps`. It is the
+ * patchbay's selector as well as its readout (#57): a row is pressable and the
+ * press patches the monitor onto that run. It still binds and ends nothing —
+ * the press moves what the terminal *shows*, never where the keystrokes go.
  *
  * The two claims worth restating where they can be broken:
  *
@@ -70,6 +72,7 @@ export function Rack({
    */
   spentElsewhere: boolean;
 }) {
+  const { monitored } = useUi();
   const region = useRef<HTMLElement | null>(null);
   const width = useRegionWidth(region);
   const tier = tierFor(width);
@@ -78,6 +81,29 @@ export function Rack({
   const live = liveCount(rows);
   const pinging = lampPings(live, spentElsewhere);
   const dropped = droppedSentence(tier);
+
+  /*
+   * The harness first, then the store, and no focus call anywhere in here.
+   *
+   * `Runs::frame` on the Rust side emits bytes for the one run the harness is
+   * monitoring and for no other, so a store that moved on its own would bind a
+   * terminal nothing is being written to. Every other `monitor` on this side is
+   * safe because the command it followed already set Rust's own; this press
+   * sends no command, so it makes the declaration itself — the same shape the
+   * Resume press uses in `src/chrome/Sockets.tsx`. `monitorRun` is a no-op with
+   * no Rust behind the window, which is what makes this correct in `dev:web`
+   * and in jsdom too.
+   *
+   * And nothing warms. `monitor` cools the binding on every change, and that
+   * cooling is the whole of *you can select which run the terminal shows
+   * without moving your keyboard to it*: a focus call here would take that
+   * back, and would land the caret in a dead child on a row that had exited.
+   * Warming the newly monitored run stays the crossing chord, or a click into
+   * the terminal.
+   */
+  const patch = (run: number) => {
+    void monitorRun(run).then(() => monitor(run));
+  };
 
   return (
     <section
@@ -126,22 +152,51 @@ export function Rack({
         <p className={styles.empty}>Nothing has been started in this window yet.</p>
       ) : (
         <ol className={styles.rows}>
-          {rows.map((row) => (
-            <li
-              key={row.run}
-              className={row.live ? `${styles.row} ${styles.rowLive}` : `${styles.row} ${styles.rowLanded}`}
-              data-live={row.live ? "true" : "false"}
-            >
-              {SHOWN[tier].map((field) => {
-                const said = phraseAt(tier, row, field);
-                return said === null ? null : (
-                  <span key={field} className={INK[field]} data-field={field}>
-                    {said}
-                  </span>
-                );
-              })}
-            </li>
-          ))}
+          {rows.map((row) => {
+            const patched = row.run === monitored;
+            const liveness = row.live ? styles.rowLive : styles.rowLanded;
+            return (
+              /*
+                The row is the button, and the `<li>` around it draws nothing —
+                see `.slot` in the stylesheet. A wrapper with a box of its own
+                would put a second box between the row and its fields, and the
+                fields' real boxes are what `tests/conformance/rack-width.spec.ts`
+                measures at each tier's floor.
+
+                A landed run's row is pressable like any other: runs stay in the
+                rack as `exited`, and patching the monitor onto one so its crash
+                can be read is the point rather than an edge case.
+
+                `aria-current` and `data-monitored` are the mark, and the
+                stylesheet adds a ring to them — a form-level difference, so the
+                mark is not carried by colour alone and is not hidden behind
+                hover. Which row is marked comes from the UI store and never from
+                `RunReadout.monitored`, which is Rust's own account: that one lags
+                the press by a poll tick, and the `dev:web` fixtures do not drive
+                it at all.
+              */
+              <li key={row.run} className={styles.slot}>
+                <button
+                  type="button"
+                  className={patched ? `${styles.row} ${liveness} ${styles.rowPatched}` : `${styles.row} ${liveness}`}
+                  data-live={row.live ? "true" : "false"}
+                  data-run={row.run}
+                  data-monitored={patched ? "true" : undefined}
+                  aria-current={patched ? "true" : undefined}
+                  onClick={() => patch(row.run)}
+                >
+                  {SHOWN[tier].map((field) => {
+                    const said = phraseAt(tier, row, field);
+                    return said === null ? null : (
+                      <span key={field} className={INK[field]} data-field={field}>
+                        {said}
+                      </span>
+                    );
+                  })}
+                </button>
+              </li>
+            );
+          })}
         </ol>
       )}
     </section>

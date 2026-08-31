@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
    extension is what pins the import to the component. */
 import { KeysPage } from "../src/keys/KeysPage.jsx";
 import { ENTRIES, currentState, labelFor, type Entry } from "../src/keys/router";
-import { dismiss, monitor, raise } from "../src/stores/ui";
+import { dismiss, monitor, raise, setKeyed } from "../src/stores/ui";
 
 /**
  * The keys page, and the claims that make it worth having over a corner.
@@ -87,6 +87,24 @@ describe("the keys page", () => {
     expect(line).not.toBeNull();
     expect(line?.textContent).toContain("dismisses the keys page");
     expect(line?.textContent).toContain("readout, not a binding");
+  });
+
+  it("says where the keystrokes go, on the surface that is covering the readout", async () => {
+    /* The same sentence the pane prints, printed here because here is where the
+       pane's copy of it is behind a scrim. Its own address: `data-temperature`
+       is the pane's line, and two nodes answering to it would make every query
+       for the temperature ambiguous. */
+    await act(async () => {
+      monitor(4);
+      setKeyed(true);
+      raise("keys");
+    });
+    const host = await paint();
+    const line = host.querySelector("[data-keys-go]");
+    expect(line).not.toBeNull();
+    expect(line?.textContent).toContain("keys go to");
+    expect(line?.textContent).toContain("the keys page");
+    expect(host.querySelectorAll("[data-temperature]")).toHaveLength(0);
   });
 
   it("prints no Escape row: Esc is the readout line and never a binding", async () => {

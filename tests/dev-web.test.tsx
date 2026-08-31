@@ -1630,7 +1630,7 @@ describe("the rack lists every run beside the pane, from the fixture behind dev:
 
     expect(rack.querySelectorAll("li")).toHaveLength(RUN_FIXTURES.rack.length);
     // A landing takes no row away: only `endRun` — a press — does that.
-    expect(rack.querySelectorAll('li[data-live="false"]')).toHaveLength(1);
+    expect(rack.querySelectorAll('[data-run][data-live="false"]')).toHaveLength(1);
     expect(rack.textContent).toContain(
       `${RUN_FIXTURES.rack.length - 1} of ${RUN_FIXTURES.rack.length} still running`,
     );

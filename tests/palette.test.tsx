@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
    extension is what pins the import to the component. */
 import { PICK_AGENT, Palette } from "../src/keys/Palette.jsx";
 import { ENTRIES, currentState, labelFor, type ActionId, type Entry } from "../src/keys/router";
-import { dismiss, monitor, raise } from "../src/stores/ui";
+import { dismiss, monitor, raise, setKeyed } from "../src/stores/ui";
 
 /**
  * The palette, and the one claim that makes it worth having: it is *generated*.
@@ -154,6 +154,27 @@ describe("the command palette", () => {
     expect(line).not.toBeNull();
     expect(line?.textContent).toContain("dismisses the command palette");
     expect(line?.textContent).toContain("readout, not a binding");
+  });
+
+  it("says where the keystrokes go, on the surface that is covering the readout", async () => {
+    /*
+     * The pane prints the same sentence, and while this surface is up it is
+     * behind the scrim — so the state where an operator most needs telling was
+     * the one state the answer was unreadable in. Its own address, because the
+     * pane's line owns `data-temperature` and an ambiguous selector is not a
+     * readout.
+     */
+    await act(async () => {
+      monitor(4);
+      setKeyed(true);
+      raise("palette");
+    });
+    const { host } = await paint();
+    const line = host.querySelector("[data-keys-go]");
+    expect(line).not.toBeNull();
+    expect(line?.textContent).toContain("keys go to");
+    expect(line?.textContent).toContain("the command palette");
+    expect(host.querySelectorAll("[data-temperature]")).toHaveLength(0);
   });
 
   it("focuses the one picker rather than opening a menu of its own", async () => {

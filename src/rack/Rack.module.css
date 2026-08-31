@@ -39,6 +39,7 @@
   --c-rack-leading: 1.2;
   --c-rack-lamp: 0.5rem;
   --c-rack-live: var(--s-live);
+  --c-rack-patched: var(--s-accent);
 
   /*
    * The strip the peek's stud hangs in, kept clear at the top of this region.
@@ -186,19 +187,66 @@
  * which is the world rearranging the window — the thing this surface exists to
  * stop.
  */
+/*
+ * The `<li>` is a slot and draws nothing. The row itself is a `<button>`, and
+ * the button is the flex child the old `<li>` was, with the same height and the
+ * same fields directly inside it: `tests/conformance/rack-width.spec.ts`
+ * measures the real boxes of the `data-field` spans, so a wrapper with a box of
+ * its own between the row and its fields would be a change to the thing under
+ * measurement rather than to the row that got pressable.
+ */
+.slot {
+  display: flex;
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
 .row {
   display: flex;
   align-items: baseline;
   gap: var(--s-space-snug);
-  flex: 0 0 var(--c-rack-row);
+  flex: 1 1 auto;
+  width: 100%;
   height: var(--c-rack-row);
   min-width: 0;
+  margin: 0;
   padding: 0 var(--s-space-hair);
   overflow: hidden;
+  /* The user agent's own padding, border, background, radius and font are all
+     stripped: the row's box model and the fields' boxes are what the width
+     conformance measures, and they may not move because the row became
+     pressable. */
+  appearance: none;
+  border: none;
+  border-radius: 0;
   border-bottom: var(--s-border-hairline) solid var(--s-line-quiet);
+  background: transparent;
   color: var(--s-ink-primary);
+  font: inherit;
   font-size: var(--s-text-micro);
+  text-align: left;
   white-space: nowrap;
+  cursor: pointer;
+}
+
+.row:focus-visible {
+  outline: var(--s-border-emphasis) solid var(--s-focus-ring);
+  outline-offset: -3px;
+}
+
+/*
+ * The run on the monitor, marked by a ring drawn inside the row's own box.
+ *
+ * An outline and not a fill: it is a form-level difference, so the mark reads
+ * without hue and survives the colour being taken away, and it is painted
+ * outside the layout so a re-patch cannot move a field's box or the region's
+ * width. Not hover-revealed — nothing load-bearing is — and not animated: the
+ * screen's one moving element is the lamp, and a mark that faded in would be a
+ * second.
+ */
+.rowPatched {
+  outline: var(--s-border-emphasis) solid var(--c-rack-patched);
+  outline-offset: -2px;
 }
 
 /* A landed run keeps its row — nothing but a press takes one away — and says
@@ -275,7 +323,6 @@
  */
 .narrow .row {
   flex-wrap: wrap;
-  flex-basis: var(--c-rack-row-narrow);
   height: var(--c-rack-row-narrow);
   align-items: flex-start;
   align-content: flex-start;
