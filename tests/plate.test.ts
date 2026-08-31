@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { FIXTURES, FIXTURE_NAMES } from "../src/snapshot/fixtures";
 import type { Map, Node } from "../src/snapshot/model.generated";
@@ -7,14 +8,25 @@ import {
   CUT_LABEL_COLUMNS,
   LABEL_COLUMNS,
   MIN_STATION_GAP,
+  PIN_REACH,
+  PLATE_CHROME,
   PLATE_FLOOR,
   boxHolds,
   plateOf,
   type Plate,
 } from "../src/views/plate/plate";
-import { VIEW_FLOORS, floorOf, fractionOf, sides, standDown } from "../src/panes/dial";
+import {
+  VIEW_FLOORS,
+  floorOf,
+  fractionOf,
+  mapSideFor,
+  sides,
+  standDown,
+  viewColumnAt,
+} from "../src/panes/dial";
 import { VIEWS } from "../src/views/views";
 import { type Cell, cellGap, cellsAlong, isOctolinear } from "../src/views/plate/router";
+import { FURTHEST_CELL } from "../src/views/plate/pins";
 
 /**
  * The Plate's geometry, asserted without a DOM — there is no jsdom pragma here
@@ -348,6 +360,55 @@ describe("an absence draws an empty plate rather than throwing", () => {
   });
 });
 
+describe("a pin outside the drawing is not a pin on it", () => {
+  /*
+   * `pins.ts` accepts any cell out to `FURTHEST_CELL` as sane *storage*, and the
+   * field the router searches spans every cell on the plate — so a pin parked
+   * near that bound was a field of millions of cells, allocated and cleared once
+   * per edge, from a value both validators call legal. The plate's own reach is
+   * the answer: a station dragged that far is not somewhere on this drawing, so
+   * the pin is not read and the station keeps the cell the plate generated.
+   */
+  it("draws the plate it would have drawn, over a field that stayed small", () => {
+    const map = branching();
+    const far = new globalThis.Map<number, Cell>([
+      [1, { column: FURTHEST_CELL, row: FURTHEST_CELL }],
+    ]);
+    const plate = plateOf(map, far);
+    expect(plate).toEqual(plateOf(map));
+    /* The number that matters is the field's, because the router allocates over
+       it: unbounded, this is `FURTHEST_CELL` squared. */
+    expect(plate.extent.columns * plate.extent.rows).toBeLessThan(10_000);
+  });
+
+  it("keeps the pins on the drawing and drops only the ones off it", () => {
+    const map = branching();
+    const pins = new globalThis.Map<number, Cell>([
+      [1, { column: 4, row: 3 }],
+      [2, { column: FURTHEST_CELL, row: 2 }],
+    ]);
+    const plate = plateOf(map, pins);
+    const stationOf = (number: number) => plate.stations.find((one) => one.number === number);
+
+    expect(stationOf(1)?.at).toEqual({ column: 4, row: 3 });
+    expect(stationOf(2)?.pinned).toBe(false);
+    expect(stationOf(2)?.at.column).toBeLessThan(FURTHEST_CELL);
+    /* And it is said out loud rather than quietly: an arrangement that no longer
+       matches the graph is what `provisional` is for. */
+    expect(plate.provisional?.stationsWithoutPin).toContain(2);
+    expect(plate.extent.columns * plate.extent.rows).toBeLessThan(10_000);
+  });
+
+  it("still honours a station dragged well clear of the generated drawing", () => {
+    const map = branching();
+    const out = { column: 4 + PIN_REACH, row: 3 };
+    const plate = plateOf(map, new globalThis.Map<number, Cell>([[1, out]]));
+    const one = plate.stations.find((station) => station.number === 1);
+    expect(one?.pinned).toBe(true);
+    expect(one?.at).toEqual(out);
+  });
+});
+
 describe("the floor, as numbers", () => {
   it("never asks for less than the hard floor", () => {
     for (const [name, map] of fixtureMaps()) {
@@ -359,23 +420,77 @@ describe("the floor, as numbers", () => {
    * The floor is the registry's, not this module's second opinion. #63's
    * acceptance criterion is a hard ~700px floor with an explicit stand-down, and
    * this is where the geometry's number and the shell's answer are held to each
-   * other: the view is registered, `VIEW_FLOORS.plate` is `PLATE_FLOOR`, and
-   * `standDown` names the view, what it needs, what it has and two exits.
+   * other: the view is registered, `VIEW_FLOORS.plate` is what the map side has
+   * to be for the *field* to get `PLATE_FLOOR`, and `standDown` names the view,
+   * what it needs, what it has and two exits.
    */
   it("is registered at its own floor, and stands down under it", () => {
-    expect(VIEW_FLOORS.plate).toBe(PLATE_FLOOR);
-    expect(floorOf("plate")).toBe(PLATE_FLOOR);
+    expect(VIEW_FLOORS.plate).toBe(mapSideFor(PLATE_FLOOR + PLATE_CHROME));
+    expect(floorOf("plate")).toBe(VIEW_FLOORS.plate);
 
     /* A window whose map side is under the floor at every detent. */
     const narrow = 690;
-    expect(sides(fractionOf("map"), narrow).map).toBeLessThan(PLATE_FLOOR);
+    expect(sides(fractionOf("map"), narrow).map).toBeLessThan(floorOf("plate"));
     const standing = standDown("plate", fractionOf("split"), narrow, VIEWS);
     expect(standing?.view).toBe("plate");
-    expect(standing?.needs).toBe(PLATE_FLOOR);
+    expect(standing?.needs).toBe(floorOf("plate"));
     expect(standing?.exits).toHaveLength(2);
 
     /* And a window wide enough is drawn rather than explained. */
-    expect(standDown("plate", fractionOf("map"), 1600, VIEWS)).toBeNull();
+    expect(standDown("plate", fractionOf("map"), floorOf("plate") + 10, VIEWS)).toBeNull();
+  });
+
+  /*
+   * The floor is what the *field* gets, which is the whole of what a floor on a
+   * drawing can mean.
+   *
+   * #63 first compared `PLATE_FLOOR` against the map side, and the map side is a
+   * flex row: the launcher and the rail are drawn beside the view column, and
+   * this view spends `PLATE_CHROME` more of that column on its reserved margin.
+   * At 700px of map side the drawing was left under two hundred pixels — the
+   * three inches the floor exists to refuse. So the two numbers are held to each
+   * other here: at exactly the registered floor the field is worth `PLATE_FLOOR`
+   * and a pixel under it, it is not.
+   */
+  it("hands the field the pixels the floor promises", () => {
+    const field = (mapSide: number) => viewColumnAt(mapSide) - PLATE_CHROME;
+
+    expect(field(floorOf("plate"))).toBeGreaterThanOrEqual(PLATE_FLOOR);
+    expect(field(floorOf("plate") - 1)).toBeLessThan(PLATE_FLOOR);
+  });
+
+  /*
+   * And the chrome is read out of the stylesheet rather than asserted from the
+   * same comment that set it: `PLATE_CHROME` is three declarations in
+   * `Plate.module.css` and two tokens, and a sheet that widens the margin with
+   * this number left behind is exactly the drift this whole test exists for.
+   */
+  it("keeps the chrome it charges for and the chrome it draws in step", () => {
+    const sheet = readFileSync(
+      new URL("../src/views/plate/Plate.module.css", import.meta.url),
+      "utf8",
+    );
+    expect(sheet).toContain("flex: 0 0 18rem");
+    /* The field is beside the margin, and the gap and the padding are the view's
+       own — one gap, and padding on both sides of the row. */
+    expect(sheet).toContain("gap: var(--s-space-loose)");
+    expect(sheet).toContain("padding: var(--s-space-base)");
+
+    const tokens = readFileSync(
+      new URL("../src/styles/tokens/primitive.css", import.meta.url),
+      "utf8",
+    );
+    expect(tokens).toContain("--p-space-4: 16px");
+    expect(tokens).toContain("--p-space-5: 24px");
+
+    const semantic = readFileSync(
+      new URL("../src/styles/tokens/semantic.css", import.meta.url),
+      "utf8",
+    );
+    expect(semantic).toContain("--s-space-base: var(--p-space-4)");
+    expect(semantic).toContain("--s-space-loose: var(--p-space-5)");
+
+    expect(PLATE_CHROME).toBe(18 * 16 + 24 + 16 * 2);
   });
 
   /*
@@ -390,7 +505,7 @@ describe("the floor, as numbers", () => {
     expect(wide.requiredWidth).toBe(
       Math.max(PLATE_FLOOR, wide.extent.columns * CELL_PIXELS),
     );
-    expect(standDown("plate", fractionOf("map"), 1600, VIEWS)).toBeNull();
+    expect(standDown("plate", fractionOf("map"), floorOf("plate") + 10, VIEWS)).toBeNull();
   });
 
   it("carries the competence band rather than a comment about it", () => {

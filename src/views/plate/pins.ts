@@ -50,9 +50,16 @@ const REMEMBER_COMMAND = "remember_map_pins";
  *  per fact, so clearing an arrangement never clears a window. */
 const PREFIX = "perseverance.plate.";
 
-/** The furthest cell a pin may name, as `crates/app` bounds it too. Nothing
- *  about the size of a drawing — a bound on what a stored envelope may say. */
-const FURTHEST_CELL = 4096;
+/**
+ * The furthest cell a pin may name, as `crates/app` bounds it too. Nothing
+ * about the size of a drawing — a bound on what a stored envelope may say.
+ *
+ * Exported so the geometry's own bound (`PIN_REACH`, in `plate.ts`) can be held
+ * against it: this says which envelopes are *sane*, that one says which cells
+ * are on *this drawing*, and a plate that read a legal envelope as a position
+ * would search a field of millions of cells for every edge on it.
+ */
+export const FURTHEST_CELL = 4096;
 
 function keyFor(folder: number | null, map: number | null): string | null {
   if (folder === null || map === null) return null;

@@ -275,6 +275,30 @@ class Queue {
  * one has an edge it cannot draw, and saying so is better than drawing track
  * through a label.
  */
+/**
+ * The search's two arrays, allocated once and handed to every edge.
+ *
+ * `routeTrack` runs per edge and each array is `columns × rows × HEADINGS`
+ * entries, so allocating them inside the search made a plate cost one edge's
+ * arrays times every edge on it — megabytes zeroed and thrown away per track,
+ * and the cost grows with the field a dragged station stretched. Nothing
+ * survives between calls: the prefix a search uses is refilled with `-1` before
+ * it starts, and no index past that prefix is ever read.
+ */
+let scratch: { best: Int32Array; cameFrom: Int32Array } | null = null;
+
+function scratchFor(states: number): { best: Int32Array; cameFrom: Int32Array } {
+  const held = scratch;
+  const arrays =
+    held !== null && held.best.length >= states
+      ? held
+      : { best: new Int32Array(states), cameFrom: new Int32Array(states) };
+  scratch = arrays;
+  arrays.best.fill(-1, 0, states);
+  arrays.cameFrom.fill(-1, 0, states);
+  return arrays;
+}
+
 export function routeTrack(
   field: Field,
   from: Cell,
@@ -289,8 +313,7 @@ export function routeTrack(
   if (!open(field, start.column, start.row) || !open(field, goal.column, goal.row)) return null;
 
   const states = field.bounds.columns * field.bounds.rows * HEADINGS.length;
-  const best = new Int32Array(states).fill(-1);
-  const cameFrom = new Int32Array(states).fill(-1);
+  const { best, cameFrom } = scratchFor(states);
 
   const startState =
     indexOf(field, start.column, start.row) * HEADINGS.length + HEADINGS.indexOf(enter);

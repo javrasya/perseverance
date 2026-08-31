@@ -190,9 +190,13 @@ const PLATE: ViewSurface = {
    * Whether the shell then draws it is a question about width, and it is
    * answered before this hook is consulted — `load` presses the view's own cap
    * on the switcher, which widens the dial to a position where the wanted view
-   * fits and opens it in the same act. The Plate's floor (`PLATE_FLOOR`, 700)
-   * is well inside what the `map` detent is worth in the configured viewport,
-   * so at every point of the space the press leaves the diagram drawn. Where it
+   * fits and opens it in the same act. The Plate's floor (`VIEW_FLOORS.plate`)
+   * is a map side wide enough that the *drawing* gets its 700px once the
+   * launcher, the rail and this view's own reserved margin have taken theirs —
+   * comfortably past a laptop default, which is why `playwright.config.ts`
+   * states the window rather than inheriting one. It is inside what the `map`
+   * detent is worth in that window, so at every point of the space the press
+   * leaves the diagram drawn. Where it
    * would not — a window too narrow to hold the view at any detent — `load`
    * fails loudly on the stand-down rather than letting this hook go on claiming
    * a root that will never appear.

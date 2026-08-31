@@ -173,19 +173,61 @@ const PADDING = 4;
  */
 export const CONSTRUCTION_MARGIN = 2;
 
+/**
+ * How far outside the drawing it generates this plate still calls a cell its
+ * own, in cells.
+ *
+ * A pin is a cell an operator dragged a station to, and the store that keeps
+ * one accepts any cell out to its own far bound as *sane storage* — which is
+ * the right question for a stored value and the wrong one for a drawing, whose
+ * cells are thousands short of it. The field the router
+ * searches spans every cell on the plate, and its cost is that span squared, so
+ * one pin parked near the storage bound is a field of millions of cells and a
+ * view that hangs on the one gesture it advertises. This is the other question:
+ * a station dragged this far past the picture is no longer somewhere on it, so
+ * the pin is dropped, the station goes back to its generated cell, and the
+ * plate stamps itself provisional exactly as it does for any other arrangement
+ * that no longer matches the graph. Generous on purpose — sixty-four cells is
+ * some nine hundred pixels of room past the last thing drawn, in every
+ * direction — because this bounds a cost, it does not police a layout.
+ */
+export const PIN_REACH = 64;
+
 /** One cell, in pixels of drawn plate. The only bridge in this file between
  *  cells and the width a window has to give the view. */
 export const CELL_PIXELS = 14;
 
 /**
- * The width below which the Plate stands down whatever it is drawing.
+ * The width below which the Plate stands down whatever it is drawing — of the
+ * **field**, which is the box the drawing is actually put in.
  *
  * A hard floor, and deliberately not derived from the graph: a two-station map
  * would compute a width a phone could honour, and a plate drawn in three inches
  * is a diagram nobody can read a label on. Under this the view does not shrink,
  * it stands down and says why.
+ *
+ * The field and not the map side, because the map side is not what the drawing
+ * gets: the shell draws the launcher and the rail beside the view column, and
+ * this view then spends [`PLATE_CHROME`] of that column on its own margin. Read
+ * against the map side — which is where #63 first put it — 700 here left the
+ * drawing under two hundred pixels, which is the three inches this number
+ * exists to refuse. What the shell compares against the map side is this floor
+ * *plus* everything between it and the map side's edge, composed once in
+ * `panes/dial.ts`.
  */
 export const PLATE_FLOOR = 700;
+
+/**
+ * What the view spends of its own column before the field gets a pixel, in px.
+ *
+ * Every term is fixed by `Plate.module.css` and none of it is a share of
+ * anything: the reserved margin (`.margin`, `18rem`), the gap between the two
+ * regions (`--s-space-loose`, 24px) and the view's own padding on both sides
+ * (`--s-space-base`, 16px). A stylesheet that moves one of them and leaves this
+ * alone is caught by `tests/plate.test.ts`, which reads the numbers back out of
+ * the sheet rather than trusting this comment.
+ */
+export const PLATE_CHROME = 288 + 24 + 16 * 2;
 
 /**
  * Where this view is competent, as data rather than as a sentence in a comment.
@@ -389,7 +431,8 @@ export type Plate = {
   readonly fans: readonly Fan[];
   readonly legend: readonly LegendEntry[];
   readonly extent: Bounds;
-  /** Pixels of map side this drawing needs, floored at [`PLATE_FLOOR`]. */
+  /** Pixels of **field** this drawing needs — the width the SVG is drawn at,
+   *  floored at [`PLATE_FLOOR`] and never a map-side width. */
   readonly requiredWidth: number;
   readonly provisional: Provisional | null;
   readonly competence: Competence;
@@ -693,7 +736,38 @@ function competenceOf(stations: number, flat: boolean): Competence {
  * around it. Persistence is somebody else's slice; here they are a parameter
  * that defaults to none.
  */
-export function plateOf(map: Map | null, pins: ReadonlyMap<number, Cell> = NO_PINS): Plate {
+/**
+ * The box a pin has to be in to be a pin on this plate: the cells this drawing
+ * generates, grown by [`PIN_REACH`] on every side.
+ *
+ * Derived from the ranks rather than from the placed stations, because it is
+ * what decides which pins are read at all — the stations are placed after it.
+ */
+function reachOf(ranks: number, deepest: number, sidings: number, sidingRow: number): Box {
+  const columns = LEFT_MARGIN + Math.max(ranks - 1, 0) * COLUMN_PITCH;
+  const rows = Math.max(
+    TOP_MARGIN + Math.max(deepest - 1, 0) * ROW_PITCH,
+    sidings === 0 ? 0 : sidingRow + (sidings - 1) * ROW_PITCH,
+  );
+  return {
+    column: LEFT_MARGIN - PIN_REACH,
+    row: TOP_MARGIN - PIN_REACH,
+    columns: columns - LEFT_MARGIN + 2 * PIN_REACH + 1,
+    rows: rows - TOP_MARGIN + 2 * PIN_REACH + 1,
+  };
+}
+
+/** The stored pins this plate will read, which are the ones inside [`reachOf`]. */
+function withinReach(stored: ReadonlyMap<number, Cell>, reach: Box): ReadonlyMap<number, Cell> {
+  if (stored.size === 0) return stored;
+  const kept = new Lookup<number, Cell>();
+  for (const [number, cell] of stored) {
+    if (boxHolds(reach, cell)) kept.set(number, cell);
+  }
+  return kept;
+}
+
+export function plateOf(map: Map | null, stored: ReadonlyMap<number, Cell> = NO_PINS): Plate {
   if (map === null || map.nodes.length === 0) return EMPTY_PLATE;
 
   const nodes = map.nodes;
@@ -735,6 +809,13 @@ export function plateOf(map: Map | null, pins: ReadonlyMap<number, Cell> = NO_PI
 
   const deepest = rows.reduce((widest, rank) => Math.max(widest, rank.length), 0);
   const sidingRow = TOP_MARGIN + Math.max(deepest - 1, 0) * ROW_PITCH + SIDING_GAP;
+
+  /* Every pin this plate reads is one inside its own reach, and the filter is
+     here — before the first read — so nothing downstream has to wonder whether
+     the cell it was handed is on the drawing. A pin outside is dropped rather
+     than clamped onto the edge: a station stacked on the boundary is a position
+     nobody chose, and the generated cell is a position the plate can defend. */
+  const pins = withinReach(stored, reachOf(rows.length, deepest, sidings.length, sidingRow));
 
   const pinsWithoutStation = [...pins.keys()].filter((number) => !here.has(number)).sort((a, b) => a - b);
   const stationsWithoutPin =
@@ -986,7 +1067,8 @@ function legendOf(what: {
  * Two readings of *too narrow* were available: under [`PLATE_FLOOR`], where no
  * plate of any size is legible; and over the floor but under this drawing's own
  * [`Plate.requiredWidth`], where the picture is simply bigger than the room. The
- * first is the shell's already — `VIEW_FLOORS.plate` is this floor, and
+ * first is the shell's already — `VIEW_FLOORS.plate` is this floor plus
+ * everything the map side spends between its edge and the field, and
  * `standDown` in `src/panes/dial.ts` answers it in the four terms every view is
  * answered in, with the two exits an operator can actually press. The second has
  * no remedy worth a stand-down: this is the one view that cannot reflow, and

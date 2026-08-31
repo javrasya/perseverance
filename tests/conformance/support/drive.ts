@@ -114,8 +114,8 @@ export async function load(
    *
    * The remembered view (`perseverance.view`) could be seeded through an init
    * script before navigation, and that would be cheaper — but it would open the
-   * view *without moving the dial*, and at `DEFAULT_DETENT` the map side of a
-   * 1280px window is worth less than `PLATE_FLOOR`. The Plate would then be
+   * view *without moving the dial*, and at `DEFAULT_DETENT` half the window the
+   * suite runs in is worth less than the Plate's floor. The Plate would then be
    * stood down at every point of the space: a fan-out waiting for a root that
    * the shell has correctly decided not to draw. Pressing the cap is the one
    * lever with both consequences — `App.tsx`'s `onChooseView` widens the dial to

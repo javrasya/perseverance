@@ -17,6 +17,7 @@ import { defineConfig, devices } from "@playwright/test";
  * most likely to break first, so CI runs `webkit` and depends on it, and
  * `chromium` is there for a developer who wants the second reading.
  */
+<<<<<<< HEAD
 /**
  * One viewport for every project, and it overrides the device's own.
  *
@@ -41,6 +42,10 @@ import { defineConfig, devices } from "@playwright/test";
  * quietly asserting nothing.
  */
 const WIDE_ENOUGH_FOR_EVERY_VIEW = { width: 3840, height: 1440 };
+=======
+/** The window every project runs in — see the note on `projects` below. */
+const WINDOW = { width: 2560, height: 1440 };
+>>>>>>> 58a9f5d (The floor is what the field gets, and the router's field cannot run away (#63))
 
 export default defineConfig({
   /* Its own directory, and `vite.config.ts` excludes it from vitest: vitest's
@@ -64,7 +69,21 @@ export default defineConfig({
     trace: "on-first-retry",
   },
 
+  /*
+   * The window, stated rather than inherited, and stated on each project
+   * because a device descriptor carries its own viewport and would win.
+   *
+   * The widest view decides it. The Plate's floor is a floor on the *drawing*,
+   * and the map side has to hold the launcher, the rail and this view's own
+   * reserved margin before the drawing gets a pixel — `VIEW_FLOORS.plate`
+   * composes all of that and lands well past a 1280px laptop default. A suite
+   * run in a window under it would meet the stand-down at every state and fail
+   * loudly (`drive.ts` says so out loud rather than skipping), which is the
+   * shell behaving correctly and the harness asking the wrong question. This is
+   * the desktop the view is competent on.
+   */
   projects: [
+<<<<<<< HEAD
     {
       name: "webkit",
       use: { ...devices["Desktop Safari"], viewport: WIDE_ENOUGH_FOR_EVERY_VIEW },
@@ -73,6 +92,10 @@ export default defineConfig({
       name: "chromium",
       use: { ...devices["Desktop Chrome"], viewport: WIDE_ENOUGH_FOR_EVERY_VIEW },
     },
+=======
+    { name: "webkit", use: { ...devices["Desktop Safari"], viewport: WINDOW } },
+    { name: "chromium", use: { ...devices["Desktop Chrome"], viewport: WINDOW } },
+>>>>>>> 58a9f5d (The floor is what the field gets, and the router's field cannot run away (#63))
   ],
 
   webServer: {
