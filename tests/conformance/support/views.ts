@@ -183,6 +183,20 @@ const DEEP_FIELD: ViewSurface = {
  */
 const PLATE: ViewSurface = {
   root: 'section[aria-label="The Plate"]',
+  /*
+   * The same claim as the Route's, and it is a claim about the *model* on
+   * purpose: a map is open, so the view is asked for.
+   *
+   * Whether the shell then draws it is a question about width, and it is
+   * answered before this hook is consulted — `load` presses the view's own cap
+   * on the switcher, which widens the dial to a position where the wanted view
+   * fits and opens it in the same act. The Plate's floor (`PLATE_FLOOR`, 700)
+   * is well inside what the `map` detent is worth in the configured viewport,
+   * so at every point of the space the press leaves the diagram drawn. Where it
+   * would not — a window too narrow to hold the view at any detent — `load`
+   * fails loudly on the stand-down rather than letting this hook go on claiming
+   * a root that will never appear.
+   */
   mounts: (snapshot) => snapshot.model.map !== null,
   rows: "g[data-node]",
   row: (number) => `g[data-node="${number}"]`,
@@ -195,7 +209,7 @@ const PLATE: ViewSurface = {
   /* The glyph is the station's own aria-hidden group, and the shapes inside it
      are the whole of what a mark is drawn as. */
   glyph: 'g[aria-hidden="true"]',
-  unclassifiedWord: PLATE_UNCLASSIFIED,
+  unclassifiedWord: UNCLASSIFIED_TAG,
   fog: { region: "[data-fog]", unsurveyed: "[data-unsurveyed]", count: "[data-count]" },
 };
 

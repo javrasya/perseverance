@@ -64,6 +64,45 @@ import {
   routeTrack,
 } from "./router";
 
+/** The Plate's own words, in one place, so a test and the screen agree. */
+export const PLATE_LABEL = "The Plate";
+export const DESIGNATED_TAG = "designated";
+export const CLAIMED_TAG = "claimed";
+/* The two kind words are the model's vocabulary rather than this view's: said
+   once in `src/views/vocabulary.ts`, and re-exported here so a caller reading
+   the Plate's words finds all of them in one list. */
+export { SPEC_TAG, UNCLASSIFIED_TAG } from "../vocabulary";
+export const BOUND_ELSEWHERE_TAG = "not on this machine";
+export const LEGEND_HEADING = "How to read this";
+/** The fog's own stamp. It names what is missing before it counts it. */
+export const FOG_HEADING = "NOT YET SPECIFIED";
+export const NOBODY_SURVEYED = "—";
+export const FOG_ALL_CHARTED = "nothing left unspecified";
+/**
+ * The gesture, said out loud in the margin — both hands of it.
+ *
+ * Rule 10 the other way round: a station can be moved, and an affordance that
+ * only exists under a pointer is an affordance half the operators never find.
+ * So the sentence is drawn beside the legend, before anything is hovered, and
+ * the cursor is not carrying the news on its own. The keyboard's half is named
+ * in the same sentence for exactly the same reason: an arrow key discloses even
+ * less than a cursor does, because nothing about a focused station suggests it
+ * would move if you pressed one.
+ */
+export const PIN_NOTE =
+  "Drag a station to put it where you want it, or move the one you are on with the " +
+  "arrow keys. Backspace puts a station back where the plate drew it. This map remembers.";
+
+/**
+ * The arrangement's own undo, and the only control this view has.
+ *
+ * A button and not a further keystroke: putting every station back is the one
+ * gesture here with nothing behind it to undo, and a chord that did it would be
+ * a chord discovered by accident. It sits in the margin, reachable by tab like
+ * every station, and it says what it does rather than what it undoes.
+ */
+export const PUT_BACK = "Put every station back";
+
 export type { Cell, Corner, Heading, Route, Segment, SegmentKind } from "./router";
 
 /* `Map` above is the derived model's map and shadows the built-in one for the
