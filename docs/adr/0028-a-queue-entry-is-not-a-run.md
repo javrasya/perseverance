@@ -115,12 +115,41 @@ press rather than a resume.** The entry has been sitting for minutes; the world
 moved. So the drain opens with the same awaited revalidation a press opens with,
 takes a live reading keyed to *the entry's own* folder and map — `Ledgers` says
 which folder the ledger it holds is a reading of, so an entry is answered by its
-own repository or by no reading at all — and asks `why_the_wait_cannot_start`
-for takeability, which is what the frontier comparison a queued entry cannot make
-was standing in for. A folder with no live reading is named as an absence and
-never defaulted to *start it anyway*. Without those guards `booked` recorded a
-claim as this harness's own for a ticket it may never have taken, which is
-exactly what suppresses the foreign-claim announcement.
+own repository or by no reading at all — and then asks the guard the verb that
+queued it would have asked. A folder with no live reading starts nothing, ever.
+Without those guards `booked` recorded a claim as this harness's own for a ticket
+it may never have taken, which is exactly what suppresses the foreign-claim
+announcement.
+
+**The entry carries the verb it was pressed on, because the two verbs admit
+disjoint nodes.** Start Working admits a node the map offers to start and Resume
+admits one the map reports as claimed, and `NodeState` gives those two names to
+states that cannot both be true — so a single takeability question at the drain
+was a queue that accepted a Resume press, told the operator it starts on its own,
+and then popped it and refused it with *#N is not something this map offers to
+start any more*. A Start entry is re-asked `Node::is_takeable`, which is what the
+frontier comparison a queued entry cannot make was standing in for; a Resume
+entry is re-asked `why_the_claim_cannot_be_resumed`, whole and unedited, against
+the fresh reading. **A queue may only make promises the code behind it can
+keep**, and the alternative — refusing Resume at the ceiling instead — was
+rejected because a stranded research claim is exactly the press this queue exists
+to absorb.
+
+**An entry nobody could take a reading for keeps its place; only a reading that
+was taken and said no ends a press.** *A freeing slot starts the next queued run
+with no further press* is a promise about slots, not about where the operator is
+looking, and the live reading is keyed to the entry's own folder and map — so a
+child exiting while the operator reads another map would otherwise pop the whole
+standing queue and refuse it one entry per turn, and six presses followed by a
+glance elsewhere would lose the last two. So the recheck answers three ways and
+not two: *this map says no* is the entry's own answer and it leaves with a
+sentence; *nobody is watching this entry's folder* is a fact about the window,
+and the entry is put back at the front of the queue in press order and
+reconsidered on a later turn. The drain still walks past it to the entries
+behind, because this queue spans every folder the operator has open and a head
+that is off screen is no reason for a tail that is on it to wait. The one absence
+that does end a press is the folder leaving this app's list: no turn will ever be
+able to answer that entry, so waiting for it would be waiting forever.
 
 **And none of that happens on the readout tick.** Two GitHub round trips, a
 worktree of its own, an environment harvest and a PTY spawn on the three-hertz
@@ -137,6 +166,16 @@ be a queue entry that never drains. The harness surfaces its own failures and
 does not paper over them with a retry the operator did not ask for.
 
 ## Consequences
+
+An entry can outlive every reading that could have started it, and nothing tells
+the operator so. A press queued against a folder they never open again sits in
+the rack indefinitely: it holds no child, no worktree and no claim, so it costs
+nothing but the row and the slot it is still owed — and the process dying is what
+collects it. That is the price of not refusing an entry for the window's absence,
+and it is the cheaper of the two mistakes: a standing entry can be read and
+ignored, and a lost press has to be noticed first. The thing to watch for is a
+rack whose queue never shortens; a way to withdraw an entry is the answer to it,
+and no one has asked for one yet.
 
 The queue lives in the process and dies with it. A quit loses what has not
 started — which is correct, because nothing was staked: no checkout to clean up,

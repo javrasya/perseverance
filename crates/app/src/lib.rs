@@ -3467,6 +3467,24 @@ fn there_is_room(live: usize, ceiling: usize) -> bool {
 /// entry is answered by its own folder's reading or by no reading at all, never
 /// by whichever folder the operator happens to be looking at. The clone's
 /// remaining job is to say which reading this entry is owed.
+///
+/// **It also carries the verb that made it**, because the two verbs admit two
+/// disjoint states — [`start_working`] takes a takeable node and
+/// [`resume_working`] takes a claimed one — and a queue entry outlives the
+/// command that made it. Without the verb the drain would have to guess, and a
+/// drain that guessed *takeable* would pop every Resume entry the ceiling
+/// accepted and refuse it. See [`Verb`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Verb {
+    /// Start Working. Its node must still be one the map offers to start when
+    /// the slot comes free, which is [`Node::is_takeable`].
+    Start,
+    /// Resume. Its node must still be a claim this machine may resume, which is
+    /// the whole of [`why_the_claim_cannot_be_resumed`] and not a weaker copy
+    /// of it.
+    Resume,
+}
+
 #[derive(Debug, Clone)]
 struct Waiting {
     /// This entry's own identity, and never a run's: a pending entry has no run,
@@ -3477,6 +3495,10 @@ struct Waiting {
     folder: String,
     adapter: String,
     kind: RunKind,
+    /// Which press this entry is, and the only field here that is a fact about
+    /// the operator rather than about the node — see [`Verb`], and
+    /// [`why_the_wait_cannot_start`], which is the one reader.
+    verb: Verb,
     map: Map,
     /// Seconds since the epoch, from [`epoch_seconds`] — the one clock this
     /// crate reads.
@@ -3554,7 +3576,15 @@ impl Pending {
     /// [`Terminals::live_run_on`] does for a run that is already live, and an
     /// acceptance for the reason the first press was one: the operator asked for
     /// this ticket to run, and it is going to.
-    fn joined(&self, ticket: u64, folder: &str, adapter: &str, kind: RunKind, map: &Map) -> usize {
+    fn joined(
+        &self,
+        ticket: u64,
+        folder: &str,
+        adapter: &str,
+        kind: RunKind,
+        verb: Verb,
+        map: &Map,
+    ) -> usize {
         if let Some(place) = self.place_of(ticket, folder) {
             return place;
         }
@@ -3573,6 +3603,7 @@ impl Pending {
             folder: folder.to_string(),
             adapter: adapter.to_string(),
             kind,
+            verb,
             map: map.clone(),
             queued: epoch_seconds(),
         });
@@ -3612,6 +3643,29 @@ impl Pending {
     fn next_in_line(&self) -> Option<Waiting> {
         let mut waiting = self.waiting_here();
         (!waiting.is_empty()).then(|| waiting.remove(0))
+    }
+
+    /// Entries a drain turn looked at and learned nothing about, put back where
+    /// they were.
+    ///
+    /// **The other half of [`Pending::next_in_line`], and the reason a drain may
+    /// pop an entry it turns out not to be entitled to answer for.** A reading
+    /// that could not be taken — nobody is looking at this entry's folder — is
+    /// an absence on the window's side and not a fact about the ticket, so the
+    /// entry keeps its press: it goes back in front of everything that arrived
+    /// after it, in the order it came off, and the drain that runs when its own
+    /// folder is next attended finds it exactly where the operator left it.
+    ///
+    /// Inserted at the front rather than pushed, because a press made while this
+    /// turn was running belongs behind the presses it followed.
+    fn still_in_line(&self, kept: Vec<Waiting>) {
+        if kept.is_empty() {
+            return;
+        }
+        let mut waiting = self.waiting_here();
+        for (at, entry) in kept.into_iter().enumerate() {
+            waiting.insert(at, entry);
+        }
     }
 
     fn could_not_start(&self, waiting: Waiting, detail: String) {
@@ -3713,6 +3767,10 @@ fn pending_runs(pending: State<'_, Pending>) -> Vec<PendingRun> {
 /// kind but research answers `None` unconditionally, and it says so through
 /// [`RunKind::ceilinged`] rather than by naming research here, so the four kinds
 /// that are never queued are never queued for a reason written down once.
+// Eight, and the eighth is the verb: the two commands share this admission
+// precisely because the policy is one policy, and what they do not share is
+// which node their entry will have to still be when its slot comes free.
+#[allow(clippy::too_many_arguments)]
 fn admitted(
     terminals: &Terminals,
     registry: &Registry,
@@ -3721,6 +3779,7 @@ fn admitted(
     ticket: u64,
     folder: &str,
     adapter: &str,
+    verb: Verb,
 ) -> Option<Started> {
     let kind = kind_of(map, ticket);
     if !kind.ceilinged() {
@@ -3731,7 +3790,7 @@ fn admitted(
     }
     Some(Started::Queued {
         ticket,
-        place: pending.joined(ticket, folder, adapter, kind, map),
+        place: pending.joined(ticket, folder, adapter, kind, verb, map),
     })
 }
 
@@ -3797,10 +3856,20 @@ fn start_what_is_waiting(app: &AppHandle, terminals: &Terminals, pending: &Pendi
             // it is the only thing that tells a launch that has not finished
             // starting up apart from a folder watching no map.
             let harvest_settled = ambient.token.get().is_some();
-            if let Some(refusal) =
-                why_the_check_is_not_a_read(poker.revalidate(CHECKING), harvest_settled)
-            {
-                return Err(refusal);
+            match poker.revalidate(CHECKING) {
+                // *Nobody is watching a map* — the launcher, a folder list, a
+                // window nobody is looking at — and that is an absence on this
+                // side rather than an answer about the entry. The pass asked
+                // GitHub nothing, so there is nothing here to end a press with,
+                // and the entry keeps its place.
+                Revalidated::Ticked(Tick::NotAttempted) if harvest_settled => {
+                    return Rechecked::NotAttended
+                }
+                answer => {
+                    if let Some(refusal) = why_the_check_is_not_a_read(answer, harvest_settled) {
+                        return Rechecked::Refused(refusal);
+                    }
+                }
             }
             the_live_reading_for(&registry, &ledgers, waiting)
         },
@@ -3846,6 +3915,22 @@ fn start_what_is_waiting(app: &AppHandle, terminals: &Terminals, pending: &Pendi
 /// every start rather than once at the top, and an entry that cannot be started
 /// leaves the queue with a sentence instead of going round again.
 ///
+/// **Refused and unanswered are not the same exit, and only one of them costs
+/// the operator their press.** A reading that was taken and said no — closed,
+/// claimed, relabelled — is an answer about the entry, and the entry leaves with
+/// it. A reading that could not be taken at all, because nobody is looking at
+/// that entry's folder, is an answer about the window; the entry is held aside
+/// in `kept` and put back by [`Pending::still_in_line`] when the turn is over.
+/// Without that split, *a freeing slot starts the next queued run with no
+/// further press* would hold only while the operator stood still on the map they
+/// pressed against: a child exiting while they read something else would pop the
+/// whole standing queue and refuse it, one entry per turn.
+///
+/// The turn still terminates, and for the same reason it did when every exit was
+/// final: every iteration pops exactly one entry, so the queue is strictly
+/// shorter each time round, and an entry held aside is reconsidered on the next
+/// tick rather than on this one.
+///
 /// One at a time and never in parallel, which is not an accident of the `while`:
 /// [`Terminals::live_research`] is the occupancy the ceiling is compared
 /// against, and it counts only a run that has already been staked, so two starts
@@ -3854,16 +3939,27 @@ fn drain_the_queue(
     terminals: &Terminals,
     pending: &Pending,
     ceiling: usize,
-    checked: impl Fn(&Waiting) -> Result<Map, String>,
+    checked: impl Fn(&Waiting) -> Rechecked,
     start: impl Fn(&Waiting, &Map) -> Result<(), String>,
 ) {
+    let mut kept: Vec<Waiting> = Vec::new();
     while there_is_room(terminals.live_research(), ceiling) {
         let Some(waiting) = pending.next_in_line() else {
             break;
         };
         let map = match checked(&waiting) {
-            Ok(map) => map,
-            Err(refusal) => {
+            Rechecked::Against(map) => map,
+            // Nothing was learned about this entry, so nothing is said about it
+            // and nothing is taken from it. It is held aside for this turn only,
+            // and every entry behind it is still considered — this queue is one
+            // operator's presses across every folder they have open, and a head
+            // whose folder is not on screen is no reason for a tail whose folder
+            // is to wait for another tick.
+            Rechecked::NotAttended => {
+                kept.push(waiting);
+                continue;
+            }
+            Rechecked::Refused(refusal) => {
                 pending.could_not_start(waiting, refusal);
                 continue;
             }
@@ -3876,132 +3972,168 @@ fn drain_the_queue(
             pending.could_not_start(waiting, refusal);
         }
     }
+    pending.still_in_line(kept);
 }
 
-/// One sentence for every way a queued entry can have no reading of its own to
-/// be checked against.
+/// What a drain turn found when it went looking for the reading a queued entry
+/// is owed.
 ///
-/// Written once because the four of them differ only in the clause before the
-/// comma, and because the shape is the point: *this is what is missing*, and
-/// never *so it was started anyway*. An absence here is a refusal, exactly as an
-/// unreadable ticket is one.
-fn nothing_to_check_against(ticket: u64, why: &str) -> String {
-    format!("{why}, so nothing could be re-checked about #{ticket} and nothing was started")
+/// **Three answers and not two, because *no* and *not this turn* are different
+/// things to do to somebody's press.** A `Result` collapses them: every absence
+/// becomes an `Err`, every `Err` becomes a refusal, and an entry queued against a
+/// folder the operator has since navigated away from is destroyed by the next
+/// drain turn — which is the operator losing a press for looking at something
+/// else. `NotAttended` is the absence named as an absence, and it is the one
+/// answer that leaves the entry exactly as it was.
+///
+/// `Refused` is for a reading that was taken and said no, and for the failures
+/// this harness caused itself: a store it cannot open, a folder it no longer
+/// lists, a check GitHub turned down. Those are surfaced once and never retried.
+enum Rechecked {
+    Against(Map),
+    NotAttended,
+    Refused(String),
 }
 
-/// This entry's own folder's live map, or why there is not one.
+/// This entry's own folder's live map, or why there is not one — and whether
+/// *not one* is an answer about the entry at all.
 ///
 /// **Keyed to the entry and never to whatever is on screen.** The queue is
 /// app-global and spans checkouts while the ledger holds the single map the
 /// operator has open now, so this asks the ledger *which* folder it is watching
-/// — [`Ledgers::attending`] — and refuses unless it is this entry's. An entry
-/// answered by another repository's map would be a spawn against a reading of
-/// the wrong repository, which is worse than the stale read it replaced: issue
-/// numbers collide across repositories, and `#59` there would happily stand in
-/// for `#59` here.
+/// — [`Ledgers::attending`] — and will not answer an entry with anything but its
+/// own. An entry answered by another repository's map would be a spawn against a
+/// reading of the wrong repository, which is worse than the stale read it
+/// replaced: issue numbers collide across repositories, and `#59` there would
+/// happily stand in for `#59` here.
 ///
 /// The map number is compared for the same reason the folder is: two maps in one
 /// checkout are two sets of nodes, and an entry queued against one of them
 /// learns nothing from the other.
 ///
-/// **A folder nobody is watching is named, not defaulted.** An operator who
-/// queued four presses and then looked at another folder gets four sentences
-/// saying so, on the emission after the slot came free, rather than four agents
-/// started against a reading nothing re-checked. That is the house rule about
-/// absences, and this is the expensive direction to be wrong in: a press can be
-/// made again, and a worktree with an agent in it against a ticket somebody else
-/// took cannot be un-made.
+/// **A folder nobody is watching is [`Rechecked::NotAttended`], and that is not
+/// a refusal.** The house rule is that an absence is named rather than defaulted
+/// to a number, and it is named here — but *named* used to mean *refused*, and
+/// refusing is the wrong thing to name it. An operator who queued four presses
+/// and then went to read another map has not withdrawn them; this window simply
+/// has nothing to check those entries against on this turn, and the turn taken
+/// while their own folder is attended has everything. Nothing is spawned against
+/// a reading nothing re-checked either way — which is what makes an unanswerable
+/// entry safe to leave waiting rather than a reason to throw the press away.
+///
+/// **The folder leaving this app's list is the one absence that is the entry's
+/// own.** A checkout that is not on the list is not going to be attended again,
+/// so waiting for it would be waiting forever; that one is refused, and the
+/// sentence says which folder it was.
 ///
 /// The store guard is taken and dropped before the ledger is read, because two
 /// locks in this file are never nested.
-fn the_live_reading_for(
-    registry: &Registry,
-    ledgers: &Ledgers,
-    waiting: &Waiting,
-) -> Result<Map, String> {
-    let ticket = waiting.ticket;
+fn the_live_reading_for(registry: &Registry, ledgers: &Ledgers, waiting: &Waiting) -> Rechecked {
     let Some(watched) = ledgers.attending() else {
-        return Err(nothing_to_check_against(ticket, "no map is being watched"));
+        return Rechecked::NotAttended;
     };
 
     let listed = {
         // The store's own sentence, unedited, exactly as `spawn_at` carries one.
-        let store = registry.store()?;
-        store.folders().map_err(|error| error.to_string())?
+        let store = match registry.store() {
+            Ok(store) => store,
+            Err(refusal) => return Rechecked::Refused(refusal),
+        };
+        match store.folders() {
+            Ok(folders) => folders,
+            Err(error) => return Rechecked::Refused(error.to_string()),
+        }
     };
     let Some(folder) = listed
         .into_iter()
         .find(|folder| folder.path == waiting.folder)
     else {
-        return Err(nothing_to_check_against(
-            ticket,
-            &format!(
-                "{} is not on this app's folder list any more",
-                waiting.folder
-            ),
-        ));
+        return Rechecked::Refused(folder_is_gone(waiting.ticket, &waiting.folder));
     };
     if watched.folder_id != folder.id {
-        return Err(nothing_to_check_against(
-            ticket,
-            "this window is watching another folder",
-        ));
+        return Rechecked::NotAttended;
     }
 
     let Some(map) = ledgers.held().model.map else {
-        return Err(nothing_to_check_against(ticket, "no map is open"));
+        return Rechecked::NotAttended;
     };
     if map.number != waiting.map.number {
-        return Err(nothing_to_check_against(
-            ticket,
-            &format!(
-                "this window is watching map #{} and this entry was queued against #{}",
-                map.number, waiting.map.number
-            ),
-        ));
+        return Rechecked::NotAttended;
     }
 
-    Ok(map)
+    Rechecked::Against(map)
+}
+
+/// The one absence in [`the_live_reading_for`] that ends a press instead of
+/// deferring it, in one sentence.
+///
+/// Lifted out so a test can assert the shape without standing a store up: *this
+/// is what is missing*, and never *so it was started anyway*.
+fn folder_is_gone(ticket: u64, folder: &str) -> String {
+    format!(
+        "{folder} is not on this app's folder list any more, so nothing could be re-checked about #{ticket} and nothing was started"
+    )
 }
 
 /// Why this entry must not be spawned against the reading just taken, or nothing
 /// at all.
 ///
-/// **Takeability rather than designation, and that is the one guard a press has
-/// that this cannot copy.** [`start_working`] admits only
-/// `Frontier::Designated(ticket)`; a queued entry is never that number, because
-/// [`Pending::spoken_for`] took it out of the derivation so the frontier could
-/// move on to the next ticket. What the frontier comparison was *asserting* —
-/// this node is an open, unblocked, unclaimed ticket this machine may take — is
-/// [`Node::is_takeable`], asked here of the node itself.
+/// **The verb the entry was queued on decides the first question, and it has to,
+/// because the two verbs admit disjoint states.** [`start_working`] admits only
+/// `Frontier::Designated(ticket)`; a queued Start entry is never that number,
+/// because [`Pending::spoken_for`] took it out of the derivation so the frontier
+/// could move on to the next ticket. What the frontier comparison was
+/// *asserting* — this node is an open, unblocked, unclaimed ticket this machine
+/// may take — is [`Node::is_takeable`], asked here of the node itself.
+/// [`resume_working`] admits the opposite node: one the map reports as
+/// [`NodeState::Claimed`], which `is_takeable` is false of by construction. So a
+/// Resume entry is asked [`why_the_claim_cannot_be_resumed`] instead — the same
+/// guard the press opened with, against the fresh reading — and asking it
+/// takeability would refuse every Resume press the ceiling ever accepted, which
+/// is the queue promising a start this file's own code cannot deliver.
 ///
-/// The kind is asked again because it decides where the child runs:
-/// [`where_it_runs`] gives a research run a worktree and everything else the
-/// operator's own checkout, so a ticket relabelled out of research while it
-/// waited would put an unattended agent in the folder somebody is reading. It is
-/// asked through [`RunKind::ceilinged`] rather than by naming research, so the
-/// rule stays written down once.
-///
-/// The live-run check is Resume's, and it is here for Resume's reason: a claim
-/// whose child is still alive is re-focused by the rail and never spawned over.
-/// It is nearly unreachable — a ticket with a live run of ours reads `Claimed`
-/// and fails the guard above — and it is cheap, and *nearly* is not a guarantee
-/// worth spending a duplicate worktree on.
+/// The two clauses below the split are asked of both, because both are about
+/// what a spawn would do rather than about which press asked for it. The kind is
+/// asked again because it decides where the child runs: [`where_it_runs`] gives
+/// a research run a worktree and everything else the operator's own checkout, so
+/// a ticket relabelled out of research while it waited would put an unattended
+/// agent in the folder somebody is reading. It is asked through
+/// [`RunKind::ceilinged`] rather than by naming research, so the rule stays
+/// written down once. And a claim whose child is still alive is re-focused by
+/// the rail and never spawned over — nearly unreachable for a Start entry, whose
+/// node would read `Claimed` and have failed above, and cheap, and *nearly* is
+/// not a guarantee worth spending a duplicate worktree on.
 fn why_the_wait_cannot_start(
     terminals: &Terminals,
     map: &Map,
     waiting: &Waiting,
 ) -> Option<String> {
     let ticket = waiting.ticket;
-    let Some(node) = map.nodes.iter().find(|node| node.number == ticket) else {
-        return Some(format!(
-            "#{ticket} is not on this map any more, so nothing was started"
-        ));
-    };
-    if !node.is_takeable() {
-        return Some(format!(
-            "#{ticket} is not something this map offers to start any more, so nothing was started"
-        ));
+    match waiting.verb {
+        Verb::Start => {
+            let Some(node) = map.nodes.iter().find(|node| node.number == ticket) else {
+                return Some(format!(
+                    "#{ticket} is not on this map any more, so nothing was started"
+                ));
+            };
+            if !node.is_takeable() {
+                return Some(format!(
+                    "#{ticket} is not something this map offers to start any more, so nothing was started"
+                ));
+            }
+        }
+        // Resume's own guard, unedited and asked of the fresh map: it already
+        // answers *is it on this map*, *is it a wayfinder ticket*, *is it bound
+        // to another machine* and *is it still a claim*, and a second opinion
+        // here about what claimed means is the thing the one derivation exists
+        // to stop. Only the outcome clause is added, because a deferred spawn
+        // has no socket to refuse to and the sentence is the whole of what
+        // crosses.
+        Verb::Resume => {
+            if let Some(refusal) = why_the_claim_cannot_be_resumed(map, ticket) {
+                return Some(format!("{refusal}, and nothing was started"));
+            }
+        }
     }
     if !kind_of(map, ticket).ceilinged() {
         return Some(format!(
@@ -4232,7 +4364,14 @@ fn start_working(
     // press that meets the ceiling becomes a queue entry, and this is the only
     // way out of this command that starts nothing and writes nothing.
     if let Some(queued) = admitted(
-        &terminals, &registry, &pending, &map, ticket, &folder, &adapter,
+        &terminals,
+        &registry,
+        &pending,
+        &map,
+        ticket,
+        &folder,
+        &adapter,
+        Verb::Start,
     ) {
         return queued;
     }
@@ -4483,7 +4622,14 @@ fn resume_working(
     // unblocked, its child gone — is exactly the thing Resume exists for. A
     // second gate here would be a second copy of the policy; this is the one.
     if let Some(queued) = admitted(
-        &terminals, &registry, &pending, &map, ticket, &folder, &adapter,
+        &terminals,
+        &registry,
+        &pending,
+        &map,
+        ticket,
+        &folder,
+        &adapter,
+        Verb::Resume,
     ) {
         return queued;
     }
@@ -6282,22 +6428,50 @@ mod tests {
         let pending = Pending::new();
 
         assert_eq!(
-            pending.joined(59, "/work/one", "claude", RunKind::Research, &map),
+            pending.joined(
+                59,
+                "/work/one",
+                "claude",
+                RunKind::Research,
+                Verb::Start,
+                &map
+            ),
             1
         );
         assert_eq!(
-            pending.joined(60, "/work/one", "claude", RunKind::Research, &map),
+            pending.joined(
+                60,
+                "/work/one",
+                "claude",
+                RunKind::Research,
+                Verb::Start,
+                &map
+            ),
             2
         );
         // The same number in another checkout is another ticket entirely.
         assert_eq!(
-            pending.joined(59, "/work/two", "claude", RunKind::Research, &map),
+            pending.joined(
+                59,
+                "/work/two",
+                "claude",
+                RunKind::Research,
+                Verb::Start,
+                &map
+            ),
             3
         );
         // And a second press on one already waiting is answered with where it
         // already stands, rather than enqueued behind itself.
         assert_eq!(
-            pending.joined(59, "/work/one", "claude", RunKind::Research, &map),
+            pending.joined(
+                59,
+                "/work/one",
+                "claude",
+                RunKind::Research,
+                Verb::Start,
+                &map
+            ),
             1
         );
         assert_eq!(pending.waiting_now().len(), 3);
@@ -6326,7 +6500,14 @@ mod tests {
         // Standing in for `admitted` with the two values it reduces to, because
         // the live count is the only part of it that needs four children.
         assert!(!there_is_room(RESEARCH_CEILING, RESEARCH_CEILING));
-        let place = pending.joined(59, "/work/one", "claude", RunKind::Research, &map);
+        let place = pending.joined(
+            59,
+            "/work/one",
+            "claude",
+            RunKind::Research,
+            Verb::Start,
+            &map,
+        );
 
         let answer =
             serde_json::to_value(Started::Queued { ticket: 59, place }).expect("serialises");
@@ -6419,7 +6600,7 @@ mod tests {
                 spawned.push(ticket);
                 claimed_by_the_agent(&mut nodes, ticket);
             } else {
-                places.push(pending.joined(ticket, FOLDER, "claude", kind, &map));
+                places.push(pending.joined(ticket, FOLDER, "claude", kind, Verb::Start, &map));
             }
         }
 
@@ -6437,7 +6618,14 @@ mod tests {
         let map = a_research_map();
         let pending = Pending::new();
 
-        pending.joined(59, "/work/one", "claude", RunKind::Research, &map);
+        pending.joined(
+            59,
+            "/work/one",
+            "claude",
+            RunKind::Research,
+            Verb::Start,
+            &map,
+        );
         let waiting = pending.next_in_line().expect("an entry");
         pending.could_not_start(waiting, NO_TOKEN.to_string());
 
@@ -6505,7 +6693,14 @@ mod tests {
         let mut nodes = vec![a_takeable_research_ticket(65)];
 
         let pressed = a_map_of(Phase::Wayfinding, nodes.clone());
-        pending.joined(65, FOLDER, "claude", RunKind::Research, &pressed);
+        pending.joined(
+            65,
+            FOLDER,
+            "claude",
+            RunKind::Research,
+            Verb::Start,
+            &pressed,
+        );
         let waiting = pending.next_in_line().expect("an entry");
 
         // A reading that still says yes is the only one that starts anything.
@@ -6536,10 +6731,11 @@ mod tests {
         .expect("a sentence")
         .contains("not a research ticket any more"));
 
-        // And a folder with no live reading at all is named as an absence
+        // And the one absence that is the entry's own — its checkout is off
+        // this app's list, so no turn will ever be able to answer it — is named
         // rather than defaulted to *start it anyway*.
-        let absent = nothing_to_check_against(65, "no map is being watched");
-        assert!(absent.starts_with("no map is being watched"), "{absent}");
+        let absent = folder_is_gone(65, FOLDER);
+        assert!(absent.starts_with(FOLDER), "{absent}");
         assert!(absent.contains("#65"), "{absent}");
         assert!(absent.ends_with("nothing was started"), "{absent}");
     }
@@ -6570,8 +6766,8 @@ mod tests {
             ],
         );
 
-        pending.joined(65, FOLDER, "claude", RunKind::Research, &map);
-        pending.joined(66, FOLDER, "claude", RunKind::Research, &map);
+        pending.joined(65, FOLDER, "claude", RunKind::Research, Verb::Start, &map);
+        pending.joined(66, FOLDER, "claude", RunKind::Research, Verb::Start, &map);
 
         let started: std::sync::Mutex<Vec<(u64, RunId)>> = std::sync::Mutex::new(Vec::new());
         let start = |waiting: &Waiting, _: &Map| {
@@ -6584,7 +6780,13 @@ mod tests {
             Ok(())
         };
 
-        drain_the_queue(&terminals, &pending, 1, |_| Ok(map.clone()), start);
+        drain_the_queue(
+            &terminals,
+            &pending,
+            1,
+            |_| Rechecked::Against(map.clone()),
+            start,
+        );
 
         // One start, and the second entry is still waiting rather than refused:
         // it closed up to the front of the queue and holds no run.
@@ -6603,7 +6805,13 @@ mod tests {
 
         // A tick against a full app takes nothing, which is what stops the drain
         // from being a second admission policy.
-        drain_the_queue(&terminals, &pending, 1, |_| Ok(map.clone()), start);
+        drain_the_queue(
+            &terminals,
+            &pending,
+            1,
+            |_| Rechecked::Against(map.clone()),
+            start,
+        );
         assert_eq!(pending.waiting_now().len(), 1);
 
         // The slot comes free the way it really does — the run ends — and the
@@ -6612,7 +6820,13 @@ mod tests {
         terminals.ended(first);
         assert_eq!(terminals.live_research(), 0);
 
-        drain_the_queue(&terminals, &pending, 1, |_| Ok(map.clone()), start);
+        drain_the_queue(
+            &terminals,
+            &pending,
+            1,
+            |_| Rechecked::Against(map.clone()),
+            start,
+        );
 
         assert_eq!(
             started
@@ -6630,8 +6844,190 @@ mod tests {
         terminals.held().shut_down();
     }
 
-    /// An entry the live reading cannot answer for leaves the queue with a
-    /// sentence and starts nothing — the absence is carried, never defaulted.
+    /// No entry left by the sentence path on the turn just taken.
+    ///
+    /// [`Pending::announced`] is the queue *plus* the refusals since the last
+    /// emission, so an empty answer means both empty; this asks only the half
+    /// that is an event, for the turns where something is still rightly waiting.
+    fn nothing_was_refused(pending: &Pending) -> bool {
+        pending.announced().iter().all(|row| row.refused.is_none())
+    }
+
+    /// **A press that queued on Resume actually starts when its slot frees.**
+    ///
+    /// The two verbs admit disjoint states — [`start_working`] wants a takeable
+    /// node and [`resume_working`] wants a claimed one — so a drain that asked
+    /// every entry for takeability would answer every Resume press
+    /// `Started::Queued`, tell the operator it starts on its own, and then pop it
+    /// and refuse it with *#N is not something this map offers to start any
+    /// more*. That is a promise this file could not keep, and the assertion below
+    /// is that the entry spawns rather than that a sentence is worded nicely.
+    #[test]
+    fn an_entry_queued_on_resume_is_re_checked_as_a_claim_and_starts() {
+        const FOLDER: &str = "/work/one";
+        let directory = TempDir::new().expect("temp dir");
+        let terminals = Terminals::new();
+        let pending = Pending::new();
+
+        // The node Resume is pressed over: assigned, unblocked, its child gone.
+        let mut nodes = vec![a_takeable_research_ticket(65)];
+        claimed_by_the_agent(&mut nodes, 65);
+        let claimed = a_map_of(Phase::Wayfinding, nodes.clone());
+
+        pending.joined(
+            65,
+            FOLDER,
+            "claude",
+            RunKind::Research,
+            Verb::Resume,
+            &claimed,
+        );
+        let waiting = pending
+            .waiting_here()
+            .first()
+            .cloned()
+            .expect("the entry that was queued");
+
+        // The guard the drain really asks, against the reading Resume was
+        // pressed against: a claim is a claim, and this one is startable.
+        assert_eq!(
+            why_the_wait_cannot_start(&terminals, &claimed, &waiting),
+            None
+        );
+
+        // And the same node under the other verb is the refusal that used to be
+        // every Resume entry's: `Claimed` and `Takeable` are disjoint states.
+        let as_a_start = Waiting {
+            verb: Verb::Start,
+            ..waiting.clone()
+        };
+        assert!(why_the_wait_cannot_start(&terminals, &claimed, &as_a_start)
+            .expect("a sentence")
+            .contains("not something this map offers to start any more"));
+
+        // Resume's own guard is what answers, whole: a claim that closed while it
+        // waited is refused in Resume's words rather than in Start's.
+        let mut closed = nodes.clone();
+        closed[0].state = NodeState::Resolved;
+        let refusal =
+            why_the_wait_cannot_start(&terminals, &a_map_of(Phase::Wayfinding, closed), &waiting)
+                .expect("a sentence");
+        assert!(refusal.contains("nothing to resume"), "{refusal}");
+        assert!(refusal.ends_with("nothing was started"), "{refusal}");
+
+        // The headline: the slot frees and the queued Resume spawns, with nobody
+        // pressing anything and nothing refused.
+        let started: std::sync::Mutex<Vec<u64>> = std::sync::Mutex::new(Vec::new());
+        drain_the_queue(
+            &terminals,
+            &pending,
+            RESEARCH_CEILING,
+            |_| Rechecked::Against(claimed.clone()),
+            |waiting: &Waiting, _: &Map| {
+                let run = a_live_run_in(&terminals, directory.path());
+                terminals.staked(
+                    run,
+                    a_stake(waiting.ticket, &waiting.folder, RunKind::Research),
+                );
+                started.lock().expect("a lock").push(waiting.ticket);
+                Ok(())
+            },
+        );
+
+        assert_eq!(*started.lock().expect("a lock"), vec![65]);
+        assert!(pending.waiting_now().is_empty());
+        assert!(
+            pending.announced().is_empty(),
+            "a queued Resume must leave by the spawn path, not the sentence path"
+        );
+
+        terminals.held().shut_down();
+    }
+
+    /// **An entry nobody could take a reading for keeps its press.**
+    ///
+    /// *A freeing slot starts the next queued run with no further press* is not
+    /// conditional on where the operator is looking. A child exiting while they
+    /// read another map used to pop the whole standing queue and refuse it one
+    /// entry per turn, so pressing six times and then navigating away lost
+    /// presses five and six. An unanswerable entry is held and put back instead —
+    /// and an entry behind it whose own folder *is* attended still starts on that
+    /// same turn, because the queue spans every folder the operator has open.
+    #[test]
+    fn an_unattended_entry_keeps_its_place_and_starts_when_its_own_folder_is_read() {
+        const AWAY: &str = "/work/away";
+        const HERE: &str = "/work/here";
+        let directory = TempDir::new().expect("temp dir");
+        let terminals = Terminals::new();
+        let pending = Pending::new();
+        let map = a_map_of(Phase::Wayfinding, vec![a_takeable_research_ticket(65)]);
+
+        // Press order: the unattended folder first, so the head is the one that
+        // cannot be answered.
+        pending.joined(65, AWAY, "claude", RunKind::Research, Verb::Start, &map);
+        pending.joined(65, HERE, "claude", RunKind::Research, Verb::Start, &map);
+
+        let started: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+        let start = |waiting: &Waiting, _: &Map| {
+            let run = a_live_run_in(&terminals, directory.path());
+            terminals.staked(
+                run,
+                a_stake(waiting.ticket, &waiting.folder, RunKind::Research),
+            );
+            started.lock().expect("a lock").push(waiting.folder.clone());
+            Ok(())
+        };
+
+        // One folder is on screen and the other is not, which is the whole of
+        // what the window can say about either entry.
+        let attended = |waiting: &Waiting| {
+            if waiting.folder == HERE {
+                Rechecked::Against(map.clone())
+            } else {
+                Rechecked::NotAttended
+            }
+        };
+        drain_the_queue(&terminals, &pending, RESEARCH_CEILING, attended, start);
+
+        assert_eq!(*started.lock().expect("a lock"), vec![HERE.to_string()]);
+        // The unanswerable entry is still there, still first, and no sentence
+        // was spent on it: it was never the entry's fault.
+        assert_eq!(pending.place_of(65, AWAY), Some(1));
+        assert!(nothing_was_refused(&pending));
+
+        // Nothing accumulates either — a second turn with nobody watching
+        // anything leaves the queue exactly as it was.
+        drain_the_queue(
+            &terminals,
+            &pending,
+            RESEARCH_CEILING,
+            |_| Rechecked::NotAttended,
+            |_, _| panic!("nothing may be spawned against a reading that was never taken"),
+        );
+        assert_eq!(pending.place_of(65, AWAY), Some(1));
+        assert!(nothing_was_refused(&pending));
+
+        // And the turn taken while its own folder is attended starts it, with
+        // nobody pressing anything a second time.
+        drain_the_queue(
+            &terminals,
+            &pending,
+            RESEARCH_CEILING,
+            |_| Rechecked::Against(map.clone()),
+            start,
+        );
+        assert_eq!(
+            *started.lock().expect("a lock"),
+            vec![HERE.to_string(), AWAY.to_string()]
+        );
+        assert!(pending.waiting_now().is_empty());
+        assert!(pending.announced().is_empty());
+
+        terminals.held().shut_down();
+    }
+
+    /// An entry whose reading was taken and said no leaves the queue with a
+    /// sentence and starts nothing — the refusal is carried, never defaulted.
     #[test]
     fn a_queued_entry_with_no_live_reading_is_dropped_and_says_so_once() {
         const FOLDER: &str = "/work/two";
@@ -6639,14 +7035,14 @@ mod tests {
         let pending = Pending::new();
         let map = a_research_map();
 
-        pending.joined(59, FOLDER, "claude", RunKind::Research, &map);
+        pending.joined(59, FOLDER, "claude", RunKind::Research, Verb::Start, &map);
 
-        let missing = nothing_to_check_against(59, "this window is watching another folder");
+        let missing = folder_is_gone(59, FOLDER);
         drain_the_queue(
             &terminals,
             &pending,
             RESEARCH_CEILING,
-            |_| Err(missing.clone()),
+            |_| Rechecked::Refused(missing.clone()),
             |_, _| panic!("nothing may be spawned against a reading that was never taken"),
         );
 
