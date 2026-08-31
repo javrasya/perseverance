@@ -112,11 +112,22 @@ move the moment an operator looked away and back.
 
 **A freed slot starts the next entry with no further press, and the dequeue is a
 press rather than a resume.** The entry has been sitting for minutes; the world
-moved. So the drain opens with the same awaited revalidation a press opens with,
-takes a live reading keyed to *the entry's own* folder and map — `Ledgers` says
-which folder the ledger it holds is a reading of, so an entry is answered by its
-own repository or by no reading at all — and then asks the guard the verb that
-queued it would have asked. A folder with no live reading starts nothing, ever.
+moved. So the drain asks the same awaited revalidation a press asks, takes a live
+reading keyed to *the entry's own* folder and map — `Ledgers` says which folder
+the ledger it holds is a reading of, so an entry is answered by its own
+repository or by no reading at all — and then asks the guard the verb that queued
+it would have asked. A folder with no live reading starts nothing, ever.
+
+The order is the press's order inverted, and that is the one thing a queued entry
+may not copy from a press. A press is made by somebody looking at the map, so its
+revalidation is always about the map in front of them; an entry is not, and the
+question *is anybody looking at this entry's map* is a lock and no network. Asked
+second, it threw away a forced, off-cadence, human-authority poke per entry per
+turn — an unanswerable queue setting the cadence ADR 0007 owns and spending the
+budget ADR 0008 says the poller yields first. Asked first, a poke is spent only
+on an entry this window could actually answer, and the reading is then taken
+again on the other side of it, because the first one is exactly what the fresh
+pass replaced.
 Without those guards `booked` recorded a claim as this harness's own for a ticket
 it may never have taken, which is exactly what suppresses the foreign-claim
 announcement.
@@ -151,12 +162,39 @@ that is off screen is no reason for a tail that is on it to wait. The one absenc
 that does end a press is the folder leaving this app's list: no turn will ever be
 able to answer that entry, so waiting for it would be waiting forever.
 
+**A revalidation that is not a read is the same kind of absence.** The deadline
+running out is *held under a floor, or queued behind a read already in flight* —
+the expected answer whenever the rate-limit reserve holds the poller, so refusing
+on it would make the promise conditional on GitHub's budget being comfortable. A
+pass that asked nobody is a fact about this app. And a failed tick is a read of
+whatever repository the poller is watching, which is not this entry's unless the
+operator happens to be sitting on it: a transient unreachable on one folder
+ending every press queued against another is evidence about the wrong repository
+destroying presses it was never about. All three keep the entry's place. The
+interactive press keeps the opposite rule and the four sentences that go with it,
+because somebody is standing in front of it who can read *GitHub could not be
+reached* and press again; a queued entry has nobody, so that sentence would be
+the last anyone heard of it.
+
 **And none of that happens on the readout tick.** Two GitHub round trips, a
 worktree of its own, an environment harvest and a PTY spawn on the three-hertz
 thread froze every rack readout and the poller's own falling edge for seconds.
 The tick sends one nudge into a single-slot channel and goes on; a third thread
-listens and drains. The single slot is the whole of the guard against the same
-entry being handed out three times a second.
+listens and drains, and the nudge is sent only when a free slot could actually
+take an entry — a queue standing against a full ceiling is one no turn can pop,
+and waking a drain for it three times a second is load on the account whose
+limits are the whole reason the ceiling exists.
+
+**An entry that is starting is still a press.** The single slot keeps the same
+entry from being handed out three times a second, but the start it is handed to
+is seconds long — a revalidation, two reads, a worktree, a harvest, a spawn — and
+an entry that had left the queue for that window existed nowhere: no rack row, no
+`spoken_for`, so the next derivation designated the ticket again and a press
+landing in the window found a frontier that offered it and room the drain had not
+booked yet. So the queue holds two lists under one lock, and an entry is in one
+of them from the press until there is a run, a sentence, or its place back.
+`spoken_for` and the rack read both; only the drain's own pop reads the first
+alone.
 
 **A deferred spawn that fails is reported once, as a sentence, and never
 retried.** The press it came from was answered long ago, so the rack prints the
@@ -169,9 +207,10 @@ does not paper over them with a retry the operator did not ask for.
 
 An entry can outlive every reading that could have started it, and nothing tells
 the operator so. A press queued against a folder they never open again sits in
-the rack indefinitely: it holds no child, no worktree and no claim, so it costs
-nothing but the row and the slot it is still owed — and the process dying is what
-collects it. That is the price of not refusing an entry for the window's absence,
+the rack indefinitely: it holds no child, no worktree and no claim, and it drives
+no reads — the nudge waits for a free slot and the recheck asks the window before
+it asks GitHub — so it costs nothing but the row and the slot it is still owed,
+and the process dying is what collects it. That is the price of not refusing an entry for the window's absence,
 and it is the cheaper of the two mistakes: a standing entry can be read and
 ignored, and a lost press has to be noticed first. The thing to watch for is a
 rack whose queue never shortens; a way to withdraw an entry is the answer to it,

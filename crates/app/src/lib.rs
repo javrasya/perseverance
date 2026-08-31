@@ -3342,13 +3342,35 @@ fn start_terminals(app: AppHandle) -> std::io::Result<()> {
             // done. What it sends is one nudge, and what it never does is block:
             // see [`start_terminals`]'s third thread, and [`Pending`].
             //
-            // A row therefore leaves the rack on the emission after the start
-            // rather than on the same one. That is the price of not freezing
-            // every other number on this tick, and a third of a second of a row
-            // that is already going is the cheapest thing in this file.
+            // **And it is sent only when a slot could actually take an entry**,
+            // which is [`the_queue_needs_a_turn`]. A queue standing against a
+            // full ceiling is answerable by nobody, so nudging for it three
+            // times a second buys a drain turn that pops nothing and — before
+            // the recheck was reordered — a forced, off-cadence read of GitHub
+            // per entry per tick. The poll cadence is three floors under one max
+            // (`docs/adr/0007`) and the rate limit is a budget the poller yields
+            // first (`docs/adr/0008`); neither survives a queue that can drive
+            // the poller by merely existing.
+            //
+            // A row stays on the rack for the whole of its own start rather than
+            // disappearing the moment the drain picks it up: an entry that is
+            // starting is still held by [`Pending`] and still read by
+            // `waiting_now` and `spoken_for` — see [`Pending::next_in_line`] —
+            // so what the operator sees is a row that stands until there is a
+            // run in its place.
             if let Some(pending) = app.try_state::<Pending>() {
-                if pending.anything_waiting() {
-                    let _ = nudge.try_send(());
+                // No registry is no ceiling to compare occupancy against, and
+                // [`start_what_is_waiting`] would return without draining
+                // anyway: the absence skips the nudge rather than standing a
+                // number in for it.
+                if let Some(registry) = app.try_state::<Registry>() {
+                    if the_queue_needs_a_turn(
+                        &pending,
+                        terminals.live_research(),
+                        remembered_ceiling(&registry),
+                    ) {
+                        let _ = nudge.try_send(());
+                    }
                 }
                 let _ = app.emit("pending-runs", pending.announced());
             }
@@ -3445,6 +3467,26 @@ fn there_is_room(live: usize, ceiling: usize) -> bool {
     live < ceiling
 }
 
+/// Whether the readout tick has anything to wake the drain thread for.
+///
+/// **Two questions and not one, because *something is waiting* is not *something
+/// can start*.** The tick runs at three hertz for the whole life of the process,
+/// and an entry that no free slot can take is one the drain would pop nothing
+/// for. Nudging anyway made a standing queue into a permanent load on the poller
+/// — every turn spent an awaited `Poke::Revalidate`, which carries
+/// `Authority::Human` and so answers a zero backoff floor and clears the
+/// poller's own failure state on the way past. That is a queue driving the
+/// cadence `docs/adr/0007` sets and spending the budget `docs/adr/0008` says the
+/// poller yields first, in exchange for nothing anybody could act on.
+///
+/// Both halves are cheap enough for this thread: one lock and one comparison of
+/// two numbers. Everything a drain turn actually needs to know — is this folder
+/// attended, is the node still takeable — belongs to the thread that is allowed
+/// to block.
+fn the_queue_needs_a_turn(pending: &Pending, live: usize, ceiling: usize) -> bool {
+    pending.anything_waiting() && there_is_room(live, ceiling)
+}
+
 /* ------------------------------------------------ the pending queue --- */
 
 /// One accepted press that has not been spawned yet.
@@ -3518,7 +3560,7 @@ struct Waiting {
 /// [`Ledgers`]: a panic somewhere else is not a reason for the queue to stop
 /// answering.
 pub struct Pending {
-    waiting: Mutex<Vec<Waiting>>,
+    line: Mutex<Line>,
     /// The next entry id. Its own lock rather than a counter derived from the
     /// queue, because ids must go on being unique across entries that have
     /// already been popped.
@@ -3534,19 +3576,66 @@ pub struct Pending {
     refusals: Mutex<Vec<(Waiting, String)>>,
 }
 
+/// The queue and the entries that have left it to start, under one lock.
+///
+/// **Two lists and one mutex, because an entry moving from the first to the
+/// second must never be in neither.** A drain turn takes minutes' worth of work
+/// off one entry — an awaited revalidation, two GitHub reads, a worktree, an
+/// environment harvest and a PTY spawn — and for the whole of that window the
+/// press has to go on existing somewhere: `spoken_for` reads both lists, so the
+/// frontier stays off a ticket that is starting, and `waiting_now` reads both,
+/// so the rack row stands until there is a run to replace it. An entry that was
+/// out of the queue for that window was a press that existed nowhere: the very
+/// poll the drain's own revalidation asks for re-derived the frontier back onto
+/// the ticket, and a press landing in the window passed the frontier comparison,
+/// found room the drain had not taken yet, and put a second worktree and a
+/// second agent on one ticket.
+///
+/// Two mutexes would buy the same atomicity and a lock order to get wrong; a
+/// struct behind one guard cannot be observed half-moved.
+#[derive(Default)]
+struct Line {
+    /// Every accepted press no drain turn is holding, in press order. The only
+    /// list [`Pending::next_in_line`] pops from, so a turn is strictly shorter
+    /// each time round.
+    waiting: Vec<Waiting>,
+    /// The entries a drain turn is holding: off `waiting`, and not yet spawned,
+    /// refused or put back. Still not runs — no worktree, no claim, no rung on
+    /// the ladder — which is why every reader but [`Pending::anything_waiting`]
+    /// treats them as the queue.
+    starting: Vec<Waiting>,
+}
+
+impl Line {
+    /// Every entry this queue is holding, in the order the rack prints them:
+    /// what is starting first, because it came off the head and is ahead of
+    /// everything still waiting, then the queue itself in press order.
+    fn all(&self) -> impl Iterator<Item = &Waiting> {
+        self.starting.iter().chain(self.waiting.iter())
+    }
+}
+
 impl Pending {
     pub fn new() -> Pending {
         Pending {
-            waiting: Mutex::new(Vec::new()),
+            line: Mutex::new(Line::default()),
             issued: Mutex::new(0),
             refusals: Mutex::new(Vec::new()),
         }
     }
 
-    fn waiting_here(&self) -> MutexGuard<'_, Vec<Waiting>> {
-        self.waiting
+    fn line_here(&self) -> MutexGuard<'_, Line> {
+        self.line
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// The entry with this id is no longer starting: it has a run, a sentence,
+    /// or its place back. Called on every exit a drain turn has, because an id
+    /// left here would be a rack row nothing ever takes off and a ticket the
+    /// frontier never designates again.
+    fn no_longer_starting(&self, id: u64) {
+        self.line_here().starting.retain(|entry| entry.id != id);
     }
 
     fn refusals_here(&self) -> MutexGuard<'_, Vec<(Waiting, String)>> {
@@ -3562,9 +3651,16 @@ impl Pending {
     /// [`Terminals::live_run_on`] is: an issue number is unique inside one
     /// repository and means nothing across two, and this queue holds every
     /// folder's presses at once.
+    ///
+    /// **An entry that is starting still has a place**, and it is the first one:
+    /// it is ahead of everything still waiting, it is what the rack is drawing,
+    /// and [`Pending::joined`] answers a second press on it with that place
+    /// rather than enqueueing the same ticket behind itself. Counting only the
+    /// waiting list here would make the seconds a spawn takes a window in which
+    /// one ticket could join the queue twice.
     fn place_of(&self, ticket: u64, folder: &str) -> Option<usize> {
-        self.waiting_here()
-            .iter()
+        self.line_here()
+            .all()
             .position(|waiting| waiting.ticket == ticket && waiting.folder == folder)
             .map(|at| at + 1)
     }
@@ -3596,8 +3692,8 @@ impl Pending {
             *issued += 1;
             *issued
         };
-        let mut waiting = self.waiting_here();
-        waiting.push(Waiting {
+        let mut line = self.line_here();
+        line.waiting.push(Waiting {
             id,
             ticket,
             folder: folder.to_string(),
@@ -3607,7 +3703,7 @@ impl Pending {
             map: map.clone(),
             queued: epoch_seconds(),
         });
-        waiting.len()
+        line.starting.len() + line.waiting.len()
     }
 
     /// The numbers this folder has waiting, for the one derivation.
@@ -3628,63 +3724,91 @@ impl Pending {
     /// one repository's map, and #59 waiting in one checkout says nothing about
     /// #59 in another.
     fn spoken_for(&self, folder: &str) -> Vec<u64> {
-        self.waiting_here()
-            .iter()
+        self.line_here()
+            .all()
             .filter(|waiting| waiting.folder == folder)
             .map(|waiting| waiting.ticket)
             .collect()
     }
 
-    /// The oldest entry, removed. FIFO in press order, because first come is the
-    /// only fair thing to be when the queue is one operator's own presses.
+    /// The oldest entry, handed to the drain turn that is going to try to start
+    /// it. FIFO in press order, because first come is the only fair thing to be
+    /// when the queue is one operator's own presses.
     ///
-    /// It leaves the queue *before* the spawn is attempted, which is what makes
-    /// a refused deferred spawn a removal and never a retry.
+    /// **It leaves the line the drain pops from and nothing else.** The entry is
+    /// moved into `starting`, where [`Pending::spoken_for`] and
+    /// [`Pending::waiting_now`] go on reading it, and it leaves *that* list only
+    /// through one of the drain's three exits: [`Pending::started`] when there is
+    /// a run, [`Pending::could_not_start`] when there is a sentence, or
+    /// [`Pending::still_in_line`] when there was nothing to learn. Moving it out
+    /// of both lists here would hand the seconds a worktree, a harvest and a
+    /// spawn take to a frontier that has stopped seeing the ticket and to a
+    /// press that would find room the drain has not booked yet — see [`Line`].
+    ///
+    /// It leaves the *waiting* line before the spawn is attempted, which is what
+    /// makes a refused deferred spawn a removal and never a retry.
     fn next_in_line(&self) -> Option<Waiting> {
-        let mut waiting = self.waiting_here();
-        (!waiting.is_empty()).then(|| waiting.remove(0))
+        let mut line = self.line_here();
+        let taken = (!line.waiting.is_empty()).then(|| line.waiting.remove(0))?;
+        line.starting.push(taken.clone());
+        Some(taken)
     }
 
     /// Entries a drain turn looked at and learned nothing about, put back where
     /// they were.
     ///
     /// **The other half of [`Pending::next_in_line`], and the reason a drain may
-    /// pop an entry it turns out not to be entitled to answer for.** A reading
-    /// that could not be taken — nobody is looking at this entry's folder — is
-    /// an absence on the window's side and not a fact about the ticket, so the
-    /// entry keeps its press: it goes back in front of everything that arrived
-    /// after it, in the order it came off, and the drain that runs when its own
-    /// folder is next attended finds it exactly where the operator left it.
+    /// take an entry it turns out not to be entitled to answer for.** A reading
+    /// that could not be taken — nobody is looking at this entry's folder, or
+    /// the poller had nothing to say inside the deadline — is an absence on the
+    /// window's side and not a fact about the ticket, so the entry keeps its
+    /// press: it goes back in front of everything that arrived after it, in the
+    /// order it came off, and the drain that runs when its own folder is next
+    /// attended finds it exactly where the operator left it.
     ///
     /// Inserted at the front rather than pushed, because a press made while this
-    /// turn was running belongs behind the presses it followed.
+    /// turn was running belongs behind the presses it followed. And taken out of
+    /// `starting` as it goes in, because an entry counted in both lists would be
+    /// a rack row printed twice and a ticket the frontier skipped forever.
     fn still_in_line(&self, kept: Vec<Waiting>) {
         if kept.is_empty() {
             return;
         }
-        let mut waiting = self.waiting_here();
+        let mut line = self.line_here();
         for (at, entry) in kept.into_iter().enumerate() {
-            waiting.insert(at, entry);
+            line.starting.retain(|starting| starting.id != entry.id);
+            line.waiting.insert(at, entry);
         }
     }
 
+    /// This entry has a run: it is out of the queue for good, and the rack row
+    /// it kept through its own start gives way to the readout of the child.
+    fn started(&self, waiting: &Waiting) {
+        self.no_longer_starting(waiting.id);
+    }
+
     fn could_not_start(&self, waiting: Waiting, detail: String) {
+        self.no_longer_starting(waiting.id);
         self.refusals_here().push((waiting, detail));
     }
 
-    /// Whether anything is waiting at all.
+    /// Whether anything is waiting for a turn at all.
     ///
-    /// The readout tick's whole question, and it is this small on purpose: the
-    /// tick may take one lock and answer one bool, and every other question a
-    /// drain asks — is there room, is the folder still being watched, is the
-    /// node still takeable — belongs to the thread that is allowed to block.
+    /// The readout tick's half of [`the_queue_needs_a_turn`], and it is this
+    /// small on purpose: the tick may take one lock and answer one bool, and
+    /// every other question a drain asks — is the folder still being watched, is
+    /// the node still takeable — belongs to the thread that is allowed to block.
+    ///
+    /// The one reader that asks about `waiting` alone, because an entry already
+    /// starting is not a reason to wake a thread that is what is starting it.
     fn anything_waiting(&self) -> bool {
-        !self.waiting_here().is_empty()
+        !self.line_here().waiting.is_empty()
     }
 
-    /// The queue as the rack reads it.
+    /// The queue as the rack reads it, an entry that is starting included: it
+    /// holds no run yet, so a row is still the only place the press appears.
     fn waiting_now(&self) -> Vec<PendingRun> {
-        self.waiting_here().iter().map(PendingRun::of).collect()
+        self.line_here().all().map(PendingRun::of).collect()
     }
 
     /// The queue, plus every deferred refusal since the last emission — drained
@@ -3807,10 +3931,14 @@ fn admitted(
 /// announcing itself, so the harness would go quiet about the one change on
 /// screen it did not cause.
 ///
-/// So the order below is [`start_working`]'s order, with the frontier comparison
-/// replaced by the thing that comparison was standing in for. The awaited
-/// revalidation is the same one a press awaits; the fresh reading is
-/// [`the_live_reading_for`]; and [`why_the_wait_cannot_start`] is the guard,
+/// So the guards below are [`start_working`]'s guards, with the frontier
+/// comparison replaced by the thing that comparison was standing in for. The
+/// awaited revalidation is the same one a press awaits — asked second rather
+/// than first, for the reason in [`the_recheck_for`]: a press is made by
+/// somebody looking at the map, and an entry is not, so *is anybody looking at
+/// this entry's map* is a question worth asking before GitHub is asked
+/// anything. The fresh reading is [`the_live_reading_for`]; and
+/// [`why_the_wait_cannot_start`] is the guard,
 /// which asks for takeability rather than for designation because a queued entry
 /// is deliberately *not* the designated node — [`Pending::spoken_for`] moved the
 /// frontier past it the moment it joined the queue.
@@ -3849,29 +3977,11 @@ fn start_what_is_waiting(app: &AppHandle, terminals: &Terminals, pending: &Pendi
         pending,
         remembered_ceiling(&registry),
         |waiting| {
-            // The same awaited revalidation the press opened with, and it is
-            // more load-bearing here than there: a press was made against a map
-            // an operator had just looked at, and this entry has been waiting.
-            // `None` from the token cell is a harvest that has not settled, and
-            // it is the only thing that tells a launch that has not finished
-            // starting up apart from a folder watching no map.
-            let harvest_settled = ambient.token.get().is_some();
-            match poker.revalidate(CHECKING) {
-                // *Nobody is watching a map* — the launcher, a folder list, a
-                // window nobody is looking at — and that is an absence on this
-                // side rather than an answer about the entry. The pass asked
-                // GitHub nothing, so there is nothing here to end a press with,
-                // and the entry keeps its place.
-                Revalidated::Ticked(Tick::NotAttempted) if harvest_settled => {
-                    return Rechecked::NotAttended
-                }
-                answer => {
-                    if let Some(refusal) = why_the_check_is_not_a_read(answer, harvest_settled) {
-                        return Rechecked::Refused(refusal);
-                    }
-                }
-            }
-            the_live_reading_for(&registry, &ledgers, waiting)
+            the_recheck_for(
+                waiting,
+                |waiting: &Waiting| the_live_reading_for(&registry, &ledgers, waiting),
+                || poker.revalidate(CHECKING),
+            )
         },
         |waiting, map| {
             let (run, _) = spawn_at(
@@ -3918,9 +4028,10 @@ fn start_what_is_waiting(app: &AppHandle, terminals: &Terminals, pending: &Pendi
 /// **Refused and unanswered are not the same exit, and only one of them costs
 /// the operator their press.** A reading that was taken and said no — closed,
 /// claimed, relabelled — is an answer about the entry, and the entry leaves with
-/// it. A reading that could not be taken at all, because nobody is looking at
-/// that entry's folder, is an answer about the window; the entry is held aside
-/// in `kept` and put back by [`Pending::still_in_line`] when the turn is over.
+/// it. A reading that could not be taken at all — nobody is looking at that
+/// entry's folder, or GitHub answered this window nothing — is an answer about
+/// the window; the entry is held aside in `kept` and put back by
+/// [`Pending::still_in_line`] when the turn is over.
 /// Without that split, *a freeing slot starts the next queued run with no
 /// further press* would hold only while the operator stood still on the map they
 /// pressed against: a child exiting while they read something else would pop the
@@ -3970,9 +4081,99 @@ fn drain_the_queue(
         }
         if let Err(refusal) = start(&waiting, &map) {
             pending.could_not_start(waiting, refusal);
+            continue;
         }
+        // There is a run in its place, so the entry stops being accounted for as
+        // a press: this is the exit [`Pending::next_in_line`] holds the entry
+        // open for, and the only one that leaves a child behind.
+        pending.started(&waiting);
     }
     pending.still_in_line(kept);
+}
+
+/// The recheck a drain turn owes an entry, in the order that spends the least.
+///
+/// **The free question first, and a poke only for an entry this window could
+/// answer.** Both halves used to run for every entry every turn, revalidation
+/// first: an entry queued against a folder nobody is looking at forced an
+/// awaited `Poke::Revalidate` — off-cadence, `Authority::Human`, so under no
+/// backoff floor and clearing the poller's failure state as it went — and then
+/// threw the answer away on a folder-id comparison that needed no network at
+/// all. A standing queue of two was a permanent few-reads-a-second load on an
+/// account whose limits are the whole reason this ceiling exists, which is the
+/// cadence of `docs/adr/0007` and the budget of `docs/adr/0008` spent on
+/// nothing.
+///
+/// [`the_live_reading_for`] is lock-only and free, and it is what says whether
+/// this turn can answer this entry at all. Only when it says *yes, and here is
+/// the map* is the revalidation worth its deadline — and then the reading is
+/// taken **again**, because the first one is exactly the reading the fresh pass
+/// has just replaced. Two reads of a lock is the cheap half of this function
+/// twice; acting on the first would be spawning against the stale map the
+/// revalidation was asked for in order to avoid.
+fn the_recheck_for(
+    waiting: &Waiting,
+    reading: impl Fn(&Waiting) -> Rechecked,
+    revalidate: impl Fn() -> Revalidated,
+) -> Rechecked {
+    match reading(waiting) {
+        // Nobody is watching this entry's folder or its map. Nothing is asked of
+        // GitHub for a question only the window can answer, and the entry keeps
+        // its place.
+        Rechecked::NotAttended => return Rechecked::NotAttended,
+        // The folder has left this app's list — the one absence that is the
+        // entry's own — or the store would not open. Both are already an answer,
+        // and neither is worth a read.
+        Rechecked::Refused(refusal) => return Rechecked::Refused(refusal),
+        // The window is on this entry's own folder and map, so a fresh read is
+        // one this turn can act on. The map is dropped: it is the reading below.
+        Rechecked::Against(_) => {}
+    }
+    if let Some(absence) = why_the_recheck_is_not_a_reading(revalidate()) {
+        return absence;
+    }
+    reading(waiting)
+}
+
+/// What a drain turn's revalidation leaves it with, or nothing at all when the
+/// answer is the fresh read it asked for.
+///
+/// **Every answer but a read is an absence on the window's side, and an absence
+/// does not end a press** (`docs/adr/0028`: only a reading that was taken and
+/// said no ends one). This is the difference between a queued entry and a press
+/// somebody is standing in front of, and it is why the drain does not reuse
+/// [`why_the_check_is_not_a_read`]:
+///
+/// - [`Revalidated::NotInTime`] is *held under a floor, or queued behind a read
+///   already in flight — nothing failed and nothing is known*. It is the
+///   **expected** answer whenever the budget floor holds the poller, because the
+///   [`CHECKING`] deadline then always runs out; refusing on it made *a freeing
+///   slot starts the next queued run* conditional on GitHub's rate limit being
+///   comfortable.
+/// - [`Tick::NotAttempted`] is a pass that asked nobody: no map is being watched,
+///   or this launch's harvest has not settled yet. Both are about this app, both
+///   pass, and neither learned anything about the ticket.
+/// - [`Tick::Failed`] is a read that failed **of whatever the poller is currently
+///   watching**, which is not this entry's repository unless the operator
+///   happens to be sitting on it. A transient `Unreachable` on folder B deleting
+///   every press queued against folder A is evidence about the wrong repository
+///   ending presses it was never about.
+///
+/// A press has an operator in front of it who can read *GitHub could not be
+/// reached* and press again; a queued entry has nobody, so the sentence would be
+/// the last anybody heard of it. Waiting costs a row and the slot it is still
+/// owed, and that is the cheaper of the two mistakes.
+///
+/// One exhaustive match, so a fifth answer is a compile error here rather than a
+/// press quietly thrown away.
+fn why_the_recheck_is_not_a_reading(answer: Revalidated) -> Option<Rechecked> {
+    match answer {
+        // The one answer a deferred spawn is allowed to stand on.
+        Revalidated::Ticked(Tick::Read(_)) => None,
+        Revalidated::NotInTime => Some(Rechecked::NotAttended),
+        Revalidated::Ticked(Tick::NotAttempted) => Some(Rechecked::NotAttended),
+        Revalidated::Ticked(Tick::Failed(_)) => Some(Rechecked::NotAttended),
+    }
 }
 
 /// What a drain turn found when it went looking for the reading a queued entry
@@ -3988,7 +4189,13 @@ fn drain_the_queue(
 ///
 /// `Refused` is for a reading that was taken and said no, and for the failures
 /// this harness caused itself: a store it cannot open, a folder it no longer
-/// lists, a check GitHub turned down. Those are surfaced once and never retried.
+/// lists. Those are surfaced once and never retried.
+///
+/// **A check GitHub did not answer is not one of them.** A revalidation that
+/// timed out, asked nobody, or failed against whichever repository the poller
+/// happens to be watching says nothing about *this* entry, so it lands as
+/// `NotAttended` too — see [`why_the_recheck_is_not_a_reading`], which is the
+/// whole of the difference between this and the sentence a press gets back.
 enum Rechecked {
     Against(Map),
     NotAttended,
@@ -6476,12 +6683,20 @@ mod tests {
         );
         assert_eq!(pending.waiting_now().len(), 3);
 
-        // A freed slot takes the oldest, and what is left closes up behind it.
+        // A freed slot takes the oldest — and the entry it took goes on holding
+        // a place while it starts, because a spawn is seconds long and a press
+        // that existed nowhere for them is one the frontier and a second press
+        // are both free to take again.
         let first = pending.next_in_line().expect("an entry");
         assert_eq!(first.ticket, 59);
         assert_eq!(first.folder, "/work/one");
-        assert_eq!(pending.place_of(60, "/work/one"), Some(1));
+        assert_eq!(pending.place_of(59, "/work/one"), Some(1));
+        assert_eq!(pending.place_of(60, "/work/one"), Some(2));
+
+        // The run is what takes it off, and then what is left closes up.
+        pending.started(&first);
         assert_eq!(pending.place_of(59, "/work/one"), None);
+        assert_eq!(pending.place_of(60, "/work/one"), Some(1));
 
         pending.next_in_line().expect("an entry");
         pending.next_in_line().expect("an entry");
@@ -6883,7 +7098,8 @@ mod tests {
             &claimed,
         );
         let waiting = pending
-            .waiting_here()
+            .line_here()
+            .waiting
             .first()
             .cloned()
             .expect("the entry that was queued");
@@ -7053,6 +7269,182 @@ mod tests {
         // emission says nothing.
         assert!(pending.announced().is_empty());
         assert!(pending.waiting_now().is_empty());
+    }
+
+    /// **A standing queue nobody can answer asks GitHub nothing.**
+    ///
+    /// The recheck used to open with the awaited revalidation and then throw the
+    /// answer away on a folder-id comparison that needed no network at all: two
+    /// entries queued against a folder the operator had navigated away from were
+    /// a few forced, off-cadence reads a second, for as long as they stood.
+    /// `Poke::Revalidate` carries `Authority::Human`, so each one answered a
+    /// zero backoff floor and cleared the poller's failure state on its way past
+    /// — a queue setting the cadence `docs/adr/0007` owns and spending the
+    /// budget `docs/adr/0008` says the poller yields first, for an answer no
+    /// turn could have acted on.
+    #[test]
+    fn a_standing_unattended_queue_costs_no_reads_and_no_turns() {
+        const AWAY: &str = "/work/away";
+        let map = a_research_map();
+        let pending = Pending::new();
+        pending.joined(59, AWAY, "claude", RunKind::Research, Verb::Start, &map);
+
+        // The readout tick's own half: something is waiting and no slot could
+        // take it, so the drain thread is not woken at all.
+        assert!(!the_queue_needs_a_turn(
+            &pending,
+            RESEARCH_CEILING,
+            RESEARCH_CEILING
+        ));
+        assert!(the_queue_needs_a_turn(&pending, 0, RESEARCH_CEILING));
+
+        let entry = pending.next_in_line().expect("an entry");
+        let pokes = std::cell::Cell::new(0);
+        let poked = || {
+            pokes.set(pokes.get() + 1);
+            Revalidated::Ticked(Tick::Read(None))
+        };
+
+        // Nobody is watching this entry's folder: one lock, and no network.
+        assert!(matches!(
+            the_recheck_for(&entry, |_: &Waiting| Rechecked::NotAttended, poked),
+            Rechecked::NotAttended
+        ));
+        // And the one absence that does end a press is decided without a read
+        // either — the folder has left this app's list.
+        assert!(matches!(
+            the_recheck_for(
+                &entry,
+                |_: &Waiting| Rechecked::Refused(folder_is_gone(59, AWAY)),
+                poked
+            ),
+            Rechecked::Refused(_)
+        ));
+        assert_eq!(
+            pokes.get(),
+            0,
+            "an entry no reading could answer must cost the poller nothing"
+        );
+
+        // An entry this window *can* answer spends exactly one — and what it
+        // acts on is the reading taken after that read, never the one before it.
+        let readings = std::cell::Cell::new(0);
+        let against = the_recheck_for(
+            &entry,
+            |_: &Waiting| {
+                readings.set(readings.get() + 1);
+                Rechecked::Against(map.clone())
+            },
+            poked,
+        );
+        assert!(matches!(against, Rechecked::Against(_)));
+        assert_eq!(pokes.get(), 1);
+        assert_eq!(
+            readings.get(),
+            2,
+            "the map a deferred spawn runs against is the one read after the revalidation"
+        );
+    }
+
+    /// **The window's absences keep the entry; only the entry's own answer ends
+    /// it.**
+    ///
+    /// `NotInTime` is *held under a floor, or queued behind a read already in
+    /// flight* — the expected answer whenever the rate-limit reserve holds the
+    /// poller, because the `CHECKING` deadline then runs out by construction. A
+    /// failed tick is a read of whatever repository the poller is watching,
+    /// which is not this entry's unless the operator happens to be sitting on
+    /// it: a transient `Unreachable` on one folder used to delete every press
+    /// queued against another, with a sentence nobody was standing there to
+    /// read.
+    #[test]
+    fn a_revalidation_that_is_not_a_read_keeps_the_entrys_place() {
+        assert!(
+            why_the_recheck_is_not_a_reading(Revalidated::Ticked(Tick::Read(None))).is_none(),
+            "the one answer a deferred spawn may stand on"
+        );
+
+        for absent in [
+            Revalidated::NotInTime,
+            Revalidated::Ticked(Tick::NotAttempted),
+            Revalidated::Ticked(Tick::Failed(Fault::Unreachable)),
+            Revalidated::Ticked(Tick::Failed(Fault::AuthFailed)),
+            Revalidated::Ticked(Tick::Failed(Fault::MapGone)),
+            Revalidated::Ticked(Tick::Failed(Fault::RateLimited {
+                seconds_to_reset: 42,
+            })),
+        ] {
+            assert!(
+                matches!(
+                    why_the_recheck_is_not_a_reading(absent),
+                    Some(Rechecked::NotAttended)
+                ),
+                "{absent:?} says nothing about the entry, so it may not end the press"
+            );
+            // The other half of the split, unchanged: a press has an operator in
+            // front of it, and what they get is a sentence they can act on.
+            assert!(
+                why_the_check_is_not_a_read(absent, true).is_some(),
+                "{absent:?} is still a refusal for the press somebody is watching"
+            );
+        }
+    }
+
+    fn tickets_on(pending: &Pending) -> Vec<u64> {
+        pending.waiting_now().iter().map(|row| row.ticket).collect()
+    }
+
+    /// **An entry that is starting is still a press: on the rack, and off the
+    /// frontier.**
+    ///
+    /// The start it is inside is an awaited revalidation, two GitHub reads, a
+    /// worktree, an environment harvest and a PTY spawn. An entry that had left
+    /// the queue for that window existed nowhere: `waiting_now` dropped its row,
+    /// `spoken_for` stopped naming its ticket, so the very poll the drain's own
+    /// revalidation forces re-designated the ticket — and a press landing in the
+    /// window passed the frontier comparison, found room the drain had not
+    /// booked yet, and put a second worktree and a second agent on one ticket.
+    #[test]
+    fn an_entry_that_is_starting_is_still_on_the_rack_and_still_spoken_for() {
+        const FOLDER: &str = "/work/one";
+        let map = a_research_map();
+        let pending = Pending::new();
+        pending.joined(59, FOLDER, "claude", RunKind::Research, Verb::Start, &map);
+        pending.joined(60, FOLDER, "claude", RunKind::Research, Verb::Start, &map);
+
+        let starting = pending.next_in_line().expect("an entry");
+        assert_eq!(starting.ticket, 59);
+        // Out of the line a drain pops from, and out of nothing else.
+        assert_eq!(pending.spoken_for(FOLDER), vec![59, 60]);
+        assert_eq!(tickets_on(&pending), vec![59, 60]);
+        assert_eq!(pending.place_of(59, FOLDER), Some(1));
+        // So a second press on it is answered with the place it already holds
+        // rather than enqueued behind itself.
+        assert_eq!(
+            pending.joined(59, FOLDER, "claude", RunKind::Research, Verb::Start, &map),
+            1
+        );
+
+        // Put back by a turn that learned nothing: one row and one number
+        // still, never two.
+        pending.still_in_line(vec![starting]);
+        assert_eq!(pending.spoken_for(FOLDER), vec![59, 60]);
+        assert_eq!(tickets_on(&pending), vec![59, 60]);
+        assert!(pending.anything_waiting());
+
+        // A refusal takes it off both, because a refused entry is not waiting
+        // for anything.
+        let refused = pending.next_in_line().expect("an entry");
+        pending.could_not_start(refused, folder_is_gone(59, FOLDER));
+        assert_eq!(pending.spoken_for(FOLDER), vec![60]);
+        assert_eq!(tickets_on(&pending), vec![60]);
+
+        // And so does a run, which is the exit the row was held open for.
+        let running = pending.next_in_line().expect("an entry");
+        pending.started(&running);
+        assert!(pending.spoken_for(FOLDER).is_empty());
+        assert!(pending.waiting_now().is_empty());
+        assert!(!pending.anything_waiting());
     }
 
     use perseverance_model::{Counts, Cut, Fog, Node, NodeState};
