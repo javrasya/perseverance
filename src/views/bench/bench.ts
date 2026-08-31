@@ -43,7 +43,7 @@ import type { Map as MapModel, Model, Node } from "../../snapshot/model.generate
  * *spec* are what a child **is**, decided in Rust and already spelled once for
  * the Route.
  */
-import { SPEC_TAG, UNCLASSIFIED_TAG } from "../route/route";
+import { SPEC_TAG, UNCLASSIFIED_TAG } from "../vocabulary";
 
 /*
  * `Map` from the model shadows the built-in one for the whole of this file, the

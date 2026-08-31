@@ -17,6 +17,7 @@ import {
   waitingOnLabel,
 } from "../src/views/bench/Bench.jsx";
 import { BENCH_WIDTH_FLOOR, CUT_PLATE_WIDTH } from "../src/views/bench/bench";
+import { install } from "../src/keys/router";
 import { collectStylesheets } from "./support/sources";
 
 /**
@@ -54,6 +55,8 @@ async function paint(
   }
   const { root, host } = mounted;
 
+  routeKeys(selected, onSelect);
+
   await act(async () => {
     root.render(<Bench model={model} selected={selected} onSelect={onSelect} />);
   });
@@ -61,7 +64,32 @@ async function paint(
   return host;
 }
 
+/*
+ * The plate's keys, where they live.
+ *
+ * `Enter` and `Space` are a row of the one chord to action table in
+ * `src/keys/router.ts` — the view binds nothing, exactly as The Route and Deep
+ * Field bind nothing — so a test that synthesises them has to stand up the same
+ * router the app installs. What is spelled below is the app's own dispatch for
+ * `open` and nothing more: the toggle, and the `preventDefault` that keeps
+ * `Space` from scrolling the canvas, are the router's.
+ */
+let routing: (() => void) | null = null;
+
+function routeKeys(selected: number | null, onSelect: (number: number | null) => void): void {
+  routing?.();
+  routing = install({
+    press: (id, state) => {
+      if (id !== "open" || state.focusedNode === null) return;
+      onSelect(state.focusedNode === selected ? null : state.focusedNode);
+    },
+    release: () => {},
+  });
+}
+
 function teardown() {
+  routing?.();
+  routing = null;
   if (mounted === null) return;
   const { root, host } = mounted;
   act(() => root.unmount());
@@ -381,6 +409,10 @@ describe("selection is one answer, and picking it twice puts it back", () => {
   it("activates on Enter and on Space, and Space does not scroll the canvas", async () => {
     const picked: (number | null)[] = [];
     const host = await paint(wide(), null, (number) => picked.push(number));
+
+    // The hook the router resolves a pickable row by, worn by the plate for
+    // the same reason The Route's rows wear it.
+    expect(plateFor(host, 204).getAttribute("data-node-row")).toBe("204");
 
     expect(press(plateFor(host, 204), "Enter")).toBe(true);
     expect(press(plateFor(host, 204), " ")).toBe(true);

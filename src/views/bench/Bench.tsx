@@ -448,6 +448,10 @@ function PlateCard({
         minHeight: plate.height,
       }}
       data-node={node.number}
+      /* The hook the one key router resolves a row from, spelled the same as
+         the Route's and Deep Field's: `Enter` and `Space` are a row of the
+         table in `src/keys/router.ts`, and it reads this attribute. */
+      data-node-row={node.number}
       data-state={node.state}
       data-kind={node.kind.kind}
       data-mark={mark}
@@ -456,13 +460,16 @@ function PlateCard({
       data-selected={selected ? "" : undefined}
       aria-current={selected ? "true" : undefined}
       tabIndex={0}
+      /*
+       * Reachable by keyboard, and bound by nobody here. `Enter` and `Space`
+       * are a row of the one key table in `src/keys/router.ts`, which resolves
+       * the plate from the `data-node-row` above and toggles the same selection
+       * this click does — including `preventDefault`, so `Space` does not
+       * scroll the canvas out from under what is being picked. A second handler
+       * here would be a key this app binds outside the router, which
+       * `tests/no-loose-keys.test.ts` refuses.
+       */
       onClick={choose}
-      onKeyDown={(event) => {
-        if (event.key !== "Enter" && event.key !== " ") return;
-        // Space scrolls the canvas otherwise, which moves the thing being picked.
-        event.preventDefault();
-        choose();
-      }}
     >
       <span className={styles.stud} aria-hidden="true">
         {/* The cut's own shape, composed onto the mark rather than replacing
