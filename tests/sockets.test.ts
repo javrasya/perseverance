@@ -49,7 +49,7 @@ import {
 import { FIXTURES } from "../src/snapshot/fixtures";
 import type { Frontier } from "../src/snapshot/model.generated";
 import { forgetPrompts, promptFor, recordPrompt } from "../src/terminal/prompts";
-import type { RunReadout } from "../src/terminal/runs";
+import type { RunKind, RunReadout } from "../src/terminal/runs";
 
 /**
  * The rail, as arithmetic.
@@ -98,6 +98,7 @@ const staked = (
   ticket: number | null,
   over: boolean,
   folder: string | null = "/work/repo",
+  kind: RunKind | null = "work",
 ): RunReadout => ({
   run,
   held: 0,
@@ -114,7 +115,7 @@ const staked = (
   ending: over ? "exitedUnresolved" : "live",
   ticket,
   folder,
-  kind: "work",
+  kind,
   // The rail reads neither stamp; they are here because a readout carries them.
   opened: 1_785_888_000,
   spoke: 1_785_888_000,
@@ -491,6 +492,29 @@ describe("Resume", () => {
     // A run with no folder is a run the harness was never told about, and it
     // joins to a claim no more than a run with no ticket does.
     expect(liveRunOn(runs, 77, null as unknown as string)).toBeNull();
+  });
+
+  /* Ask fills on a `claimed` node deliberately — a question about the ticket a
+     live run is holding is exactly the question an operator wants to ask — and
+     it stakes that node's number in that node's folder, which is the pair a work
+     run stakes. On the pair alone the question answered for the claim: Resume
+     found it, took its re-focus branch, bound the pane to the question session
+     and sent no command, so nothing refused and nothing was printed. */
+  it("ignores a run that names a claim without holding it", () => {
+    const asking = staked(9, 41, false, "/work/repo", "ask");
+
+    expect(liveRunOn([asking], 41, "/work/repo")).toBeNull();
+    // The claiming run beside it is what the join is for, and the question does
+    // not stand in for it in either direction.
+    expect(liveRunOn([asking, staked(7, 41, false)], 41, "/work/repo")).toBe(7);
+    // Research is the other claiming kind: it is booked with the assignment
+    // exactly as work is, so it answers this join too.
+    expect(liveRunOn([staked(7, 41, false, "/work/repo", "research")], 41, "/work/repo")).toBe(7);
+    // Compose and chart name no claim either, and a run the harness was never
+    // told the stakes of has no kind at all.
+    for (const kind of ["compose", "chart", null] as const) {
+      expect(liveRunOn([staked(7, 41, false, "/work/repo", kind)], 41, "/work/repo")).toBeNull();
+    }
   });
 });
 

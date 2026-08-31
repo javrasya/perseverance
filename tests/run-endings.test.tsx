@@ -74,6 +74,7 @@ function readout(ending: RunEnding, code: number | null = null): RunReadout {
     signal: null,
     ticket: 49,
     folder: "/work/repo",
+    kind: "work",
     ending,
     kind: "work",
     // Stamps rather than ages, which is what lets the words a row prints hold
@@ -226,7 +227,7 @@ describe("the press that ends a run", () => {
 /*
  * The other half of a hand-written mirror. `RunReadout` is pinned from the Rust
  * side by `a_run_readout_crosses_in_the_shape_the_frontend_declares`, which
- * counts fifteen keys and asserts these spellings; this is the same count and
+ * counts sixteen keys and asserts these spellings; this is the same count and
  * the same tags read from the type this file consumes. A rename on either side
  * is silent on the other, and two assertions is the whole of the defence.
  *

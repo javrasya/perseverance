@@ -93,6 +93,7 @@ const reading = (run: number, finished: boolean): RunReadout => ({
   ending: finished ? "exited" : "live",
   ticket: null,
   folder: null,
+  kind: null,
   over: finished,
   code: finished ? 0 : null,
   monitored: false,

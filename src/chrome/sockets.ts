@@ -23,7 +23,7 @@
 
 import type { AdapterReading, FolderReadout } from "../environment/folder";
 import type { Frontier, NodeState, Phase } from "../snapshot/model.generated";
-import type { RunReadout } from "../terminal/runs";
+import { claiming, type RunReadout } from "../terminal/runs";
 
 /** The four verbs, in the fixed order they occupy the rail in. */
 export type SocketId = "start" | "resume" | "ask" | "toFrontier";
@@ -383,6 +383,14 @@ export function whyNoClaim(crossing: Crossing): string | null {
  * `over` and not the ending, because the two are independent facts: a run whose
  * ticket closed under it is still a child with a shell in it, and re-focusing
  * that pane is what a hand pressing Resume on that claim is asking for.
+ *
+ * **And the kind on top of the pair, because naming a node is not holding it.**
+ * An Ask run stakes the node it is asking about, in that node's folder — the
+ * same two values a work run stakes — so on the pair alone a question about a
+ * claim answered for the claim. Resume then took its re-focus branch and bound
+ * the pane to the question session, and because that branch sends no command
+ * nothing refused and nothing was printed: the operator believed they had
+ * resumed work and was reading an Ask.
  */
 export function liveRunOn(
   runs: readonly RunReadout[],
@@ -390,7 +398,11 @@ export function liveRunOn(
   folder: string,
 ): number | null {
   const found = runs.find(
-    (run) => run.ticket === ticket && run.folder === folder && !run.over,
+    (run) =>
+      run.ticket === ticket &&
+      run.folder === folder &&
+      claiming(run.kind) &&
+      !run.over,
   );
   return found?.run ?? null;
 }

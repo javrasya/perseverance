@@ -63,6 +63,27 @@ an Ask on a spec node has none at all. Its quit sentence may borrow neither
 neighbour's: there is no claim for Resume to pick up and nothing unposted
 waiting to go, so what it loses is the conversation and nothing else.
 
+**And the kind crosses the seam, because *claiming* is half of every join to a
+node.** A run's stakes name a node with a number and a folder, and Ask stakes the
+node it is asking about — the same pair a work run stakes on the ticket it is
+holding. Naming is not holding, and nothing on the wire said so: `RunReadout`
+carried the pair and no kind, so Resume's join (`liveRunOn` here,
+`Terminals::live_run_on` there) answered a question as if it were the claim's own
+run, and the resolution join in `Terminals::noticed` handed a question about a
+closed node the ending *the ticket closed*. Both are the decision above being
+read backwards — the GitHub invariant reaching a run declared outside it — so the
+fix is in the same place the decision is: `RunKind` now serialises, `RunReadout`
+carries `kind`, and `RunKind::claiming` (mirrored as `claiming` in
+`src/terminal/runs.ts`) is what both joins ask. Work and research claim; chart,
+compose and Ask do not. A non-claiming run therefore never enters the resolution
+table at all, which is what keeps its ending `Live` until its child exits and
+`Exited` afterwards, whatever the node under it did.
+
+**What #56 still owes.** The kind is on the wire and no surface draws it yet:
+the rack is #56's, and *appears in the rack as its own kind* is met on this
+branch only in the sense that the substrate is there and correct. #56 reads
+`RunReadout.kind` and needs nothing further from this side.
+
 ## Consequences
 
 Ask is the cheapest button on the rail. It answers in the time it takes to spawn

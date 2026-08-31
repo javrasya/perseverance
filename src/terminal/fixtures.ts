@@ -49,6 +49,7 @@ const ORDINARY: FixtureRun = {
   ending: "live",
   ticket: null,
   folder: null,
+  kind: "work",
   silence: { kind: "nothing" },
   signal: null,
   kind: null,
@@ -123,6 +124,7 @@ const UNWATCHED = a({
   through: 8_192,
   end: 8_192,
   monitored: true,
+  kind: "research",
   silence: { kind: "wedged", why: "silent", silentForMs: 5 * 60_000 + 4_000 },
 });
 

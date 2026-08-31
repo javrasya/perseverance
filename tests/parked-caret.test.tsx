@@ -94,6 +94,7 @@ function a(run: number, over: boolean): RunReadout {
     signal: null,
     ticket: 50,
     folder: "/work/perseverance",
+    kind: "work",
     ending: over ? "exited" : "live",
     kind: "work",
     // Stamps and not ages, so a row's words hold still between readouts.

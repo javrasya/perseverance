@@ -35,7 +35,7 @@ import {
 import type { Frontier } from "../src/snapshot/model.generated";
 import { monitor, readUi } from "../src/stores/ui";
 import { forgetPrompts, promptFor } from "../src/terminal/prompts";
-import type { RunReadout } from "../src/terminal/runs";
+import type { RunKind, RunReadout } from "../src/terminal/runs";
 
 /**
  * The rail, mounted.
@@ -71,6 +71,7 @@ const staked = (
   ticket: number,
   over: boolean,
   folder = "/work/repo",
+  kind: RunKind = "work",
 ): RunReadout => ({
   run,
   held: 0,
@@ -85,6 +86,7 @@ const staked = (
   ending: over ? "exitedUnresolved" : "live",
   ticket,
   folder,
+  kind,
 });
 
 /** #41 selected and read as a claim: the crossing Resume is offered at. */
@@ -288,6 +290,34 @@ describe("Resume", () => {
       adapter: "claude",
     });
     expect(readUi().monitored).toBe(14);
+  });
+
+  /* An Ask on the claim is the collision this rail could actually reach: the
+     socket fills on a `claimed` node on purpose, and the question is staked on
+     that node in that folder. Resuming over it must be a resume — the question
+     holds nothing, so there is nothing here for one crossing, one pane to
+     protect. Before the kind crossed, this press moved the pane onto the Ask
+     session and sent no command, so the operator was reading a question they
+     believed was their work. */
+  it("spawns over a live Ask run staked on the same claim", async () => {
+    invoke.mockResolvedValue({
+      kind: "spawned",
+      run: 15,
+      prompt: { text: "work #41", characters: 8, origin: "stock" },
+    } satisfies Started);
+    const host = paint({ ...CLAIM, runs: [staked(9, 41, false, "/work/repo", "ask")] });
+
+    await act(async () => {
+      button(host, "resume").click();
+    });
+
+    expect(invoke).toHaveBeenCalledWith("resume_working", {
+      folder: "/work/repo",
+      ticket: 41,
+      adapter: "claude",
+    });
+    expect(invoke).not.toHaveBeenCalledWith("monitor_run", { run: 9 });
+    expect(readUi().monitored).toBe(15);
   });
 
   it("treats a run that is over as no run at all, and starts a cold one", async () => {

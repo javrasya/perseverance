@@ -149,8 +149,33 @@ export type RunSignal = "ready" | "busy" | "idle";
  * - `research` — a ticket that runs AFK.
  * - `chart` — charting a repository that has no tickets yet.
  * - `compose` — writing a spec, which is no ticket at all.
+ * - `ask` — a question staked on a node, which claims nothing.
+ *
+ * All five cross, and not the one bit `claiming` reads off them: a run's kind is
+ * what the rack draws it as, and a boolean would have said only what the joins
+ * on this side happen to ask today.
  */
-export type RunKind = "work" | "research" | "chart" | "compose";
+export type RunKind = "work" | "research" | "chart" | "compose" | "ask";
+
+/**
+ * Whether this run holds the claim on the ticket it names.
+ *
+ * **The line the *one claiming run per ticket* rule is drawn on**, and the third
+ * value every join to a node needs: `ticket` and `folder` say which node a run
+ * names, and naming is not holding. An Ask is pressed *on* a claimed node
+ * deliberately — a question about the ticket a live run is holding is exactly
+ * the question an operator wants to ask — so without this the rail read that
+ * question as the claim's own run and moved the pane onto it, sending no command
+ * and so never being refused.
+ *
+ * A run with no kind is a run the harness was never told the stakes of; it names
+ * no ticket either, so it joins to nothing. `RunKind::claiming` in
+ * `crates/app/src/lib.rs` is the same predicate over the same enum, and Rust's
+ * own `live_run_on` reads it for the press that races this side's.
+ */
+export function claiming(kind: RunKind | null): boolean {
+  return kind === "work" || kind === "research";
+}
 
 /** One run's readout, as Rust writes it. Counts and flags, never bytes. */
 export interface RunReadout {
@@ -184,6 +209,15 @@ export interface RunReadout {
    * so does `liveRunOn`.
    */
   folder: string | null;
+  /**
+   * What kind of run this is, or `null` for a run the harness was never told
+   * about.
+   *
+   * The third value in the join, and the one that says whether the other two
+   * mean a claim — see `claiming` above. It is also what the rack draws a run
+   * as: #56 is what reads it for that, and this is the field it reads.
+   */
+  kind: RunKind | null;
   /** What this run's silence means, or that it means nothing. */
   silence: RunSilence;
   /**
