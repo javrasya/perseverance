@@ -155,8 +155,10 @@
 
 /*
  * The field. Bare marks and edges, no text, and the viewBox already starts
- * after the clearance — so anything a curve's control point reaches back into
- * the gutter with is clipped here rather than trusted not to happen.
+ * after the clearance — so a control point that reaches back into the gutter
+ * (a back edge spanning more than one rank does) is clipped here rather than
+ * the router being asked to forbid it. The drawn ink is the claim rule 11
+ * makes, and `tests/deep-field.test.ts` samples every curve to keep it true.
  */
 .fieldPlot {
   flex: 0 0 auto;

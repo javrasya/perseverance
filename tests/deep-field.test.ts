@@ -10,6 +10,7 @@ import {
   deepFieldOf,
   widthNeededFor,
   type DeepField,
+  type FanOut,
 } from "../src/views/deep-field/deepField";
 import { collect } from "./support/sources";
 
@@ -90,6 +91,44 @@ function wideRankZero(): Map {
   const fourth = node(18, { state: "blocked", waitsOn: [16, 17] });
   const fifth = node(19, { state: "blocked", waitsOn: [18] });
   return mapOf([...sources, ...second, ...third, fourth, fifth]);
+}
+
+/**
+ * A cycle the ranker has to break: every node waits on the one before it and
+ * the first waits on the last. The refused edge is the one that spans more than
+ * one rank backwards — the only shape in this repo that puts a curve's control
+ * point inside the reserved gutter, which is why it is swept below rather than
+ * left to a fixture that does not contain it.
+ */
+function multiRankCycle(): Map {
+  return mapOf([
+    node(1, { state: "blocked", waitsOn: [4] }),
+    node(2, { state: "blocked", waitsOn: [1] }),
+    node(3, { state: "blocked", waitsOn: [2] }),
+    node(4, { state: "blocked", waitsOn: [3] }),
+  ]);
+}
+
+/**
+ * The leftmost x the ink of one edge actually reaches.
+ *
+ * The renderer draws `M start C bend0 bend1 end`, so this is that cubic
+ * sampled: a control point is not a point on the curve, and the difference
+ * between the two is the whole of what rule 11's declaration claims here.
+ */
+function drawnExtentOf(edge: FanOut): number {
+  const from = edge.start.x;
+  const first = edge.bend[0].x;
+  const second = edge.bend[1].x;
+  const to = edge.end.x;
+  let least = Math.min(from, to);
+  for (let step = 0; step <= 256; step += 1) {
+    const t = step / 256;
+    const u = 1 - t;
+    const x = u * u * u * from + 3 * u * u * t * first + 3 * u * t * t * second + t * t * t * to;
+    least = Math.min(least, x);
+  }
+  return least;
 }
 
 describe("ranks are the longest path and the columns are map order", () => {
@@ -180,7 +219,12 @@ describe("ranks are the longest path and the columns are map order", () => {
 describe("the plate/field split is a reserved region, not a habit", () => {
   /** Every laid-out map there is to ask, fixtures and hand-built alike. */
   function everyField(): DeepField[] {
-    const built = [wideRankZero(), mapOf([]), mapOf([node(1), node(2, { waitsOn: [1] })])];
+    const built = [
+      wideRankZero(),
+      mapOf([]),
+      mapOf([node(1), node(2, { waitsOn: [1] })]),
+      multiRankCycle(),
+    ];
     const fixtures = FIXTURE_NAMES.map((name) => FIXTURES[name].model.map).filter(
       (map): map is Map => map !== null,
     );
@@ -199,6 +243,37 @@ describe("the plate/field split is a reserved region, not a habit", () => {
         }
       }
     }
+  });
+
+  it("keeps every edge's drawn ink clear of the boundary by the clearance", () => {
+    for (const field of everyField()) {
+      const { split, fanOut } = drawn(field);
+      const floor = split.boundary + split.clearance;
+
+      for (const edge of fanOut) {
+        expect(drawnExtentOf(edge)).toBeGreaterThanOrEqual(floor);
+      }
+    }
+  });
+
+  it("permits a control point into the gutter, where the viewport clips it", () => {
+    /*
+     * Not a loophole found after the fact: the refused edge of a multi-rank
+     * cycle reaches backwards further than the gap it spans, and its second
+     * control point lands inside the reserved 34px. The declaration says so in
+     * writing, the viewBox starts at `split.field.x` so nothing of it is
+     * painted there, and the test above is what keeps the *ink* honest. If the
+     * router is ever changed to clamp the reach, this is the case that says the
+     * declaration has to be rewritten with it.
+     */
+    const field = drawn(deepFieldOf(multiRankCycle(), AMPLE));
+    const floor = field.split.boundary + field.split.clearance;
+    const inside = field.fanOut.filter((edge) =>
+      edge.bend.some((point) => point.x < floor),
+    );
+
+    expect(inside.length).toBeGreaterThan(0);
+    for (const edge of inside) expect(drawnExtentOf(edge)).toBeGreaterThanOrEqual(floor);
   });
 
   it("keeps every plate on its own side of the boundary", () => {
@@ -329,12 +404,32 @@ describe("the width floor and the stand-down", () => {
     const down = standing(deepFieldOf(mapOf([node(1)]), 10));
     expect(Object.keys(down).sort()).toEqual([
       "counts",
+      "fog",
       "frontier",
       "has",
       "needs",
       "reason",
       "view",
     ]);
+  });
+
+  it("carries the fog into the stand-down, unchanged from the drawn picture", () => {
+    /*
+     * The fog is words: it costs no width, so the state that cannot afford the
+     * picture can still afford the region. Nobody surveyed is a finding, and a
+     * region that disappeared with the graph would report it as *nothing to
+     * report* — which is rule 4's floor, in the half of the fixture space where
+     * this view draws nothing.
+     */
+    const map = FIXTURES["fog-unsurveyed"].model.map;
+    if (map === null) throw new Error("fog-unsurveyed is a map");
+
+    expect(standing(deepFieldOf(map, 10)).fog).toEqual({
+      surveyed: false,
+      heading: "Fog",
+      absence: NOBODY_SURVEYED,
+    });
+    expect(standing(deepFieldOf(map, 10)).fog).toEqual(drawn(deepFieldOf(map, AMPLE)).fog);
   });
 
   it("treats an unmeasured width as no width rather than as enough", () => {

@@ -104,10 +104,18 @@ glyph to tell *nobody has been here* from *somebody looked and found nothing*.
 `—` and `0` are not the same shape anywhere in this view, and nothing in it
 renders a missing fog heading as a count.
 
-The asserted floor covers the form half over the whole fixture space: over a
-fixture nobody surveyed, the region renders no numeral at all — not in the count
-slot and not a digit anywhere in it — and stands its absence in a slot of its
-own. What the floor does not settle is the extension the rule carries: that a
+The asserted floor covers the form half over the whole fixture space, the
+stand-down included: over a fixture nobody surveyed, the region renders no
+numeral at all — not in the count slot and not a digit anywhere in it — and
+stands its absence in a slot of its own. The stand-down is half of that space at
+the widths the harness measures, and it is the reason the fog rides in the
+`StandDown` reading beside the three integers and the frontier: the fog is
+words, it costs no width, and a region that vanished with the picture would turn
+*nobody has been here* into nothing said at all. `tests/deep-field.test.ts` reads
+that on the model side — the stand-down's fog is the same reading the drawn
+picture carries for the same map — and `tests/deep-field-view.test.tsx` reads the
+mounted notice for the region, the dash, the absent count slot and the absence of
+any digit. What the floor does not settle is the extension the rule carries: that a
 view's fog region must *name* itself and not only count itself. That the heading
 reads as the name of a place rather than as a caption on a figure is a reading,
 and it is the residue here. The same residue covers the em dash itself: nothing
@@ -207,7 +215,7 @@ costs. ADR 0025 records the decision and the rejected alternative.
 
 The corollary — a zone boundary needs clearance from the graph's own marks — is
 kept as `GUTTER_CLEARANCE`, a **view-local 34px** on the field side of the
-boundary that no mark and no curve may enter at any n, checked over every
+boundary that no mark and no drawn curve may enter at any n, checked over every
 fixture and every hand-built shape by `tests/deep-field.test.ts`. It is
 deliberately promoted into no registry. The rule binds the clearance, not the
 34: the number came out of this view's design round at this view's plate width
@@ -218,11 +226,29 @@ edge, from `split.plates.width` rather than from a second x free to disagree
 with the first.
 
 Read this as a falsifiable claim rather than as immunity. Three things would
-make it wrong: a word appearing inside the field's `<svg>`; a mark or a control
-point crossing the boundary into the clearance at some n; or the lane and the
-field overlapping at any width instead of the view standing down. The first two
-are what `tests/deep-field.test.ts` reads on every fixture, and the third is
-what the width floor is for.
+make it wrong: a word appearing inside the field's `<svg>`; a mark's edge or an
+edge's *drawn curve* crossing the boundary into the clearance at some n; or the
+lane and the field overlapping at any width instead of the view standing down.
+The first two are what `tests/deep-field.test.ts` reads on every fixture and on
+every hand-built shape — the marks by their `at.x - radius`, the curves by
+sampling each cubic the renderer draws — and the third is what the width floor
+is for.
+
+The second one is about ink and not about control points, and the difference is
+stated here rather than left for a reader to find. A cubic's handles are not
+points on the curve, and one of them does sit in the reserved 34px: the router's
+`reach` is half the horizontal span, so the edge a multi-rank cycle's refused
+back edge draws reaches further backwards than the gap it crosses, and its
+second control point lands inside the gutter. That is permitted. The field's
+`viewBox` starts at `split.field.x` — the boundary plus the clearance — so the
+viewport clips anything left of it, and what the sweep asserts is the sampled
+extent of every edge's curve rather than the coordinates of its handles.
+`DeepField.tsx` and `DeepField.module.css` say the same thing at the two places
+the clip is arranged, and the multi-rank cycle is in the swept set, so the case
+is covered rather than merely absent from the fixtures. What is deliberately
+**not** asserted anywhere: that a control point is bounded at all. If the router
+is ever changed to clamp `reach` to the boundary, this paragraph is what has to
+be rewritten with it.
 
 ## Rule 12 — Still-state equivalent
 

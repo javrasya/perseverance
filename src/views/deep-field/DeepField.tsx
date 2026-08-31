@@ -204,10 +204,14 @@ export function DeepField({ model, selected, onSelect }: ViewProps) {
               twice — the second time with no labels, because rule 11 is exactly
               that there are none here.
 
-              The viewBox starts at `split.field.x`, so every coordinate below
-              is the layout's own number with nothing added to it, and anything
-              a curve's control point would reach into the gutter with is
-              clipped by the viewport rather than trusted not to happen.
+              The viewBox starts at `split.field.x` — the boundary plus the
+              clearance — so every coordinate below is the layout's own number
+              with nothing added to it. A control point *may* sit left of that:
+              a back edge spanning more than one rank puts one inside the
+              gutter, and the viewport clips it rather than the router
+              forbidding it. What may not enter the clearance is drawn ink, and
+              that is what `tests/deep-field.test.ts` samples every edge's curve
+              for — the clip is the belt, the sampled extent is the braces.
             */}
             <svg
               className={styles.fieldPlot}
@@ -280,10 +284,12 @@ function useMeasuredWidth(element: RefObject<HTMLElement | null>): number {
 /**
  * What the view says when this map will not fit at this width.
  *
- * Which view, why, what it needs and what it has — and then the three integers
- * and the frontier, which stay alive when the graph does not. A map is still
- * being worked while the picture of it does not fit, and a view that goes blank
- * takes the operator's answer with it.
+ * Which view, why, what it needs and what it has — and then the three integers,
+ * the frontier and the fog, which stay alive when the graph does not. A map is
+ * still being worked while the picture of it does not fit, and a view that goes
+ * blank takes the operator's answer with it. The fog is words and costs no
+ * width, so withholding it here would drop rule 4's absence — *nobody
+ * surveyed* — in the one state where nothing else on screen says it.
  *
  * **No exits, and the absence is the decision.** Widening the pane is the
  * dial's, in `src/panes/dial.ts`; opening a view that does fit is the
@@ -307,6 +313,7 @@ function StandDownNotice({ standDown }: { standDown: StandDown }) {
       </p>
       <Progress counts={standDown.counts} />
       <FrontierReading frontier={standDown.frontier} />
+      <FogRegion fog={standDown.fog} />
     </div>
   );
 }
