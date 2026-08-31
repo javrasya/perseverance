@@ -8450,6 +8450,9 @@ mod tests {
                 folder: Some("perseverance".to_string()),
                 silence: Silence::Quiet { silent_for_ms: 0 },
                 signal,
+                kind: Some(RunKind::Work),
+                opened: 1_785_888_000,
+                spoke: 1_785_888_000,
             }]
         };
 
