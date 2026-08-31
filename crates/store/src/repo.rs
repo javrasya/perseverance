@@ -135,23 +135,40 @@ fn git_dir(folder: &Path) -> Option<PathBuf> {
     resolved.is_dir().then_some(resolved)
 }
 
+/// The git directory every worktree of one repository shares, derived from any
+/// one of them: the clone's own `.git`, reached from a worktree through its
+/// `commondir`.
+///
+/// Public because the things that belong to *the repository* rather than to
+/// *this checkout* live under it, and `.git/info/exclude` is one of them.
+/// `perseverance-worktree` writes its ignore line there and asks for the
+/// directory here rather than deriving it again — one git-layout rule, one home,
+/// for the same reason [`bind_repo`] reads config as text instead of asking a
+/// child process where things are.
+pub fn common_git_dir(folder: &Path) -> Option<PathBuf> {
+    git_dir(folder).map(|git_dir| common_of(&git_dir))
+}
+
 /// A worktree's git directory holds no config of its own; `commondir` points at
 /// the clone that does. Following it is what makes a folder inside
 /// `.claude/worktrees/` bind to the same repository as its parent checkout.
 fn config_path(git_dir: &Path) -> PathBuf {
+    common_of(git_dir).join("config")
+}
+
+fn common_of(git_dir: &Path) -> PathBuf {
     if let Ok(common) = std::fs::read_to_string(git_dir.join("commondir")) {
         let common = common.trim();
         if !common.is_empty() {
             let common = PathBuf::from(common);
-            let common = if common.is_absolute() {
+            return if common.is_absolute() {
                 common
             } else {
                 git_dir.join(common)
             };
-            return common.join("config");
         }
     }
-    git_dir.join("config")
+    git_dir.to_path_buf()
 }
 
 /// Every `url` under every `[remote "…"]`, paired with the remote's name.

@@ -3548,7 +3548,13 @@ fn chart_in(
     };
 
     let rendered = charting(app, &operator, &repo, idea);
-    let (spawn, launch, watching) = plan_in(harvests, registry, folder, adapter, &rendered.text)?;
+    let (spawn, launch, watching) = plan_in(
+        harvests,
+        registry,
+        Path::new(folder),
+        adapter,
+        &rendered.text,
+    )?;
     let accepted = perseverance_pty::accept(launch).map_err(|refusal| refusal.to_string())?;
 
     let run = terminals
@@ -3841,7 +3847,45 @@ fn spawn_at(
 
     let rendered = render(app, &operator, &repo, map, node, question);
 
-    start_child(terminals, harvests, registry, folder, adapter, rendered)
+    let directory = where_it_runs(map, node, folder)?;
+
+    start_child(terminals, harvests, registry, &directory, adapter, rendered)
+}
+
+/// The directory this press's child is started in.
+///
+/// **A research run gets a worktree of its own and every other run gets the
+/// folder the operator picked**, because a research run is the only one nobody
+/// is sitting in front of: its edits must not appear under the checkout somebody
+/// else is reading, and its branch is the only thing it leaves behind.
+///
+/// Called before the spawn and after every refusal that costs nothing — no
+/// token, no operator, an unreadable ticket — so the ordinary way a press fails
+/// leaves the operator's repository exactly as it found it. A worktree that
+/// cannot be made is a refusal from this same chain, and [`start_working`]'s
+/// order means nothing has been staked, claimed or counted by the time it
+/// travels.
+///
+/// The path it returns is the one that reaches [`plan_in`], so the environment
+/// harvest, the program resolution and the PTY's working directory are three
+/// answers about one directory. `perseverance_env`'s cache is keyed on exactly
+/// that path, which is why nothing here has a worktree rule in it: a worktree is
+/// simply another canonical directory, and it gets its own harvest for free.
+fn where_it_runs(
+    map: &Map,
+    node: &perseverance_model::Node,
+    folder: &str,
+) -> Result<PathBuf, String> {
+    match kind_of(map, node.number) {
+        RunKind::Research => {
+            perseverance_worktree::worktree_for(Path::new(folder), node.number, &node.title)
+                .map(|worktree| worktree.path)
+                // The crate's own sentence, unedited, exactly as the store's is
+                // carried above.
+                .map_err(|refusal| refusal.to_string())
+        }
+        _ => Ok(PathBuf::from(folder)),
+    }
 }
 
 /// The login this process learned, asked once more if it has not learned it yet.
@@ -3934,12 +3978,17 @@ fn render(
 fn plan_in(
     harvests: &Harvests,
     registry: &Registry,
-    folder: &str,
+    run_in: &Path,
     adapter: &str,
     prompt: &str,
 ) -> Result<(SpawnIn, perseverance_agent::Launch, Box<dyn Watch>), String> {
     let agent = agent_named(adapter).ok_or_else(|| format!("no adapter is named {adapter}"))?;
-    let settled = harvests.in_folder(Path::new(folder));
+    // A path rather than the picked folder's string, because a research run's
+    // directory is its worktree and the harvest is keyed on the directory a
+    // child is actually started in. That key rule is the whole of the worktree
+    // question here: a new canonical directory gets its own harvest, and this
+    // side has no worktree to reason about.
+    let settled = harvests.in_folder(run_in);
     let chosen = remembered_override(registry);
 
     // The same two-tier resolution the folder readout already draws, and not a
@@ -4011,15 +4060,20 @@ struct SpawnIn {
 /// press differs from a work press only in what it renders and in what it is
 /// allowed to render *from*. A second copy of this tail is where the two would
 /// quietly stop being the same foreground, monitored session.
+///
+/// **Where it runs is an argument and never the picked folder**, because a
+/// research run's directory is the worktree made for it a moment ago. One path
+/// travels from here to the harvest, to the program resolution and to the PTY,
+/// so all three answer about the same directory.
 fn start_child(
     terminals: &Terminals,
     harvests: &Harvests,
     registry: &Registry,
-    folder: &str,
+    run_in: &Path,
     adapter: &str,
     rendered: prompt::Rendered,
 ) -> Result<(RunId, prompt::Rendered), String> {
-    let (spawn, launch, watching) = plan_in(harvests, registry, folder, adapter, &rendered.text)?;
+    let (spawn, launch, watching) = plan_in(harvests, registry, run_in, adapter, &rendered.text)?;
     let accepted = perseverance_pty::accept(launch).map_err(|refusal| refusal.to_string())?;
 
     let run = terminals
@@ -4276,7 +4330,14 @@ fn compose_at(
         },
     );
 
-    start_child(terminals, harvests, registry, folder, adapter, rendered)
+    start_child(
+        terminals,
+        harvests,
+        registry,
+        Path::new(folder),
+        adapter,
+        rendered,
+    )
 }
 
 /* ------------------------------------------------- asking about a node --- */
@@ -9707,6 +9768,97 @@ mod tests {
                 );
             }
         }
+    }
+
+    /* ------------------------------------- where a press's child runs --- */
+
+    /// A repository with one commit, or `None` where this machine has no git.
+    ///
+    /// The other half of this is `perseverance_worktree`'s own tests; what is
+    /// asserted here is only the wiring — that a research press is the press
+    /// that gets a worktree, and that nothing else is.
+    fn a_repository() -> Option<tempfile::TempDir> {
+        let folder = tempfile::TempDir::new().expect("a temporary directory");
+        let run = |arguments: &[&str]| -> Option<bool> {
+            std::process::Command::new("git")
+                .arg("-C")
+                .arg(folder.path())
+                .args(arguments)
+                .stdin(std::process::Stdio::null())
+                .output()
+                .ok()
+                .map(|finished| finished.status.success())
+        };
+
+        run(&["init", "--initial-branch=main"])?.then_some(())?;
+        run(&["config", "user.email", "harness@example.invalid"])?;
+        run(&["config", "user.name", "Harness"])?;
+        std::fs::write(folder.path().join("README.md"), "a repository\n").expect("writes a file");
+        run(&["add", "README.md"])?;
+        run(&["commit", "-m", "first"])?;
+
+        Some(folder)
+    }
+
+    /// The research press's child is started in a worktree of the picked
+    /// repository, on the branch derived from the ticket — and it is that path,
+    /// not the folder, that goes on to be harvested and spawned in.
+    #[test]
+    fn a_research_press_runs_in_the_worktree_made_for_its_ticket() {
+        let Some(folder) = a_repository() else {
+            return;
+        };
+        let picked = folder.path().to_string_lossy().into_owned();
+
+        let mut map = a_map_reading(&[(58, NodeState::Takeable)]);
+        map.nodes[0].kind = ChildKind::Ticket(TicketType::Research);
+        map.nodes[0].title = "The worktree before the spawn".to_string();
+        let node = map.nodes[0].clone();
+
+        let running_in = where_it_runs(&map, &node, &picked).expect("makes a worktree");
+
+        assert_eq!(
+            running_in,
+            std::fs::canonicalize(
+                folder
+                    .path()
+                    .join(".perseverance")
+                    .join("worktrees")
+                    .join("58")
+            )
+            .expect("the worktree is there")
+        );
+
+        let on = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&running_in)
+            .args(["branch", "--show-current"])
+            .output()
+            .expect("runs git branch");
+        assert_eq!(
+            String::from_utf8_lossy(&on.stdout).trim(),
+            "research/58-the-worktree-before-the-spawn"
+        );
+    }
+
+    /// Every other press runs where the operator is looking. A work run's edits
+    /// are the point of the checkout they picked, and a worktree would hide them
+    /// from it.
+    #[test]
+    fn a_work_press_runs_in_the_folder_and_writes_nothing_into_it() {
+        let Some(folder) = a_repository() else {
+            return;
+        };
+        let picked = folder.path().to_string_lossy().into_owned();
+
+        let map = a_map_reading(&[(58, NodeState::Takeable)]);
+        let node = map.nodes[0].clone();
+
+        assert_eq!(
+            where_it_runs(&map, &node, &picked).expect("needs no worktree"),
+            PathBuf::from(&picked)
+        );
+        assert!(!folder.path().join(".perseverance").exists());
     }
 
     /* ------------------------------------------------- resuming a claim --- */

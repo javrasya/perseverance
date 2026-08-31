@@ -2195,6 +2195,7 @@ dependencies = [
  "perseverance-model",
  "perseverance-pty",
  "perseverance-store",
+ "perseverance-worktree",
  "serde",
  "serde_json",
  "tauri",
@@ -2250,6 +2251,15 @@ version = "0.1.0"
 dependencies = [
  "rusqlite",
  "serde",
+ "tempfile",
+ "thiserror 2.0.19",
+]
+
+[[package]]
+name = "perseverance-worktree"
+version = "0.1.0"
+dependencies = [
+ "perseverance-store",
  "tempfile",
  "thiserror 2.0.19",
 ]

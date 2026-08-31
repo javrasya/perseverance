@@ -8,7 +8,7 @@ This is the walking skeleton: the empty room, correctly shaped. The spec is
 
 ## Shape
 
-A Cargo workspace of seven crates plus a React 19 + TypeScript frontend.
+A Cargo workspace of eight crates plus a React 19 + TypeScript frontend.
 
 | Crate | Owns | Never |
 |---|---|---|
@@ -18,6 +18,7 @@ A Cargo workspace of seven crates plus a React 19 + TypeScript frontend.
 | `perseverance-pty` | PTY and child-process ownership, the per-run ring, when a run opened and when it last printed, the byte channel's contiguity, the deadline a quit gives every run, and refusing a launch whose program is not a native image | Deciding what to run, knowing what a run is working on, or handing over a non-contiguous byte range |
 | `perseverance-store` | The launcher registry: one SQLite file, its schema, and binding a folder to its repo | The network, Tauri, a child process |
 | `perseverance-env` | The environment harvest: the operator's login shell asked once, in memory, and running one program inside the answer | Owning a terminal |
+| `perseverance-worktree` | The working copy a research run is started in: one `git worktree add`, and one line in `.git/info/exclude` | Deleting, moving or forcing anything, and storing a worktree anywhere |
 | `perseverance-app` | The Tauri window and command surface | Any decision at all |
 
 `perseverance-model` is the primary seam. It is derivation only, so the same

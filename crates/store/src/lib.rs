@@ -38,6 +38,6 @@ mod store;
 
 pub use cache::{CachedBody, CachedGraph};
 pub use folders::Folder;
-pub use repo::{bind_repo, RepoBindingError, RepoRef};
+pub use repo::{bind_repo, common_git_dir, RepoBindingError, RepoRef};
 pub use schema::STORE_SCHEMA_VERSION;
 pub use store::{Store, StoreError};
