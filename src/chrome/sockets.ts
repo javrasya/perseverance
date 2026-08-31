@@ -21,7 +21,7 @@
  */
 
 import type { AdapterReading, FolderReadout } from "../environment/folder";
-import type { Frontier } from "../snapshot/model.generated";
+import type { Frontier, Phase } from "../snapshot/model.generated";
 
 /** The four verbs, in the fixed order they occupy the rail in. */
 export type SocketId = "start" | "resume" | "ask" | "toFrontier";
@@ -44,6 +44,16 @@ export interface Socket {
   condition: string | null;
   /** The harness's own last sentence about this socket, printed either way. */
   note: string | null;
+  /**
+   * The number this socket acts on and prints, or `null` when it acts on none.
+   *
+   * `null` for Resume and Ask, the frontier's ticket for To Frontier, and
+   * either a ticket or the map for the primary socket — which is why it is a
+   * fact about the socket rather than one the rendering works out from an id.
+   * The two aimed sockets stopped being aimed at the same number the moment one
+   * of them could offer a compose.
+   */
+  aimedAt: number | null;
 }
 
 /**
@@ -76,19 +86,56 @@ export interface Crossing {
   environment: FolderReadout | null;
   /** The folder a run would be spawned in, or `null` when none is open. */
   folder: string | null;
+  /**
+   * The open map's rung on the ladder, or `null` when no map is open.
+   *
+   * From `model.map.phase` and from nowhere else. **The phase gates the offer
+   * and the frontier does not**, because the two answer different questions:
+   * the frontier says which ticket is takeable next, and a map with nothing
+   * takeable left reads `nothingToStart` whether its tickets were all closed or
+   * this machine can start none of them. Only the phase tells *finished* from
+   * *stuck*, and a compose offered on the second would brief a session to write
+   * a spec about work nobody did. The ladder is derived once, in
+   * `crates/model/src/derive.rs`; nothing on this side computes a rung.
+   */
+  phase: Phase | null;
+  /** `model.map.number` — the map a compose would be composed on. */
+  map: number | null;
   press: Press;
 }
+
+/**
+ * What one press of the primary socket goes out as.
+ *
+ * Two commands behind one box. The offer rides in the socket Start Working
+ * already owns rather than in a fifth one, because the rail is four sockets in
+ * one order — a socket that appears when its map finishes is a rail that
+ * changes shape under a hand, which is what ADR 0021 and this file's own header
+ * exist to prevent. A spec-ready map has no takeable ticket left, so the box is
+ * idle at exactly the moment the compose wants it: same box, different ink,
+ * different aimed number.
+ *
+ * The discrimination lives here and not in `Sockets.tsx`, so the rendering goes
+ * on picking nothing — it presses what the derivation handed it.
+ */
+export type StartTarget =
+  | { kind: "ticket"; ticket: number }
+  | { kind: "compose"; map: number };
 
 export interface Rail {
   /** Exactly four, always, in `SocketId` order. */
   sockets: readonly Socket[];
-  /** The ticket Start Working is armed on, and the one To Frontier snaps to. */
+  /** The ticket To Frontier snaps to, straight off the standing frontier. */
   target: number | null;
+  /** What the primary socket would press, or `null` when it would press none. */
+  start: StartTarget | null;
   /** The adapter ids offerable at this press, in the order the folder read them. */
   adapters: readonly string[];
 }
 
 export const START_LABEL = "Start Working";
+/** The primary socket's other word, on a map that is finished. */
+export const COMPOSE_LABEL = "Compose Spec";
 export const RESUME_LABEL = "Resume";
 export const ASK_LABEL = "Ask";
 export const TO_FRONTIER_LABEL = "To Frontier";
@@ -209,19 +256,50 @@ export function stillReading(environment: FolderReadout | null): boolean {
   return environment === null || environment.harvest.kind === "harvesting";
 }
 
+/**
+ * What the primary socket is armed on, in the two things it can be armed on.
+ *
+ * `specReady` is *every ticket on this map is closed and no spec exists yet*,
+ * and it is the only rung that offers a compose: the four others leave the
+ * socket exactly as it was, ticket and all — which is also why the offer is
+ * gone the moment the map reads `specced`.
+ */
+export function startTarget(crossing: Crossing, target: number | null): StartTarget | null {
+  if (crossing.phase === "specReady" && crossing.map !== null) {
+    return { kind: "compose", map: crossing.map };
+  }
+  return target === null ? null : { kind: "ticket", ticket: target };
+}
+
+const aimOf = (start: StartTarget | null): number | null =>
+  start === null ? null : start.kind === "compose" ? start.map : start.ticket;
+
 function startSocket(
   crossing: Crossing,
-  target: number | null,
+  start: StartTarget | null,
   offered: readonly string[],
 ): Socket {
   const note = crossing.press.kind === "refused" ? crossing.press.detail : null;
+  const aimedAt = aimOf(start);
 
   if (crossing.press.kind === "checking") {
-    return { id: "start", label: CHECKING_LABEL, fill: "checking", condition: null, note };
+    return {
+      id: "start",
+      label: CHECKING_LABEL,
+      fill: "checking",
+      condition: null,
+      note,
+      aimedAt,
+    };
   }
 
+  /* A compose is a run like any other — spawned in a folder, through an adapter
+     that folder resolved — so the same three facts gate it, checked in the same
+     order and printed in the same words. What the two presses do not share is
+     why there might be nothing to press at all: that reading is the frontier's,
+     and a compose press cannot get here without a map. */
   const condition =
-    target === null
+    start === null
       ? whyNothingToStart(standing(crossing))
       : crossing.folder === null
         ? NO_FOLDER_OPEN
@@ -233,10 +311,11 @@ function startSocket(
 
   return {
     id: "start",
-    label: START_LABEL,
+    label: start?.kind === "compose" ? COMPOSE_LABEL : START_LABEL,
     fill: condition === null ? "filled" : "recessed",
     condition,
     note,
+    aimedAt,
   };
 }
 
@@ -254,6 +333,7 @@ function toFrontierSocket(crossing: Crossing, target: number | null): Socket {
     fill: condition === null ? "filled" : "recessed",
     condition,
     note: null,
+    aimedAt: target,
   };
 }
 
@@ -261,20 +341,30 @@ function toFrontierSocket(crossing: Crossing, target: number | null): Socket {
 export function railAt(crossing: Crossing): Rail {
   const offered = offerable(crossing.environment?.adapters ?? []);
   const target = designated(standing(crossing));
+  const start = startTarget(crossing, target);
 
   return {
     target,
+    start,
     adapters: offered,
     sockets: [
-      startSocket(crossing, target, offered),
+      startSocket(crossing, start, offered),
       {
         id: "resume",
         label: RESUME_LABEL,
         fill: "recessed",
         condition: RESUME_ARRIVES,
         note: null,
+        aimedAt: null,
       },
-      { id: "ask", label: ASK_LABEL, fill: "recessed", condition: ASK_ARRIVES, note: null },
+      {
+        id: "ask",
+        label: ASK_LABEL,
+        fill: "recessed",
+        condition: ASK_ARRIVES,
+        note: null,
+        aimedAt: null,
+      },
       toFrontierSocket(crossing, target),
     ],
   };

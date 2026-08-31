@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { FolderReadout } from "../environment/folder";
-import type { Frontier } from "../snapshot/model.generated";
+import type { Frontier, Phase } from "../snapshot/model.generated";
 import { monitor } from "../stores/ui";
 import { recordPrompt } from "../terminal/prompts";
 import {
@@ -10,14 +10,10 @@ import {
   sameFrontier,
   type Press,
   type Socket,
+  type StartTarget,
 } from "./sockets";
-import { startWorking } from "./started";
+import { composeSpec, startWorking } from "./started";
 import styles from "./Sockets.module.css";
-
-/** The two sockets that act on a number, and so print the one they are on. */
-function aimed(socket: Socket): boolean {
-  return socket.id === "start" || socket.id === "toFrontier";
-}
 
 interface SocketsProps {
   /** `model.map.frontier`, and the only place the target comes from. */
@@ -30,8 +26,29 @@ interface SocketsProps {
    */
   environment: FolderReadout | null;
   folder: string | null;
+  /**
+   * `model.map.phase` and `model.map.number` — scalars off the model, the way
+   * `frontier` is. The rail is chrome and not a view, but it is not handed the
+   * snapshot either: what it needs is a named few readings, and a component
+   * holding the whole model is one that could go looking for one more.
+   */
+  phase: Phase | null;
+  map: number | null;
   onSelect: (node: number | null) => void;
 }
+
+/**
+ * What a refusal learned about the frontier, in the one place the two answers
+ * have to meet.
+ *
+ * `Composed` has no `frontier` at all — a compose press was never aimed at a
+ * ticket, so there is nothing for one to re-arm on — and *nothing to re-arm on*
+ * is exactly what `null` already means to the press. The absence is widened
+ * here, on this side of the seam, rather than sent across it as a field that
+ * could only ever be null.
+ */
+const reArmsOn = (answer: { detail: string; frontier?: Frontier | null }): Frontier | null =>
+  answer.frontier ?? null;
 
 /**
  * The crossing, in four sockets.
@@ -57,7 +74,15 @@ interface SocketsProps {
  * snapshot, and a rail still printing the old number and the old sentence is a
  * screen lying about what is startable. So the incoming prop clears the press.
  */
-export function Sockets({ frontier, selection, environment, folder, onSelect }: SocketsProps) {
+export function Sockets({
+  frontier,
+  selection,
+  environment,
+  folder,
+  phase,
+  map,
+  onSelect,
+}: SocketsProps) {
   const [press, setPress] = useState<Press>({ kind: "idle" });
   const [chosen, setChosen] = useState<string | null>(null);
   /* A press outlives the render that made it; an answer landing after this
@@ -86,13 +111,19 @@ export function Sockets({ frontier, selection, environment, folder, onSelect }: 
     );
   }, [frontier]);
 
-  const rail = railAt({ frontier, selection, environment, folder, press });
+  const rail = railAt({ frontier, selection, environment, folder, phase, map, press });
   const adapter = adapterAtPress(rail.adapters, chosen);
 
-  const start = async (target: number) => {
+  /* Which of the two commands this is was decided by the derivation; what is
+     here is the wiring both of them share, because a spawn owes the same two
+     writes whichever button spelled it. */
+  const start = async (aim: StartTarget) => {
     if (folder === null || adapter === null) return;
     setPress({ kind: "checking" });
-    const answer = await startWorking(folder, target, adapter);
+    const answer =
+      aim.kind === "compose"
+        ? await composeSpec(folder, adapter)
+        : await startWorking(folder, aim.ticket, adapter);
     if (!live.current) return;
     if (answer.kind === "spawned") {
       /* The prompt is told to this side exactly once, on this answer. */
@@ -103,15 +134,15 @@ export function Sockets({ frontier, selection, environment, folder, onSelect }: 
       setPress({ kind: "idle" });
       return;
     }
-    setPress({ kind: "refused", detail: answer.detail, frontier: answer.frontier });
+    setPress({ kind: "refused", detail: answer.detail, frontier: reArmsOn(answer) });
   };
 
   const onPress = (socket: Socket) => {
     // A recessed socket and a socket that is checking both take no press, and
     // the second is why this is a guard rather than a `disabled` attribute.
-    if (!pressable(socket) || rail.target === null) return;
-    if (socket.id === "start") void start(rail.target);
-    if (socket.id === "toFrontier") onSelect(rail.target);
+    if (!pressable(socket)) return;
+    if (socket.id === "start" && rail.start !== null) void start(rail.start);
+    if (socket.id === "toFrontier" && rail.target !== null) onSelect(rail.target);
   };
 
   return (
@@ -141,9 +172,9 @@ export function Sockets({ frontier, selection, environment, folder, onSelect }: 
               a re-arm on a frontier that moved is a visible change or it is not
               a re-arm anybody can see.
             */}
-            {aimed(socket) && rail.target !== null ? (
-              <span className={styles.target}>#{rail.target}</span>
-            ) : null}
+            {socket.aimedAt === null ? null : (
+              <span className={styles.target}>#{socket.aimedAt}</span>
+            )}
           </button>
           {/*
             The condition as visible text, never a `title`. Information behind a

@@ -12,13 +12,14 @@ import { Sockets } from "../src/chrome/Sockets.jsx";
 import {
   ASK_ARRIVES,
   CHECKING_LABEL,
+  COMPOSE_LABEL,
   NOTHING_TAKEABLE,
   NO_ADAPTER,
   RESUME_ARRIVES,
   START_LABEL,
   TO_FRONTIER_LABEL,
 } from "../src/chrome/sockets";
-import type { Started } from "../src/chrome/started";
+import type { Composed, Started } from "../src/chrome/started";
 import {
   readoutFrom,
   type AdapterReading,
@@ -73,6 +74,8 @@ function paint(props: Partial<Parameters<typeof Sockets>[0]> = {}): HTMLElement 
         selection={null}
         environment={readout([CLAUDE])}
         folder="/work/repo"
+        phase={null}
+        map={null}
         onSelect={(node) => {
           selected = node;
         }}
@@ -283,5 +286,61 @@ describe("a press", () => {
     // The sentence goes with the arm it explained.
     expect(socket(host, "start").textContent).not.toContain("not what this map offers");
     expect(button(host, "start").getAttribute("aria-disabled")).toBe("true");
+  });
+});
+
+/**
+ * The compose press, wired.
+ *
+ * The same two writes a work press owes — the prompt this run was started with,
+ * and the pane bound to it — and one command's worth of arguments: a compose is
+ * aimed at the map the ledger already has open, so no number goes out with it.
+ */
+describe("a compose press", () => {
+  const composable = {
+    frontier: { frontier: "nothingToStart" },
+    phase: "specReady",
+    map: 28,
+  } as const;
+
+  it("spawns the compose on the open map and keeps what it was started with", async () => {
+    const prompt = { text: "compose #28", characters: 11, origin: "stock" } as const;
+    invoke.mockResolvedValue({ kind: "spawned", run: 4, prompt } satisfies Composed);
+    const host = paint(composable);
+
+    expect(button(host, "start").textContent).toContain(COMPOSE_LABEL);
+    expect(button(host, "start").textContent).toContain("#28");
+
+    await act(async () => {
+      button(host, "start").click();
+    });
+
+    // No ticket in the arguments: which map is open is the ledger's answer, and
+    // the command re-reads it.
+    expect(invoke).toHaveBeenCalledWith("compose_spec", {
+      folder: "/work/repo",
+      adapter: "claude",
+    });
+    expect(readUi().monitored).toBe(4);
+    expect(promptFor(4)).toEqual(prompt);
+  });
+
+  it("prints a refusal beside the socket and starts nothing off the back of it", async () => {
+    invoke.mockResolvedValue({
+      kind: "refused",
+      detail: "#28 already has a spec, so there is nothing left to compose",
+    } satisfies Composed);
+    const host = paint(composable);
+
+    await act(async () => {
+      button(host, "start").click();
+    });
+
+    expect(socket(host, "start").textContent).toContain("already has a spec");
+    expect(invoke).toHaveBeenCalledTimes(1);
+    expect(readUi().monitored).toBeNull();
+    // A compose refusal names no frontier, so nothing was re-armed and the box
+    // is back to the offer it made.
+    expect(button(host, "start").textContent).toContain(COMPOSE_LABEL);
   });
 });

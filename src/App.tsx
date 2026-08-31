@@ -729,6 +729,8 @@ export function App() {
             selection={selectedNode}
             environment={folderEnvironment}
             folder={selectedPath ?? null}
+            phase={snapshot.model.map?.phase ?? null}
+            map={snapshot.model.map?.number ?? null}
             onSelect={select}
           />
         </div>
