@@ -20,7 +20,20 @@
      nothing more and clips its own overflow, which would clip this stud — chord,
      rebind and refusal alike — into a strip the rack already fills, at precisely
      the position where the refusal is the only feedback there is. The body is the
-     one box the dial cannot narrow. */
+     one box the dial cannot narrow.
+
+     The top right corner, and this box is opaque, so what is under it matters as
+     much as what it is measured against: at the `map` detent the rack's region
+     reaches the body's right edge, and a stud drawn over its head band would
+     hide the lamp and `N of M still running` — clipping the rack instead of
+     being clipped by it. The clearance is the rack's to give and it gives it as
+     `--c-rack-strip`, a reserved strip along its own top edge; an inset here
+     could not do the same job, because the region's right edge travels with the
+     dial while its top edge stays where it is. What this file owes that
+     arrangement is a box one line tall: the row does not wrap at any window this
+     app is usable in, and `tests/conformance/rack-width.spec.ts` measures this
+     box against the rack's head at every detent so a stud that grew is a red
+     spec rather than a covered lamp. */
   position: absolute;
   top: var(--s-space-snug);
   right: 0;

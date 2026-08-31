@@ -61,7 +61,12 @@ function regionIs(width: number): void {
   } as DOMRect);
 }
 
-async function draw(readouts: readonly RunReadout[]): Promise<Element> {
+/**
+ * The rack, drawn. `elsewhere` is the shell's answer to *is the window's one
+ * animation already being spent* — false unless a test is asking about the
+ * ration itself, because every other test here is about width and words.
+ */
+async function draw(readouts: readonly RunReadout[], elsewhere = false): Promise<Element> {
   teardown();
   const host = document.createElement("div");
   document.body.appendChild(host);
@@ -69,7 +74,7 @@ async function draw(readouts: readonly RunReadout[]): Promise<Element> {
   mounted = { root, host };
 
   await act(async () => {
-    root.render(<Rack readouts={readouts} />);
+    root.render(<Rack readouts={readouts} spentElsewhere={elsewhere} />);
   });
 
   const rack = host.querySelector('[aria-label="The rack"]');
@@ -411,12 +416,37 @@ describe("liveness is still-readable, and only one thing moves", () => {
   it("spends one animation in the stylesheet, on one selector, over a still ring", () => {
     const surface = readMotion(stylesheet(RACK_CSS));
 
-    expect(surface.animations.map((animation) => animation.selector)).toEqual([".lampLive::after"]);
+    expect(surface.animations.map((animation) => animation.selector)).toEqual([".lampPing::after"]);
     expect(surface.keyframes.map((block) => block.name)).toEqual(["rackPing"]);
     // The ring underneath is what survives `prefers-reduced-motion`, the way
-    // `.markClaimed` survives it on the Route.
+    // `.markClaimed` survives it on the Route — and it is a class of its own, so
+    // a lamp whose ping is suppressed still says the run is going.
     expect(stylesheet(RACK_CSS)).toContain(".lamp {");
     expect(stylesheet(RACK_CSS)).toContain("border-radius: 50%");
+    expect(stylesheet(RACK_CSS)).toContain(".lampLive {");
+  });
+
+  it("yields the ration when the screen is already spending it, and keeps the fact", async () => {
+    regionIs(500);
+    const runs = await fixtureRuns();
+    expect(runs.filter((run) => !run.over).length).toBeGreaterThan(1);
+
+    const yielding = await draw(runs, true);
+
+    // Nothing moves here while the Route's claimed ping is on screen — the
+    // criterion is one animated element on the *screen*, not one per subtree.
+    expect(yielding.querySelectorAll('[data-animated="true"]')).toHaveLength(0);
+    // What a suppressed ping costs is the motion and never the fact: the lamp is
+    // still lit, and the count still says how many are going.
+    const yielded = yielding.querySelector("[data-lamp]");
+    expect(yielded).not.toBeNull();
+    expect(yielding.textContent).toContain("still running");
+
+    // And it is the same lamp, differently classed, rather than a second one.
+    const spending = await draw(runs, false);
+    expect(spending.querySelectorAll("[data-lamp]")).toHaveLength(1);
+    expect(spending.querySelectorAll('[data-animated="true"]')).toHaveLength(1);
+    expect(yielded!.className).not.toBe(spending.querySelector("[data-lamp]")!.className);
   });
 
   it("carries at most one animated element, however many runs are live", async () => {

@@ -8,6 +8,7 @@ import {
   transitionedProperties,
   type LicensedMotion,
 } from "./support/checks";
+import { lampPings } from "../src/rack/rack";
 import { collectMarkupAndStyles, collectStylesheets } from "./support/sources";
 
 /** The one file allowed to say what reduced motion means here. */
@@ -42,14 +43,26 @@ const RACK_PATH = "src/rack/Rack.module.css";
  * The second entry is the rack's, and it is the *other* half of rule 9's
  * ration: the Route's `claimed` is as close to liveness as the snapshot gets,
  * while a run readout carries the real thing — a child process that is either
- * printing or has stopped. It is licensed on three conditions, all of which
- * `tests/rack.test.tsx` holds to. It is spent **once for the whole rack** rather
- * than once per row, because four live runs pinging at once is ambient motion
- * however defensible each ping is on its own. It is authored over a still ring
- * that survives `prefers-reduced-motion`, the way `.markClaimed` is. And it
- * moves in one direction only: a landing takes motion away — the lamp stops when
- * the last live run lands — so nothing in that surface ever starts moving
- * because something ended.
+ * printing or has stopped. It is licensed on four conditions, and the first
+ * three are held to by `tests/rack.test.tsx`. It is spent **once for the whole
+ * rack** rather than once per row, because four live runs pinging at once is
+ * ambient motion however defensible each ping is on its own. It is authored over
+ * a still ring that survives `prefers-reduced-motion`, the way `.markClaimed`
+ * is. And it moves in one direction only: a landing takes motion away — the lamp
+ * stops when the last live run lands — so nothing in that surface ever starts
+ * moving because something ended.
+ *
+ * The fourth is why this list is two entries and still means *one animated
+ * element*, and it is held to below. **The two licences are never spent at the
+ * same time**: #56 rations motion by the screen and not by a subtree, and the
+ * Route's ping and the rack's lamp are both drawn at `split`, at `glance` and at
+ * `map` with a map open. So the rack yields — `lampPings` is the arbitration,
+ * `src/App.tsx` is the only box that can see both surfaces and is what answers
+ * it, and each animated element carries `data-animated` so the count is a query
+ * over the document rather than a reading of two stylesheets. The rack is the
+ * side that gives way rather than the Route because re-rationing a view's own
+ * encoding belongs to the contract tickets; what it gives up is the movement and
+ * never the fact, which the lit ring and `N of M still running` keep.
  */
 const LICENSED_MOTION: readonly LicensedMotion[] = [
   {
@@ -61,12 +74,29 @@ const LICENSED_MOTION: readonly LicensedMotion[] = [
   },
   {
     path: RACK_PATH,
-    selector: ".lampLive::after",
+    selector: ".lampPing::after",
     keyframes: "rackPing",
     carries:
-      "anything in the rack is still running — one lamp for the whole rack rather than one per row, and its ceasing is how the last landing is announced",
+      "anything in the rack is still running *and* the screen's one animation is not already spent on the Route — one lamp for the whole rack rather than one per row, and its ceasing is how the last landing is announced",
   },
 ];
+
+/**
+ * The two licences above, and which of them may be spent at once.
+ *
+ * The ration is *at most one animated element on screen*, so a list of two
+ * licences is only sound if something decides between them. That decision is
+ * [`lampPings`], and this is where it is enforced rather than described: the
+ * table below is the whole of the arbitration, over the two facts it reads.
+ */
+const RATION = [
+  { live: 0, elsewhere: false, pings: false },
+  { live: 0, elsewhere: true, pings: false },
+  { live: 1, elsewhere: false, pings: true },
+  { live: 1, elsewhere: true, pings: false },
+  { live: 6, elsewhere: false, pings: true },
+  { live: 6, elsewhere: true, pings: false },
+] as const;
 
 const ROUTE_MOTION = `
 .markClaimed::after {
@@ -224,6 +254,44 @@ describe("motion is rationed, and the ration is enumerable over the stylesheets"
         `${entry.selector} is licensed for motion and runs none`,
       ).toContain(entry.selector);
       expect(surface.keyframes.map((block) => block.name)).toContain(entry.keyframes);
+    }
+  });
+});
+
+describe("the ration is one element on screen, and the rack is what yields", () => {
+  it("spends the rack's licence only where the other one is not being spent", () => {
+    for (const point of RATION) {
+      expect(
+        lampPings(point.live, point.elsewhere),
+        `${point.live} live, elsewhere ${point.elsewhere}`,
+      ).toBe(point.pings);
+    }
+  });
+
+  it("never animates two elements at once, whatever the screen is showing", () => {
+    /* The screen's count, from the arithmetic: the Route's ping is on or it is
+       not, and the rack's is decided from that. Two at once is the defect a
+       list of two licences would otherwise be hiding, and there is no reading of
+       the two facts that produces it. */
+    for (const live of [0, 1, 2, 6, 12]) {
+      for (const elsewhere of [false, true]) {
+        const moving = (elsewhere ? 1 : 0) + (lampPings(live, elsewhere) ? 1 : 0);
+        expect(moving, `${live} live, elsewhere ${elsewhere}`).toBeLessThanOrEqual(1);
+      }
+    }
+  });
+
+  it("lets no landing start the lamp, whatever else is on screen", () => {
+    /* Monotone in the live count: one run fewer can only take the ping away.
+       This is the *never by an onset* clause, checked as arithmetic rather than
+       trusted to a stylesheet — a rack that pinged because the last run landed
+       would be announcing an ending by starting to move. */
+    for (const elsewhere of [false, true]) {
+      for (let live = 1; live <= 12; live += 1) {
+        const landing = lampPings(live - 1, elsewhere);
+        const before = lampPings(live, elsewhere);
+        expect(landing && !before, `${live} live, elsewhere ${elsewhere}`).toBe(false);
+      }
     }
   });
 });

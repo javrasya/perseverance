@@ -40,11 +40,38 @@
   --c-rack-lamp: 0.5rem;
   --c-rack-live: var(--s-live);
 
+  /*
+   * The strip the peek's stud hangs in, kept clear at the top of this region.
+   *
+   * The stud is absolutely positioned against the body at its top right corner
+   * — it may take no width in any flow, or a held key would narrow the pane and
+   * reflow a live agent — and the body's right edge is *this* region at the
+   * `map` detent, where the terminal side is worth the rack's floor and its
+   * gutter and nothing else. Without a reserve the stud paints over the head
+   * band: the lamp and `N of M still running`, which are the whole of what the
+   * rack says about liveness, under an opaque box.
+   *
+   * An inset on the stud cannot fix it, because there is no inset that clears
+   * this region at every detent: the region's *right* edge moves with the dial
+   * — the body's edge at `map`, four hundred pixels short of it at `split` —
+   * while its top edge does not move at all. So the clearance is horizontal
+   * rather than vertical, it is the rack's to give, and it is spent once here
+   * instead of being re-derived from the dial's position.
+   *
+   * One line of stud plus slack. The stud is a flex row that does not wrap at
+   * any window this app is usable in, and
+   * `tests/conformance/rack-width.spec.ts` measures the two boxes against each
+   * other at every detent, so a stud that grew is a red spec rather than a
+   * covered lamp.
+   */
+  --c-rack-strip: 3rem;
+
   display: flex;
   flex: 0 1 var(--c-rack-basis);
   flex-direction: column;
   min-width: var(--c-rack-floor);
   min-height: 0;
+  padding-top: var(--c-rack-strip);
   padding-right: var(--s-space-base);
   overflow: hidden;
   border-right: var(--s-border-hairline) solid var(--s-line-quiet);
@@ -89,8 +116,16 @@
  * never SMIL — `prefers-reduced-motion` cannot reach SMIL, and a liveness pulse
  * that survived the guard would break the still-state rule in the one state the
  * rule is about. `tests/no-smil.test.ts` is the check; this comment is not.
+ *
+ * A class of its own rather than more declarations on `.lampLive`, because the
+ * filled ring and the ping are two different claims: the ring says *something
+ * in this rack is running* and is on whenever that is true, while the ping is
+ * the window's one animation and is spent only when nothing else licensed is
+ * on screen — `lampPings` in `src/rack/rack.ts` is that rule, and the shell
+ * hands it what the Route is drawing. A rack whose ring and ping were one class
+ * would have to choose between saying nothing and moving twice.
  */
-.lampLive::after {
+.lampPing::after {
   content: "";
   position: absolute;
   inset: -3px;

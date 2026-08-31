@@ -144,10 +144,34 @@ ink away, and when it was the last live run the lamp stops. There is no flash, n
 toast and no arrival animation, so an arrival can never interrupt a sentence
 being typed.
 
-The Route's `.markClaimed` ping is untouched. Its per-node motion is that view's
-identity, and re-rationing it belongs to the contract tickets rather than to
-this one; the one-moving-thing claim here is scoped to the rack's own subtree and
-the tests say so.
+**And the ration is the screen's, not this subtree's.** The rack is not the only
+surface licensed to move: `Route.module.css` pings a `claimed` node, and at
+`split`, at `glance` and at `map` with a map open both surfaces are on screen at
+once. A lamp that counted only its own children would meet *at most one animated
+element* inside a subtree while the delivered window animated two, which is not
+the criterion #56 asks for. So the two licences are arbitrated rather than
+listed: `lampPings` in `src/rack/rack.ts` spends the rack's ping only when the
+other licence is not being spent, `src/App.tsx` is the one box that can see both
+surfaces and is what answers it, and both animated elements carry
+`data-animated` so the count is a query over the document.
+
+The rack is the side that yields, and the Route's `.markClaimed` is untouched:
+its per-node motion is that view's identity and re-rationing it belongs to the
+contract tickets rather than to this one. What the rack gives up is the movement
+and never the fact — the lit ring and `N of M still running` say the same thing
+standing still, which is what a `prefers-reduced-motion` window has been reading
+all along. Two properties survive the arbitration and are held to as arithmetic
+in `tests/motion-ration.test.ts`: the decision is monotone in the live count, so
+a landing can still only ever take the ping away and never start it, and no
+reading of the two facts spends both licences at once.
+
+The residue is named rather than buried: the Route draws one ping per claimed
+node, so a map staking several claims animates several elements — a property of
+that view from before this ticket, and the thing the contract tickets have to
+re-ration. Every checked-in fixture stakes exactly one, which is why
+`tests/dev-web.test.tsx` can count the window's animated elements and get the
+ration. What #56 settles is that the rack adds nothing to that count while the
+other licence is drawn.
 
 ## Consequences
 

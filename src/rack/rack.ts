@@ -386,3 +386,38 @@ export function rowsFor(readouts: readonly RunReadout[], now: number): readonly 
 export function liveCount(rows: readonly RackRow[]): number {
   return rows.filter((row) => row.live).length;
 }
+
+/**
+ * Whether the lamp pings — the whole of the window's motion ration, decided.
+ *
+ * #56 rations motion by the *screen* and not by this subtree: at most one
+ * animated element however many runs are live. The rack is not the only surface
+ * licensed to move — `Route.module.css` spends a ping on a `claimed` node, the
+ * closest thing to liveness the snapshot side has — and a rack that counted only
+ * its own children would meet the criterion in a subtree while the delivered
+ * window animated two things at once. So the ration is arbitrated here, in one
+ * function of two numbers, and the shell tells the rack whether the other
+ * licence is being spent: `elsewhere` is *a licensed animation is already drawn
+ * on this screen*.
+ *
+ * Two properties this has to keep, and both are checkable from the arithmetic
+ * alone — `tests/motion-ration.test.ts` holds them:
+ *
+ * - **A landing never starts anything.** This is monotone in `live`: a run
+ *   ending can only take the ping away, never bring it on, whatever the rest of
+ *   the screen is doing. Cessation stays the announcement, which is the clause
+ *   the whole arrangement exists for.
+ * - **The two licences are never spent at once.** `elsewhere` suppresses this
+ *   one outright rather than shortening it, so the count on screen is one or
+ *   zero and never two.
+ *
+ * The rack yields rather than the Route, and that is the deliberate half: the
+ * Route's ping is a view's own encoding and re-rationing it belongs to the
+ * contract tickets, while the rack is chrome standing beside it. What the rack
+ * loses is the movement, never the fact — the filled ring and `N of M still
+ * running` say the same thing standing still, which is what a
+ * `prefers-reduced-motion` window has been reading all along.
+ */
+export function lampPings(live: number, elsewhere: boolean): boolean {
+  return live > 0 && !elsewhere;
+}

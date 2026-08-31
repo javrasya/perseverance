@@ -404,10 +404,17 @@ function Row({
         {/* The cut's own shape, composed onto the one the mark already chose
             rather than replacing it: C5's `g-oos` decorating a resolved disc,
             which is what a cut is — not a sixth mark. */}
+        {/* `data-animated` on the one mark that moves. The claimed node's ping
+            is licensed in `tests/motion-ration.test.ts`, and #56 rations motion
+            by the screen rather than by a subtree — so the two licensed
+            animations have to be countable in one query, or *at most one moving
+            element* is a claim nothing can check. The attribute says the
+            stylesheet is running an animation here; it does not choose one. */}
         <span
           className={
             row.cut === null ? GLYPHS[row.mark] : `${GLYPHS[row.mark]} ${styles.markCut}`
           }
+          data-animated={row.mark === "claimed" ? "true" : undefined}
         />
       </span>
       <span className={styles.id}>#{node.number}</span>

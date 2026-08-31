@@ -15,7 +15,10 @@ import styles from "./PeekStud.module.css";
  * on the terminal's own box: the dial narrows that box to the rack's floor and
  * every pixel of it is the rack's, and a stud clipped to that strip at the `map`
  * detent takes the refusal with it — the one place the refusal is the only
- * feedback there is. It names
+ * feedback there is. Being hung there is not a licence to paint over what is
+ * under it: at that same detent the rack's region reaches the body's right edge,
+ * so the rack reserves a strip along its top for this box to hang in and the
+ * head band — the lamp, and the count beside it — is drawn below it. It names
  * the chord it teaches — the live one, including a rebound one, so an operator
  * who changed the chord is never taught the wrong keys.
  *

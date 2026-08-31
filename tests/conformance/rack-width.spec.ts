@@ -364,3 +364,89 @@ test.describe("what a tier claims, at that tier's floor", () => {
     });
   }
 });
+
+/**
+ * The peek's stud, addressed by the label it teaches the chord with.
+ *
+ * Its own box carries a CSS-module class and nothing else, so the grip's
+ * `aria-label` is the stable end of it and the stud is that button's parent —
+ * the same rule the rest of this file follows in reaching the terminal side as
+ * the region's parent rather than by a hashed name.
+ */
+const GRIP = '[aria-label^="Peek at the map"]';
+
+/** What is on top of the rack's head band, and how much of the screen moves. */
+interface Overlay {
+  /** The point at the lamp's centre belongs to the lamp and not to something over it. */
+  readonly lampOnTop: boolean;
+  /** How far the stud's bottom edge sits above the head band's top edge. */
+  readonly clearance: number;
+  /** Animated elements on the whole screen, the Route's claimed ping included. */
+  readonly animated: number;
+}
+
+/**
+ * The rack's head, read against everything drawn over it.
+ *
+ * `elementFromPoint` rather than two rectangles, because *does the rack's box
+ * still measure what it should* — which is all the specs above ask — is a
+ * different question from *is the operator looking at it*. The stud is
+ * absolutely positioned, opaque, and above the promoted map side by design; at
+ * the `map` detent the terminal side is `RACK_RESERVE` wide and the region
+ * reaches the body's right edge, so a stud hung at that corner with no strip
+ * reserved for it covers the head band — the lamp, which is the one animated
+ * element the whole ration is spent on, and the count beside it. Nothing about
+ * that moves the region's width by a pixel, so nothing above can see it.
+ */
+async function overlay(page: Page): Promise<Overlay> {
+  return await page.locator(RACK).evaluate((rack, grip) => {
+    const lamp = rack.querySelector("[data-lamp]");
+    if (lamp === null) throw new Error("the rack drew no lamp");
+    const head = lamp.parentElement;
+    if (head === null) throw new Error("the lamp is not in a head band");
+    const stud = document.querySelector(grip)?.closest("div") ?? null;
+    if (stud === null) throw new Error("the peek stud is not on screen");
+
+    const box = lamp.getBoundingClientRect();
+    const hit = document.elementFromPoint(
+      box.left + box.width / 2,
+      box.top + box.height / 2,
+    );
+    return {
+      lampOnTop: hit === lamp,
+      clearance: head.getBoundingClientRect().top - stud.getBoundingClientRect().bottom,
+      animated: document.querySelectorAll('[data-animated="true"]').length,
+    };
+  }, GRIP);
+}
+
+test.describe("the rack's head, with the peek's stud over it", () => {
+  for (const detent of ["terminal", "split", "map"] as const) {
+    test(`is drawn on, and not painted over, at ${detent}`, async ({ page }) => {
+      await page.setViewportSize({ width: 1280, height: 720 });
+      await load(page, DEFAULT_VIEW, LIT);
+      await turnTo(page, detent);
+
+      const over = await overlay(page);
+
+      /* The strip the rack reserves along its top is what the stud hangs in, and
+         it is a strip rather than an inset because the region's right edge
+         travels with the dial while its top edge does not. */
+      expect(
+        over.clearance,
+        "the stud hangs over the rack's head band",
+      ).toBeGreaterThanOrEqual(0);
+
+      /* The lamp is the one thing in this window that moves. A lamp under an
+         opaque box is the motion ration spent on something nobody can see. */
+      expect(over.lampOnTop, "something is painted over the rack's lamp").toBe(true);
+
+      /* And while the head is being looked at: the ration is one animated
+         element on the *screen*, the Route's claimed ping included. */
+      expect(
+        over.animated,
+        "two elements are animating on one screen",
+      ).toBeLessThanOrEqual(1);
+    });
+  }
+});
