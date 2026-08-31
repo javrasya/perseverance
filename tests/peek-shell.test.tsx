@@ -189,6 +189,49 @@ describe("a peek borrows the dial and never moves it", () => {
   });
 });
 
+describe("a peek is the map side at map width, not at the detent it came from", () => {
+  /*
+   * The defect this pins: every number the map side is drawn from used to come
+   * off the *resting* position — the one a peek deliberately never moves — so
+   * the promoted box was filled with whatever the dial was entitled to. From
+   * `terminal` that is an opaque blank panel over the run; from `glance` it is
+   * the stand-down, stretched. Both are a glance at the position rather than at
+   * the map, which is the one thing a peek is for.
+   */
+  it("draws every column and stands nothing down, from terminal and from glance", async () => {
+    await boot();
+
+    for (const detent of ["terminal", "glance"] as const) {
+      await put(fractionOf(detent));
+      await hold();
+
+      const overlay = theOverlay();
+      expect(overlay?.getAttribute("data-peeking")).toBe("true");
+      // Full map width: the launcher, the real view and the rail, all of them
+      // inside the promoted box and none of them shed.
+      expect(overlay?.querySelector('[aria-label="Folders"]')).not.toBeNull();
+      expect(overlay?.querySelector('[aria-label="The Route"]')).not.toBeNull();
+      expect(
+        overlay?.querySelector('[aria-label="what to do at the frontier"]'),
+      ).not.toBeNull();
+      // At map width no view stands down — the whole argument for peeking at
+      // the real view rather than at a plate of its own.
+      expect(document.querySelector('[aria-label="View stood down"]')).toBeNull();
+
+      await release();
+
+      // And back to what the position is worth the moment the spring is up:
+      // neither detent can afford the launcher, and `glance` cannot afford the
+      // Route either.
+      expect(document.querySelector('[aria-label="Folders"]')).toBeNull();
+      expect(document.querySelector('[aria-label="The Route"]')).toBeNull();
+    }
+
+    await put(fractionOf("glance"));
+    expect(document.querySelector('[aria-label="View stood down"]')).not.toBeNull();
+  });
+});
+
 describe("inert at map width, and it says so", () => {
   it("prints why rather than doing nothing quietly", async () => {
     await boot();

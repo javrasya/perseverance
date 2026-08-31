@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest";
-import { fractionOf } from "../src/panes/dial";
+import { fractionOf, sides } from "../src/panes/dial";
 import {
   CLEARED_ROWS,
   NOTHING_TO_GIVE,
@@ -168,8 +168,10 @@ describe("every release, including the ones no keyup ever arrives for", () => {
 describe("what the peek is worth", () => {
   it("is the map side at the map detent, dial's column and all", () => {
     // The body less the dial: the same pixels the `map` detent gives, so no
-    // view stands down in a glance that the detent would have drawn.
-    expect(peekWidth(1_000, 12)).toBe(1_000);
+    // view stands down in a glance that the detent would have drawn — and the
+    // seam is out of it, because the dial is on screen behind the peek too.
+    expect(peekWidth(1_000, 12)).toBe(988);
+    expect(peekWidth(1_000, 12)).toBe(sides(fractionOf("map"), 1_000, 12).map);
     expect(peekWidth(0, 12)).toBe(0);
   });
 

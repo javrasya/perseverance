@@ -139,9 +139,13 @@ export function nextDetent(position: number, direction: 1 | -1): Detent {
  * dozen pixels wider than the pixels the terminal has, and the whole point of
  * measuring the body was to stop the shell printing arithmetic. It defaults to
  * `0` for the callers that only ever read `.map` — [`surfaces`], [`standDown`]
- * — where the dial's column is on the other side of the number entirely.
+ * — where the dial's column is on the other side of the number entirely, and a
+ * reach of `0` leaves every answer here exactly what it was.
  *
- * Map + reach + terminal is the body, exactly.
+ * Map + reach + terminal is the body, exactly — at every position, the `map`
+ * detent included. That is what the cap below is for: the seam has to come out
+ * of one of the two sides, and at the far end there is no terminal side left to
+ * take it out of.
  */
 export function sides(
   position: number,
@@ -150,11 +154,17 @@ export function sides(
 ): { map: number; terminal: number } {
   const usable = Math.max(0, Math.floor(width));
   const between = Math.min(usable, Math.max(0, Math.round(reach)));
-  // The map side is the flex-basis, literally: a percentage of the body box.
-  // The terminal side is what is left once the dial's own column is taken out,
-  // and never less than nothing.
-  const map = Math.round(usable * clamp(position));
-  return { map, terminal: Math.max(0, usable - between - map) };
+  // The map side is the flex-basis, literally: a percentage of the body box,
+  // capped at the body less the dial's own column. The cap only ever bites at
+  // the `map` end, and it is not arithmetic tidiness: a map side worth the whole
+  // body *plus* a seam is a flex line wider than the box it sits in, and that
+  // box is `overflow: hidden`. What gets pushed past the clip edge is the dial's
+  // own column — the one control the shed columns, the stand-down's `Widen to
+  // map` and the switcher's caps all rely on being on screen at every position.
+  // The terminal side is what is left once the dial's column is taken out, and
+  // never less than nothing.
+  const map = Math.min(Math.round(usable * clamp(position)), usable - between);
+  return { map, terminal: usable - between - map };
 }
 
 /**

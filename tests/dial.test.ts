@@ -93,18 +93,29 @@ describe("four detents, and free positions between them", () => {
   it("gives the dial's own column to neither side", () => {
     const REACH = 12;
     for (const detent of DETENTS) {
-      const bare = sides(fractionOf(detent), WINDOW);
       const { map, terminal } = sides(fractionOf(detent), WINDOW, REACH);
-      // The map side is the flex-basis and the reach does not touch it.
-      expect(map).toBe(bare.map);
+      // Map + seam + terminal is the body, exactly, at every detent — the ends
+      // included. A sum over the body is a flex line wider than the box it is
+      // laid out in, and what gets pushed past the clip edge is the dial's own
+      // column: the one control that undoes the position it is stuck at.
+      expect(map + REACH + terminal).toBe(WINDOW);
+      expect(map).toBeGreaterThanOrEqual(0);
       expect(terminal).toBeGreaterThanOrEqual(0);
     }
-    // Map + seam + terminal is the body, exactly — except at the end detent,
-    // where one side is worth the whole body and there is nothing left to take
-    // the seam out of.
+    // Everywhere the terminal side has pixels to spare, the seam comes out of
+    // it and the map side is the flex-basis, untouched.
+    for (const detent of ["terminal", "glance", "split"] as const) {
+      expect(sides(fractionOf(detent), WINDOW, REACH).map).toBe(
+        sides(fractionOf(detent), WINDOW).map,
+      );
+    }
     expect(sides(fractionOf("split"), WINDOW, REACH)).toEqual({ map: 512, terminal: 500 });
     expect(sides(fractionOf("terminal"), WINDOW, REACH)).toEqual({ map: 0, terminal: 1012 });
-    expect(sides(fractionOf("map"), WINDOW, REACH).terminal).toBe(0);
+    // At `map` there is no terminal side left to take the seam out of, so the
+    // map side gives it up rather than the line overflowing: the dial stays on
+    // screen at the one detent whose whole justification is that you can leave
+    // it.
+    expect(sides(fractionOf("map"), WINDOW, REACH)).toEqual({ map: 1012, terminal: 0 });
   });
 });
 

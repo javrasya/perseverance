@@ -70,7 +70,7 @@ import {
   type Detent,
   type Move,
 } from "./panes/dial";
-import { clearance } from "./panes/peek";
+import { clearance, peekWidth } from "./panes/peek";
 import { readPosition, writePosition } from "./panes/position";
 import { useBodyBox } from "./panes/useBodyBox";
 import { usePeek } from "./panes/usePeek";
@@ -653,14 +653,31 @@ export function App() {
     [position, bodyWidth, dialReach, moveTo, chooseView],
   );
 
-  const mapWidth = sides(position, bodyWidth, dialReach).map;
+  /*
+   * The width the map side is *drawn at*, which is not always the width the
+   * dial's position is worth.
+   *
+   * While the spring is held the same subtree is promoted over the terminal at
+   * full map width, and the remembered position deliberately does not move — so
+   * everything downstream of the map side's pixels has to read the width it is
+   * being drawn at rather than the position it came from. A peek that shed the
+   * rail, hid the launcher or stood the Route down would be a glance at the
+   * detent the operator was already looking at, not a glance at the map; from
+   * the `terminal` detent it would be a blank panel over the run.
+   */
+  const peeked = peeking.held !== null;
+  const mapWidth = peeked
+    ? peekWidth(bodyWidth, dialReach)
+    : sides(position, bodyWidth, dialReach).map;
   const columns = columnsAt(mapWidth);
   /*
    * `null` means the open view can be drawn here. Anything else is the four
    * things the stand-down has to say, decided in the pure module and rendered
-   * verbatim.
+   * verbatim. A held peek is evaluated at the `map` detent, because that is
+   * where the view is being drawn: at map width no view stands down, which is
+   * the whole reason a peek shows the real view instead of a plate.
    */
-  const standing = standDown(view, position, bodyWidth, VIEWS);
+  const standing = standDown(view, peeked ? fractionOf("map") : position, bodyWidth, VIEWS);
   /* The run whose bytes are on the pane, as the map side knows it — so a map
      rendered during a run and the run bar cannot disagree about which run. */
   const monitoredRun = runs.find((run) => run.run === monitored) ?? null;
@@ -833,7 +850,20 @@ export function App() {
         */}
         <div
           className={styles.mapSide}
-          style={{ flexBasis: `${clamp(position) * 100}%` }}
+          style={{
+            flexBasis: `${clamp(position) * 100}%`,
+            /*
+              The dial's own column, kept out of the map side's share — the same
+              correction `sides()` makes to the number it prints, made to the box
+              that number is about. At the `map` detent a basis of 100% puts the
+              seam and the terminal's padding past the body's clip edge, and the
+              column that goes over it is the dial's: the one control that brings
+              back everything the position shed. Measured rather than named,
+              because `--c-dial-reach` is declared on the dial and this box is
+              not one of its descendants.
+            */
+            maxWidth: `calc(100% - ${dialReach}px)`,
+          }}
         >
         {/*
           The peek promotes *this* box — the same element, the same children,
