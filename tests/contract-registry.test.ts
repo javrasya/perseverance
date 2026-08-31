@@ -187,13 +187,29 @@ describe("the structural mechanisms are still where the registry points", () => 
 
   it("stores no node position anywhere (rule 8)", () => {
     const schema = readFileSync(join(REPO_ROOT, ruleById(8).mechanismPath!), "utf8");
+    // Down to the test module and no further, the way `crates/app` reads this
+    // same file: that crate's own tests write tables nobody ships.
+    const shipped = schema.split("#[cfg(test)]")[0] ?? "";
 
-    // No `map_view` table at all today, so there is nowhere for a position to
-    // go. When Deep Field's plate lands, this line is what has to learn the
-    // exception — and that is the moment rule 8's entry needs re-reading, which
-    // is why the assertion is here rather than in a comment.
-    expect(schema).not.toMatch(/CREATE TABLE\s+map_view/i);
-    expect(schema).not.toMatch(/\bposition/i);
+    /*
+     * `map_view` exists now — #52 gave the dial a durable home — so the check
+     * is the table's columns rather than its absence, which is the exception
+     * this assertion was always going to have to learn. What it holds is where
+     * the *dial* was: one seam per map, a fact about a window. A node position
+     * is a fact about a node, and there is still no column for one.
+     */
+    expect(shipped).toMatch(/CREATE TABLE map_view/);
+    const body = (shipped.split("CREATE TABLE map_view (")[1] ?? "").split("PRIMARY KEY")[0] ?? "";
+    const columns = body
+      .split("\n")
+      .map((line) => line.trim().split(/\s+/)[0])
+      .filter((name) => name !== "");
+    expect(columns).toEqual(["folder_id", "map_number", "layout_json"]);
+
+    // `layout_json` is an envelope, and this is what stops it swallowing the
+    // exception silently: when Deep Field's plate lands it arrives under its
+    // own key, which is the moment rule 8's entry needs re-reading.
+    expect(shipped).not.toMatch(/\bnode_/i);
   });
 
   it("receives the model generated rather than deriving it here (rule 1)", () => {

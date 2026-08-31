@@ -38,7 +38,7 @@ use perseverance_model::{
 };
 use perseverance_pty::{Delivery, Geometry, RunId, Runs, GRACE};
 use perseverance_store::{CachedBody, CachedGraph, Folder, RepoBindingError, Store, StoreError};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
@@ -1967,6 +1967,83 @@ fn clear_override(
         let _ = remember_override(&store, &[]);
     }
     read_folder(&harvests, remembered_override(&registry), &path, false)
+}
+
+/* ------------------------------------------------------------- map view --- */
+
+/// What `map_view.layout_json` carries, as this build reads it.
+///
+/// A struct with one field rather than a bare number, because the column is an
+/// envelope: the next fact a map remembers about its layout joins it here
+/// rather than as a fifth migration. `rest` is what a *newer* build wrote and
+/// this one does not know — kept and written back, so an envelope is never
+/// narrowed by whichever build touched it last.
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct MapLayout {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    dial: Option<f64>,
+    #[serde(flatten)]
+    rest: serde_json::Map<String, serde_json::Value>,
+}
+
+/// Where the dial was left on this map, or nothing at all.
+///
+/// Everything that could go wrong on the way — a registry that would not open,
+/// a cell that is not JSON, an envelope with no dial in it, a number that is
+/// not a fraction of a window — answers `None`, which the WebView reads as
+/// *nothing remembered* and opens at its own default detent. Same house rule as
+/// [`stored_override`]: a store that has gone bad costs an operator a
+/// remembered position, not a working window.
+#[tauri::command(async)]
+fn map_position(registry: State<'_, Registry>, folder_id: i64, map: u64) -> Option<f64> {
+    let store = registry.store().ok()?;
+    let written = store.map_layout(folder_id, map).ok().flatten()?;
+    remembered_dial(&written)
+}
+
+/// The dial out of an envelope, or nothing, and the whole of what makes a bad
+/// row an absence rather than a refusal.
+fn remembered_dial(layout_json: &str) -> Option<f64> {
+    let layout: MapLayout = serde_json::from_str(layout_json).ok()?;
+    layout
+        .dial
+        .filter(|dial| dial.is_finite() && (0.0..=1.0).contains(dial))
+}
+
+/// Remembers where the dial was left, for this map alone.
+///
+/// Read-modify-write rather than a bare insert, so a field this build does not
+/// know survives a dial move by it.
+///
+/// Answers nothing, and that is the point: this is called once per completed
+/// gesture from a window that has already drawn the move, so there is nothing
+/// for the WebView to do with a refusal except forget a position it is already
+/// showing.
+#[tauri::command(async)]
+fn remember_map_position(
+    registry: State<'_, Registry>,
+    folder_id: i64,
+    map: u64,
+    position: f64,
+) {
+    if !position.is_finite() || !(0.0..=1.0).contains(&position) {
+        return;
+    }
+    let Ok(store) = registry.store() else {
+        return;
+    };
+
+    let mut layout: MapLayout = store
+        .map_layout(folder_id, map)
+        .ok()
+        .flatten()
+        .and_then(|written| serde_json::from_str(&written).ok())
+        .unwrap_or_default();
+    layout.dial = Some(position);
+
+    if let Ok(written) = serde_json::to_string(&layout) {
+        let _ = store.remember_map_layout(folder_id, map, &written);
+    }
 }
 
 /* ------------------------------------------------------------ terminals --- */
@@ -4230,6 +4307,8 @@ pub fn run() {
             retry_folder_environment,
             use_override,
             clear_override,
+            map_position,
+            remember_map_position,
             terminal_channel,
             monitor_run,
             run_took,
@@ -7392,6 +7471,60 @@ mod tests {
         );
     }
 
+    /* -------------------------------------------- the remembered dial --- */
+
+    /// The envelope, from both ends: what this build writes it reads back, and
+    /// everything else a cell could hold is an absence rather than a refusal.
+    #[test]
+    fn a_layout_that_does_not_parse_reads_as_nothing_remembered() {
+        let store = Store::open_in_memory().expect("opens");
+        let folder = store
+            .remember_folder(Path::new("/work/perseverance"))
+            .expect("remembers");
+
+        assert_eq!(store.map_layout(folder.id, 12).expect("reads"), None);
+
+        store
+            .remember_map_layout(folder.id, 12, "{\"dial\":0.3}")
+            .expect("writes");
+        assert_eq!(
+            remembered_dial(&store.map_layout(folder.id, 12).expect("reads").expect("a row")),
+            Some(0.3)
+        );
+
+        // Not JSON, not an envelope, an envelope with no dial in it, and a
+        // number that is not a fraction of a window. None of these is a reason
+        // to refuse a window: the dial opens where it always opens.
+        for written in [
+            "not json",
+            "0.3",
+            "{}",
+            "{\"dial\":null}",
+            "{\"dial\":\"wide-ish\"}",
+            "{\"dial\":7}",
+            "{\"dial\":-1}",
+        ] {
+            assert_eq!(remembered_dial(written), None, "{written}");
+        }
+    }
+
+    /// The envelope's whole promise: a build that knew a layout fact this one
+    /// does not gets it back after this one has moved the dial.
+    #[test]
+    fn a_dial_move_keeps_the_fields_of_the_envelope_it_did_not_write() {
+        let layout: MapLayout =
+            serde_json::from_str("{\"dial\":0.3,\"nickname\":\"the hard one\"}").expect("parses");
+
+        let written = serde_json::to_string(&MapLayout {
+            dial: Some(1.0),
+            ..layout
+        })
+        .expect("serialises");
+
+        assert!(written.contains("\"nickname\":\"the hard one\""));
+        assert_eq!(remembered_dial(&written), Some(1.0));
+    }
+
     /* ----------------------------------------------- what a quit costs --- */
 
     fn a_stake(ticket: u64, folder: &str, kind: RunKind) -> Stakes {
@@ -8011,22 +8144,27 @@ mod tests {
     ///
     /// It is asserted against `crates/store` rather than against a behaviour
     /// because absence has no behaviour to test. The store's whole schema is
-    /// three tables and this ticket added none of them.
+    /// four tables, and every one of them is about a folder, a map or a
+    /// preference — never about a run.
     #[test]
     fn nothing_about_a_run_is_written_down_when_the_app_quits() {
-        const STORE_SOURCES: [(&str, &str); 6] = [
+        const STORE_SOURCES: [(&str, &str); 7] = [
             ("cache.rs", include_str!("../../store/src/cache.rs")),
             ("folders.rs", include_str!("../../store/src/folders.rs")),
             ("lib.rs", include_str!("../../store/src/lib.rs")),
+            ("map_view.rs", include_str!("../../store/src/map_view.rs")),
             ("repo.rs", include_str!("../../store/src/repo.rs")),
             ("schema.rs", include_str!("../../store/src/schema.rs")),
             ("store.rs", include_str!("../../store/src/store.rs")),
         ];
 
         // A column is not a table: #82 stamped `graph_cache` with the identity
-        // of the query document that filled it, which is version 3 and still
-        // the same three tables.
-        assert_eq!(perseverance_store::STORE_SCHEMA_VERSION, 3);
+        // of the query document that filled it, which was version 3 and still
+        // the same three tables. The fourth is #52's `map_view`, and what it
+        // remembers is where the operator left the dial on a map — a fact about
+        // a map, which outlives a launch, and not about the run that was on the
+        // pane while they moved it.
+        assert_eq!(perseverance_store::STORE_SCHEMA_VERSION, 4);
 
         // Down to the test module and no further: that crate's own tests write
         // a table nobody ships, to prove a foreign file is refused rather than
@@ -8044,7 +8182,7 @@ mod tests {
                     .expect("a table name follows CREATE TABLE")
             })
             .collect();
-        assert_eq!(tables, ["folders", "app", "graph_cache"]);
+        assert_eq!(tables, ["folders", "app", "graph_cache", "map_view"]);
 
         // Every name a reattach would have to reach for. A run is a process and
         // a process does not survive its harness, so none of these belongs in a

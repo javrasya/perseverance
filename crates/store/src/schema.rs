@@ -6,7 +6,7 @@ use crate::StoreError;
 /// version this binary does not know is refused rather than guessed at, because
 /// the alternative is a silent upgrade or a wipe, and both of those lose data
 /// that is not ours to lose.
-pub const STORE_SCHEMA_VERSION: u32 = 3;
+pub const STORE_SCHEMA_VERSION: u32 = 4;
 
 /// The version lives as a row in `app` rather than in `PRAGMA user_version`
 /// because the ticket's schema names it, and because a value you can read with
@@ -16,9 +16,6 @@ const SCHEMA_VERSION_KEY: &str = "schema_version";
 /// Index `n` takes the database from version `n` to version `n + 1`. Append
 /// only — never edit a shipped entry, because a database in the wild has
 /// already run it.
-///
-/// `map_view` is deliberately absent: it belongs to a later ticket, and a table
-/// nobody writes is a claim the schema cannot keep.
 const MIGRATIONS: &[&str] = &[
     // 0 -> 1: the folder list, and the app-level key/value bag.
     "CREATE TABLE folders (
@@ -74,6 +71,36 @@ const MIGRATIONS: &[&str] = &[
     // before any build stamped anything, and the reader treats it exactly as
     // it treats a stamp from another document: as no cached row at all.
     "ALTER TABLE graph_cache ADD COLUMN query_id TEXT;",
+    // 3 -> 4: how much window each map was worth, last time it was open.
+    //
+    // The fourth table, and the only one an operator's hand writes directly:
+    // every row here is a dial they moved. It is `layout_json` rather than a
+    // `dial` column because the dial is the first layout fact this app has and
+    // will not be the last — a second one joins the envelope instead of
+    // arriving as a fifth migration.
+    //
+    // `nickname` is absent, although the ticket's schema sketch names it.
+    // Nothing in this app renames a map, so the column would be written by
+    // nobody — the same unkeepable claim as the `fingerprint` the entry above
+    // refuses, and the same claim `map_view` itself was refused for until this
+    // ticket had something to write in it.
+    //
+    // `map_number` is `NOT NULL` here, unlike in `graph_cache`, and the
+    // difference is not an oversight: a cached read with no map open is the
+    // folder's own map list, but *nothing open* is not a place the dial can
+    // come back to. There is no row for it because there is nothing to
+    // remember.
+    //
+    // `ON DELETE CASCADE` for `graph_cache`'s reason: a folder the operator
+    // takes off their list is them disposing of their own rows, and a
+    // remembered dial position outliving the folder it was measured in would be
+    // a layout nobody can reach and nobody asked to keep.
+    "CREATE TABLE map_view (
+         folder_id   INTEGER NOT NULL REFERENCES folders(id) ON DELETE CASCADE,
+         map_number  INTEGER NOT NULL,
+         layout_json TEXT    NOT NULL,
+         PRIMARY KEY (folder_id, map_number)
+     );",
 ];
 
 // The two must agree or a fresh file would be stamped with a version whose
@@ -416,6 +443,54 @@ mod tests {
         // a stamp this build does not recognise: the reader treats it as
         // nothing having been read yet.
         assert_eq!(cached.query_id, None);
+    }
+
+    /// The promise a third time, for the table that arrived last. A file an
+    /// operator has been using since version 3 gains `map_view` empty — every
+    /// map opens at the default detent, which is what *nothing remembered*
+    /// looks like — and loses neither its folders nor its cache to get it.
+    #[test]
+    fn a_registry_written_by_version_three_gains_an_empty_map_view_and_keeps_everything_else() {
+        let (_dir, path) = scratch();
+        {
+            let mut version_three = Connection::open(&path).expect("opens");
+            configure(&version_three).expect("configures");
+            let tx = version_three.transaction().expect("begins");
+            for migration in &MIGRATIONS[..3] {
+                tx.execute_batch(migration).expect("creates version 3");
+            }
+            tx.execute(
+                "INSERT INTO app (key, value) VALUES (?1, '3')",
+                [SCHEMA_VERSION_KEY],
+            )
+            .expect("stamps version 3");
+            tx.execute(
+                "INSERT INTO folders (path, adapter, last_opened) VALUES ('/work/perseverance', 'claude', 42)",
+                [],
+            )
+            .expect("writes a folder the operator opened under version 3");
+            tx.execute(
+                "INSERT INTO graph_cache (folder_id, map_number, graph_json, fetched_at, query_id)
+                 VALUES ((SELECT id FROM folders), 12, '{\"data\":{}}', 1785888000, 'maps/v1')",
+                [],
+            )
+            .expect("writes a body read under version 3");
+            tx.commit().expect("commits");
+        }
+
+        let store = Store::open(&path).expect("opens and upgrades");
+
+        assert_eq!(
+            store.get_app(SCHEMA_VERSION_KEY).expect("reads"),
+            Some(STORE_SCHEMA_VERSION.to_string())
+        );
+        let folders = store.folders().expect("lists");
+        assert_eq!(folders.len(), 1);
+        assert!(store
+            .cached_graph(folders[0].id, Some(12))
+            .expect("reads")
+            .is_some());
+        assert_eq!(store.map_layout(folders[0].id, 12).expect("reads"), None);
     }
 
     #[test]

@@ -25,11 +25,13 @@
 //! - #30 the launcher folder list
 //! - #32 the read cache: `graph_cache`, a copy and never an authority
 //! - #82 the query-document stamp on `graph_cache`, and the version-3 schema
+//! - #52 `map_view`: where the dial was, remembered per map, in version 4
 //!
 //! [`perseverance_app`]: https://github.com/javrasya/perseverance
 
 mod cache;
 mod folders;
+mod map_view;
 mod repo;
 mod schema;
 mod store;

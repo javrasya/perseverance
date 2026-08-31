@@ -63,10 +63,12 @@ import {
   floorOf,
   fractionOf,
   honours,
+  remembers,
   sides,
   standDown,
   surfaces,
   type Detent,
+  type Move,
 } from "./panes/dial";
 import { clearance } from "./panes/peek";
 import { readPosition, writePosition } from "./panes/position";
@@ -547,30 +549,88 @@ export function App() {
   /*
    * Where the dial is, and where the map that is open will find it next time.
    *
-   * The store holds the position and the storage holds it per map, and this is
-   * the one line that joins them — which is what keeps `src/panes/position.ts`
-   * a two-function seam the later slice can swap for a `map_view` row.
+   * The store holds the position and `src/panes/position.ts` holds it per map —
+   * in the registry's `map_view` table, or in the browser when there is no Rust
+   * behind the window — and these two are the only lines that join them. That
+   * seam is two functions wide on purpose: nothing here knows there is a table,
+   * a command or a key.
+   *
+   * What is mid-move but not yet written down. A drag is dozens of positions a
+   * second and only the completed gesture is remembered, so this is what the
+   * frames in between amount to — flushed when the map changes underneath them,
+   * because a gesture interrupted by the map going away still happened.
    */
+  const pending = useRef<{ folder: number | null; map: number | null; position: number } | null>(
+    null,
+  );
+  /*
+   * How many times the operator has moved the dial. Not a position: the read
+   * below is asynchronous now, and *the position I asked for arrived after the
+   * hand had already moved* is a fact about ordering rather than about values —
+   * two moves that landed on the same number are still two moves.
+   */
+  const moves = useRef(0);
+
+  const flush = useCallback(() => {
+    const unwritten = pending.current;
+    pending.current = null;
+    if (unwritten === null) return;
+    void writePosition(unwritten.folder, unwritten.map, unwritten.position);
+  }, []);
+
   /*
    * How much window the map that is open was worth last time it was open.
    *
    * An effect on *which map*, rather than a line in `onOpenMap`, because a map
    * can become the open one without anybody clicking a row — a window restored,
    * a folder re-read — and the position belongs to the map either way. A map
-   * with nothing remembered, and every map on a machine whose storage is
-   * denied, comes back at the default detent rather than at whatever the last
-   * map happened to get.
+   * with nothing remembered, one whose registry would not open and every map on
+   * a machine whose storage is denied all come back at the default detent
+   * rather than at whatever the last map happened to get.
+   *
+   * The answer is awaited, so a dial the operator has moved in the meantime is
+   * the newer of the two and the reply may not undo it — the same rule the
+   * snapshot's subscribe-then-ask has, counted here rather than flagged, since
+   * this effect re-runs per map.
    */
   useEffect(() => {
-    moveDial(readPosition(selectedPath ?? null, openMap));
-  }, [selectedPath, openMap]);
+    let live = true;
+    const asked = moves.current;
 
+    void readPosition(selectedId, openMap).then((position) => {
+      if (live && moves.current === asked) moveDial(position);
+    });
+
+    return () => {
+      live = false;
+      // The map is going away and the hand may still be down on the dial. What
+      // it did belongs to the map it did it on, which is the one this closure
+      // still holds.
+      flush();
+    };
+  }, [selectedId, openMap, flush]);
+
+  /*
+   * One write per completed gesture, and none per frame.
+   *
+   * The same falling edge `src/panes/geometry.ts` puts between a drag and a
+   * `SIGWINCH`, for the same reason and one layer up: a `map_view` row written
+   * on every `pointermove` is a SQLite transaction thirty times a second for a
+   * single decision. Every caller that is not the dial's own hand is a press
+   * rather than a drag, which is why `"settled"` is the default.
+   */
   const moveTo = useCallback(
-    (next: number) => {
+    (next: number, move: Move = "settled") => {
+      moves.current += 1;
       moveDial(next);
-      writePosition(selectedPath ?? null, openMap, next);
+      if (remembers(move)) {
+        pending.current = null;
+        void writePosition(selectedId, openMap, next);
+        return;
+      }
+      pending.current = { folder: selectedId, map: openMap, position: next };
     },
-    [selectedPath, openMap],
+    [selectedId, openMap],
   );
 
   /*

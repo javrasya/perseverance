@@ -9,6 +9,7 @@ import {
   nextDetent,
   snap,
   type Detent,
+  type Move,
 } from "./dial";
 import styles from "./Dial.module.css";
 
@@ -50,8 +51,15 @@ export function Dial({
   peeking?: boolean;
   /** The seam itself, for the shell that measures how wide its column is. */
   elementRef?: RefObject<HTMLDivElement | null>;
-  /** Where the operator has put it. Called on every frame of a drag. */
-  onMove: (position: number) => void;
+  /**
+   * Where the operator has put it, and whether the hand is still on it.
+   *
+   * Called on every frame of a drag, as `"drag"`, and once more as `"settled"`
+   * when the gesture ends — which is the occasion the shell remembers, because
+   * a position written per frame is a row written thirty times a second for one
+   * decision the operator made.
+   */
+  onMove: (position: number, move: Move) => void;
 }) {
   const held = useRef(false);
 
@@ -64,10 +72,11 @@ export function Dial({
   const move = (event: PointerEvent<HTMLDivElement>) => {
     const box = event.currentTarget.parentElement?.getBoundingClientRect();
     if (box === undefined || box.width < 1) return;
-    onMove(clamp((event.clientX - box.left) / box.width));
+    onMove(clamp((event.clientX - box.left) / box.width), "drag");
   };
 
-  const go = (detent: Detent) => onMove(fractionOf(detent));
+  // A key is a whole gesture: one press, one place, one thing to remember.
+  const go = (detent: Detent) => onMove(fractionOf(detent), "settled");
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     // Arrows travel freely and detents are reachable without a pointer, which
@@ -75,10 +84,10 @@ export function Dial({
     // detent is a dial half the operators cannot use.
     switch (event.key) {
       case "ArrowRight":
-        onMove(clamp(position + STEP));
+        onMove(clamp(position + STEP), "settled");
         break;
       case "ArrowLeft":
-        onMove(clamp(position - STEP));
+        onMove(clamp(position - STEP), "settled");
         break;
       case "PageUp":
         go(nextDetent(position, 1));
@@ -128,10 +137,15 @@ export function Dial({
         event.currentTarget.releasePointerCapture?.(event.pointerId);
         // The near-miss lands on the detent it was aiming at; a position that
         // was nowhere near one stays exactly where the hand left it.
-        onMove(snap(position));
+        onMove(snap(position), "settled");
       }}
       onPointerCancel={() => {
+        if (!held.current) return;
         held.current = false;
+        // A cancelled drag is still a gesture that ended, and the dial is
+        // already where the last frame put it. Settling here is what stops that
+        // position being the one thing a drag leaves unwritten.
+        onMove(position, "settled");
       }}
     >
       {/*

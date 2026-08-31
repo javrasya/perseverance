@@ -222,7 +222,7 @@ export const RULES: readonly Rule[] = [
     renderBound: false,
     mechanismPath: "crates/store/src/schema.rs",
     check:
-      "The store's migration list has no column for a node position, and no `map_view` table at all — a position has nowhere to be written rather than a rule against writing it. Deep Field's exception arrives as its own key when Deep Field does; until then the exception has no subject.",
+      "The store's migration list has `map_view` now (#52), and its three columns are `folder_id`, `map_number` and `layout_json` — where the *dial* was, which is a fact about a window rather than about a node. Nothing in the shipped migrations names a node, so a node position still has nowhere to be written rather than a rule against writing it. Deep Field's exception arrives as its own key in that envelope when Deep Field does; until then the exception has no subject.",
   },
   {
     id: 9,

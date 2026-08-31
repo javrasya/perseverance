@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   COLUMN_FLOORS,
@@ -14,17 +16,19 @@ import {
   honours,
   namesFit,
   nextDetent,
+  remembers,
   sides,
   snap,
   standDown,
   surfaces,
 } from "../src/panes/dial";
-import { collapsed, gesture, habitable } from "../src/panes/geometry";
+import { collapsed, gesture, habitable, resizes } from "../src/panes/geometry";
 import { readPosition, writePosition } from "../src/panes/position";
 import { replaceSnapshot } from "../src/stores/snapshots";
 import { OPENING, moveDial, readUi, startGesture } from "../src/stores/ui";
 import { FIXTURES } from "../src/snapshot/fixtures";
 import { VIEWS, type ViewName } from "../src/views/views";
+import { REPO_ROOT } from "./support/sources";
 
 /**
  * The dial, as arithmetic.
@@ -198,38 +202,73 @@ describe("a view below its floor stands down, and nothing switches by itself", (
   });
 });
 
+/**
+ * With no Rust behind them — which is `dev:web`, and is where this suite runs —
+ * the two functions answer from the browser rather than from the registry's
+ * `map_view` table. The claims are the same either way, which is the point of
+ * the seam being two functions wide: what a map is worth is remembered per map,
+ * a value that is not a position is an absence, and *nothing open* is not a
+ * place to come back to.
+ */
 describe("the position is remembered per map", () => {
-  const FOLDER = "/Users/x/repo";
+  /* The folder's **id**, the way the store's foreign key knows it — so a folder
+     the operator moves keeps what its maps were worth. */
+  const FOLDER = 7;
 
   afterEach(() => {
     window.localStorage.clear();
   });
 
-  it("comes back on the same map and not on another one", () => {
-    writePosition(FOLDER, 12, fractionOf("map"));
-    expect(readPosition(FOLDER, 12)).toBe(fractionOf("map"));
-    expect(readPosition(FOLDER, 13)).toBe(fractionOf(DEFAULT_DETENT));
-    expect(readPosition("/Users/x/other", 12)).toBe(fractionOf(DEFAULT_DETENT));
+  it("comes back on the same map and not on another one", async () => {
+    await writePosition(FOLDER, 12, fractionOf("map"));
+    expect(await readPosition(FOLDER, 12)).toBe(fractionOf("map"));
+    expect(await readPosition(FOLDER, 13)).toBe(fractionOf(DEFAULT_DETENT));
+    expect(await readPosition(8, 12)).toBe(fractionOf(DEFAULT_DETENT));
   });
 
-  it("reads a stored value that does not parse as absence", () => {
-    writePosition(FOLDER, 12, fractionOf("map"));
+  it("reads a stored value that does not parse as absence", async () => {
+    await writePosition(FOLDER, 12, fractionOf("map"));
     const key = Object.keys(window.localStorage).find((name) => name.includes("12"));
     expect(key).toBeDefined();
     window.localStorage.setItem(key as string, "wide-ish");
-    expect(readPosition(FOLDER, 12)).toBe(fractionOf(DEFAULT_DETENT));
+    expect(await readPosition(FOLDER, 12)).toBe(fractionOf(DEFAULT_DETENT));
 
     // Out of the window is the same kind of nonsense as not a number at all.
     window.localStorage.setItem(key as string, "7");
-    expect(readPosition(FOLDER, 12)).toBe(fractionOf(DEFAULT_DETENT));
+    expect(await readPosition(FOLDER, 12)).toBe(fractionOf(DEFAULT_DETENT));
   });
 
-  it("has no key and no default of its own with no map open", () => {
-    writePosition(FOLDER, null, fractionOf("map"));
-    writePosition(null, 12, fractionOf("map"));
+  it("has no key and no default of its own with no map open", async () => {
+    await writePosition(FOLDER, null, fractionOf("map"));
+    await writePosition(null, 12, fractionOf("map"));
     expect(Object.keys(window.localStorage)).toHaveLength(0);
-    expect(readPosition(FOLDER, null)).toBe(fractionOf(DEFAULT_DETENT));
-    expect(readPosition(null, null)).toBe(fractionOf(DEFAULT_DETENT));
+    expect(await readPosition(FOLDER, null)).toBe(fractionOf(DEFAULT_DETENT));
+    expect(await readPosition(null, null)).toBe(fractionOf(DEFAULT_DETENT));
+  });
+
+  it("remembers a completed move and nothing else", () => {
+    // The table the write occasion is read off, beside the one a resize is read
+    // off: a drag is dozens of positions a second and exactly one of them is a
+    // decision.
+    expect(remembers("settled")).toBe(true);
+    expect(remembers("drag")).toBe(false);
+    expect(resizes("settled")).toBe(true);
+  });
+
+  /**
+   * The peek borrows the dial and may not move it, so no path from the spring
+   * may reach the remembering seam at all. Asserted over the sources rather
+   * than over a gesture, because *cannot* is what is claimed: a peek that only
+   * happens not to write today would be one refactor away from rearranging the
+   * room after the operator let go.
+   */
+  it("gives the spring no way to reach what is remembered", () => {
+    for (const file of ["peek.ts", "usePeek.ts", "PeekStud.tsx"]) {
+      const source = readFileSync(join(REPO_ROOT, "src", "panes", file), "utf8");
+      for (const forbidden of ["writePosition", "readPosition", "moveDial"]) {
+        expect(source, `src/panes/${file} reaches ${forbidden}`).not.toContain(forbidden);
+      }
+    }
   });
 });
 

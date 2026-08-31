@@ -1,10 +1,29 @@
 // @vitest-environment jsdom
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../src/App";
 import { DETENTS, fractionOf, type Detent } from "../src/panes/dial";
 import { monitor, moveDial, readUi } from "../src/stores/ui";
+
+/*
+ * The seam is real — the writes below are the ones the app makes — and only the
+ * *timing* of the read is taken over, for the one claim that is about timing.
+ * A mock that answered instead of the module would be a test of the mock.
+ */
+let held: ((position: number) => void) | null = null;
+vi.mock("../src/panes/position", async (original) => {
+  const real = await original<typeof import("../src/panes/position")>();
+  return {
+    ...real,
+    readPosition: (folder: number | null, map: number | null) =>
+      held === null
+        ? real.readPosition(folder, map)
+        : new Promise<number>((settle) => {
+            held = settle;
+          }),
+  };
+});
 
 /**
  * The shell, at every position of the dial.
@@ -84,6 +103,136 @@ const theFooter = () => document.querySelector("footer")?.textContent ?? "";
 const theSwitcher = () => document.querySelector('[aria-label="Views"]');
 const theCap = () => theSwitcher()?.querySelector("button") ?? null;
 const theStandDown = () => document.querySelector('[aria-label="View stood down"]');
+
+/** The dial itself, which is the separator the shell hangs between the two. */
+const theDial = () => document.querySelector('[role="separator"]') as HTMLElement;
+
+/**
+ * A folder picked and a map opened, the way an operator does it — because the
+ * position is remembered per folder-and-map and there is nothing to write down
+ * until there is one of each.
+ */
+async function openAMap(): Promise<void> {
+  const folder = document.querySelector(
+    '[aria-label="Folders"] li button',
+  ) as HTMLButtonElement | null;
+  if (folder === null) throw new Error("the launcher lists no folder to pick");
+  await act(async () => {
+    folder.click();
+  });
+
+  const map = document.querySelector('[aria-label="Maps"] li button') as HTMLButtonElement | null;
+  if (map === null) throw new Error("the folder lists no map to open");
+  await act(async () => {
+    map.click();
+  });
+}
+
+/** jsdom measures nothing, and a dial with no body under it moves nowhere. */
+function widenTheBody(width: number): void {
+  const body = theDial().parentElement;
+  if (body === null) throw new Error("the dial hangs outside the body");
+  body.getBoundingClientRect = () =>
+    ({ width, height: 800, left: 0, top: 0, right: width, bottom: 800, x: 0, y: 0 }) as DOMRect;
+}
+
+async function pointer(kind: string, clientX: number): Promise<void> {
+  await act(async () => {
+    theDial().dispatchEvent(new MouseEvent(kind, { bubbles: true, clientX }));
+  });
+}
+
+async function press(key: string): Promise<void> {
+  await act(async () => {
+    theDial().dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+  });
+}
+
+/**
+ * What a gesture costs the store, in writes.
+ *
+ * Counted at `localStorage` because that is where the seam puts a position with
+ * no Rust behind the window; with Rust behind it the same one write is a
+ * `map_view` row. What is under test is *how many*, and that is the same number
+ * on both sides of the seam.
+ */
+describe("one write per completed gesture, and none per frame", () => {
+  let written: string[] = [];
+  let setItem: ReturnType<typeof vi.spyOn> | null = null;
+
+  beforeEach(() => {
+    written = [];
+    const real = Storage.prototype.setItem;
+    setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (
+      this: Storage,
+      key: string,
+      value: string,
+    ) {
+      if (key.startsWith("perseverance.dial.")) written.push(`${key}=${value}`);
+      real.call(this, key, value);
+    });
+  });
+
+  afterEach(() => {
+    setItem?.mockRestore();
+    held = null;
+    window.localStorage.clear();
+  });
+
+  it("writes nothing on the frames of a drag and exactly once on release", async () => {
+    await boot();
+    await openAMap();
+    widenTheBody(1000);
+
+    await pointer("pointerdown", 500);
+    for (const x of [520, 560, 610, 640]) await pointer("pointermove", x);
+
+    // Four frames the operator's hand made, and not one of them is a decision.
+    expect(readUi().position).toBeCloseTo(0.64, 5);
+    expect(written).toEqual([]);
+
+    await pointer("pointerup", 640);
+
+    expect(written).toHaveLength(1);
+    expect(written[0]).toContain("=0.64");
+  });
+
+  it("writes once for a keyboard move, and once more for the next one", async () => {
+    await boot();
+    await openAMap();
+    widenTheBody(1000);
+
+    await press("End");
+    expect(readUi().position).toBe(fractionOf("map"));
+    expect(written).toHaveLength(1);
+
+    await press("Home");
+    expect(readUi().position).toBe(fractionOf("terminal"));
+    expect(written).toHaveLength(2);
+  });
+
+  /**
+   * The read is asynchronous now, so *the answer landed after the hand had
+   * already moved* is a real ordering and not a hypothetical one. It is the
+   * same rule the snapshot's subscribe-then-ask keeps: the newer of the two is
+   * the operator's, and the reply may not undo it.
+   */
+  it("does not let a late read put the dial back where the map used to be", async () => {
+    await boot();
+    held = () => {};
+    await openAMap();
+    const answer = held as unknown as (position: number) => void;
+
+    await press("End");
+    expect(readUi().position).toBe(fractionOf("map"));
+
+    await act(async () => {
+      answer(fractionOf("glance"));
+    });
+
+    expect(readUi().position).toBe(fractionOf("map"));
+  });
+});
 
 describe("the spine survives every position of the dial", () => {
   it("keeps the switcher, the three integers, the frontier and both stamps at every detent", async () => {

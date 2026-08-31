@@ -51,6 +51,30 @@ export const SNAP_TOLERANCE = 0.04;
 /** One arrow key's worth of dial. */
 export const STEP = 0.02;
 
+/**
+ * Whether a move is the hand still on the dial, or the gesture ending.
+ *
+ * The same two words `src/panes/geometry.ts` uses of a pane size, and the same
+ * rule over them: a drag is dozens of these a second, and only the completed
+ * gesture is worth telling anything outside this window about. Narrower than
+ * that module's `Occasion` on purpose — a dial has two ways to move, and there
+ * is no bind and no arrival that puts a hand on one.
+ */
+export type Move = "drag" | "settled";
+
+/**
+ * Whether a move is one to remember.
+ *
+ * A table over every move rather than a check at each call site, so *which
+ * moves are written down* is one line to read and one line to change — the
+ * shape [`resizes`] already has for the pane.
+ *
+ * [`resizes`]: ../panes/geometry.ts
+ */
+export function remembers(move: Move): boolean {
+  return move === "settled";
+}
+
 export function fractionOf(detent: Detent): number {
   return FRACTIONS[detent];
 }

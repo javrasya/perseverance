@@ -129,8 +129,14 @@ instead of against `window.innerWidth`, and it costs one layout read per render.
 It buys the honesty the stand-down is for: the number beside *has* is the number
 the view would have been drawn into.
 
-The per-map memory is `localStorage` today. The later slice of #52 that moves it
-into the Rust `map_view` table changes `src/panes/position.ts` and nothing else.
+The per-map memory was `localStorage` when this was written, behind a
+two-function seam so that moving it would change `src/panes/position.ts` and
+nothing else. It has since moved: it is the registry's `map_view` table, one row
+per folder-and-map, written once per completed gesture rather than once per
+frame — and the seam held, in that the two functions grew an `await` and nothing
+outside them learned there is a table.
+[ADR 0023](0023-the-remembered-dial-is-one-row-per-map-and-one-write-per-gesture.md)
+is that move, and why the column is an envelope.
 
 The spring-loaded peek is not here. It was the next slice, and what this one left
 it — a position the store already holds and one component that owns the gesture —
