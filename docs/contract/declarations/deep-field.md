@@ -138,9 +138,13 @@ neither is under the floor. A plate says `blocked by N` only when N is positive,
 so `blocked by 0` never reaches a plate whose state is *blocked*; and a blocker
 that is not a child of this map has no row here and no edge, so the plate says
 so in words (`beyondTheMapNote`) rather than leaving the count silently short.
-The three integers in the readout are counts and not absences — a zero there is
-a finding about a surveyed map, which is exactly what rule 4 permits a numeral
-to be.
+The three integers are counts and not absences — a zero among them is a finding
+about a surveyed map, which is exactly what rule 4 permits a numeral to be. They
+are read in the stand-down's notice and nowhere else in this view: the drawn
+picture repeats neither them nor the frontier, because the shell's footer spells
+both at every dial position and `src/chrome/MapChip.tsx` states the rule — a
+second reading of the same numbers beside the picture could only differ from the
+footer if one of the two were wrong.
 
 ## Rule 10 — Hover discloses nothing
 
@@ -284,8 +288,17 @@ The stylesheet does carry exactly one time-valued declaration: a plate's fill
 transitions over `--s-motion-fast` when the selection moves. It is a transition
 rather than an animation, it runs on a decoration of a fact rather than the fact
 (a selected plate is `data-selected` and `aria-current="true"` in the DOM
-throughout), and with motion reduced the fill simply arrives at once. No
-distinction rides on it, so there is nothing here for a still form to carry.
+throughout), and under `prefers-reduced-motion: reduce` it still crossfades. The
+guard in `src/styles/global.css` kills `animation` with `!important` and then
+names the properties that survive — `opacity, color, background-color,
+border-color, fill, stroke` — on the stated policy that the trigger for reduced
+motion is travel and not colour; `--s-motion-fast` is not zeroed under the query
+either. So the accurate claim is not that the fill arrives at once but that
+nothing is lost if it does: the fact is in the DOM before, during and after the
+crossfade, no distinction rides on the transition, and there is nothing here for
+a still form to carry. The sentence above — that reduce changes nothing about
+what this view *says* — is what survives, and it is about the saying rather than
+about the rendering.
 
 The asserted floor is exactly the shape of that: it reads the reduced-motion
 half of the space, asks rule 9's walk what is animated, and requires a

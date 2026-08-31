@@ -69,14 +69,23 @@ rows without counting each node twice.
 
 Rule 11's corollary — a zone boundary needs clearance from the graph's own marks
 — ships as `GUTTER_CLEARANCE`, 34px of blank on the field side of the boundary
-that no mark and no control point may enter at any n. It is promoted into no
+that no mark and no drawn ink may enter at any n. A control point may, and that
+is deliberate: the router's `reach` is half an edge's horizontal span and is
+left unclamped in `deepField.ts`, so a refused back edge's second handle lands
+inside the clearance. What keeps that off the screen is the clip rather than the
+router — the field's `viewBox` starts at `split.field.x`, the boundary plus the
+clearance, so the viewport drops anything left of it. The invariant is therefore
+about ink and not about handles, and if `reach` is ever clamped to the boundary
+this paragraph and rule 11 in `docs/contract/declarations/deep-field.md` have to
+be rewritten together. It is promoted into no
 registry, and that is the decision rather than an oversight: the rule binds the
 clearance, not the 34. The number came out of this view's design round at this
 view's plate width and column pitch, and asserting it contract-wide would
 cargo-cult one view's fix at three views that never had the problem — which is
 what the meta-rule prohibits. `tests/deep-field.test.ts` holds the invariant
-over every fixture and every hand-built shape; nothing holds the number but this
-view.
+over every fixture and every hand-built shape — the marks by their
+`at.x - radius`, the edges by sampling the drawn extent of each cubic rather
+than reading its control points; nothing holds the number but this view.
 
 The boundary itself is drawn once, as the plate lane's right edge, a consequence
 of `split.plates.width` rather than a second x free to disagree with the first.
@@ -139,6 +148,21 @@ and keeps the three integers and the frontier alive, because a map is still
 being worked while the picture of it does not fit. It offers no exits: widening
 is the dial's and opening another view is the switcher's, and a second set of
 controls inside the view would be two controls for one move.
+
+That last part is a departure from `src/chrome/MapChip.tsx`'s rule — the phase,
+the three counts and the frontier are the footer's line, and anything that
+repeats them is a second reading of the same numbers in a place with less room
+to be right — so it is recorded here rather than left to be discovered. The
+departure is confined to the stand-down. The drawn field repeats neither: its
+header carries the competence line, which is this view's own reading and appears
+nowhere else, and nothing more. The stand-down repeats both because the picture
+they belong to is not on screen; the footer does still spell them at every dial
+position (`describeModel` in `src/App.tsx`), so this is a repetition of last
+resort rather than the only place the numbers can be read, and what it buys is
+that the column the operator opened still answers in the place they are looking.
+The two readings cannot disagree because both are `map.counts` and
+`map.frontier` copied, never re-derived. If the stand-down ever grows a number
+it computes for itself, this exception stops being defensible.
 
 ## Consequences
 

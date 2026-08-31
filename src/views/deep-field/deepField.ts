@@ -352,6 +352,13 @@ export type Competence = {
  * point of the value: a map is still being worked while the picture of it does
  * not fit, and a view that goes blank takes the operator's answer with it.
  *
+ * It is a repetition, and the honest form of the claim is that it is a repetition
+ * of last resort. The shell's footer spells the same three numbers and the same
+ * frontier at every dial position, so this is not the only place they can be
+ * read; what the notice buys is that the column the operator opened still
+ * answers, in the place they are looking, when its picture cannot be drawn. The
+ * drawn `field` carries neither, and ADR 0025 records the split.
+ *
  * No exits. The dial that widens the pane and the switcher that opens a view
  * that does fit are the shell's, in `src/panes/dial.ts`, and offering a second
  * set of them from inside the view would be two controls for one move. This
@@ -397,8 +404,14 @@ export type DeepField =
       readonly fanOut: readonly FanOut[];
       /** Every node named by an edge the ranker refused, in map order. */
       readonly circular: readonly number[];
-      readonly counts: Counts;
-      readonly frontier: Frontier;
+      /*
+       * No counts and no frontier here, deliberately. The shell's footer
+       * spells both at every dial position, and a second reading of them
+       * beside the picture could only differ from the footer if one of the two
+       * were wrong — which is `MapChip`'s rule and the reason the drawn view
+       * keeps it. The `standDown` variant carries them because there the
+       * picture they belong to is gone.
+       */
       readonly fog: FieldFog;
       readonly competence: Competence;
       /** The width floor this picture cleared. */
@@ -555,8 +568,6 @@ export function deepFieldOf(map: Map | null, width: number): DeepField {
     columns,
     fanOut: fanOutOf(nodes, marks),
     circular: nodes.map((node) => node.number).filter((number) => circular.has(number)),
-    counts: map.counts,
-    frontier: map.frontier,
     fog: fogOf(map.fog),
     competence: {
       low: BAND_LOW,
