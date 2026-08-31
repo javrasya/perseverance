@@ -688,7 +688,7 @@ mod tests {
     const MACHINE: Machine = Machine::Windows;
 
     fn base() -> Model {
-        Model::of(&read_response(AWKWARD).expect("reads"), MACHINE)
+        Model::of(&read_response(AWKWARD).expect("reads"), MACHINE, &[])
     }
 
     fn map_of(model: &mut Model) -> &mut Map {
@@ -737,7 +737,7 @@ mod tests {
         // on silently disagreeing with the real one the moment the real one
         // grew a clause — which is exactly what happened when it grew the
         // machine.
-        map.frontier = Frontier::of(&map.nodes);
+        map.frontier = Frontier::of(&map.nodes, &[]);
         map.phase = if map.closed {
             Phase::Done
         } else if tickets == 0 && specs == 0 {
@@ -988,6 +988,7 @@ mod tests {
                 &read_response(&FOG_CHARTED.replace("Charted on the second pass.", notes))
                     .expect("reads"),
                 MACHINE,
+                &[],
             )
         };
         let before = charted("Charted on the second pass.");

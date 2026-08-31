@@ -299,7 +299,11 @@ mod tests {
         // A named machine and not the host: this fixture carries no
         // `platform:` label, so nothing here can differ by runner, and saying
         // which machine keeps it that way.
-        Model::of(&read_response(TWO_MAPS).expect("reads"), Machine::Windows)
+        Model::of(
+            &read_response(TWO_MAPS).expect("reads"),
+            Machine::Windows,
+            &[],
+        )
     }
 
     #[test]

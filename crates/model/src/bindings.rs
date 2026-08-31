@@ -402,6 +402,7 @@ fn snapshot_for_ledger(case: &LedgerCase) -> Snapshot {
         Model::of(
             &read_response(&recorded(answer)).expect("the answer reads"),
             FIXTURE_MACHINE,
+            &[],
         )
     };
 
@@ -435,6 +436,7 @@ fn snapshot_for(case: &Case) -> Snapshot {
         Some(answer) => Model::of(
             &read_response(&recorded(answer)).expect("the answer reads"),
             FIXTURE_MACHINE,
+            &[],
         ),
     };
 
@@ -447,6 +449,7 @@ fn snapshot_for_machine(case: &MachineCase) -> Snapshot {
     let model = Model::of(
         &read_response(&recorded(case.answer)).expect("the answer reads"),
         case.machine,
+        &[],
     );
 
     Snapshot::read(model, Source::Fixture, crate::rfc3339(FIXTURE_STAMP))
@@ -535,6 +538,7 @@ fn every_dev_web_fixture_is_this_crate_s_own_output() {
         let model = Model::of(
             &read_response(&recorded(case.answer)).expect("the answer reads"),
             FIXTURE_MACHINE,
+            &[],
         );
         // Aged from a **live read**, which is the only way one of these
         // actually happens: a poll landed, a later one did not, and what is
@@ -631,6 +635,7 @@ fn the_while_you_were_away_fixture_ships_the_row_its_two_answers_produce() {
     let baseline = Model::of(
         &read_response(&recorded(case.baseline)).expect("reads"),
         FIXTURE_MACHINE,
+        &[],
     );
     assert_eq!(
         baseline.map.expect("a map").frontier,

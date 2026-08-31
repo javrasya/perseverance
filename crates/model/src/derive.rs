@@ -265,8 +265,27 @@ impl Frontier {
     /// that would be startable but for the machine — not merely for a node
     /// carrying a `platform:` label — so a *blocked* ticket labelled for this
     /// very machine cannot make a map read as *nothing for this machine*.
-    pub(crate) fn of(nodes: &[Node]) -> Frontier {
-        match nodes.iter().find(|node| node.is_takeable()) {
+    ///
+    /// **`spoken_for` is the one input that is not GitHub's**, and it is a
+    /// number this window has already accepted a press for and that GitHub
+    /// cannot know about yet. It skips the node for the designation and does
+    /// nothing else: the row keeps the state, the kind and the counts the read
+    /// gave it, so nothing here invents a claim GitHub does not have — see
+    /// [`Model::of`], which is where the argument for the whole of it is.
+    ///
+    /// A map every takeable node of which is spoken for reads `NothingToStart`,
+    /// and that is the same sentence a map whose last ticket somebody took
+    /// already reads: there is nothing here left to offer, and what is holding
+    /// the numbers is the rack's to show and not the frontier's.
+    ///
+    /// Public so that the press loop — which is in `crates/app`, because the
+    /// queue is — can ask the one resolver what a window that has spoken for
+    /// these numbers is offered next, rather than restating the rule in a test.
+    pub fn of(nodes: &[Node], spoken_for: &[u64]) -> Frontier {
+        match nodes
+            .iter()
+            .find(|node| node.is_takeable() && !spoken_for.contains(&node.number))
+        {
             Some(node) => Frontier::Designated(node.number),
             None if nodes
                 .iter()
@@ -919,7 +938,7 @@ impl Phase {
 }
 
 impl Map {
-    fn of(graph: &MapGraph, machine: Machine) -> Map {
+    fn of(graph: &MapGraph, machine: Machine, spoken_for: &[u64]) -> Map {
         // Read once, from the map document, and asked once per child. The
         // section is one operator statement about the whole map, so parsing it
         // per node would be the same scan run as many times as there are rows.
@@ -959,7 +978,7 @@ impl Map {
             title: graph.title.clone(),
             closed: graph.closed,
             phase: Phase::of(graph.closed, &counts),
-            frontier: Frontier::of(&nodes),
+            frontier: Frontier::of(&nodes, spoken_for),
             counts,
             nodes,
             fog: Fog::of(&graph.body),
@@ -980,9 +999,29 @@ impl Model {
     /// readings of one recorded answer have to be assertable from one runner,
     /// which is what keeps the platform clause fixture-driven like everything
     /// else here. Callers that mean *this machine* say so at the call site.
-    pub fn of(read: &MapRead, machine: Machine) -> Model {
+    ///
+    /// `spoken_for` is the second such parameter and the only one that is not a
+    /// fact about the answer: the numbers this window has already accepted a
+    /// press for. It exists because an accepted press that is *waiting* writes
+    /// nothing anywhere — no claim, no worktree, no row on the graph — so
+    /// GitHub has nothing to tell the next read, and without this the frontier
+    /// would go on designating a ticket this window is already going to run and
+    /// every further press would land on it. A press that *spawned* is not in
+    /// here and does not need to be: the agent takes the claim itself, and the
+    /// next read hears about it from GitHub, which is the only writer there is.
+    ///
+    /// It reaches exactly one decision — [`Frontier::of`]'s designation — and
+    /// nothing else in the derivation is allowed to read it: the nodes, the
+    /// counts, the phase and the ledger's comparison are all still the answer
+    /// GitHub gave, so a waiting ticket never reads as claimed to anything that
+    /// draws it or announces about it. `&[]` is the honest slice for every
+    /// caller that has no queue, and every fixture is one.
+    pub fn of(read: &MapRead, machine: Machine, spoken_for: &[u64]) -> Model {
         Model {
-            map: read.map.as_ref().map(|graph| Map::of(graph, machine)),
+            map: read
+                .map
+                .as_ref()
+                .map(|graph| Map::of(graph, machine, spoken_for)),
         }
     }
 }
@@ -1025,7 +1064,7 @@ mod tests {
     }
 
     fn model_for(body: &str, machine: Machine) -> Model {
-        Model::of(&read_response(body).expect("reads"), machine)
+        Model::of(&read_response(body).expect("reads"), machine, &[])
     }
 
     fn map_of(body: &str) -> Map {
@@ -1164,6 +1203,39 @@ mod tests {
         // #73 and #74 are specs, #72 is blocked, #77 is claimed. The frontier
         // is the first thing left, and #76 proves *first* is not *only*.
         assert_eq!(map.frontier, Frontier::Designated(75));
+    }
+
+    /// **A number this window has spoken for moves the designation on, and
+    /// changes nothing else about the row.**
+    ///
+    /// The only input to the derivation that is not GitHub's, and the reason it
+    /// exists is that an accepted press which is *waiting* writes nothing down
+    /// anywhere: no claim, no checkout of its own, no row on the graph, so no
+    /// read will ever hear about it and the frontier would go on offering a
+    /// ticket that is already spoken for. Everything the operator sees of #75 is
+    /// still what the answer said — it is open, takeable, counted and drawn —
+    /// because the queue is a fact about this window and never about the ticket.
+    #[test]
+    fn a_number_this_window_has_spoken_for_is_not_designated_and_is_otherwise_untouched() {
+        let read = read_response(AWKWARD).expect("reads");
+        let map = Model::of(&read, ANY_MACHINE, &[75]).map.expect("a map");
+
+        // #76 is the next takeable in the operator's own order, and the whole
+        // of what the skip does is let the resolver reach it.
+        assert_eq!(map.frontier, Frontier::Designated(76));
+
+        let still = node(&map, 75);
+        assert_eq!(still.state, NodeState::Takeable);
+        assert!(still.is_takeable(), "the ticket is takeable; it is taken");
+        assert_eq!(map.counts, map_of(AWKWARD).counts);
+        assert_eq!(map.nodes.len(), map_of(AWKWARD).nodes.len());
+
+        // And a map every takeable ticket of which is spoken for says what a
+        // map whose last ticket somebody else took already says. There is
+        // nothing here left to offer; what is holding the numbers is the rack's
+        // to show.
+        let both = Model::of(&read, ANY_MACHINE, &[75, 76]).map.expect("a map");
+        assert_eq!(both.frontier, Frontier::NothingToStart);
     }
 
     #[test]
@@ -1331,7 +1403,7 @@ mod tests {
 
             let derived: Vec<Model> = EVERY_MACHINE
                 .iter()
-                .map(|machine| Model::of(&read, *machine))
+                .map(|machine| Model::of(&read, *machine, &[]))
                 .collect();
 
             if name == "platform-bound.json" {
@@ -1713,7 +1785,7 @@ mod tests {
         let mut read = read_response(AWKWARD).expect("reads");
         let graph = read.map.as_mut().expect("a map");
         graph.body = body.to_string();
-        Map::of(graph, ANY_MACHINE)
+        Map::of(graph, ANY_MACHINE, &[])
     }
 
     #[test]

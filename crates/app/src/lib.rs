@@ -574,7 +574,13 @@ impl Ledgers {
     /// A different `(folder, map)` starts a new log and clears the snapshot with
     /// it: the previous map's graph is not an older read of this one, and a
     /// ledger carried across would be one map's entries filed under another's.
-    fn attend(&self, store: &Store, watched: &Watched) {
+    ///
+    /// `spoken_for` is carried through to the baseline for the reason
+    /// [`resuming_from`] takes the machine from the same argument-free `const
+    /// fn` the landed poll does: the two readings are of one window, and a
+    /// baseline that did not know what this window had queued would report a
+    /// frontier move the moment an operator looked away and back.
+    fn attend(&self, store: &Store, watched: &Watched, spoken_for: &[u64]) {
         let mut watching = self.hold();
         if watching.of == Some(*watched) {
             return;
@@ -582,7 +588,7 @@ impl Ledgers {
 
         *watching = Watching {
             of: Some(*watched),
-            log: resuming_from(store, watched),
+            log: resuming_from(store, watched, spoken_for),
             latest: Snapshot::no_map_open(),
         };
     }
@@ -637,7 +643,7 @@ impl Default for Ledgers {
 /// is schema drift on a copy; the next successful read replaces it, and until
 /// then the honest thing to say is that nothing has been compared yet. Nothing
 /// here deletes it either: only a successful GitHub read may delete anything.
-fn resuming_from(store: &Store, watched: &Watched) -> ChangeLog {
+fn resuming_from(store: &Store, watched: &Watched, spoken_for: &[u64]) -> ChangeLog {
     match cached_under_this_builds_query(store, watched.folder_id, watched.map) {
         Some(cached) => match read_response(&cached.graph_json) {
             // The same machine the landed poll below derives for. If the
@@ -646,7 +652,7 @@ fn resuming_from(store: &Store, watched: &Watched) -> ChangeLog {
             // the one argument-free `const fn` and there is nothing to keep in
             // step. The document cannot disagree either, now: the row got here
             // only because it was stamped with the query this build sends.
-            Ok(read) => ChangeLog::resuming(Model::of(&read, Machine::host())),
+            Ok(read) => ChangeLog::resuming(Model::of(&read, Machine::host(), spoken_for)),
             Err(_) => ChangeLog::first_open(),
         },
         None => ChangeLog::first_open(),
@@ -758,6 +764,11 @@ fn poll_once<R: Runtime>(app: &AppHandle<R>, watched: &Watched, ahead: &Ahead<'_
     let ambient = app.state::<Ambient>();
     let ledgers = app.state::<Ledgers>();
     let claims = app.state::<Claims>();
+    // Read here for the reason the ledger is: the derivation below is the only
+    // thing in this process that has to know what this window has accepted and
+    // not started, and a tick that found no queue would be a panic — which is
+    // why `Pending` is managed before the poller is.
+    let pending = app.state::<Pending>();
     let folder_id = watched.folder_id;
 
     // One place where a condition becomes a stamp, a floor and a tick, so the
@@ -777,7 +788,7 @@ fn poll_once<R: Runtime>(app: &AppHandle<R>, watched: &Watched, ahead: &Ahead<'_
         tick
     };
 
-    let (held, path) = {
+    let (held, path, spoken_for) = {
         let store = match registry.store() {
             Ok(store) => store,
             Err(refusal) => {
@@ -785,10 +796,6 @@ fn poll_once<R: Runtime>(app: &AppHandle<R>, watched: &Watched, ahead: &Ahead<'_
                 return failed(MapsView::nothing_read_yet(folder_id), reason, why);
             }
         };
-        // Under the guard this block already holds, and before anything is
-        // read: the baseline is the cache row as it stands now, and the read
-        // below is about to overwrite it.
-        ledgers.attend(&store, watched);
         let held = from_cache(&store, folder_id);
 
         let folder = match store.folders() {
@@ -798,13 +805,32 @@ fn poll_once<R: Runtime>(app: &AppHandle<R>, watched: &Watched, ahead: &Ahead<'_
                 return failed(held, reason, why);
             }
         };
-        match folder {
-            Some(folder) => (held, folder.path),
+        let path = match folder {
+            Some(folder) => folder.path,
             None => {
                 let (reason, why) = local_refusal(StoreError::UnknownFolder(folder_id).to_string());
                 return failed(held, reason, why);
             }
-        }
+        };
+        // **The folder row is read before the baseline is taken, and that is
+        // the whole reason this lookup moved above it.** The queue is keyed by
+        // the folder's path — an issue number means nothing across two
+        // repositories — so neither the baseline nor the landed read below can
+        // be told what this window has queued until this row has been read.
+        //
+        // Asked once per tick and before the socket, so the baseline and the
+        // answer below are two readings of one window rather than of two. An
+        // entry taken while this read is in flight is seen by the next tick,
+        // which is the same lateness every other fact in this answer has: the
+        // press that queued it was answered with its place, and the press after
+        // it buys a pass of its own.
+        let spoken_for = pending.spoken_for(&path);
+        // Under the guard this block already holds, and before anything is
+        // read: the baseline is the cache row as it stands now, and the read
+        // below is about to overwrite it.
+        ledgers.attend(&store, watched, &spoken_for);
+
+        (held, path, spoken_for)
     };
 
     // A fact about a folder on this disk, established without a network — and
@@ -894,7 +920,7 @@ fn poll_once<R: Runtime>(app: &AppHandle<R>, watched: &Watched, ahead: &Ahead<'_
     // either way, and the stamp beside the map list is where that refusal is
     // already reported.
     let snapshot = ledgers.observed(
-        Model::of(fresh.read(), Machine::host()),
+        Model::of(fresh.read(), Machine::host(), &spoken_for),
         fresh.fetched_at(),
         &claims.originated(),
     );
@@ -3504,6 +3530,31 @@ impl Pending {
         waiting.len()
     }
 
+    /// The numbers this folder has waiting, for the one derivation.
+    ///
+    /// **This is the whole of what the queue tells the model, and it is told at
+    /// derivation time rather than written down anywhere.** A pending entry
+    /// still holds no claim, no worktree and no ledger row; what it holds is a
+    /// press the operator made, and [`Frontier::of`] skips the number so the
+    /// designation moves on to the next takeable ticket. Without it the frontier
+    /// would go on designating a ticket this window is already going to run —
+    /// a spawned press has the agent's own claim to move it along and a waiting
+    /// one has nothing at all — and [`start_working`]'s guard, which admits
+    /// nothing but the designated number, would answer every further press with
+    /// the place the first one already holds. That is a queue with room for one.
+    ///
+    /// Scoped to the folder for the reason [`Pending::place_of`] matches on it:
+    /// this queue is app-global and spans checkouts, while a derivation is of
+    /// one repository's map, and #59 waiting in one checkout says nothing about
+    /// #59 in another.
+    fn spoken_for(&self, folder: &str) -> Vec<u64> {
+        self.waiting_here()
+            .iter()
+            .filter(|waiting| waiting.folder == folder)
+            .map(|waiting| waiting.ticket)
+            .collect()
+    }
+
     /// The oldest entry, removed. FIFO in press order, because first come is the
     /// only fair thing to be when the queue is one operator's own presses.
     ///
@@ -5590,10 +5641,12 @@ pub fn run() {
             // than a missed row.
             app.manage(Ledgers::new());
             app.manage(Claims::new());
-            // Before the readout thread that drains it, for the reason the
-            // ledger is managed before the poller: a tick that found no queue
-            // would be a panic rather than a slot left unfilled for a third of
-            // a second.
+            // Before the poller and before the readout thread that drains it,
+            // for the reason the ledger is managed before the poller: every
+            // read derives the frontier against what this window has queued and
+            // every readout tick asks what a freed slot should take, so a tick
+            // that found no queue would be a panic rather than a slot left
+            // unfilled for a third of a second.
             app.manage(Pending::new());
             // Before the harvest, because the harvest's thread pokes the poller
             // the moment it settles and a poke into a state nobody manages yet
@@ -6021,6 +6074,84 @@ mod tests {
         assert_eq!(waiting[0]["folder"], "/work/one");
         assert_eq!(waiting[0]["refused"], serde_json::Value::Null);
         assert_eq!(waiting[0].as_object().expect("an object").len(), 6);
+    }
+
+    /// One takeable research ticket, as GitHub's answer has it before anybody
+    /// presses anything.
+    fn a_takeable_research_ticket(number: u64) -> Node {
+        Node {
+            number,
+            title: format!("research #{number}"),
+            url: format!("https://github.com/javrasya/perseverance/issues/{number}"),
+            kind: ChildKind::Ticket(TicketType::Research),
+            state: NodeState::Takeable,
+            waits_on: Vec::new(),
+            bound_elsewhere: false,
+            cut: Cut::InScope,
+        }
+    }
+
+    /// The agent's own first act, which is the only thing that ever moves the
+    /// frontier off a ticket that started: the harness assigns nobody, and the
+    /// next read learns the claim from GitHub like every other fact.
+    fn claimed_by_the_agent(nodes: &mut [Node], ticket: u64) {
+        let node = nodes
+            .iter_mut()
+            .find(|node| node.number == ticket)
+            .expect("a node");
+        node.state = NodeState::Claimed;
+    }
+
+    /// **Six presses, all six accepted: four spawn and the last two are two
+    /// distinct entries.** The acceptance criterion, run as the press loop
+    /// actually runs it.
+    ///
+    /// Every decision below is the product's own — [`Frontier::of`] designates,
+    /// [`kind_of`] says what kind of run this would be, [`there_is_room`] is the
+    /// admission, [`Pending::joined`] takes the entry — and the loop is only the
+    /// order [`start_working`] asks them in. What it is really asserting is that
+    /// each press is offered a *different* ticket: a spawned press moves the
+    /// frontier because the agent takes the claim, and a queued press moves it
+    /// because [`Pending::spoken_for`] reaches the derivation. Without the
+    /// second of those the fifth press would be designated #65 again, find it
+    /// already waiting, and be answered with the place it already holds — a
+    /// queue with room for exactly one.
+    #[test]
+    fn six_presses_are_all_accepted_and_the_two_over_the_ceiling_are_distinct_entries() {
+        const FOLDER: &str = "/work/one";
+        let mut nodes: Vec<Node> = (61..=66).map(a_takeable_research_ticket).collect();
+        let pending = Pending::new();
+        let mut live = 0;
+        let mut spawned: Vec<u64> = Vec::new();
+        let mut places: Vec<usize> = Vec::new();
+
+        for press in 1..=6 {
+            // The re-read this press awaits, derived exactly as `poll_once`
+            // derives it: GitHub's account of the map, plus the numbers this
+            // window has accepted and not started.
+            let map = a_map_of(Phase::Wayfinding, nodes.clone());
+            let offering = Frontier::of(&map.nodes, &pending.spoken_for(FOLDER));
+            let Frontier::Designated(ticket) = offering else {
+                panic!("press {press} was offered nothing: {offering:?}");
+            };
+
+            let kind = kind_of(&map, ticket);
+            assert!(kind.ceilinged(), "research is the kind that queues");
+            if there_is_room(live, RESEARCH_CEILING) {
+                live += 1;
+                spawned.push(ticket);
+                claimed_by_the_agent(&mut nodes, ticket);
+            } else {
+                places.push(pending.joined(ticket, FOLDER, "claude", kind, &map));
+            }
+        }
+
+        assert_eq!(spawned, vec![61, 62, 63, 64], "four children, and no fifth");
+        // Two entries and not one entry pressed twice, which is the whole of
+        // what the fifth and sixth presses had to be able to be.
+        assert_eq!(places, vec![1, 2]);
+        let waiting: Vec<u64> = pending.waiting_now().iter().map(|row| row.ticket).collect();
+        assert_eq!(waiting, vec![65, 66]);
     }
 
     /// A deferred spawn that refuses leaves the queue and says so once.
@@ -7057,6 +7188,9 @@ mod tests {
             app.manage(ambient);
             app.manage(Ledgers::new());
             app.manage(Claims::new());
+            // Read by every tick, because the frontier is derived against what
+            // this window has accepted and not started yet.
+            app.manage(Pending::new());
 
             let (tx, emitted) = mpsc::channel();
             app.listen(MAPS_EVENT, move |event| {
@@ -7371,7 +7505,7 @@ mod tests {
     const AWKWARD_LATER: &str = include_str!("../../model/fixtures/awkward-children-later.json");
 
     fn model_of(body: &str) -> Model {
-        Model::of(&read_response(body).expect("reads"), Machine::host())
+        Model::of(&read_response(body).expect("reads"), Machine::host(), &[])
     }
 
     fn watching_map(folder_id: i64, map: u64) -> Watched {
@@ -7414,7 +7548,7 @@ mod tests {
         let (store, folder_id) = registry_with_a_folder();
         let ledgers = Ledgers::new();
 
-        ledgers.attend(&store, &watching_map(folder_id, AWKWARD_MAP));
+        ledgers.attend(&store, &watching_map(folder_id, AWKWARD_MAP), &[]);
         assert_eq!(ledgers.held().ledger.since, Since::FirstOpen);
 
         let first = ledgers.observed(model_of(AWKWARD), 100, &[]);
@@ -7452,7 +7586,7 @@ mod tests {
             .expect("caches");
 
         let ledgers = Ledgers::new();
-        ledgers.attend(&store, &watching_map(folder_id, AWKWARD_MAP));
+        ledgers.attend(&store, &watching_map(folder_id, AWKWARD_MAP), &[]);
         let snapshot = ledgers.observed(model_of(AWKWARD_LATER), 200, &[]);
 
         assert_eq!(snapshot.ledger.since, Since::Watching);
@@ -7511,7 +7645,7 @@ mod tests {
             .expect("caches");
 
         let ledgers = Ledgers::new();
-        ledgers.attend(&store, &watching_map(folder_id, AWKWARD_MAP));
+        ledgers.attend(&store, &watching_map(folder_id, AWKWARD_MAP), &[]);
         let snapshot = ledgers.observed(model_of(AWKWARD_LATER), 200, &[]);
 
         assert_eq!(snapshot.ledger.since, Since::FirstOpen);
@@ -7685,7 +7819,7 @@ mod tests {
             .expect("caches");
 
         let ledgers = Ledgers::new();
-        ledgers.attend(&store, &watching_map(folder_id, AWKWARD_MAP));
+        ledgers.attend(&store, &watching_map(folder_id, AWKWARD_MAP), &[]);
         let landed = ledgers.observed(model_of(AWKWARD_LATER), 1_785_888_000, &[]);
 
         let aged = ledgers.aged(Degraded::Unreachable, "nothing answered".to_string());
@@ -7743,7 +7877,7 @@ mod tests {
             .expect("caches");
 
         let ledgers = Ledgers::new();
-        ledgers.attend(&store, &watching_map(folder_id, AWKWARD_MAP));
+        ledgers.attend(&store, &watching_map(folder_id, AWKWARD_MAP), &[]);
         let snapshot = ledgers.observed(model_of(AWKWARD_LATER), 200, &[]);
 
         assert_eq!(snapshot.ledger.since, Since::FirstOpen);
@@ -7778,14 +7912,14 @@ mod tests {
             .expect("caches");
 
         let ledgers = Ledgers::new();
-        ledgers.attend(&store, &watching_map(folder_id, AWKWARD_MAP));
+        ledgers.attend(&store, &watching_map(folder_id, AWKWARD_MAP), &[]);
         ledgers.observed(model_of(AWKWARD_LATER), 200, &[]);
         assert_eq!(ledgers.held().ledger.entries.len(), 1);
 
         // Another map on the same folder, which nothing has ever been read for.
         // The row belonging to the map we just left is not an older read of
         // this one, so nothing crosses: no entries, and no graph either.
-        ledgers.attend(&store, &watching_map(folder_id, 28));
+        ledgers.attend(&store, &watching_map(folder_id, 28), &[]);
         let opened = ledgers.held();
         assert_eq!(opened.ledger.since, Since::FirstOpen);
         assert!(opened.ledger.entries.is_empty());
@@ -7794,7 +7928,7 @@ mod tests {
         // The same pair again, on the next tick of the same session.
         ledgers.observed(model_of(AWKWARD), 300, &[]);
         ledgers.observed(model_of(AWKWARD_LATER), 400, &[]);
-        ledgers.attend(&store, &watching_map(folder_id, 28));
+        ledgers.attend(&store, &watching_map(folder_id, 28), &[]);
         assert_eq!(ledgers.held().ledger.entries.len(), 1);
     }
 
@@ -7826,7 +7960,7 @@ mod tests {
 
         // Somebody else took #72, which was the frontier.
         let theirs = Ledgers::new();
-        theirs.attend(&store, &watching_map(folder_id, AWKWARD_MAP));
+        theirs.attend(&store, &watching_map(folder_id, AWKWARD_MAP), &[]);
         let snapshot = theirs.observed(somebody_holds_72(), 200, &Claims::new().originated());
         assert_eq!(
             announced(&snapshot),
@@ -7835,7 +7969,7 @@ mod tests {
 
         // The same two facts, with this session's harness having claimed it.
         let ours = Ledgers::new();
-        ours.attend(&store, &watching_map(folder_id, AWKWARD_MAP));
+        ours.attend(&store, &watching_map(folder_id, AWKWARD_MAP), &[]);
         let claims = Claims::new();
         claims.claimed(72);
         // Twice, because a claim taken twice is still one claim.
