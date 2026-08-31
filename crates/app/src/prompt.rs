@@ -858,4 +858,56 @@ mod tests {
         // other's prompt on the compiled-in text.
         assert!(work_ticket_override(dir.path()).is_none());
     }
+
+    /// **The prompt carries no verb, so a session cannot tell which press
+    /// rendered it.**
+    ///
+    /// Resume differs from Start Working by a *precondition* and never by a
+    /// behaviour, which is why there is one template here and not a sixth. What
+    /// that buys is the thing a second template would quietly lose: a resumed
+    /// session behaves exactly as a started one, and the whole of the difference
+    /// is its step 1, which it decides from GitHub rather than from anything the
+    /// harness told it about itself.
+    #[test]
+    fn the_prompt_carries_no_verb_for_a_session_to_tell_two_presses_apart() {
+        const SOURCE: &str = include_str!("prompt.rs");
+
+        let at = somewhere();
+        // The same coordinates are the same bytes, whoever asked for them —
+        // there is no argument here that a verb could arrive on.
+        assert_eq!(work_ticket(None, &at).text, work_ticket(None, &at).text);
+
+        let fields = SOURCE
+            .split_once("pub struct Coordinates {")
+            .expect("the coordinates are declared in this file")
+            .1
+            .split_once("\n}")
+            .expect("and the declaration ends")
+            .0;
+
+        // Built rather than written out, so the assertion is not reading itself
+        // back out of the source.
+        for verb in [
+            format!("{}_working", "start"),
+            format!("{}_working", "resume"),
+        ] {
+            assert!(
+                !WORK_TICKET.contains(&verb),
+                "the template names {verb}, so the two presses no longer render one prompt"
+            );
+            assert!(
+                !fields.contains(&verb),
+                "a coordinate names {verb}, so a press can say which press it was"
+            );
+        }
+
+        // And the whole of the mitigation for a claim whose session is gone: the
+        // agent is sent to what the last one left on the ticket. Nothing on this
+        // side reconstructs a transcript, and this sentence is why it does not
+        // have to.
+        assert!(
+            WORK_TICKET.contains("existing comments"),
+            "a resumed session has nothing to continue from"
+        );
+    }
 }

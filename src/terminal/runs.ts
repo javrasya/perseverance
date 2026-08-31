@@ -97,6 +97,15 @@ export interface RunReadout {
   code: number | null;
   monitored: boolean;
   ending: RunEnding;
+  /**
+   * The ticket this run was staked on, or `null` for a run the harness was never
+   * told about.
+   *
+   * The one value that joins a run to a node, which is how a claim with a live
+   * terminal is told from a claim with none — the difference the rail offers
+   * Resume on.
+   */
+  ticket: number | null;
 }
 
 /**
