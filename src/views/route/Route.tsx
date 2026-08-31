@@ -1,5 +1,9 @@
 import { useMemo, type ReactElement } from "react";
 import type { Fog, Node } from "../../snapshot/model.generated";
+/* `markdown` and not `Markdown`: the module file is lowercase and nothing
+   named `Markdown.tsx` sits beside it, so the plain specifier is unambiguous
+   even on a case-insensitive filesystem. */
+import { Markdown } from "../../detail/markdown";
 import { NO_MAP_OPEN } from "../../snapshot/readout";
 /*
  * The props are the shared type and never a local one. A view that declared its
@@ -283,12 +287,18 @@ function FogRegion({ fog }: { fog: Fog }) {
       {fog.region.text === "" ? (
         <p className={styles.fogEmpty}>{FOG_ALL_CHARTED}</p>
       ) : (
-        /* One text node, unmodified. The section is not re-rendered from
-           markdown, not split into rows and not trimmed: `pre-wrap` in the
-           stylesheet is what puts the operator's own line breaks and
-           indentation on screen, and the parse in Rust is the only thing that
-           ever chose where this string starts and stops. */
-        <pre className={styles.fogText}>{fog.region.text}</pre>
+        /* Markdown, because the section was typed into a map document, and
+           rendered here because there is nowhere earlier it could be: GitHub's
+           render endpoint would spend a rationed request on every paint, and a
+           pre-render in Rust would put paint into a model whose whole claim is
+           that it carries text. The renderer owns the operator's line breaks
+           now — nothing in the stylesheet does. Its subset has no nested list,
+           so a bullet the operator indented comes out a sibling of the one
+           above it: flatter than it was typed, with every word of it still on
+           screen, which is the reading that loses nothing. */
+        <div className={styles.fogText}>
+          <Markdown source={fog.region.text} />
+        </div>
       )}
     </section>
   );

@@ -528,21 +528,17 @@
 }
 
 /*
- * The section, verbatim.
- *
- * `pre-wrap` and not `pre`: the operator's own line breaks and indentation are
- * kept, and a line longer than the column wraps rather than putting the pane
- * into a horizontal scroll it has no room for. Nothing here re-renders markdown
- * — a `- ` on screen is the `- ` in the map document, which is the whole point
- * of carrying the text rather than a parse of it.
+ * The section's own inset, and nothing about its typography: the markdown
+ * renderer brings that with it. No `white-space` here — the parser decides
+ * where a line breaks now, and a `pre-wrap` left behind would double every
+ * break it emits. `overflow-wrap` stays, because a URL printed beside a link's
+ * text is one unbreakable word and the pane has no room for a horizontal
+ * scroll.
  */
 .fogText {
-  margin: 0;
   padding: 0 var(--s-space-base) var(--s-space-base);
   color: var(--s-ink-secondary);
-  font-family: var(--s-font-mono);
   font-size: var(--s-text-small);
-  white-space: pre-wrap;
   overflow-wrap: break-word;
 }
 

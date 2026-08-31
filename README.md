@@ -99,9 +99,9 @@ reason rather than showing a blank or a zero — a fact the harness was never to
 is form-level distinct from a count that is genuinely nought, everywhere on this
 panel. The URL is **text you select and copy** and not an anchor, because this
 WebView has no opener and a live link would navigate the app away from itself.
-And the markdown that arrives from a map document — a cut's reason, the fog's
-region — is rendered **here**, by a subset renderer that emits React elements and
-never an HTML string: no GitHub render endpoint spending a rationed request per
+And the markdown that arrives from a map document — a cut's reason here, the
+fog's region over on the Route — is rendered **where it is read**, by a subset
+renderer that emits React elements and never an HTML string: no GitHub render endpoint spending a rationed request per
 paint, nothing pre-painted in Rust, and raw HTML in an issue body landing on
 screen as its own characters because no parser in the path could have made an
 element of it. `tests/no-raw-html.test.ts` holds that absence to the whole of
