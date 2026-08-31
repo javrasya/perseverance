@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 import { App } from "../src/App";
+import appStyles from "../src/App.module.css";
 import { fractionOf } from "../src/panes/dial";
 import { NOTHING_TO_GIVE, platformName, readChord } from "../src/panes/peek";
 import { moveDial, readUi } from "../src/stores/ui";
@@ -104,6 +105,11 @@ async function put(position: number): Promise<void> {
 const theOverlay = () => document.querySelector("[data-peeking]");
 const theTerminal = () => document.querySelector('[aria-label="Terminal"]');
 const theStud = () => document.querySelector('[aria-label^="Peek at the map"]');
+/** The stud's own box — the one carrying the chord, the rebind and the refusal. */
+const theStudBox = () => theStud()?.parentElement ?? null;
+/** The terminal's share of the body: the box the `map` detent collapses away. */
+const theTerminalBox = () => document.querySelector(`.${appStyles.terminal}`);
+const theBody = () => document.querySelector(`.${appStyles.body}`);
 
 describe("a peek occludes and never displaces", () => {
   it("promotes the same nodes and leaves the terminal exactly where it was", async () => {
@@ -242,6 +248,31 @@ describe("inert at map width, and it says so", () => {
     expect(theOverlay()?.getAttribute("data-peeking")).toBe("false");
     expect(document.body.textContent).toContain(NOTHING_TO_GIVE);
   });
+
+  /*
+   * The defect this pins: the refusal was in the DOM and off the screen. The
+   * stud used to hang off the terminal's box — `flex: 1 1 0`, `overflow:
+   * hidden` — which the `map` detent collapses to its own padding, so the
+   * chord, the rebind and the refusal were clipped to nothing at exactly the
+   * position where the refusal is the only feedback there is. The assertion
+   * above passed anyway, because jsdom answers `textContent` without laying
+   * anything out.
+   *
+   * jsdom still lays nothing out, so what is pinned here is the thing that
+   * decides the clipping: *which box the stud hangs on*. The body is the one
+   * box the dial cannot collapse.
+   */
+  it("prints it somewhere the map detent cannot clip away", async () => {
+    await boot();
+    await put(fractionOf("map"));
+    await hold();
+
+    const stud = theStudBox();
+    expect(stud).not.toBeNull();
+    expect(stud?.textContent).toContain(NOTHING_TO_GIVE);
+    expect(stud?.parentElement).toBe(theBody());
+    expect(theTerminalBox()?.contains(stud as Node)).toBe(false);
+  });
 });
 
 describe("the named defect: a hold whose release never arrives", () => {
@@ -259,6 +290,17 @@ describe("the named defect: a hold whose release never arrives", () => {
 });
 
 describe("the stud on the terminal's edge", () => {
+  it("hangs off the body at every position, never inside the collapsing pane", async () => {
+    await boot();
+    for (const detent of ["terminal", "split", "glance", "map"] as const) {
+      await put(fractionOf(detent));
+      const stud = theStudBox();
+      expect(stud, `no stud at ${detent}`).not.toBeNull();
+      expect(stud?.parentElement, `stud is off the body at ${detent}`).toBe(theBody());
+      expect(theTerminalBox()?.contains(stud as Node)).toBe(false);
+    }
+  });
+
   it("names the live chord and peeks exactly as the chord does", async () => {
     await boot();
     const stud = theStud() as HTMLElement | null;

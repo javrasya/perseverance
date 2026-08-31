@@ -72,6 +72,12 @@ export function usePeek(): PeekHandles {
    * held, and a window that lost focus stops receiving them along with the
    * keyup it will never send. A timer restarted by every repeat is what turns
    * *the repeats stopped* into a release.
+   *
+   * The timer is armed by the first keydown and by every repeat, but whether
+   * its beat means anything is `advance`'s call, not this file's: a hold that
+   * has never been heard to repeat — every ⌘-modified hold on macOS, where the
+   * OS sends no repeats at all — is left alone by the beat, and comes back on
+   * the keyup, the blur or the visibilitychange instead. See `REPEAT_GAP`.
    */
   const watchBeat = useCallback(() => {
     if (beat.current !== null) window.clearTimeout(beat.current);

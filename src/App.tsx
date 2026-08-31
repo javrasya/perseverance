@@ -1051,23 +1051,33 @@ export function App() {
         />
 
         <div className={styles.terminal}>
-          {/*
-            The stud is hung on this edge and hangs *over* the pane rather than
-            beside it: a strip in the flow would narrow the terminal, and a
-            terminal narrowed by a piece of chrome is a live agent reflowed by a
-            decoration.
-          */}
-          <PeekStud
-            label={peek.label}
-            chord={peek.chord}
-            os={peek.os}
-            peeking={peeking}
-            onHold={peek.hold}
-            onLetGo={peek.letGo}
-            onRebind={peek.rebind}
-          />
           <Pane terminals={terminals} readouts={runs} />
         </div>
+
+        {/*
+          The stud hangs off *the body* rather than off the terminal, and that is
+          the whole of it being drawn at all.
+
+          It may not sit in any flow — a strip that took width would narrow the
+          pane, and a terminal narrowed by a piece of chrome is a live agent
+          reflowed by a decoration — so it has to be absolutely positioned
+          against something. The terminal is the wrong something: at the `map`
+          detent the terminal's box is worth no pixels and clips its own
+          overflow, so a stud hung there is clipped to nothing at exactly the
+          position where the refusal it prints is the only feedback there is.
+          The body is the box the dial cannot collapse, and it is already the
+          peek overlay's containing block, so the stud and the overlay are
+          measured against the same edges.
+        */}
+        <PeekStud
+          label={peek.label}
+          chord={peek.chord}
+          os={peek.os}
+          peeking={peeking}
+          onHold={peek.hold}
+          onLetGo={peek.letGo}
+          onRebind={peek.rebind}
+        />
       </div>
 
       <EnvironmentReadout readout={environment} shown={environmentShown} />

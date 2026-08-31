@@ -43,6 +43,15 @@ function held(source: "chord" | "stud" = "chord", at = 1_000): Peek {
   );
 }
 
+/**
+ * The same hold, heard to auto-repeat: a second keydown for a key already down.
+ * On platforms that send repeats this is what arms the repeat gap; on macOS,
+ * where ⌘-modified keys never repeat, it never arrives.
+ */
+function repeating(at = 1_000): Peek {
+  return advance(held("chord", at), { kind: "chord", at, position: fractionOf("split") });
+}
+
 describe("what holds the spring", () => {
   it("peeks from any position that is not already map width", () => {
     expect(held().held).toBe("chord");
@@ -102,12 +111,58 @@ describe("every release, including the ones no keyup ever arrives for", () => {
   }
 
   it("releases when the auto-repeat stops arriving", () => {
-    const down = held("chord", 1_000);
+    const down = repeating(1_000);
+    expect(down.sawRepeat).toBe(true);
     // Still repeating: a beat inside the gap is not a release.
     expect(advance(down, { kind: "beat", at: 1_000 + REPEAT_GAP - 1 })).toBe(down);
     const gone = advance(down, { kind: "beat", at: 1_000 + REPEAT_GAP });
     expect(gone.held).toBeNull();
     expect(gone.released).toBe("repeat-gap");
+  });
+
+  /*
+   * The defect this pins: the gap used to be armed by the first keydown, and
+   * macOS sends no auto-repeat at all for a ⌘-modified keystroke — which the
+   * mac chord ⌘G is. So every mac hold produced one keydown, no repeats, and
+   * the spring released itself at 2.5 s with the key still physically down.
+   * A silence only means the key is up on a hold that was heard to repeat.
+   */
+  it("never lets a silence release a hold that has not been heard to repeat", () => {
+    const down = held("chord", 1_000);
+    expect(down.sawRepeat).toBe(false);
+    expect(advance(down, { kind: "beat", at: 1_000 + REPEAT_GAP })).toBe(down);
+    expect(advance(down, { kind: "beat", at: 1_000 + REPEAT_GAP * 100 })).toBe(down);
+    expect(down.held).toBe("chord");
+  });
+
+  it("still brings that hold back on the keyup, the blur and the hidden document", () => {
+    for (const [event, why] of [
+      [{ kind: "chord-up" } as PeekEvent, "keyup"],
+      [{ kind: "blur" } as PeekEvent, "blur"],
+      [{ kind: "hidden" } as PeekEvent, "hidden"],
+    ] as const) {
+      const state = advance(held("chord", 1_000), event);
+      expect(state.held).toBeNull();
+      expect(state.released).toBe(why);
+    }
+  });
+
+  it("keeps the gap armed once a repeat has been heard", () => {
+    const third = advance(repeating(1_000), {
+      kind: "chord",
+      at: 1_500,
+      position: fractionOf("split"),
+    });
+    expect(third.sawRepeat).toBe(true);
+    expect(advance(third, { kind: "beat", at: 1_500 + REPEAT_GAP }).released).toBe(
+      "repeat-gap",
+    );
+  });
+
+  it("gives a stud hold no repeats to lose, so no beat can take it down", () => {
+    const down = held("stud");
+    expect(down.sawRepeat).toBe(false);
+    expect(advance(down, { kind: "beat", at: 9_999_999 })).toBe(down);
   });
 
   it("counts the gap from the last repeat rather than from the first press", () => {

@@ -57,6 +57,16 @@ export interface Peek {
   refused: string | null;
   /** When the last chord keydown arrived, which is what the repeat gap watches. */
   beat: number;
+  /**
+   * Whether this hold has been heard to auto-repeat at all.
+   *
+   * A second keydown for a key already held is the only proof that this
+   * platform repeats this chord — and where it does not (macOS suppresses
+   * repeat for Command-modified keys, and ⌘G is the mac chord), a silence
+   * between repeats says nothing about whether the key is still down. So the
+   * gap is armed by the repeats and never by the first press.
+   */
+  sawRepeat: boolean;
   /** Why the spring last came up. Kept for the readout and for the tests. */
   released: Release | null;
 }
@@ -66,6 +76,7 @@ export const RESTING: Peek = {
   swallowed: false,
   refused: null,
   beat: 0,
+  sawRepeat: false,
   released: null,
 };
 
@@ -97,12 +108,18 @@ export type PeekEvent =
  * two-second "Delay Until Repeat" and a rate of about two a second; Windows's
  * slowest delay is one second. 2500 ms is past the slowest of those and still
  * far short of a glance anyone means to hold, so a spring that has stopped
- * hearing from the key for this long has lost the keyup rather than the key.
+ * hearing from a key that *was* repeating has lost the keyup rather than the
+ * key.
  *
- * The accepted cost: a machine with key repeat switched off entirely sends one
- * keydown and no more, so a peek held longer than this springs back on its own.
- * That is the safe direction to be wrong in — a peek that returns is a glance,
- * and a peek that sticks is a screen with keystrokes going somewhere invisible.
+ * That last clause is the whole of `sawRepeat`, and it is not a nicety: macOS
+ * suppresses auto-repeat for Command-modified keystrokes, and the chord this
+ * app claims there is ⌘G. A gap armed by the first keydown would therefore fire
+ * on *every* mac hold, springing the peek back at 2.5 s with the key still
+ * physically down — the default platform behaviour, not an exotic setting. So a
+ * silence only counts as a release on a hold that has been heard to repeat at
+ * least once; where the platform never repeats, the blur, the visibilitychange
+ * and the keyup are what bring the spring back, and each of those is a release
+ * in its own right.
  */
 export const REPEAT_GAP = 2500;
 
@@ -125,6 +142,10 @@ export function advance(state: Peek, event: PeekEvent, gap: number = REPEAT_GAP)
   switch (event.kind) {
     case "chord": {
       const gives = available(event.position);
+      // A keydown for a chord already holding the spring is an auto-repeat, and
+      // the only evidence this platform sends any. Once heard it stays heard
+      // for the life of the hold.
+      const repeating = state.held === "chord" || state.sawRepeat;
       return {
         held: gives ? "chord" : null,
         // Swallowed either way: the app claimed the chord even when it had
@@ -133,6 +154,7 @@ export function advance(state: Peek, event: PeekEvent, gap: number = REPEAT_GAP)
         swallowed: true,
         refused: gives ? null : NOTHING_TO_GIVE,
         beat: event.at,
+        sawRepeat: gives && repeating,
         released: null,
       };
     }
@@ -143,6 +165,10 @@ export function advance(state: Peek, event: PeekEvent, gap: number = REPEAT_GAP)
         swallowed: false,
         refused: gives ? null : NOTHING_TO_GIVE,
         beat: state.beat,
+        // A pointer hold has no keys behind it, so it has no repeats to hear
+        // and the gap never speaks for it: the pointer's own up, cancel and
+        // leave are its releases.
+        sawRepeat: false,
         released: null,
       };
     }
@@ -162,6 +188,11 @@ export function advance(state: Peek, event: PeekEvent, gap: number = REPEAT_GAP)
       return release(state, "hidden");
     case "beat":
       if (state.held !== "chord") return state;
+      // Never on a hold that has not repeated: on a platform that does not
+      // repeat this chord at all, the silence is the normal sound of a key that
+      // is still down, and releasing on it drops the peek under the operator's
+      // finger.
+      if (!state.sawRepeat) return state;
       return event.at - state.beat >= gap ? release(state, "repeat-gap") : state;
   }
 }

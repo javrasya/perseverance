@@ -13,9 +13,16 @@
   --c-stud-line-live: var(--s-accent);
   --c-stud-ink: var(--s-ink-secondary);
 
+  /* Positioned against the *body* — the shell hangs this off that box and not
+     off the terminal. It may take no width in any flow, since a strip that did
+     would narrow the pane and reflow a live agent; and it may not hang off the
+     terminal, because at the `map` detent that box is worth no pixels and clips
+     its own overflow, which would clip this stud — chord, rebind and refusal
+     alike — to nothing at precisely the position where the refusal is the only
+     feedback there is. The body is the one box the dial cannot collapse. */
   position: absolute;
   top: var(--s-space-snug);
-  left: 0;
+  right: 0;
   /* Above the promoted map side, and deliberately so: the peek's overlay covers
      the terminal, and a stud hidden under it would be a button the pointer is
      still holding but the browser has just left — which releases the very

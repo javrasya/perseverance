@@ -56,6 +56,11 @@
  * It also means the map side's `overflow: hidden` does not clip the promoted
  * layer: an absolutely positioned box is only clipped by an ancestor in its own
  * containing-block chain, and an unpositioned map side is not in it.
+ *
+ * The peek's stud is positioned against this box for the same reason and one
+ * more: this is the box the dial cannot collapse. The terminal can be worth no
+ * pixels at all, and a stud hung there would be clipped away at exactly the
+ * detent where the refusal it prints is the only feedback the operator gets.
  */
 .body {
   position: relative;
@@ -195,9 +200,12 @@
  * to measure a box with no width, so a collapse reflows no live agent.
  */
 .terminal {
-  /* The stud is hung on this edge and takes no space in the flow: a strip that
-     narrowed the pane would be a decoration that resized a live agent. */
-  position: relative;
+  /* Nothing of the peek's chrome hangs here, and this box is deliberately not a
+     containing block. It is `flex: 1 1 0` and clips its overflow, so at the
+     `map` detent it is worth its padding alone and anything positioned against
+     it is clipped to nothing — while a strip put in its flow to avoid that
+     would narrow the pane and reflow a live agent. The stud is positioned
+     against the body instead. */
   display: flex;
   flex: 1 1 0;
   min-width: 0;
