@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import {
   COMPLETED_GROUP,
   COMPLETED_HINT,
@@ -27,6 +27,15 @@ interface MapListProps {
   /** The map this window is watching, or `null` for a folder with none open. */
   selected: number | null;
   onOpen: (number: number) => void;
+  /**
+   * The idea box, drawn inside the *no map here* absence and nowhere else.
+   *
+   * A node rather than the box itself, because nothing in this file is derived
+   * and a control that has to reach a folder's environment and a command is not
+   * a thing a list of maps should be holding. Where it goes is this file's
+   * decision; what it does is not.
+   */
+  ideaBox?: ReactNode;
 }
 
 /**
@@ -52,7 +61,7 @@ interface MapListProps {
  * is unplugged — a change of ink and never a change of layout — reused rather
  * than invented a second time.
  */
-export function MapList({ view, selected, onOpen }: MapListProps) {
+export function MapList({ view, selected, onOpen, ideaBox }: MapListProps) {
   const [completedShown, setCompletedShown] = useState(false);
 
   const open = openMaps(view);
@@ -134,6 +143,16 @@ export function MapList({ view, selected, onOpen }: MapListProps) {
             {read ? NO_MAP_HEADLINE : NOT_READ_HEADLINE}
           </span>
           <span className={styles.absenceDetail}>{read ? NO_MAP_COPY : NOT_READ_COPY}</span>
+          {/*
+            Under the copy that pre-absolves it, and only in the read-and-empty
+            absence. The operator reads that a first charting session which
+            leaves no map behind is a success *before* pressing — which is the
+            whole reason the box is here rather than on the rail. In the other
+            absence there is nothing to say about this repository yet, and
+            offering to chart what nobody has looked at would be answering a
+            question that has not been asked.
+          */}
+          {read ? ideaBox : null}
         </div>
       )}
 

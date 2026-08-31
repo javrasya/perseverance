@@ -168,8 +168,12 @@ export function Sockets({ frontier, selection, environment, folder, onSelect }: 
  * A control when there is a choice, a printed name when there is one adapter
  * and nothing when there is none — the recessed Start Working already says why.
  * Nothing here is persisted: the pick belongs to the press.
+ *
+ * Exported because the idea box picks an adapter for exactly the same reason
+ * and in exactly the same way. A second picker would be a second answer to
+ * *which agent* on one screen, in a second shape.
  */
-function Picker({
+export function Picker({
   offered,
   chosen,
   onChoose,

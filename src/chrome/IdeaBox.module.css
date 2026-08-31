@@ -1,0 +1,106 @@
+/*
+ * Tier 3 — component tokens, defined from semantic tokens only.
+ *
+ * There is no `transition`, no `animation` and no `@keyframes` in this file.
+ * The press in flight is the word `checking…` and never a spinner: motion here
+ * is rationed to liveness, and a button that pulses while it waits is a button
+ * an operator has to watch instead of read.
+ */
+
+/*
+ * The box sits inside the map list's absence block, so it carries no rail and
+ * no ground of its own — the absence around it already has both, and a second
+ * panel inside the first would read as a second statement.
+ */
+.box {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-space-hair);
+  margin-top: var(--s-space-snug);
+}
+
+.label {
+  color: var(--s-ink-secondary);
+  font-size: var(--s-text-micro);
+  letter-spacing: var(--s-tracking-label);
+}
+
+.idea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: var(--s-space-tight);
+  border: var(--s-border-hairline) solid var(--s-line-quiet);
+  border-radius: var(--s-radius-control);
+  background: var(--s-surface-raised);
+  color: var(--s-ink-primary);
+  font-family: var(--s-font-ui);
+  font-size: var(--s-text-small);
+  resize: vertical;
+}
+
+.idea:focus-visible {
+  outline: var(--s-border-emphasis) solid var(--s-focus-ring);
+  outline-offset: -2px;
+}
+
+/*
+ * The button is the ink, the same way the rail's is. Filled and recessed are
+ * one box in two inks: the border stays, the padding stays, and what changes is
+ * the colour and the cursor — never the size, and never whether it is there.
+ */
+.button {
+  --c-idea-line: var(--s-line-strong);
+  --c-idea-fill: var(--s-surface-raised);
+  --c-idea-ink: var(--s-ink-primary);
+
+  align-self: start;
+  padding: var(--s-space-tight) var(--s-space-snug);
+  border: var(--s-border-hairline) solid var(--c-idea-line);
+  border-radius: var(--s-radius-control);
+  background: var(--c-idea-fill);
+  color: var(--c-idea-ink);
+  font: inherit;
+  font-size: var(--s-text-small);
+  cursor: pointer;
+}
+
+.button:hover {
+  --c-idea-fill: var(--s-surface-hover);
+}
+
+.button:focus-visible {
+  outline: var(--s-border-emphasis) solid var(--s-focus-ring);
+  outline-offset: -2px;
+}
+
+.button[aria-disabled="true"] {
+  --c-idea-line: var(--s-line-absent);
+  --c-idea-fill: var(--s-surface-sunken);
+  --c-idea-ink: var(--s-ink-faint);
+
+  cursor: default;
+}
+
+/* Neither filled nor recessed: the edge stays and only the word changes. */
+.box[data-fill="checking"] .button {
+  --c-idea-line: var(--s-line-strong);
+  --c-idea-ink: var(--s-ink-secondary);
+
+  cursor: default;
+}
+
+/*
+ * The condition that would fill the box, and the harness's own sentence. Both
+ * are visible text and neither is ever a `title`.
+ */
+.condition {
+  margin: 0;
+  color: var(--s-ink-faint);
+  font-size: var(--s-text-micro);
+}
+
+.note {
+  margin: 0;
+  color: var(--s-ink-secondary);
+  font-size: var(--s-text-micro);
+}

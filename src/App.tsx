@@ -74,6 +74,8 @@ import { Ledger } from "./chrome/Ledger.jsx";
 /* `Sockets.jsx` for the third time and the same reason: `chrome/sockets.ts` is
    the derivation and `chrome/Sockets.tsx` is the rendering. */
 import { Sockets } from "./chrome/Sockets.jsx";
+/* `IdeaBox.jsx` for the fourth: `chrome/idea.ts` is the derivation. */
+import { IdeaBox } from "./chrome/IdeaBox.jsx";
 import { useDefaultView } from "./views/useDefaultView";
 import styles from "./App.module.css";
 
@@ -668,7 +670,20 @@ export function App() {
             rather than replacing the launcher — there is no mode to be in.
           */}
           {selectedId === null ? null : (
-            <MapList view={maps} selected={openMap} onOpen={onOpenMap} />
+            <MapList
+              view={maps}
+              selected={openMap}
+              onOpen={onOpenMap}
+              /*
+                The idea box, handed to the list rather than placed beside it:
+                it belongs under the *no map in this repository* copy, which is
+                the one sentence on screen that already says a charting session
+                leaving no map behind is that session working correctly.
+              */
+              ideaBox={
+                <IdeaBox folder={selectedPath ?? null} environment={folderEnvironment} />
+              }
+            />
           )}
         </DropRegion>
 
