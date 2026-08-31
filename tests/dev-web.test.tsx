@@ -483,10 +483,10 @@ describe("dev:web", () => {
     await boot("/?map=fog-charted");
     const charted = theRoute().querySelector("[data-fog]");
     expect(charted?.querySelector("[data-count]")?.textContent).toBe("3");
-    // The indented line is on screen and is not one of the three: the subset
-    // has no nested list, so it comes out a bullet beside its parent while the
-    // count stays the model's.
-    expect(charted?.textContent).toContain("and whether the split is remembered");
+    // The nested line is on screen and is not one of the three.
+    expect(charted?.querySelector("pre")?.textContent).toContain(
+      "  - and whether the split is remembered",
+    );
     // And the section stopped where the next heading did.
     expect(charted?.textContent).not.toContain("The Route is a grouped list");
   });

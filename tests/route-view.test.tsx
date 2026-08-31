@@ -1017,47 +1017,12 @@ describe("the fog is a named region and not a smudge", () => {
     expect(nothing).toEqual({ which: "surveyed", count: "0", dash: null, elements: 2 });
   });
 
-  it("renders the section as markdown and not as one text node", async () => {
-    const region = (await paint(charted)).querySelector("[data-fog]");
+  it("renders the section verbatim, indentation and blank line intact", async () => {
+    const region = (await paint(charted)).querySelector("[data-fog] pre");
 
-    /*
-     * Elements, out of the same subset renderer the detail panel prints a cut's
-     * reason through. The indented bullet is not a nested list — the subset has
-     * none — but a sibling of the one above it, and the count stays the model's
-     * two whatever this side draws.
-     */
-    expect(all(region as HTMLElement, "li").map((item) => item.textContent)).toEqual([
-      "one",
-      "nested",
-      "two",
-    ]);
-    expect(region?.querySelector("pre")).toBeNull();
-  });
-
-  it("prints emphasis and code as elements, and never as their characters", async () => {
-    const model = withFog({ fog: "surveyed", region: { count: 1, text: "*why* and `how`" } });
-    const region = (await paint(model)).querySelector("[data-fog]");
-
-    expect(region?.querySelector("em")?.textContent).toBe("why");
-    expect(region?.querySelector("code")?.textContent).toBe("how");
-    // The markers themselves are gone, and nothing else went with them.
-    expect(region?.textContent).toContain("why and how");
-  });
-
-  it("lands raw HTML in the section as characters, making no element of it", async () => {
-    /*
-     * The renderer emits React elements and never an HTML string, so nothing in
-     * the path could have made an `img` out of this — the absence is structural
-     * and not a scrub, which is what `tests/no-raw-html.test.ts` holds.
-     */
-    const model = withFog({
-      fog: "surveyed",
-      region: { count: 1, text: "<img src=x onerror=alert(1)>" },
-    });
-    const region = (await paint(model)).querySelector("[data-fog]");
-
-    expect(region?.querySelector("img")).toBeNull();
-    expect(region?.textContent).toContain("<img src=x onerror=alert(1)>");
+    // Byte for byte. Nothing re-rendered it as a list, nothing collapsed the
+    // blank line, nothing ate the two spaces in front of the nested bullet.
+    expect(region?.textContent).toBe("- one\n  - nested\n\n- two");
   });
 
   it("carries the model's count and never one of its own", async () => {

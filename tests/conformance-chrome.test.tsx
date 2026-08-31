@@ -100,8 +100,7 @@ describe("the fog region answers to the selectors the conformance suite declares
     expect(unsurveyed?.querySelector(fog.count)).toBeNull();
     /*
      * Rule 4 in one line: a region nobody surveyed may not print a digit, and
-     * the markdown renderer that now draws the surveyed reading's body must not
-     * have leaked one into this reading — which has no body at all to render.
+     * the reading has no section text to have carried one in.
      */
     expect(unsurveyed?.textContent ?? "").not.toMatch(/[0-9]/);
   });
@@ -113,7 +112,10 @@ describe("the fog region answers to the selectors the conformance suite declares
 
     expect(surveyed?.querySelector(fog.count)?.textContent).toBe("2");
     expect(surveyed?.querySelector(fog.unsurveyed)).toBeNull();
-    expect(surveyed?.querySelectorAll("li")).toHaveLength(2);
+    /* The section beside the numeral is the text itself, verbatim: ADR 0016's
+       region is one unmodified text node and the panel's subset renderer is
+       not pointed at it. */
+    expect(surveyed?.querySelector("pre")?.textContent).toBe("- one\n- two");
   });
 });
 

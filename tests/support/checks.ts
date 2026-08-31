@@ -28,14 +28,28 @@ export interface Violation {
  * `DOMParser` is on the list beside the assignments. It builds a document
  * rather than a string, so it defeats nothing on its own; what it does is make
  * *parse this text as markup* available in the codebase, one `adoptNode` away
- * from the DOM the app is rendering.
+ * from the DOM the app is rendering. `parseHTMLUnsafe` is there for the same
+ * reason and by a shorter road.
+ *
+ * The assignment patterns take `+=` as well as `=`. `node.innerHTML += reason`
+ * is the same route with the same consequence, and a check that read only `=`
+ * would have called a file clean while it appended a `<script>` — the exact
+ * shape a check that cannot fail takes. `setHTMLUnsafe` and
+ * `createContextualFragment` are the two ways to reach a parser without ever
+ * naming `innerHTML`: the first is the sanctioned no-sanitiser sibling of the
+ * setter and is in the evergreen half of the declared browserslist floor, and
+ * the second is `Range`'s parser, which returns a fragment already adopted
+ * into the document that made the range. Every one of them is exercised
+ * against known-bad input in `tests/no-raw-html.test.ts`.
  */
 const MARKUP_SINKS: readonly { pattern: RegExp; detail: string }[] = [
   { pattern: /dangerouslySetInnerHTML/g, detail: "dangerouslySetInnerHTML" },
-  { pattern: /\.innerHTML\s*=/g, detail: "innerHTML assignment" },
-  { pattern: /\.outerHTML\s*=/g, detail: "outerHTML assignment" },
+  { pattern: /\.(?:inner|outer)HTML\s*\+?=/g, detail: "innerHTML/outerHTML assignment" },
   { pattern: /insertAdjacentHTML\s*\(/g, detail: "insertAdjacentHTML" },
+  { pattern: /setHTMLUnsafe\s*\(/g, detail: "setHTMLUnsafe" },
+  { pattern: /createContextualFragment\s*\(/g, detail: "createContextualFragment" },
   { pattern: /new\s+DOMParser\s*\(/g, detail: "DOMParser" },
+  { pattern: /parseHTMLUnsafe\s*\(/g, detail: "parseHTMLUnsafe" },
   { pattern: /document\.write(?:ln)?\s*\(/g, detail: "document.write" },
 ];
 

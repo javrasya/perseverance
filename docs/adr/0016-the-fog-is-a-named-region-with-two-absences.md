@@ -148,6 +148,16 @@ sides two accounts of where the fog stops. ADR 0006 and the module docs of
 `views.ts`, `snapshot.ts` and `readout.ts` all already say the WebView resolves
 nothing.
 
+[ADR 0025](0025-the-node-panel-is-one-element-with-three-addresses.md) does put
+a subset markdown renderer on this side, and it does not reopen this: it renders
+the node panel's cut reason and nothing else. The fog's region still crosses as
+one text node and is still printed verbatim, and the two things this rejection
+protects — where the fog stops, and how many bullets are in it — are still
+decided once, in Rust. Rendering the region as markdown would cost the
+operator's indentation, because that subset has no nested list; that is a
+trade this ADR has not taken, and taking it later means amending this section
+rather than reading around it.
+
 **The whole body on `Map`.** One field instead of two types, and a ledger row on
 every keystroke in an unrelated section of the document.
 

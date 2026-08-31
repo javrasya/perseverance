@@ -22,13 +22,20 @@ import styles from "./markdown.module.css";
  *
  * ## What crosses the seam, and why it is markdown at all
  *
- * Two strings on this side are lifted verbatim out of an issue body and are
- * therefore able to carry anything a GitHub author can type, raw HTML included:
- * the cut reason (`Cut::FromScope`) and the fog region's text. Both are already
- * on screen. Rendering them is a display decision and stays on this side of the
- * seam — GitHub's render endpoint would spend a rationed request per paint, and
- * asking Rust to pre-render would put paint in a model whose whole claim is
- * that it carries text.
+ * The string this renderer prints is lifted verbatim out of an issue body and
+ * is therefore able to carry anything a GitHub author can type, raw HTML
+ * included: the cut reason (`Cut::FromScope`). It is already on screen.
+ * Rendering it is a display decision and stays on this side of the seam —
+ * GitHub's render endpoint would spend a rationed request per paint, and asking
+ * Rust to pre-render would put paint in a model whose whole claim is that it
+ * carries text.
+ *
+ * The other operator prose on this side — the fog's region text over on The
+ * Route — is **not** a customer of this renderer. It stays the one unmodified
+ * text node `docs/adr/0016-the-fog-is-a-named-region-with-two-absences.md`
+ * decided it is: this subset has no nested list, so a bullet the operator
+ * indented would come out beside its parent, and the fog is bounded and counted
+ * in Rust. Pointing it here is an amendment to ADR 0016 and not an import.
  *
  * ## The subset
  *
@@ -44,10 +51,10 @@ import styles from "./markdown.module.css";
  *   Tauri capability set grants no opener plugin and a bare anchor would
  *   navigate the WebView itself away from the app with no way back. A link's
  *   text and its URL are both printed, and neither is clickable.
- * - **Everything else is left out because the two strings that arrive here are
- *   a cut reason and a fog list**, which is one sentence and some bullets. A
- *   subset that stopped where the input does is a subset that can be read in
- *   one sitting; a table parser nobody feeds is a table parser nobody tests.
+ * - **Everything else is left out because the string that arrives here is a cut
+ *   reason**, which is one sentence and perhaps some bullets. A subset that
+ *   stopped where the input does is a subset that can be read in one sitting; a
+ *   table parser nobody feeds is a table parser nobody tests.
  *
  * Unrecognised syntax is never dropped. A `> quote`, a `# heading` or a
  * `| table |` prints as its own literal characters, which is the honest

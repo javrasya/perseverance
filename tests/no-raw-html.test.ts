@@ -5,11 +5,11 @@ import { collect } from "./support/sources";
 /**
  * Text never becomes markup in this app.
  *
- * The detail panel prints two strings that were typed into a GitHub issue by
- * whoever holds the map — a cut reason and the fog's region text — so both can
- * carry `<script>`, an `onerror`, or anything else a body can hold. The panel
- * neither sanitises them nor asks GitHub to render them: it builds React
- * elements out of a parsed subset, and React escapes every string it is given.
+ * The detail panel prints a string that was typed into a GitHub issue by
+ * whoever holds the map — a cut reason — so it can carry `<script>`, an
+ * `onerror`, or anything else a body can hold. The panel neither sanitises it
+ * nor asks GitHub to render it: it builds React elements out of a parsed
+ * subset, and React escapes every string it is given.
  *
  * That argument is only worth anything while the escape hatch is absent from
  * the whole of `src/`. One `innerHTML` in an unrelated component and the
@@ -23,10 +23,18 @@ describe("no source file turns a string into markup", () => {
   it("the check catches every route from text to DOM", () => {
     expect(findMarkupSinks(`<div dangerouslySetInnerHTML={{ __html: body }} />`)).toHaveLength(1);
     expect(findMarkupSinks(`node.innerHTML = reason;`)).toHaveLength(1);
+    // `+=` is the same route: appending markup parses it exactly as assigning
+    // it does, and a pattern anchored on `=` alone would pass this file clean.
+    expect(findMarkupSinks(`node.innerHTML += reason;`)).toHaveLength(1);
     expect(findMarkupSinks(`el.outerHTML = rendered`)).toHaveLength(1);
+    expect(findMarkupSinks(`el.outerHTML += rendered`)).toHaveLength(1);
     expect(findMarkupSinks(`host.insertAdjacentHTML("beforeend", text)`)).toHaveLength(1);
+    // The two ways to reach a parser without ever naming `innerHTML`.
+    expect(findMarkupSinks(`host.setHTMLUnsafe(text)`)).toHaveLength(1);
+    expect(findMarkupSinks(`range.createContextualFragment(text)`)).toHaveLength(1);
     expect(findMarkupSinks(`const doc = new DOMParser().parseFromString(text, "text/html")`))
       .toHaveLength(1);
+    expect(findMarkupSinks(`const doc = Document.parseHTMLUnsafe(text)`)).toHaveLength(1);
     expect(findMarkupSinks(`document.write(text)`)).toHaveLength(1);
   });
 

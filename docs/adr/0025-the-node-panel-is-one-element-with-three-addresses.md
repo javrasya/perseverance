@@ -96,14 +96,25 @@ reason. `src/detail/detail.ts` does the same for *what it says*: the panel's joi
 and its words are a pure function of the model and the selection.
 
 **The markdown is rendered in the view, and sanitisation is structural.** The one
-markdown string on this panel — a cut's reason, lifted verbatim out of a map
-document — and the fog's region text over on The Route both go through
-`src/detail/markdown.tsx`, a subset renderer that builds **React elements and
-never an HTML string**. Raw HTML in an issue body lands on screen as its own
-characters because no parser in the path could have made an element of it: there
-is nothing to filter and therefore no filter to get wrong. Because the renderer
-owns the operator's line breaks, `.fogText` lost its `pre-wrap` — two things
-deciding where a line ends is one too many.
+markdown string this ticket renders — a cut's reason, lifted verbatim out of a
+map document — goes through `src/detail/markdown.tsx`, a subset renderer that
+builds **React elements and never an HTML string**. Raw HTML in an issue body
+lands on screen as its own characters because no parser in the path could have
+made an element of it: there is nothing to filter and therefore no filter to get
+wrong.
+
+**The renderer is the panel's, and the fog's region is not its customer.** The
+other operator prose on this side — the fog's section over on The Route — stays
+the one unmodified text node
+[ADR 0016](0016-the-fog-is-a-named-region-with-two-absences.md) decided it is,
+printed by `<pre className={styles.fogText}>` under `pre-wrap` and the mono
+face, so the operator's own indentation and blank lines are on screen as typed.
+Two reasons it is not swept in here. The subset has no nested list, so a bullet
+the operator indented would come out a sibling of its parent and the indentation
+would leave the screen — a loss ADR 0016 accepted nowhere. And the fog is #35's
+region, bounded and counted in Rust: changing what it prints is an amendment to
+ADR 0016 and belongs to a ticket that can make it, not to this one. Whether the
+fog is ever rendered as markdown is left open there.
 
 **Nothing animates on a re-dock.** Rule 9 rations motion to liveness, and a
 re-dock is a press. The three stylesheets this ticket adds contain no
@@ -186,8 +197,8 @@ and that raw HTML in the source arrives as characters.
 `tests/no-raw-html.test.ts` holds the absence of `dangerouslySetInnerHTML` and
 `innerHTML` over the whole of `src/`, so the structural claim cannot be quietly
 downgraded to a filter. `npm run check:model-purity` holds the Rust side to
-carrying text. `tests/route-view.test.tsx` asserts the fog's section renders as
-elements out of the same renderer and that the count stays the model's.
+carrying text. `tests/route-view.test.tsx` still asserts the fog's section
+reaches the DOM byte for byte, which is what holds the renderer to the panel.
 
 **The pass.** `tests/docks.test.ts` pins `effectiveDock`, `dockedElsewhere` and
 `borrowedBecause` without mounting anything. `tests/boarding-pass.test.tsx` boots
