@@ -72,7 +72,7 @@ derivation and they change under you.
 **Create, then wire.** Create an issue first, then attach it: add it to map
 #{{map_number}} as a GitHub **sub-issue** (`gh issue edit` cannot do this — use
 the sub-issue API, e.g.
-`gh api repos/{{repo}}/issues/{{map_number}}/sub_issues -f sub_issue_id=<id>`),
+`gh api --method POST repos/{{repo}}/issues/{{map_number}}/sub_issues -F sub_issue_id=<id>`),
 and record any *blocked-by* relationship as a native GitHub **dependency link**
 on the issue, never as a sentence. Parenthood is read from sub-issues and
 blocking is read from dependency links; prose saying "blocked by #12" is

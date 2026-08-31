@@ -2342,21 +2342,41 @@ const CHECKING: Duration = Duration::from_secs(6);
 /// Why a revalidation is not the fresh read a press may act on, or `None` when
 /// it is one.
 ///
-/// **Three answers, three sentences.** [`Revalidated::is_fresh`] is a single
-/// bit, and this is the one place where the difference between its three false
-/// answers is the whole of what an operator needs: a deadline that ran out, a
-/// pass that never asked anybody anything, and a read that landed and was
-/// refused are three different things to do next. Collapsing them prints *the
-/// check did not land in time* over a revoked token, which is simply false —
-/// and `docs/adr/0009`'s taxonomy exists so that the socket's note and the
-/// graph's `Degraded` condition tell the same story about the same failure.
-fn why_the_check_is_not_a_read(answer: Revalidated) -> Option<String> {
+/// **Four answers, four sentences.** [`Revalidated::is_fresh`] is a single bit,
+/// and this is the one place where the difference between its false answers is
+/// the whole of what an operator needs: a deadline that ran out, a pass that
+/// never asked anybody anything, and a read that landed and was refused are
+/// different things to do next. Collapsing them prints *the check did not land
+/// in time* over a revoked token, which is simply false — and
+/// `docs/adr/0009`'s taxonomy exists so that the socket's note and the graph's
+/// `Degraded` condition tell the same story about the same failure.
+///
+/// **`harvest_settled` splits the pass that asked nobody in two.** A
+/// [`Tick::NotAttempted`] has two sources and they are about two different
+/// machines: the poller reaches it when no map is being watched, and
+/// [`poll_once`] reaches it when this launch's token harvest has not settled,
+/// so there is nothing to read GitHub *with* yet. A Windows harvest is 1.5 to
+/// 1.9 seconds of real work, so a folder can be on screen and a press can be
+/// made while the token is still unknown — and telling that operator *no map
+/// is being watched* sends them to look at the app instead of at a launch that
+/// has not finished. The caller reads [`Ambient::token`], which is the only
+/// place that fact lives.
+fn why_the_check_is_not_a_read(answer: Revalidated, harvest_settled: bool) -> Option<String> {
     match answer {
         // The one answer a spawn is allowed to stand on.
         Revalidated::Ticked(Tick::Read(_)) => None,
         Revalidated::NotInTime => {
             Some("the check of GitHub did not land in time, so nothing was started".to_string())
         }
+        // Nothing failed and nothing was asked because this launch has not
+        // finished starting up: the harvest still owes this run a token, and a
+        // press a second later is the whole of the remedy. The sentence is
+        // about *this run* rather than about the folder, so nobody is sent to
+        // look at a map that is being watched perfectly well.
+        Revalidated::Ticked(Tick::NotAttempted) if !harvest_settled => Some(
+            "this run has not finished starting up, so nothing was checked and nothing was started"
+                .to_string(),
+        ),
         // Nothing failed and nothing was asked: no map is being watched, so the
         // pass had nothing to read. Naming a timeout here would send an
         // operator to look at their network for a state that is about the app.
@@ -2470,7 +2490,13 @@ fn start_working(
     ticket: u64,
     adapter: String,
 ) -> Started {
-    if let Some(refusal) = why_the_check_is_not_a_read(poker.revalidate(CHECKING)) {
+    // `None` is a harvest that has not settled, and it is the only thing that
+    // tells a run that has not finished starting up apart from a folder
+    // watching no map — both of which reach the gate below as the same
+    // `NotAttempted`.
+    let harvest_settled = ambient.token.get().is_some();
+    if let Some(refusal) = why_the_check_is_not_a_read(poker.revalidate(CHECKING), harvest_settled)
+    {
         return Started::refused(refusal, None);
     }
 
@@ -3425,33 +3451,45 @@ mod tests {
     }
 
     /// Every answer the awaited revalidation can give, told apart — which is
-    /// the whole point of the gate: one of these four is a spawn and the other
-    /// three are three different things to tell an operator.
+    /// the whole point of the gate: one of these five is a spawn and the other
+    /// four are four different things to tell an operator.
     #[test]
-    fn a_check_that_is_not_a_read_says_which_of_the_three_it_was() {
+    fn a_check_that_is_not_a_read_says_which_of_the_four_it_was() {
         // A read is the only answer that is not a refusal, budget or no budget.
         assert_eq!(
-            why_the_check_is_not_a_read(Revalidated::Ticked(Tick::Read(None))),
+            why_the_check_is_not_a_read(Revalidated::Ticked(Tick::Read(None)), true),
             None
         );
 
         assert_eq!(
-            why_the_check_is_not_a_read(Revalidated::NotInTime).as_deref(),
+            why_the_check_is_not_a_read(Revalidated::NotInTime, true).as_deref(),
             Some("the check of GitHub did not land in time, so nothing was started")
         );
 
         // Not a timeout and not a failure: nothing was asked, because nothing
         // is being watched.
         assert_eq!(
-            why_the_check_is_not_a_read(Revalidated::Ticked(Tick::NotAttempted)).as_deref(),
+            why_the_check_is_not_a_read(Revalidated::Ticked(Tick::NotAttempted), true).as_deref(),
             Some("no map is being watched, so there was nothing to check and nothing was started")
+        );
+
+        // The same `NotAttempted`, from the other of its two sources: the token
+        // harvest has not settled, so this launch has nothing to read GitHub
+        // with yet. Telling this operator that no map is being watched would
+        // send them to the app for a state that is one second of startup.
+        assert_eq!(
+            why_the_check_is_not_a_read(Revalidated::Ticked(Tick::NotAttempted), false).as_deref(),
+            Some(
+                "this run has not finished starting up, so nothing was checked and nothing was \
+                 started"
+            )
         );
 
         // And the read that landed and was refused names the fault, so this
         // sentence and the `Degraded` condition on the graph agree. A revoked
         // token used to print the timeout sentence above.
         assert_eq!(
-            why_the_check_is_not_a_read(Revalidated::Ticked(Tick::Failed(Fault::AuthFailed)))
+            why_the_check_is_not_a_read(Revalidated::Ticked(Tick::Failed(Fault::AuthFailed)), true)
                 .as_deref(),
             Some("GitHub would not accept this run's credentials, so nothing was started")
         );
