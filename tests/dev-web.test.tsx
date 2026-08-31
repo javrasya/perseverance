@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "../src/App";
 import { CacheStamp } from "../src/chrome/CacheStamp";
+import { DROP_REGION_HINT } from "../src/chrome/DropRegion";
 import { OVERRIDE_REFUSED_COUNSEL } from "../src/environment/folder";
 import { CONDITIONS } from "../src/chrome/stamp";
 import { MapList } from "../src/maps/MapList";
@@ -350,6 +351,20 @@ describe("dev:web", () => {
     expect(document.querySelector('[aria-label="The Route"]')).toBeNull();
     expect(text).toContain("Folders");
     expect(text).toContain(NO_MAP_OPEN);
+  });
+
+  it("puts the drop region's own words on screen when the whole window boots", async () => {
+    const text = await boot("/?map=no-map-open");
+
+    /*
+     * `drop-region.test.tsx` proves the component says this; only a mounted
+     * `App` can say that the assembled window still holds the component that
+     * says it. Drop the wrapper in `App` and every component-level test stays
+     * green while first launch shows a body with nothing telling an operator
+     * what it is for. Asserted against the exported constant so the wording
+     * exists once.
+     */
+    expect(text).toContain(DROP_REGION_HINT);
   });
 
   it("names the open map in the chrome rather than asserting there is none", async () => {
