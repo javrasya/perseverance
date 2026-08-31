@@ -392,16 +392,16 @@ export function liveCount(rows: readonly RackRow[]): number {
  *
  * #56 rations motion by the *screen* and not by this subtree: at most one
  * animated element however many runs are live. The rack is not the only surface
- * licensed to move — `Route.module.css` spends a ping on a `claimed` node, the
- * closest thing to liveness the snapshot side has — and a rack that counted only
- * its own children would meet the criterion in a subtree while the delivered
- * window animated two things at once. So the ration is arbitrated here, in one
- * function of two numbers, and the shell tells the rack whether the other
- * licence is being spent: `elsewhere` is *a licensed animation is already drawn
- * on this screen*.
+ * licensed to move — the Route draws a halo on a `claimed` row, the closest
+ * thing to liveness the snapshot side has — and a rack that counted only its
+ * own children would meet the criterion in a subtree while the delivered window
+ * animated two things at once. So the ration is arbitrated here, in one
+ * function of two facts, and the shell tells the rack which side of the window
+ * holds the licence: `elsewhere` is *the map side is drawn, and the screen's
+ * one animation is its to spend*.
  *
- * Two properties this has to keep, and both are checkable from the arithmetic
- * alone — `tests/motion-ration.test.ts` holds them:
+ * Three properties this has to keep, and all three are checkable from the
+ * arithmetic and its one input — `tests/motion-ration.test.ts` holds them:
  *
  * - **A landing never starts anything.** This is monotone in `live`: a run
  *   ending can only take the ping away, never bring it on, whatever the rest of
@@ -409,14 +409,22 @@ export function liveCount(rows: readonly RackRow[]): number {
  *   the whole arrangement exists for.
  * - **The two licences are never spent at once.** `elsewhere` suppresses this
  *   one outright rather than shortening it, so the count on screen is one or
- *   zero and never two.
+ *   zero and never two — and the Route's side of it is one element too, drawn
+ *   once for the pane by `pingOf` however many rows are claimed.
+ * - **Only a press moves `elsewhere`.** The shell derives it from which view is
+ *   open, whether the map side is worth a column and whether the view stood
+ *   down, and from nothing the snapshot carries. A claim landing on GitHub can
+ *   therefore neither stop this lamp nor start it, so a ping that ceases still
+ *   means a landing and nothing here ever starts because something ended. It is
+ *   held at the source, in `src/App.tsx`, because a boolean cannot say where it
+ *   came from.
  *
- * The rack yields rather than the Route, and that is the deliberate half: the
- * Route's ping is a view's own encoding and re-rationing it belongs to the
- * contract tickets, while the rack is chrome standing beside it. What the rack
- * loses is the movement, never the fact — the filled ring and `N of M still
- * running` say the same thing standing still, which is what a
- * `prefers-reduced-motion` window has been reading all along.
+ * The rack yields rather than the Route while the map side is up, spent licence
+ * or not: the Route's halo is a view's own encoding, and an unspent licence
+ * lent back would have to be reclaimed on arrival — which is the world moving
+ * motion again. What the rack loses is the movement, never the fact — the
+ * filled ring and `N of M still running` say the same thing standing still,
+ * which is what a `prefers-reduced-motion` window has been reading all along.
  */
 export function lampPings(live: number, elsewhere: boolean): boolean {
   return live > 0 && !elsewhere;

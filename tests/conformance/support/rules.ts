@@ -336,7 +336,11 @@ const NO_CLAIM_BESIDE =
   "this fixture renders no claimed node beside a node in another state, so no distinction here is carried by motion";
 
 const STILL_FORMS: Record<string, StillForm> = {
-  ".markClaimed::after": {
+  /* The animation's selector and not the ring's: `.markClaimed::after` draws the
+     halo on every claimed row and `.markPing::after` moves one of them, because
+     #56 rations motion by the screen. The still form is read off the row that
+     moves, which is the first claimed row on the pane. */
+  ".markPing::after": {
     applies: (at) =>
       ON_SCREEN(at) ??
       spentHere(".markClaimed::after")(at) ??

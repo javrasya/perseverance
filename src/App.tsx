@@ -1054,29 +1054,35 @@ export function App() {
      peek has to stop short of — the first being the cursor's own rows. */
   const promptShown = monitored !== null && promptFor(monitored) !== null;
   /*
-   * Whether the window's motion ration is already being spent on the map side.
+   * Whether the window's motion ration is held by the map side.
    *
    * #56 rations motion by the *screen*: at most one animated element, however
-   * many runs are live. Two surfaces are licensed to move — the Route's ping on
-   * a `claimed` node and the rack's lamp — and only this file can see both, so
-   * the arbitration is made here and handed down. The rack is the surface that
-   * yields; the Route's ping is that view's own encoding and re-rationing it
-   * belongs to the contract tickets rather than to this one.
+   * many runs are live. Two surfaces are licensed to move — the Route's halo,
+   * drawn once for the pane by `pingOf` however many rows are claimed, and the
+   * rack's lamp — and only this file can see both, so the arbitration is made
+   * here and handed down. The rack is the surface that yields.
    *
-   * Every term is a fact about what is *drawn*, and each of them moves on a
-   * press or a resize and never on an arrival: which view is open, whether the
-   * map side is worth the column, whether the view stood down — and whether the
-   * graph holds a claimed node at all, which is what decides whether that
-   * licence is being spent rather than merely available. A run landing cannot
-   * appear in this, which is what keeps a landing from ever *starting* the lamp:
-   * see `lampPings` in `src/rack/rack.ts`.
+   * **Every term is a press.** Which view is open, whether the map side is
+   * worth the column, whether the view stood down: all four move on a press or
+   * a resize, and nothing the world does is read here at all. That is the whole
+   * of the fix for the earlier reading, which asked whether the graph held a
+   * `claimed` node — a fact GitHub polling moves, and one the Route does not
+   * even animate on (`markOf` answers `destination` and `unclassified` above
+   * the state, so an assigned spec child made this true while the Route drew
+   * nothing). A claim appearing would have stopped the lamp and a ticket
+   * resolving would have started it: a ping ceasing with no landing under it,
+   * and motion beginning because something ended. #56 forbids both.
+   *
+   * So the licence goes with the surface the operator turned to rather than
+   * with what is on it: while the Route is drawn the map side holds it, spent
+   * or not, and turning the dial away hands it back to the rack. An unspent
+   * licence is not lent back, because lending it back is exactly what would put
+   * polled GitHub data in charge of the lamp. Zero animated elements is inside
+   * *at most one*; a lamp that starts on a resolution is not. See `lampPings`
+   * in `src/rack/rack.ts`.
    */
-  const claimedPingDrawn =
-    view === "route" &&
-    mapSideDraws &&
-    viewColumn &&
-    standing === null &&
-    (snapshot.model.map?.nodes.some((node) => node.state === "claimed") ?? false);
+  const rationHeldByMapSide =
+    view === "route" && mapSideDraws && viewColumn && standing === null;
 
   const onAskAgain = useCallback(() => {
     if (selectedPath === undefined) return;
@@ -1526,7 +1532,7 @@ export function App() {
                 Which run the pane shows is #57's, so nothing in the rack is
                 pressable and the monitored binding is untouched by all of it.
               */}
-              <Rack readouts={runs} spentElsewhere={claimedPingDrawn} />
+              <Rack readouts={runs} spentElsewhere={rationHeldByMapSide} />
               <Dock
                 dock="rack"
                 occupant={occupant}

@@ -155,23 +155,43 @@ other licence is not being spent, `src/App.tsx` is the one box that can see both
 surfaces and is what answers it, and both animated elements carry
 `data-animated` so the count is a query over the document.
 
-The rack is the side that yields, and the Route's `.markClaimed` is untouched:
-its per-node motion is that view's identity and re-rationing it belongs to the
-contract tickets rather than to this one. What the rack gives up is the movement
-and never the fact — the lit ring and `N of M still running` say the same thing
-standing still, which is what a `prefers-reduced-motion` window has been reading
-all along. Two properties survive the arbitration and are held to as arithmetic
-in `tests/motion-ration.test.ts`: the decision is monotone in the live count, so
-a landing can still only ever take the ping away and never start it, and no
-reading of the two facts spends both licences at once.
+The rack is the side that yields. What it gives up is the movement and never the
+fact — the lit ring and `N of M still running` say the same thing standing still,
+which is what a `prefers-reduced-motion` window has been reading all along. Three
+properties survive the arbitration and are held to as arithmetic in
+`tests/motion-ration.test.ts`: the decision is monotone in the live count, so a
+landing can still only ever take the ping away and never start it; no reading of
+the two facts spends both licences at once; and the fact the shell hands down is
+a fact about the *pressed* arrangement of the window — which view is open, how
+the dial is set, whether the view stood down — and never about the graph. That
+last one is the one this ticket got wrong first. The shell asked whether any node
+was `claimed`, which is polled GitHub data and, worse, is not even the fact the
+Route animates on: `markOf` answers `destination` and `unclassified` above the
+state, so an assigned spec child suppressed the rack's lamp against a ping nobody
+drew. Either way a claim landing would have stopped the lamp and a ticket
+resolving would have started it — a ping ceasing with no landing under it, and
+motion beginning because something ended, both of which this ticket forbids in as
+many words. So the licence goes with the surface the operator turned to rather
+than with what happens to be on it: while the Route is drawn the map side holds
+it, spent or not, and turning the dial hands it back. An unspent licence is not
+lent back, because lending it back is what would put the world in charge of the
+lamp; zero animated elements is inside *at most one*, and a lamp that starts on a
+resolution is not.
 
-The residue is named rather than buried: the Route draws one ping per claimed
-node, so a map staking several claims animates several elements — a property of
-that view from before this ticket, and the thing the contract tickets have to
-re-ration. Every checked-in fixture stakes exactly one, which is why
-`tests/dev-web.test.tsx` can count the window's animated elements and get the
-ration. What #56 settles is that the rack adds nothing to that count while the
-other licence is drawn.
+And the other half of *at most one* is that neither licence is spent per thing it
+is about. The rack's lamp is one lamp for the whole rack. The Route's halo was
+one ping per claimed row, which met the criterion only because every checked-in
+fixture stakes exactly one claim — a map staking two animated two elements, and
+`tests/dev-web.test.tsx` counted the window and saw nothing. #56 closes that
+rather than deferring it, because the criterion is this ticket's: `pingOf` in
+`src/views/route/route.ts` names the one row that moves, `.markPing::after`
+carries the animation and `.markClaimed::after` keeps the still ring on every
+claimed mark. So a second claim loses the movement and keeps the disc, the ring,
+`data-mark` and its place under *Now* — exactly what the reduced-motion window has
+been reading all along, which is why rationing the halo costs no encoding.
+`tests/route-view.test.tsx` paints a multi-claim map and counts one animated
+element; `tests/motion-ration.test.ts` counts the view's real element count
+instead of assuming it.
 
 ## Consequences
 
