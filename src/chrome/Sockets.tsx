@@ -19,7 +19,15 @@ import {
   type SocketId,
   type StartTarget,
 } from "./sockets";
-import { composeSpec, resumeWorking, startWorking, type Composed, type Started } from "./started";
+import {
+  ask,
+  composeSpec,
+  resumeWorking,
+  startWorking,
+  type Asked,
+  type Composed,
+  type Started,
+} from "./started";
 import styles from "./Sockets.module.css";
 
 interface SocketsProps {
@@ -94,6 +102,13 @@ interface SocketsProps {
  * is exactly what `null` already means to the press. The absence is widened
  * here, on this side of the seam, rather than sent across it as a field that
  * could only ever be null.
+ *
+ * `Asked` has none for the same reason and one more: an Ask press is aimed at
+ * the selection, which no frontier resolver has been through, and the command
+ * never asks the map what is takeable. So an Ask refusal re-arms on nothing and
+ * its sentence stays under its own socket until the next press answers it. One
+ * widening here for every answer that names no frontier, rather than a second
+ * helper per verb — the three would only ever say the same thing.
  */
 const reArmsOn = (answer: { detail: string; frontier?: Frontier | null }): Frontier | null =>
   answer.frontier ?? null;
@@ -201,7 +216,7 @@ export function Sockets({
   const spawning = async (
     id: SocketId,
     aim: StartTarget | null,
-    spawn: () => Promise<Started | Composed>,
+    spawn: () => Promise<Started | Composed | Asked>,
   ) => {
     setPress({ kind: "checking", socket: id });
     const answer = await spawn();
@@ -272,6 +287,15 @@ export function Sockets({
     if (folder === null || adapter === null) return;
     if (socket.id === "start" && rail.start !== null) start(rail.start, folder, adapter);
     if (socket.id === "resume" && rail.claim !== null) resume(rail.claim, folder, adapter);
+    /* Aimed at nothing, because `StartTarget` is the primary socket's own
+       discrimination — two commands behind one box — and an Ask has none to
+       make: one command, over the node the derivation already armed it on. The
+       shared tail does the two writes a spawn owes, and its `monitor` is *Ask
+       may hold the keys*: Rust bound its own monitored run inside the command,
+       so this is the declaration and not a second one. */
+    if (socket.id === "ask" && selection !== null) {
+      void spawning("ask", null, () => ask(folder, selection, adapter));
+    }
   };
 
   return (

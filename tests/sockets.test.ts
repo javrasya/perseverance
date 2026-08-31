@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   ALREADY_THERE,
   ANOTHER_MACHINE,
-  ASK_ARRIVES,
+  ASK_IS_OUT,
+  ASK_LABEL,
   CHECKING_LABEL,
   CLAIM_ELSEWHERE,
   COMPOSE_LABEL,
@@ -10,9 +11,12 @@ import {
   NO_ADAPTER,
   NO_FOLDER_OPEN,
   NO_MAP_OPEN,
+  NO_MAP_TO_ASK_ABOUT,
+  NO_NODE_SELECTED,
   NOTHING_SELECTED,
   NOT_A_CLAIM,
   NOT_A_TICKET,
+  notOnThisMap,
   ONLY_ADAPTER,
   RESUME_IS_OUT,
   RESUME_LABEL,
@@ -166,12 +170,166 @@ describe("the rail", () => {
     }
   });
 
-  it("keeps Ask recessed with its condition printed and no behaviour", () => {
-    const ask = socketOf("ask");
+});
 
-    expect(ask.fill).toBe("recessed");
-    expect(ask.condition).toBe(ASK_ARRIVES);
+/**
+ * Ask, as arithmetic.
+ *
+ * #55's own claim, and the whole of it: a question claims nothing, so nothing
+ * about another run refuses it. The tests that matter here are the ones that
+ * would catch a gate creeping in later — a node the other two spawning sockets
+ * turn away is a node this one fills on, and a live run of any kind on the map
+ * is nothing to it. What is left recessing it are the honest conditions:
+ * something to ask about, somewhere to ask it, and something to ask it with.
+ */
+describe("Ask", () => {
+  /** A node on the open map, and nothing more than that: no kind, no claim. */
+  const ASKABLE: Partial<Crossing> = { selection: 41, selectionReads: "takeable" };
+
+  it("fills on the selected node, and is aimed at the selection", () => {
+    const ask = socketOf("ask", ASKABLE);
+
+    expect(ask.label).toBe(ASK_LABEL);
+    expect(ask.fill).toBe("filled");
+    expect(ask.condition).toBeNull();
+    expect(pressable(ask)).toBe(true);
+    /* The selection and never a ticket or the frontier: Ask acts on the node
+       the operator pointed at, while Start Working is armed on #75 beside it. */
+    expect(ask.aimedAt).toBe(41);
+    expect(railAt(crossing(ASKABLE)).target).toBe(75);
+  });
+
+  it("fills on every node the other two spawning sockets turn away", () => {
+    const turned: Partial<Crossing>[] = [
+      // An unclassified child: no `wayfinder:` label and so no brief for a work
+      // run — and the node an operator most needs to be able to ask about.
+      { selection: 41, selectionReads: "takeable", selectionIsTicket: false },
+      // The map's own spec node, assigned and reading `claimed` for it.
+      { selection: 28, selectionReads: "claimed", selectionIsTicket: false },
+      // A claim with an open blocker in its way.
+      { selection: 41, selectionReads: "blocked", selectionIsTicket: true },
+      // A ticket labelled for another machine. Nothing is being launched at it,
+      // so the label that says who may launch has nothing to say to a question.
+      {
+        selection: 41,
+        selectionReads: "claimed",
+        selectionIsTicket: true,
+        selectionBoundElsewhere: true,
+      },
+    ];
+
+    for (const node of turned) {
+      expect(socketOf("resume", node).fill).toBe("recessed");
+      expect(socketOf("ask", node).fill).toBe("filled");
+      expect(socketOf("ask", node).condition).toBeNull();
+      expect(socketOf("ask", node).aimedAt).toBe(node.selection);
+    }
+
+    /* And a map with nothing takeable left on it, which is the one reading
+       Start Working cannot be armed through. A finished map is exactly where a
+       question is what is left to have. */
+    const nothingTakeable: Partial<Crossing> = {
+      ...ASKABLE,
+      frontier: { frontier: "nothingToStart" },
+    };
+    expect(socketOf("start", nothingTakeable).fill).toBe("recessed");
+    expect(socketOf("ask", nothingTakeable).fill).toBe("filled");
+  });
+
+  it("is untouched by the map's rung, by a compose that is going, and by the frontier", () => {
+    for (const phase of ["done", "unstarted", "wayfinding", "specced", "specReady"] as const) {
+      expect(socketOf("ask", { ...ASKABLE, phase }).fill).toBe("filled");
+    }
+    // A compose run open on this very map is a run this press collides with
+    // nothing of: `wayfinder:spec` is a node, and a question attaches none.
+    expect(socketOf("ask", { ...ASKABLE, composing: 28 }).fill).toBe("filled");
+    // And the frontier is not read at all — the map's number is what says
+    // whether there is anything to ask about.
+    expect(socketOf("ask", { ...ASKABLE, frontier: null }).fill).toBe("filled");
+  });
+
+  it("recesses on the honest conditions, in the order they are met", () => {
+    expect(socketOf("ask", { ...ASKABLE, map: null }).condition).toBe(NO_MAP_TO_ASK_ABOUT);
+    expect(socketOf("ask").condition).toBe(NO_NODE_SELECTED);
+    /* `selectionReads` is `null` for a node that is not a child of the open
+       map, which is Rust's `#N is not on map #M` refused before the press. */
+    expect(socketOf("ask", { selection: 41, selectionReads: null }).condition).toBe(
+      notOnThisMap(41),
+    );
+    expect(socketOf("ask", { ...ASKABLE, folder: null }).condition).toBe(NO_FOLDER_OPEN);
+    expect(socketOf("ask", { ...ASKABLE, environment: null }).condition).toBe(STILL_READING);
+    expect(
+      socketOf("ask", { ...ASKABLE, environment: readout([], { kind: "harvesting" }) }).condition,
+    ).toBe(STILL_READING);
+    expect(socketOf("ask", { ...ASKABLE, environment: readout([]) }).condition).toBe(NO_ADAPTER);
+    expect(
+      socketOf("ask", { ...ASKABLE, press: { kind: "checking", socket: "start" } }).condition,
+    ).toBe(START_IS_OUT);
+    expect(
+      socketOf("ask", { ...ASKABLE, press: { kind: "checking", socket: "resume" } }).condition,
+    ).toBe(RESUME_IS_OUT);
+
+    // Recessed, and never anything but recessed while it has one to print.
+    expect(socketOf("ask", { ...ASKABLE, folder: null }).fill).toBe("recessed");
+    expect(pressable(socketOf("ask", { ...ASKABLE, folder: null }))).toBe(false);
+
+    /* The more particular answer wins, in both directions: no map is said in
+       front of no node and in front of no folder, and a selection that is not
+       on this map is said in front of what the folder resolved. */
+    expect(socketOf("ask", { map: null, folder: null }).condition).toBe(NO_MAP_TO_ASK_ABOUT);
+    expect(socketOf("ask", { folder: null }).condition).toBe(NO_NODE_SELECTED);
+    expect(
+      socketOf("ask", { selection: 41, selectionReads: null, environment: readout([]) }).condition,
+    ).toBe(notOnThisMap(41));
+    // And the transient one is last: a socket with no folder under it says so
+    // whether or not somebody else's press is out.
+    expect(
+      socketOf("ask", {
+        ...ASKABLE,
+        folder: null,
+        press: { kind: "checking", socket: "start" },
+      }).condition,
+    ).toBe(NO_FOLDER_OPEN);
+  });
+
+  it("wears `checking…` on its own press and names it on the two beside it", () => {
+    const asking: Press = { kind: "checking", socket: "ask" };
+    const out = { ...CLAIMED, press: asking };
+    const ask = socketOf("ask", out);
+
+    expect(ask.label).toBe(CHECKING_LABEL);
+    expect(ask.fill).toBe("checking");
+    // The condition to press it is met, so there is none to print.
+    expect(ask.condition).toBeNull();
+    expect(ask.aimedAt).toBe(41);
     expect(pressable(ask)).toBe(false);
+
+    /* One crossing sends one command at a time — a rule about presses and not
+       about runs, which is why it can sit beside "nothing about another run
+       refuses it" without contradicting it. */
+    expect(socketOf("start", out).condition).toBe(ASK_IS_OUT);
+    expect(socketOf("resume", out).condition).toBe(ASK_IS_OUT);
+    // To Frontier sends no command, so a press in flight is nothing to it.
+    expect(socketOf("toFrontier", out).fill).toBe("filled");
+  });
+
+  it("prints its refusal under its own socket, and re-arms on nothing", () => {
+    const refused: Press = {
+      kind: "refused",
+      socket: "ask",
+      detail: "#41 is not on map #28, so there is nothing here to ask about",
+      frontier: null,
+    };
+    const rail = railAt(crossing({ ...ASKABLE, press: refused }));
+
+    expect(rail.sockets[2]?.note).toBe(refused.detail);
+    expect(rail.sockets[0]?.note).toBeNull();
+    expect(rail.sockets[1]?.note).toBeNull();
+    /* An Ask refusal names no frontier — the command never asked the map what
+       was takeable — so the target the snapshot gave is the target still, and
+       the sentence stays until the next press answers it. */
+    expect(rail.target).toBe(75);
+    expect(rail.sockets[2]?.fill).toBe("filled");
   });
 });
 

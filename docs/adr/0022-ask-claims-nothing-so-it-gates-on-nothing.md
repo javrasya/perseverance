@@ -80,3 +80,40 @@ A finding an Ask session makes comes back as a sentence in the reply, never as a
 write. That costs the operator a hop — they press Start Working, or file the
 ticket themselves — and it buys the property the whole harness rests on: every
 resolution on the map has a session behind it that claimed it.
+
+## The socket
+
+Ask is the third **spawning** socket on a rail that is four boxes in one fixed
+order (ADR 0021). It arrived as a real button rather than as a fifth box,
+because a socket that appears when its ticket lands is a rail that changes shape
+under a hand.
+
+Its conditions are the honest ones and only those, in the order an operator
+meets them: no map is open, nothing is selected, the selection is not on the
+open map, no folder is open, that folder is still being read, and no agent CLI
+was found in it. The first is read off `model.map.number` and never off the
+frontier — asking the frontier whether there is a map would borrow the answer to
+*is there a takeable ticket*, and would darken Ask on exactly the finished map
+where a question is what is left to have. The third is Rust's `#N is not on map
+#M` said in front of the press rather than bought with one.
+
+What is **absent** is the decision above, written into the derivation. The
+selection's kind is not read, so the spec node and an unclassified child are
+askable. The label that binds a node to another machine is not read, because
+nothing is being launched at it. The node's state is not read for what it says —
+only for whether the node is on this map at all — because a run that takes no
+claim has nothing for `claimed` or `blocked` to refuse. The rung, the frontier
+and a compose already open are not read, and neither are the live runs: there is
+no ceiling here and no queue. A reader who finds one of those facts back in
+`askSocket` is looking at the GitHub invariant leaking into a socket that is
+outside it.
+
+The one rule that does reach the socket is about **presses** and not runs: one
+crossing sends one command at a time, so an Ask press in flight recesses the two
+spawning sockets beside it with `ASK_IS_OUT`, exactly as theirs recess Ask. That
+is the rail refusing to send a second command from one hand, and it is not a
+gate on Ask — the moment the answer lands, the socket is filled again over
+whatever run is still going.
+
+A successful press binds the monitor on this side too, which is the keyboard
+invariant declared where the operator can see it: the keys follow the question.
