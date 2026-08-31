@@ -49,6 +49,10 @@ const WORK_TICKET: &str = include_str!("prompts/work-ticket.md");
 /// templates that have not been split yet.
 const CHART: &str = include_str!("prompts/chart.md");
 
+/// The brief for a map whose tickets are all closed, which composes the map's
+/// one specification document.
+const COMPOSE_SPEC: &str = include_str!("prompts/compose-spec.md");
+
 /// The override's file name, resolved against `app_data_dir()`.
 ///
 /// **A file beside the registry, not a row in the store's `app` table**, and
@@ -62,6 +66,13 @@ pub const WORK_TICKET_OVERRIDE_FILE: &str = "work-ticket.md";
 
 /// The charting override's file name, read on exactly the same terms.
 pub const CHART_OVERRIDE_FILE: &str = "chart.md";
+
+/// The `compose-spec` override, beside its neighbour and read the same way.
+///
+/// One file per template rather than one file of everything: an operator whose
+/// wording is wrong for their repository is usually wrong about *one* job, and
+/// a single blob would make them restate the other briefs to change this one.
+pub const COMPOSE_SPEC_OVERRIDE_FILE: &str = "compose-spec.md";
 
 /// Where the work is. Every field is a coordinate the agent can read its own
 /// way in from, plus the ticket's question, which is the one piece of map
@@ -101,6 +112,24 @@ pub struct Bearings {
     pub idea: String,
 }
 
+/// Where the work is when the work is the *map* and not a ticket in it.
+///
+/// A second struct rather than a [`Coordinates`] with four fields left empty:
+/// composing a spec has no ticket, no ticket title and no question, and a
+/// placeholder ticket rendered into a brief is a coordinate pointing at nothing
+/// — the session would read it and go somewhere. What a template cannot be
+/// given, it cannot leak.
+#[derive(Debug, Clone)]
+pub struct MapCoordinates {
+    /// `owner/name`.
+    pub repo: String,
+    pub map_number: u64,
+    pub map_url: String,
+    /// The operator's GitHub login, which is who the seam sketch goes to before
+    /// the document is written.
+    pub operator: String,
+}
+
 /// Which text a run was spawned from.
 ///
 /// It reaches the terminal's collapsed prompt block, and it is the whole reason
@@ -129,9 +158,14 @@ pub struct Rendered {
 /// No conditionals and no loops: a template that wants a conditional is two
 /// templates that have not been split yet. The workspace has no templating
 /// dependency and gains none for this.
-fn fill(template: &str, values: &[(&str, &str)]) -> String {
-    values
-        .iter()
+///
+/// Each template substitutes from the coordinates it has and no others, so a
+/// name a template's own coordinates cannot supply survives as `{{name}}` and
+/// the conformance tests catch it — rather than resolving to a blank that reads
+/// as a real, empty answer.
+fn fill(template: &str, bindings: &[(&str, &str)]) -> String {
+    std::iter::once(("{{revision}}", WAYFINDER_REVISION))
+        .chain(bindings.iter().copied())
         .fold(template.to_string(), |text, (name, value)| {
             text.replace(name, value)
         })
@@ -168,6 +202,11 @@ pub fn work_ticket_override(app_data_dir: &Path) -> Option<String> {
 /// The charting override, on exactly the terms argued above.
 pub fn chart_override(app_data_dir: &Path) -> Option<String> {
     written_beside(app_data_dir, CHART_OVERRIDE_FILE)
+}
+
+/// The `compose-spec` override, on the same terms as its neighbour.
+pub fn compose_spec_override(app_data_dir: &Path) -> Option<String> {
+    written_beside(app_data_dir, COMPOSE_SPEC_OVERRIDE_FILE)
 }
 
 fn written_beside(app_data_dir: &Path, file: &str) -> Option<String> {
@@ -210,6 +249,22 @@ pub fn chart(overriding: Option<&str>, at: &Bearings) -> Rendered {
             ("{{repo_url}}", at.repo_url.as_str()),
             ("{{operator}}", at.operator.as_str()),
             ("{{idea}}", at.idea.as_str()),
+        ],
+    )
+}
+
+/// The `compose-spec` prompt, on the same terms, from map coordinates only.
+pub fn compose_spec(overriding: Option<&str>, at: &MapCoordinates) -> Rendered {
+    let map_number = at.map_number.to_string();
+
+    rendered(
+        overriding,
+        COMPOSE_SPEC,
+        &[
+            ("{{repo}}", at.repo.as_str()),
+            ("{{map_number}}", map_number.as_str()),
+            ("{{map_url}}", at.map_url.as_str()),
+            ("{{operator}}", at.operator.as_str()),
         ],
     )
 }
@@ -521,7 +576,6 @@ mod tests {
         ] {
             assert!(rendered.text.contains(bearing), "{bearing} is missing");
         }
-
         assert!(
             !rendered.text.contains("{{"),
             "a placeholder went unsubstituted"
@@ -552,7 +606,189 @@ mod tests {
             1,
             "the chart prompt has grown a second sense of the frontier"
         );
+        assert_eq!(rendered.origin, Origin::Stock);
+        assert_eq!(rendered.characters, rendered.text.chars().count());
+    }
 
+    /* ------------------------------------------------------ compose-spec --- */
+
+    fn a_map() -> MapCoordinates {
+        MapCoordinates {
+            repo: "javrasya/perseverance".to_string(),
+            map_number: 28,
+            map_url: "https://github.com/javrasya/perseverance/issues/28".to_string(),
+            operator: "javrasya".to_string(),
+        }
+    }
+
+    /// **The conformance check for `compose-spec`.**
+    ///
+    /// The same argument as its neighbour above, one template over: reword any
+    /// sentence freely, but stop instructing the sub-issue API and the spec is
+    /// an orphan issue the map never sees; stop instructing the label and the
+    /// map never reaches `Specced`; stop instructing the spill and a document
+    /// past the body limit comes back truncated, or as a second issue that
+    /// makes `wayfinder:spec` a set. None of those fail loudly at runtime.
+    #[test]
+    fn the_compose_spec_template_still_instructs_the_four_harness_rules() {
+        let text = compose_spec(None, &a_map()).text;
+
+        assert!(
+            DERIVE.contains("\"spec\" =>"),
+            "crates/model no longer classifies a spec child, so the template teaches a label \
+             nothing reads"
+        );
+        assert!(
+            text.contains(&format!("{WAYFINDER_PREFIX}spec")),
+            "the template no longer names {WAYFINDER_PREFIX}spec, so the composed spec is a \
+             child the map cannot classify"
+        );
+        assert!(
+            text.contains(&format!("gh label create {WAYFINDER_PREFIX}spec")),
+            "the template no longer has the run create the label, so composing into a repository \
+             that lacks it fails at the last step"
+        );
+
+        // Rule 1. Attachment is the sub-issue API and never an edit, so the
+        // command is asserted and not only the word.
+        assert!(
+            text.contains("sub-issue"),
+            "the template no longer says the spec is attached as a sub-issue"
+        );
+        assert!(
+            text.contains("/sub_issues"),
+            "the template no longer names the sub-issue API, and `gh issue edit` cannot attach"
+        );
+        assert!(
+            text.contains("ready-for-agent"),
+            "the template no longer applies the triage label /to-spec applies"
+        );
+
+        // Rule 2. The index routes; a structure is opened and a measurement is
+        // trusted.
+        assert!(
+            text.contains("routing table"),
+            "the template no longer says the map's index is a routing table rather than the input"
+        );
+        assert!(
+            text.contains("compresses without loss and a structure does not"),
+            "the template no longer carries the structure-versus-measurement test, and a session \
+             either opens every child or none"
+        );
+
+        // Rule 3. Past the limit, spill — never truncate, never split.
+        assert!(
+            text.contains("65,536"),
+            "the template no longer names GitHub's body limit"
+        );
+        for rule in [
+            "**Never truncate.**",
+            "**Never split into several issues.**",
+            "**one issue**",
+            "--comments",
+        ] {
+            assert!(
+                text.contains(rule),
+                "the template no longer instructs {rule} as part of spilling past the body limit"
+            );
+        }
+
+        // Rule 4.
+        assert!(
+            text.contains("Enumerate the sources you did not read."),
+            "the template no longer requires the document to name what it did not open"
+        );
+
+        // The three sentences the ticket pins: HITL, greenfield, one run.
+        assert!(
+            text.contains("human-in-the-loop"),
+            "the template no longer says the run is HITL"
+        );
+        assert!(
+            text.contains("before the document is written"),
+            "the seam check no longer precedes the document, which is the whole reason it is HITL"
+        );
+        assert!(
+            text.contains("greenfield"),
+            "the template no longer tells a greenfield spec to derive seams from its own module \
+             boundaries"
+        );
+        for once in [
+            "**This is one run.**",
+            "no staged outline",
+            "per-area passes",
+        ] {
+            assert!(
+                text.contains(once),
+                "the template no longer forbids {once}, and composing becomes a multi-pass job"
+            );
+        }
+    }
+
+    /// The copied `/to-spec` document shape. `/to-spec` itself is never read at
+    /// runtime and never modified; this is the copy, and drift here is a spec
+    /// missing a section its readers expect.
+    #[test]
+    fn the_compose_spec_template_carries_the_spec_document_section_for_section() {
+        let text = compose_spec(None, &a_map()).text;
+
+        for heading in [
+            "## Problem Statement",
+            "## Solution",
+            "## User Stories",
+            "## Implementation Decisions",
+            "## Testing Decisions",
+            "## Out of Scope",
+            "## Further Notes",
+        ] {
+            assert!(
+                text.contains(heading),
+                "the copied spec template no longer asks for {heading}"
+            );
+        }
+        assert!(
+            text.contains("As an <actor>, I want a <feature>, so that <benefit>"),
+            "the user-story form is gone, and a numbered list of anything would satisfy the brief"
+        );
+    }
+
+    /// Map coordinates and nothing below them: composing targets the map, so a
+    /// ticket number rendered here would be a coordinate pointing at nothing.
+    #[test]
+    fn the_compose_spec_prompt_carries_the_map_and_no_ticket() {
+        let rendered = compose_spec(None, &a_map());
+
+        for coordinate in [
+            "javrasya/perseverance",
+            "#28",
+            "https://github.com/javrasya/perseverance/issues/28",
+            "@javrasya",
+        ] {
+            assert!(
+                rendered.text.contains(coordinate),
+                "{coordinate} is missing"
+            );
+        }
+
+        assert!(
+            rendered
+                .text
+                .lines()
+                .next()
+                .expect("a header line")
+                .contains(WAYFINDER_REVISION),
+            "the header no longer declares the wayfinder revision it derives from"
+        );
+        assert!(
+            !rendered.text.contains("{{"),
+            "a placeholder went unsubstituted"
+        );
+        assert!(
+            rendered
+                .text
+                .contains("Read the live issues with `gh` yourself."),
+            "the template no longer says the harness's own reading of the map is withheld"
+        );
         assert_eq!(rendered.origin, Origin::Stock);
         assert_eq!(rendered.characters, rendered.text.chars().count());
     }
@@ -583,6 +819,43 @@ mod tests {
 
         // The two overrides are separate files, so the one beside it is
         // untouched by either write above.
+        assert!(work_ticket_override(dir.path()).is_none());
+        assert!(compose_spec_override(dir.path()).is_none());
+    }
+
+    #[test]
+    fn a_compose_spec_override_is_the_whole_prompt_and_an_unreadable_one_is_absent() {
+        let dir = tempfile::tempdir().expect("a temporary directory");
+
+        assert!(compose_spec_override(dir.path()).is_none());
+
+        let file = dir.path().join(COMPOSE_SPEC_OVERRIDE_FILE);
+        std::fs::write(&file, "   \n\t\n").expect("writes");
+        assert!(
+            compose_spec_override(dir.path()).is_none(),
+            "a blank override is absent, not an empty prompt"
+        );
+
+        // The ticket name is left in deliberately: this template substitutes
+        // from map coordinates only, so a name it cannot supply stays visible
+        // rather than resolving to a blank that reads as an answer.
+        std::fs::write(
+            &file,
+            "Compose for #{{map_number}} in {{repo}}, not #{{ticket_number}}.",
+        )
+        .expect("writes");
+        let custom = compose_spec_override(dir.path()).expect("an override");
+        let rendered = compose_spec(Some(&custom), &a_map());
+
+        assert_eq!(
+            rendered.text,
+            "Compose for #28 in javrasya/perseverance, not #{{ticket_number}}."
+        );
+        assert_eq!(rendered.origin, Origin::Custom);
+        assert_eq!(rendered.characters, rendered.text.chars().count());
+
+        // And the two overrides are separate files: writing one leaves the
+        // other's prompt on the compiled-in text.
         assert!(work_ticket_override(dir.path()).is_none());
     }
 }
