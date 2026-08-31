@@ -44,7 +44,8 @@
 .quiet,
 .wedged,
 .signal,
-.ready {
+.ready,
+.spill {
   display: inline-flex;
   align-items: baseline;
   gap: var(--s-space-hair);
@@ -120,6 +121,21 @@
   --c-ready-ink: var(--s-live);
 
   color: var(--c-ready-ink);
+}
+
+/*
+ * The operator's own keystrokes, caught after the run ended.
+ *
+ * Primary ink, like the two other readings that want somebody: these are words
+ * a person typed and expected to have sent, and a faint line saying so would be
+ * a recovery nobody notices they were offered. Ink rather than a hue, for the
+ * reason the rest of this file gives — there is no alarm colour in the semantic
+ * tier, and this is not an alarm.
+ */
+.spill {
+  --c-spill-ink: var(--s-ink-primary);
+
+  color: var(--c-spill-ink);
 }
 
 /*

@@ -5,6 +5,7 @@ import { monitor, useUi } from "../stores/ui";
 import { promptFor } from "./prompts";
 import { PromptBlock } from "./PromptBlock";
 import { endRun, type RunReadout, type RunSignal } from "./runs";
+import { forgetSpill, useSpill, type Spill } from "./spill";
 import type { Terminals } from "./terminals";
 import styles from "./Pane.module.css";
 
@@ -114,6 +115,35 @@ export const SIGNAL_READINGS: Record<RunSignal, string> = {
   idle: "idle",
 };
 
+/**
+ * What the spill register caught, as an observation.
+ *
+ * Two facts and the words themselves: that they were typed after this run
+ * ended, and that they were held rather than sent. Neither is a guess about the
+ * child — this side watched the keys arrive and watched itself not send them,
+ * which makes this the one reading on the chrome the app has first-hand
+ * knowledge of.
+ *
+ * It is a line beside the terminal like every other reading here, and for the
+ * same reasons: not a modal, because nothing has happened that needs answering
+ * and a dismissal is not what the operator wants to spend the moment on; not a
+ * toast, because a toast is a fact with a timer on it and these are the
+ * operator's own words; and never written into the terminal buffer, where it
+ * would be indistinguishable afterwards from something the agent printed.
+ *
+ * Nothing moves. The count changes as more is typed, and a changing number is a
+ * still state at every value it takes — rule 12 asks for a still-state
+ * equivalent of anything motion carries, and a reading that never animates
+ * never incurs one.
+ */
+export const SPILL_READING = "typed after this run ended, and held rather than sent";
+
+export function spillSentence(spill: Spill | null): string | null {
+  if (spill === null) return null;
+  const counted = `${spill.characters} character${spill.characters === 1 ? "" : "s"}`;
+  return `${SPILL_READING} · ${counted} — “${spill.text}”`;
+}
+
 export function Pane({
   terminals,
   readouts,
@@ -201,6 +231,7 @@ export function Pane({
   const sentence = readout === null ? null : endingSentence(readout);
   const silence = readout === null ? null : silenceSentence(readout);
   const signal = readout === null || readout.signal === null ? null : readout.signal;
+  const spill = spillSentence(useSpill(monitored));
 
   /*
    * The press, and the only thing in this app that ends a run.
@@ -215,10 +246,17 @@ export function Pane({
    * terminal of a session Rust still believes is being watched; `monitor(null)`
    * comes last, because a pane still bound to a run the harness has dropped
    * would be a frame claiming a run that no longer exists.
+   *
+   * It is also the one place the caret ever leaves a run. A child that stopped
+   * does not move it — that is the parking rule, and this press is the exception
+   * the rule is stated against: a person saying they are done reading. The spill
+   * register goes the way the terminal does and in the same breath, because what
+   * a run held means nothing once the run is gone.
    */
   const end = async (run: number) => {
     await endRun(run);
     terminals.forget(run);
+    forgetSpill(run);
     monitor(null);
   };
 
@@ -264,6 +302,7 @@ export function Pane({
               {sentence}
             </span>
           )}
+          {spill === null ? null : <span className={styles.spill}>{spill}</span>}
           {/*
             Offered on every ending but `live`, and it is a real button rather
             than a click handler on the sentence: the ending is a fact and this
