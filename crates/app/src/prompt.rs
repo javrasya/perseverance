@@ -40,6 +40,17 @@ pub const WAYFINDER_REVISION: &str = "2026.1";
 /// else.
 const WORK_TICKET: &str = include_str!("prompts/work-ticket.md");
 
+/// The template a research session is spawned from.
+///
+/// **Its own template rather than a flag on the one above**, because research
+/// differs in the two dimensions a prompt controls that no substitution can
+/// express: nobody is at the keyboard, so it carries the rule the others must
+/// never carry — never wait for input — and it runs in a worktree on a branch of
+/// its own, so it has to commit, push and link that branch or the whole artifact
+/// of the run dies with the process. A conditional over those is two templates
+/// that have not been split yet.
+const WORK_TICKET_RESEARCH: &str = include_str!("prompts/work-ticket-research.md");
+
 /// The template a charting session is spawned from.
 ///
 /// **Its own template rather than a mode of the one above**, because the two
@@ -73,6 +84,13 @@ const ASK: &str = include_str!("prompts/ask.md");
 /// value nobody will ever set. The read tolerates failure the same way its
 /// neighbour does: unreadable or blank is *no override*, never a refusal.
 pub const WORK_TICKET_OVERRIDE_FILE: &str = "work-ticket.md";
+
+/// The research override's file name, read on exactly the same terms.
+///
+/// A file of its own and not a section of `work-ticket.md`: an operator whose
+/// wording is wrong for a research run has said nothing about a work run, and
+/// one blob would make them restate the one to change the other.
+pub const WORK_TICKET_RESEARCH_OVERRIDE_FILE: &str = "work-ticket-research.md";
 
 /// The charting override's file name, read on exactly the same terms.
 pub const CHART_OVERRIDE_FILE: &str = "chart.md";
@@ -233,6 +251,11 @@ pub fn work_ticket_override(app_data_dir: &Path) -> Option<String> {
     written_beside(app_data_dir, WORK_TICKET_OVERRIDE_FILE)
 }
 
+/// The research override, on exactly the terms argued above.
+pub fn work_ticket_research_override(app_data_dir: &Path) -> Option<String> {
+    written_beside(app_data_dir, WORK_TICKET_RESEARCH_OVERRIDE_FILE)
+}
+
 /// The charting override, on exactly the terms argued above.
 pub fn chart_override(app_data_dir: &Path) -> Option<String> {
     written_beside(app_data_dir, CHART_OVERRIDE_FILE)
@@ -262,6 +285,34 @@ pub fn work_ticket(overriding: Option<&str>, at: &Coordinates) -> Rendered {
     rendered(
         overriding,
         WORK_TICKET,
+        &[
+            ("{{revision}}", WAYFINDER_REVISION),
+            ("{{repo}}", at.repo.as_str()),
+            ("{{map_number}}", map_number.as_str()),
+            ("{{map_url}}", at.map_url.as_str()),
+            ("{{ticket_number}}", ticket_number.as_str()),
+            ("{{ticket_url}}", at.ticket_url.as_str()),
+            ("{{ticket_title}}", at.ticket_title.as_str()),
+            ("{{operator}}", at.operator.as_str()),
+            ("{{question}}", at.question.as_str()),
+        ],
+    )
+}
+
+/// The `work-ticket-research` prompt, on the same terms and from the same
+/// [`Coordinates`].
+///
+/// The same coordinate struct and not a second one: a research press has a
+/// ticket, a title and a question like every other press — what differs is the
+/// prose, which is the whole reason the template is separate and the whole
+/// reason nothing else here has to be.
+pub fn work_ticket_research(overriding: Option<&str>, at: &Coordinates) -> Rendered {
+    let map_number = at.map_number.to_string();
+    let ticket_number = at.ticket_number.to_string();
+
+    rendered(
+        overriding,
+        WORK_TICKET_RESEARCH,
         &[
             ("{{revision}}", WAYFINDER_REVISION),
             ("{{repo}}", at.repo.as_str()),
@@ -509,6 +560,197 @@ mod tests {
         assert_eq!(rendered.text, "Work #48 in javrasya/perseverance.");
         assert_eq!(rendered.origin, Origin::Custom);
         assert_eq!(rendered.characters, 34);
+    }
+
+    /* -------------------------------------------- work-ticket-research --- */
+
+    /// **The conformance check, for the brief nobody is watching.**
+    ///
+    /// The same argument as its neighbour above, one template over: a research
+    /// run writes to the same map, through the same structures, and stops
+    /// instructing any of them exactly as silently. It is asserted separately
+    /// rather than in a loop over both, because the day one template's rules
+    /// diverge from the other's this test is where the divergence gets argued.
+    #[test]
+    fn the_research_template_still_instructs_every_structure_the_parser_reads() {
+        for kind in ["research", "prototype", "grilling", "task", "spec"] {
+            assert!(
+                DERIVE.contains(&format!("\"{kind}\" =>")),
+                "crates/model no longer classifies {kind:?}, so the template teaches a label \
+                 nothing reads"
+            );
+            assert!(
+                WORK_TICKET_RESEARCH.contains(&format!("{WAYFINDER_PREFIX}{kind}")),
+                "the research template no longer names {WAYFINDER_PREFIX}{kind}, so a research \
+                 run can create a child the map cannot classify"
+            );
+        }
+
+        assert!(
+            WORK_TICKET_RESEARCH.contains(FOG_HEADING),
+            "the research template no longer names the literal fog heading, and the parser \
+             matches no other spelling"
+        );
+        assert!(
+            WORK_TICKET_RESEARCH.contains(OUT_OF_SCOPE_HEADING),
+            "the research template no longer names the literal out-of-scope heading, and the \
+             parser matches no other spelling"
+        );
+        assert!(
+            WORK_TICKET_RESEARCH.contains("link to the issue it cuts"),
+            "the research template no longer requires an issue link in an out-of-scope bullet"
+        );
+
+        assert!(
+            WORK_TICKET_RESEARCH.contains("sub-issue"),
+            "the research template no longer says children are attached as sub-issues"
+        );
+        assert!(
+            WORK_TICKET_RESEARCH.contains("dependency link"),
+            "the research template no longer says blocking is recorded as a native dependency \
+             link"
+        );
+        assert!(
+            WORK_TICKET_RESEARCH.contains("never as a sentence"),
+            "the research template no longer forbids recording blocking as prose"
+        );
+
+        for act in ["**Comment**", "**Close**", "**Index line**"] {
+            assert!(
+                WORK_TICKET_RESEARCH.contains(act),
+                "the research template no longer instructs {act} as part of resolving a ticket"
+            );
+        }
+
+        for branch in [
+            "**Unassigned**",
+            "**Assigned to @{{operator}}**",
+            "**Assigned to anyone else**",
+        ] {
+            assert!(
+                WORK_TICKET_RESEARCH.contains(branch),
+                "step 1 of the research brief no longer offers {branch}"
+            );
+        }
+        assert!(WORK_TICKET_RESEARCH.contains("read the ticket's existing comments"));
+    }
+
+    /// **The rule that must live in exactly one template.**
+    ///
+    /// It is what makes a research run AFK — `RunKind::unattended` is only true
+    /// because this sentence is here — and it is ruinous anywhere else: a work
+    /// or compose run told never to wait would answer the operator's own
+    /// questions on their behalf and finish on a guess.
+    #[test]
+    fn only_the_research_brief_forbids_waiting_for_input() {
+        for said in [
+            "Never wait for input",
+            "record the uncertainty in the findings and resolve anyway",
+        ] {
+            assert!(
+                WORK_TICKET_RESEARCH.contains(said),
+                "the research brief no longer says {said:?}, so an unattended run may stop at a \
+                 question nobody is coming to answer"
+            );
+            for attended in [WORK_TICKET, COMPOSE_SPEC, CHART] {
+                assert!(
+                    !attended.contains(said),
+                    "an attended brief has grown the never-wait rule ({said:?}), which is the \
+                     one rule only a run with nobody at the keyboard may be given"
+                );
+            }
+        }
+
+        // The escape the research brief replaces: a run nobody is watching may
+        // not leave the ticket open, because nobody will come back to it.
+        assert!(
+            WORK_TICKET.contains("leave the ticket open"),
+            "the work brief no longer offers the escape research deliberately drops"
+        );
+        assert!(
+            !WORK_TICKET_RESEARCH.contains("leave the ticket open"),
+            "the research brief has grown the escape only an attended run may take"
+        );
+    }
+
+    /// The other half of what makes this template its own: the run's output is
+    /// a branch, and a branch nobody pushed is a branch that never existed —
+    /// the worktree goes with the process.
+    #[test]
+    fn the_research_brief_commits_pushes_and_links_the_branch_it_was_given() {
+        let text = work_ticket_research(None, &somewhere()).text;
+
+        assert!(
+            text.contains("its own git worktree"),
+            "the research brief no longer says the session is in a worktree"
+        );
+        assert!(
+            text.contains("Do not create one, do not remove one"),
+            "the research brief no longer leaves the worktree to the harness"
+        );
+        assert!(
+            text.contains("push the branch you are on"),
+            "the research brief no longer pushes the branch it was given"
+        );
+        assert!(
+            text.contains("a link to the branch you") && text.contains("pull request"),
+            "the resolving comment no longer links the branch, so the run's artifact is \
+             unreachable from the ticket"
+        );
+    }
+
+    #[test]
+    fn the_research_prompt_carries_the_same_coordinates_and_no_graph() {
+        let rendered = work_ticket_research(None, &somewhere());
+
+        for coordinate in [
+            "javrasya/perseverance",
+            "#28",
+            "https://github.com/javrasya/perseverance/issues/28",
+            "#48",
+            "https://github.com/javrasya/perseverance/issues/48",
+            "The prompt is the product",
+            "@javrasya",
+            "What does the harness say to a session?",
+        ] {
+            assert!(
+                rendered.text.contains(coordinate),
+                "{coordinate} is missing"
+            );
+        }
+
+        assert!(
+            !rendered.text.contains("{{"),
+            "a placeholder went unsubstituted"
+        );
+        assert_eq!(rendered.origin, Origin::Stock);
+        assert_eq!(rendered.characters, rendered.text.chars().count());
+    }
+
+    #[test]
+    fn the_research_override_is_its_own_file_and_the_whole_prompt() {
+        let dir = tempfile::tempdir().expect("a temporary directory");
+
+        assert!(work_ticket_research_override(dir.path()).is_none());
+
+        // One file per template: overriding the work brief leaves the research
+        // brief exactly as it was compiled in.
+        std::fs::write(dir.path().join(WORK_TICKET_OVERRIDE_FILE), "Work #48.").expect("writes");
+        assert!(work_ticket_research_override(dir.path()).is_none());
+
+        let file = dir.path().join(WORK_TICKET_RESEARCH_OVERRIDE_FILE);
+        std::fs::write(&file, "  \n\t\n").expect("writes");
+        assert!(
+            work_ticket_research_override(dir.path()).is_none(),
+            "a blank override is absent, not an empty prompt"
+        );
+
+        std::fs::write(&file, "Research #{{ticket_number}} in {{repo}}.").expect("writes");
+        let custom = work_ticket_research_override(dir.path()).expect("an override");
+        let rendered = work_ticket_research(Some(&custom), &somewhere());
+
+        assert_eq!(rendered.text, "Research #48 in javrasya/perseverance.");
+        assert_eq!(rendered.origin, Origin::Custom);
     }
 
     /* ------------------------------------------------------------ chart --- */
