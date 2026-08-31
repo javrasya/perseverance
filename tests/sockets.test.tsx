@@ -16,6 +16,7 @@ import {
   NOTHING_TAKEABLE,
   NO_ADAPTER,
   NOTHING_SELECTED,
+  NOT_A_TICKET,
   RESUME_LABEL,
   START_LABEL,
   TO_FRONTIER_LABEL,
@@ -60,8 +61,13 @@ const readout = (adapters: readonly AdapterReading[]): FolderReadout =>
 
 const AT_75: Frontier = { frontier: "designated", number: 75 };
 
-/** A run of this window's, cut down to the two fields the rail joins on. */
-const staked = (run: number, ticket: number, over: boolean): RunReadout => ({
+/** A run of this window's, cut down to the three fields the rail joins on. */
+const staked = (
+  run: number,
+  ticket: number,
+  over: boolean,
+  folder = "/work/repo",
+): RunReadout => ({
   run,
   held: 0,
   dropped: 0,
@@ -74,10 +80,11 @@ const staked = (run: number, ticket: number, over: boolean): RunReadout => ({
   monitored: false,
   ending: over ? "exitedUnresolved" : "live",
   ticket,
+  folder,
 });
 
 /** #41 selected and read as a claim: the crossing Resume is offered at. */
-const CLAIM = { selection: 41, selectionReads: "claimed" } as const;
+const CLAIM = { selection: 41, selectionReads: "claimed", selectionIsTicket: true } as const;
 
 let mounted: { root: ReturnType<typeof createRoot>; host: HTMLElement } | null = null;
 let selected: number | null = null;
@@ -100,6 +107,7 @@ function paint(props: Partial<Parameters<typeof Sockets>[0]> = {}): HTMLElement 
         map={null}
         liveRuns={[]}
         selectionReads={null}
+        selectionIsTicket={false}
         runs={[]}
         onSelect={(node) => {
           selected = node;
@@ -233,6 +241,42 @@ describe("Resume", () => {
     // One crossing is one pane: a second agent on a ticket already running here
     // is not a resume of anything, so no command is sent at all.
     expect(invoke).not.toHaveBeenCalled();
+  });
+
+  /* The destination is selectable in the Route and reads `claimed` the moment
+     it is assigned, because the derivation reads state and never kind. Start
+     Working can never be aimed at it; Resume is aimed at the selection, so the
+     rail has to refuse it in front of the operator. */
+  it("recesses over a claimed node that is not a ticket, and arms on nothing", () => {
+    const host = paint({ selection: 28, selectionReads: "claimed", selectionIsTicket: false });
+
+    expect(socket(host, "resume").textContent).toContain(NOT_A_TICKET);
+    expect(socket(host, "resume").textContent).not.toContain("#28");
+    expect(button(host, "resume").getAttribute("aria-disabled")).toBe("true");
+  });
+
+  /* The same number in another repository is another piece of work. Moving the
+     pane there would show an agent in a folder nobody pointed at and send no
+     command at all — the claim under the hand never picked up, and nothing on
+     screen saying so. */
+  it("spawns over a live run on the same number in another folder", async () => {
+    invoke.mockResolvedValue({
+      kind: "spawned",
+      run: 14,
+      prompt: { text: "work #41", characters: 8, origin: "stock" },
+    } satisfies Started);
+    const host = paint({ ...CLAIM, runs: [staked(7, 41, false, "/work/other")] });
+
+    await act(async () => {
+      button(host, "resume").click();
+    });
+
+    expect(invoke).toHaveBeenCalledWith("resume_working", {
+      folder: "/work/repo",
+      ticket: 41,
+      adapter: "claude",
+    });
+    expect(readUi().monitored).toBe(14);
   });
 
   it("treats a run that is over as no run at all, and starts a cold one", async () => {

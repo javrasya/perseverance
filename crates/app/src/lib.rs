@@ -2183,10 +2183,10 @@ impl Terminals {
     fn readouts(&self) -> Vec<RunReadout> {
         let telemetry = self.held().telemetry();
 
-        let staked: BTreeMap<RunId, Option<u64>> = self
+        let staked: BTreeMap<RunId, Stakes> = self
             .staked_here()
             .iter()
-            .map(|(run, stakes)| (*run, stakes.ticket))
+            .map(|(run, stakes)| (*run, stakes.clone()))
             .collect();
 
         let resolution = self.resolved_here();
@@ -2194,7 +2194,7 @@ impl Terminals {
             .iter()
             .map(|telemetry| {
                 let ending = ending(telemetry.over, resolution.get(&telemetry.run).copied());
-                RunReadout::of(telemetry, ending, staked.get(&telemetry.run).copied().flatten())
+                RunReadout::of(telemetry, ending, staked.get(&telemetry.run))
             })
             .collect()
     }
@@ -2343,7 +2343,7 @@ fn framed(delivery: &Delivery) -> Option<Vec<u8>> {
 /// prints. **It is here rather than in the byte stream**, which is the whole of
 /// the rule: a terminal that had *scrollback lost* written into it would be a
 /// terminal whose contents are no longer only what the agent said.
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct RunReadout {
     run: u64,
@@ -2363,15 +2363,32 @@ struct RunReadout {
     /// The ticket this run was staked on, or nothing for a run this app was
     /// never told about.
     ///
-    /// The one value that joins a run to a node, and it is here because that
+    /// Half of the value that joins a run to a node, and it is here because that
     /// join is what tells a claim with a live terminal from a claim with none —
     /// the difference Resume is offered on. Nothing else on a readout can make
     /// it, and `crates/pty` must not learn what a ticket is to help.
     ticket: Option<u64>,
+    /// The folder that run was staked in, and the other half of the join.
+    ///
+    /// Here for the reason [`Terminals::live_run_on`] matches on it: an issue
+    /// number is unique inside one repository and means nothing across two, and
+    /// this window holds every folder's runs at once. A readout carrying the
+    /// number alone let the chrome answer a claim in one repository with
+    /// somebody else's `#77` in another — moving the pane onto an unrelated
+    /// agent and sending no command at all, so that the folder-aware refusal
+    /// next door was never even asked for.
+    ///
+    /// Derived in this crate from the stakes a press wrote, exactly as `ending`
+    /// is: `crates/pty` carries no folder a product would recognise.
+    folder: Option<String>,
 }
 
 impl RunReadout {
-    /// A readout is the telemetry plus the one thing the telemetry cannot know.
+    /// A readout is the telemetry plus the things the telemetry cannot know.
+    ///
+    /// The stakes whole rather than the ticket out of them, because the join to
+    /// a node is a folder and a number together, and a caller handed one of the
+    /// two could not make it.
     ///
     /// Constructed rather than `From`, because a `From<&Telemetry>` would have
     /// to invent an ending out of a process fact alone — which is exactly the
@@ -2379,7 +2396,7 @@ impl RunReadout {
     fn of(
         telemetry: &perseverance_pty::Telemetry,
         ending: Ending,
-        ticket: Option<u64>,
+        stakes: Option<&Stakes>,
     ) -> RunReadout {
         RunReadout {
             run: telemetry.run.as_u64(),
@@ -2393,7 +2410,8 @@ impl RunReadout {
             code: telemetry.code,
             monitored: telemetry.monitored,
             ending,
-            ticket,
+            ticket: stakes.and_then(|stakes| stakes.ticket),
+            folder: stakes.map(|stakes| stakes.folder.clone()),
         }
     }
 }
@@ -3062,8 +3080,18 @@ fn resume_working(
 
 /// Why this ticket is not a claim to resume, or nothing at all.
 ///
-/// One exhaustive match, so a fifth [`NodeState`] is a compile error here rather
-/// than a ticket that quietly reads as unclaimed.
+/// **Two refusals stand in front of the match, and they are the two guards
+/// Resume does not inherit.** Start Working is aimed at the frontier, so the
+/// frontier's own resolver had already answered *is this a wayfinder ticket* and
+/// *is this bound to another machine* before a press could reach one; Resume is
+/// aimed at the operator's selection, which no resolver has been through, so it
+/// asks both here or not at all. A spec node and an unclassified child both read
+/// [`NodeState::Claimed`] the moment they are assigned and unblocked — the
+/// derivation reads state and never kind — and a ticket labelled for another
+/// platform reads `Claimed` here as plainly as any other.
+///
+/// The state is still one exhaustive match, so a fifth [`NodeState`] is a
+/// compile error here rather than a ticket that quietly reads as unclaimed.
 ///
 /// **A ticket that has gained a blocker is not resumable**, however plainly it
 /// is assigned to the operator. [`NodeState`] is derived in strict precedence —
@@ -3075,6 +3103,26 @@ fn why_the_claim_cannot_be_resumed(map: &Map, ticket: u64) -> Option<String> {
     let Some(node) = map.nodes.iter().find(|node| node.number == ticket) else {
         return Some(format!("#{ticket} is not on this map"));
     };
+
+    // *Is a ticket*, which the frontier's resolver enforced for the other verb.
+    // Without it `kind_of` below falls through to [`RunKind::Work`] and an agent
+    // is spawned at the destination, or at an unclassified child, with a work
+    // brief in its hands.
+    if !matches!(node.kind, ChildKind::Ticket(_)) {
+        return Some(format!(
+            "#{ticket} is not a wayfinder ticket, so there is nothing to resume"
+        ));
+    }
+
+    // *Is not bound to another machine.* `docs/adr/0015` promises of that label
+    // family that nothing is hidden and nothing is launched, and a claim is not
+    // the exception: the node stays on the map, selectable and legible, and the
+    // press over it refuses.
+    if node.bound_elsewhere {
+        return Some(format!(
+            "#{ticket} is bound to another machine, so it is not resumable here"
+        ));
+    }
 
     match node.state {
         NodeState::Claimed => None,
@@ -3114,9 +3162,10 @@ fn booked(terminals: &Terminals, claims: &Claims, poker: &Poker, run: RunId, sta
 /// What kind of run this ticket is, from the node the frontier named.
 ///
 /// A ticket the frontier designates is a ticket by construction — `is_takeable`
-/// says so — so the fallback is unreachable rather than a policy, and it is
-/// [`RunKind::Work`] because that is the kind whose loss sentence is the safe
-/// one to be wrong with.
+/// says so — and a ticket Resume reaches has been through the kind refusal in
+/// [`why_the_claim_cannot_be_resumed`], so the fallback is unreachable from both
+/// verbs rather than a policy, and it is [`RunKind::Work`] because that is the
+/// kind whose loss sentence is the safe one to be wrong with.
 fn kind_of(map: &Map, ticket: u64) -> RunKind {
     match map
         .nodes
@@ -4726,9 +4775,10 @@ mod tests {
             monitored: true,
             ending: Ending::ExitedUnresolved,
             ticket: Some(48),
+            folder: Some("/work/repo".to_string()),
         };
 
-        let json = serde_json::to_value(readout).expect("serialises");
+        let json = serde_json::to_value(&readout).expect("serialises");
 
         assert_eq!(json["run"], 4);
         assert_eq!(json["held"], 2_048);
@@ -4744,11 +4794,13 @@ mod tests {
         // `ending` is what this app makes of it, and a WebView handed both
         // halves would be a second place the crossing is derived.
         assert_eq!(json["ending"], "exitedUnresolved");
-        // The join to a node, and the only value on a readout that can make it:
-        // without it the rail cannot tell a claim with a live terminal from a
-        // claim with none.
+        // The join to a node, and the two values on a readout that make it:
+        // without them the rail cannot tell a claim with a live terminal from a
+        // claim with none — and without the folder it cannot tell this
+        // repository's `#48` from another repository's.
         assert_eq!(json["ticket"], 48);
-        assert_eq!(json.as_object().expect("an object").len(), 12);
+        assert_eq!(json["folder"], "/work/repo");
+        assert_eq!(json.as_object().expect("an object").len(), 13);
 
         for (ending, spelt) in [
             (Ending::Live, "live"),
@@ -4756,8 +4808,11 @@ mod tests {
             (Ending::ExitedUnresolved, "exitedUnresolved"),
             (Ending::Exited, "exited"),
         ] {
-            let crossed = serde_json::to_value(RunReadout { ending, ..readout })
-                .expect("serialises")["ending"]
+            let crossed = serde_json::to_value(RunReadout {
+                ending,
+                ..readout.clone()
+            })
+            .expect("serialises")["ending"]
                 .clone();
             assert_eq!(crossed, spelt);
         }
@@ -4767,17 +4822,21 @@ mod tests {
         let running = RunReadout {
             over: false,
             code: None,
-            ..readout
+            ..readout.clone()
         };
         assert!(serde_json::to_value(running).expect("serialises")["code"].is_null());
 
-        // A run this app was never told the stakes of names no ticket, rather
-        // than a zero that would join it to a node nobody staked.
+        // A run this app was never told the stakes of names no ticket and no
+        // folder, rather than a zero and an empty string that would join it to a
+        // node nobody staked, in a repository nobody named.
         let unstaked = RunReadout {
             ticket: None,
+            folder: None,
             ..readout
         };
-        assert!(serde_json::to_value(unstaked).expect("serialises")["ticket"].is_null());
+        let crossed = serde_json::to_value(unstaked).expect("serialises");
+        assert!(crossed["ticket"].is_null());
+        assert!(crossed["folder"].is_null());
     }
 
     /// The framing is a header and then the bytes, and the header is ten bytes.
@@ -8080,16 +8139,57 @@ mod tests {
     /// different one each time, because *closed*, *something is in the way* and
     /// *nobody holds it* are three different things to tell an operator who has
     /// just pressed.
+    ///
+    /// **And two refusals before any state is read**, because Resume is aimed at
+    /// the selection rather than at the frontier and inherits neither of the
+    /// guards the frontier's resolver applies: a spec node and an unclassified
+    /// child read `Claimed` the moment they are assigned, and so does a ticket
+    /// this machine is not allowed to take.
     #[test]
     fn a_resume_is_offered_over_a_claim_and_refused_over_every_other_node() {
-        let map = a_map_of(&[
+        let mut map = a_map_of(&[
             (70, NodeState::Claimed),
             (71, NodeState::Takeable),
             (72, NodeState::Blocked),
             (73, NodeState::Resolved),
         ]);
 
+        // Assigned, unblocked and not a ticket: `NodeState` is derived from
+        // state alone, so all three of these read `Claimed`.
+        let claim = map.nodes[0].clone();
+        map.nodes.push(perseverance_model::Node {
+            number: 74,
+            kind: ChildKind::Spec,
+            ..claim.clone()
+        });
+        map.nodes.push(perseverance_model::Node {
+            number: 75,
+            kind: ChildKind::Unclassified,
+            ..claim.clone()
+        });
+        // A claim on a ticket labelled for another platform. `docs/adr/0015`:
+        // nothing is hidden and nothing is launched.
+        map.nodes.push(perseverance_model::Node {
+            number: 76,
+            bound_elsewhere: true,
+            ..claim
+        });
+
         assert_eq!(why_the_claim_cannot_be_resumed(&map, 70), None);
+
+        // The spec renders as the destination and never as something to launch
+        // at, and an unclassified child has no brief to hand an agent: both
+        // would otherwise fall through `kind_of` into a work run.
+        for node in [74, 75] {
+            let refusal = why_the_claim_cannot_be_resumed(&map, node)
+                .unwrap_or_else(|| panic!("#{node} is not a ticket"));
+            assert!(refusal.contains("not a wayfinder ticket"), "{refusal}");
+        }
+        // Nothing is hidden and nothing is launched: the node is on the map and
+        // the press over it refuses.
+        let elsewhere =
+            why_the_claim_cannot_be_resumed(&map, 76).expect("#76 is another machine's");
+        assert!(elsewhere.contains("another machine"), "{elsewhere}");
 
         let refusals: Vec<String> = [71, 72, 73]
             .iter()

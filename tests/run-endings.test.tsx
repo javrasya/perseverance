@@ -59,6 +59,7 @@ function readout(ending: RunEnding, code: number | null = null): RunReadout {
     code,
     monitored: true,
     ticket: 49,
+    folder: "/work/repo",
     ending,
   };
 }

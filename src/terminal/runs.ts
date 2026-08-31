@@ -101,11 +101,21 @@ export interface RunReadout {
    * The ticket this run was staked on, or `null` for a run the harness was never
    * told about.
    *
-   * The one value that joins a run to a node, which is how a claim with a live
-   * terminal is told from a claim with none — the difference the rail offers
-   * Resume on.
+   * Half of the value that joins a run to a node, which is how a claim with a
+   * live terminal is told from a claim with none — the difference the rail
+   * offers Resume on.
    */
   ticket: number | null;
+  /**
+   * The folder that run was staked in, or `null` for a run the harness was never
+   * told about.
+   *
+   * The other half of the join, and the half without which the join is wrong: an
+   * issue number is unique inside one repository and means nothing across two,
+   * and this window holds every folder's runs at once. Rust matches on both, and
+   * so does `liveRunOn`.
+   */
+  folder: string | null;
 }
 
 /**

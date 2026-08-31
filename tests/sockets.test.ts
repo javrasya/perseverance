@@ -11,6 +11,7 @@ import {
   NO_MAP_OPEN,
   NOTHING_SELECTED,
   NOT_A_CLAIM,
+  NOT_A_TICKET,
   RESUME_LABEL,
   STILL_READING,
   START_LABEL,
@@ -73,10 +74,19 @@ const readout = (
 const DESIGNATED: Frontier = { frontier: "designated", number: 75 };
 
 /** A claim under the hand: the selection, and what the one derivation calls it. */
-const CLAIMED: Partial<Crossing> = { selection: 41, selectionReads: "claimed" };
+const CLAIMED: Partial<Crossing> = {
+  selection: 41,
+  selectionReads: "claimed",
+  selectionIsTicket: true,
+};
 
 /** A readout the way `runs.ts` mirrors one, cut down to what the rail reads. */
-const staked = (run: number, ticket: number | null, over: boolean): RunReadout => ({
+const staked = (
+  run: number,
+  ticket: number | null,
+  over: boolean,
+  folder: string | null = "/work/repo",
+): RunReadout => ({
   run,
   held: 0,
   dropped: 0,
@@ -89,6 +99,7 @@ const staked = (run: number, ticket: number | null, over: boolean): RunReadout =
   monitored: false,
   ending: over ? "exitedUnresolved" : "live",
   ticket,
+  folder,
 });
 
 function crossing(over: Partial<Crossing> = {}): Crossing {
@@ -96,6 +107,7 @@ function crossing(over: Partial<Crossing> = {}): Crossing {
     frontier: DESIGNATED,
     selection: null,
     selectionReads: null,
+    selectionIsTicket: false,
     environment: readout([resolved("claude")]),
     folder: "/work/repo",
     phase: "wayfinding",
@@ -165,17 +177,51 @@ describe("Resume", () => {
     expect(socketOf("resume", { frontier: null }).condition).toBe(NO_MAP_OPEN);
     expect(socketOf("resume").condition).toBe(NOTHING_SELECTED);
     // A ticket nobody has taken, and one this app is not the picker of.
-    expect(socketOf("resume", { selection: 41, selectionReads: "takeable" }).condition).toBe(
-      NOT_A_CLAIM,
-    );
+    expect(
+      socketOf("resume", {
+        selection: 41,
+        selectionReads: "takeable",
+        selectionIsTicket: true,
+      }).condition,
+    ).toBe(NOT_A_CLAIM);
     /* A claim with an open blocker in its way reads `blocked` in the one
        derivation, and this rail does not get a softer second opinion. */
-    expect(socketOf("resume", { selection: 41, selectionReads: "blocked" }).condition).toBe(
-      NOT_A_CLAIM,
-    );
-    expect(socketOf("resume", { selection: 41, selectionReads: null }).condition).toBe(
-      NOT_A_CLAIM,
-    );
+    expect(
+      socketOf("resume", {
+        selection: 41,
+        selectionReads: "blocked",
+        selectionIsTicket: true,
+      }).condition,
+    ).toBe(NOT_A_CLAIM);
+    expect(
+      socketOf("resume", {
+        selection: 41,
+        selectionReads: null,
+        selectionIsTicket: true,
+      }).condition,
+    ).toBe(NOT_A_CLAIM);
+  });
+
+  /* The Route makes the destination and the unclassified children selectable,
+     and `claimed` is a reading of state alone — so an assigned spec node reads
+     exactly what an assigned ticket reads. Start Working can never meet either,
+     because the frontier's resolver asks *is this a ticket* before it designates
+     anything; Resume is aimed at the selection and has to ask here. */
+  it("refuses a selection that is not a ticket, however plainly it is claimed", () => {
+    const spec: Partial<Crossing> = {
+      selection: 28,
+      selectionReads: "claimed",
+      selectionIsTicket: false,
+    };
+
+    expect(socketOf("resume", spec).condition).toBe(NOT_A_TICKET);
+    expect(socketOf("resume", spec).fill).toBe("recessed");
+    // And the button is armed on nothing, so a press has no number to send.
+    expect(railAt(crossing(spec)).claim).toBeNull();
+    // Kind before state: a node that is neither reads the sentence about kind.
+    expect(
+      socketOf("resume", { ...spec, selectionReads: "takeable" }).condition,
+    ).toBe(NOT_A_TICKET);
   });
 
   it("says the same things Start Working says about the folder, in the same words", () => {
@@ -204,11 +250,25 @@ describe("Resume", () => {
   it("finds the live run staked on a claim, and nothing for one that is over", () => {
     const runs = [staked(7, 41, false), staked(8, 42, true), staked(9, null, false)];
 
-    expect(liveRunOn(runs, 41)).toBe(7);
+    expect(liveRunOn(runs, 41, "/work/repo")).toBe(7);
     // Over is over: there is no child left in that pane to be moved back to.
-    expect(liveRunOn(runs, 42)).toBeNull();
+    expect(liveRunOn(runs, 42, "/work/repo")).toBeNull();
     // A run the harness was never told a ticket for joins to no claim at all.
-    expect(liveRunOn(runs, 99)).toBeNull();
+    expect(liveRunOn(runs, 99, "/work/repo")).toBeNull();
+  });
+
+  /* An issue number is unique inside one repository and means nothing across
+     two, and this window holds every folder's runs at once. Answering here on
+     the number alone moved the pane onto another repository's agent and sent no
+     command — so Rust's own folder-aware check was never even reached. */
+  it("joins on the folder as well as the number, as Rust does", () => {
+    const runs = [staked(7, 77, false, "/work/other"), staked(8, null, false)];
+
+    expect(liveRunOn(runs, 77, "/work/repo")).toBeNull();
+    expect(liveRunOn(runs, 77, "/work/other")).toBe(7);
+    // A run with no folder is a run the harness was never told about, and it
+    // joins to a claim no more than a run with no ticket does.
+    expect(liveRunOn(runs, 77, null as unknown as string)).toBeNull();
   });
 });
 

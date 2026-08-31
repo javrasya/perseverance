@@ -9,10 +9,10 @@
  * Nothing here is a tooltip: a reason only a hover can reach is a reason nobody
  * reading the screen has.
  *
- * Everything here is a pure function of four facts — what the map says about
- * *what next*, what the operator has selected, what that selection reads, and
- * what this folder resolved — plus where the press in flight is. The rendering
- * in `Sockets.tsx` picks nothing.
+ * Everything here is a pure function of five facts — what the map says about
+ * *what next*, what the operator has selected, what that selection is, what it
+ * reads, and what this folder resolved — plus where the press in flight is. The
+ * rendering in `Sockets.tsx` picks nothing.
  *
  * **The frontier is singular and structural.** The target comes from
  * `model.map.frontier` and from the refusal a press came back with, and from
@@ -93,6 +93,19 @@ export interface Crossing {
    * softer one beside it.
    */
   selectionReads: NodeState | null;
+  /**
+   * Whether the selection is a wayfinder ticket, and `false` when nothing is
+   * selected.
+   *
+   * Beside the state rather than folded into it, because the two are different
+   * facts and the derivation reads only the second: a spec node and an
+   * unclassified child both read `claimed` the moment they are assigned with
+   * nothing in their way. Start Working meets neither — the frontier's resolver
+   * answers *is this a ticket* before it designates anything — and Resume is
+   * aimed at the selection, which no resolver has been through, so the answer
+   * has to cross here or the rail arms over a node no brief fits.
+   */
+  selectionIsTicket: boolean;
   /**
    * What this folder resolved, or `null` while nothing has come back for it.
    *
@@ -227,6 +240,13 @@ export const alreadyComposing = (map: number): string =>
  * Rust gates on. See `docs/adr/0023`.
  */
 export const NOT_A_CLAIM = "the selected ticket is not claimed, so there is nothing to pick up";
+/**
+ * Met before [`NOT_A_CLAIM`], because kind comes before state: a spec node and
+ * an unclassified child can both be assigned, and both read `claimed`. The
+ * destination is where the map is going rather than something to launch at, and
+ * a child carrying no recognised wayfinder type has no brief to hand an agent.
+ */
+export const NOT_A_TICKET = "the selected node is not a ticket, so there is nothing to resume";
 
 /**
  * Ask is #55's. Its socket is here because the rail is four boxes rather than
@@ -241,9 +261,17 @@ export function designated(frontier: Frontier | null): number | null {
   return frontier !== null && frontier.frontier === "designated" ? frontier.number : null;
 }
 
-/** The ticket Resume is armed on: the selection, and only while it is a claim. */
+/**
+ * The ticket Resume is armed on: the selection, while it is a ticket and a claim.
+ *
+ * Both halves, and in that order, because the Route makes the destination and
+ * the unclassified rows selectable too — and `claimed` is a reading of state
+ * alone, so either of them arms this button the moment it is assigned.
+ */
 export function claimed(crossing: Crossing): number | null {
-  return crossing.selection !== null && crossing.selectionReads === "claimed"
+  return crossing.selection !== null &&
+    crossing.selectionIsTicket &&
+    crossing.selectionReads === "claimed"
     ? crossing.selection
     : null;
 }
@@ -259,21 +287,32 @@ export function claimed(crossing: Crossing): number | null {
 export function whyNoClaim(crossing: Crossing): string | null {
   if (crossing.frontier === null) return NO_MAP_OPEN;
   if (crossing.selection === null) return NOTHING_SELECTED;
+  if (!crossing.selectionIsTicket) return NOT_A_TICKET;
   return crossing.selectionReads === "claimed" ? null : NOT_A_CLAIM;
 }
 
 /**
- * The live run this window already holds on a ticket, or `null`.
+ * The live run this window already holds on that claim, or `null`.
+ *
+ * **The folder and the number, which is the pair `live_run_on` in Rust matches
+ * on**: an issue number is unique inside one repository and means nothing across
+ * two, and `runs` is every run this window holds whatever folder it was started
+ * in. On the number alone this answered a claim in one repository with somebody
+ * else's run in another — and because a press that finds a live run sends no
+ * command at all, Rust's own folder-aware check was never reached to refuse it.
  *
  * `over` and not the ending, because the two are independent facts: a run whose
  * ticket closed under it is still a child with a shell in it, and re-focusing
- * that pane is what a hand pressing Resume on that claim is asking for. Nothing
- * here matches the folder — a readout does not carry one — so this is the rail's
- * optimism and `live_run_on` in Rust is the check; a mismatch comes back as a
- * refusal and is printed as one.
+ * that pane is what a hand pressing Resume on that claim is asking for.
  */
-export function liveRunOn(runs: readonly RunReadout[], ticket: number): number | null {
-  const found = runs.find((run) => run.ticket === ticket && !run.over);
+export function liveRunOn(
+  runs: readonly RunReadout[],
+  ticket: number,
+  folder: string,
+): number | null {
+  const found = runs.find(
+    (run) => run.ticket === ticket && run.folder === folder && !run.over,
+  );
   return found?.run ?? null;
 }
 

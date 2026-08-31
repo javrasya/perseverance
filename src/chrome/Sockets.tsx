@@ -55,6 +55,13 @@ interface SocketsProps {
    */
   selectionReads: NodeState | null;
   /**
+   * Whether the selection is a wayfinder ticket. Beside the state because the
+   * derivation reads state alone: an assigned spec node and an assigned
+   * unclassified child both read `claimed`, and neither is something to spawn an
+   * agent at. See `Crossing.selectionIsTicket`.
+   */
+  selectionIsTicket: boolean;
+  /**
    * Every run this window holds, live and finished.
    *
    * Resume reads exactly one thing off them — whether the claim under the hand
@@ -113,6 +120,7 @@ export function Sockets({
   map,
   liveRuns,
   selectionReads,
+  selectionIsTicket,
   runs,
   onSelect,
 }: SocketsProps) {
@@ -160,6 +168,7 @@ export function Sockets({
     phase,
     map,
     selectionReads,
+    selectionIsTicket,
     composing,
     press,
   });
@@ -205,12 +214,15 @@ export function Sockets({
 
   /* Resume reaches a live claim by moving the pane onto it and a stale one by
      spawning — never both, and never a second agent over a child this window is
-     already running: one crossing is one pane. Rust refuses that case as well,
-     on a check that also matches the folder a readout does not carry, and that
-     refusal prints here like any other; this is the answer that never has to
-     ask for it. */
+     already running: one crossing is one pane. The join is the folder and the
+     number together, the same pair Rust's `live_run_on` matches on: this window
+     holds every folder's runs, and a match on the number alone would move the
+     pane onto another repository's agent — silently, because a press that finds
+     a live run sends no command and so is never refused. Rust refuses the
+     same-folder collision too, for the press that races this one; this is the
+     answer that never has to ask for it. */
   const resume = (claim: number, at: string, agent: string) => {
-    const already = liveRunOn(runs, claim);
+    const already = liveRunOn(runs, claim, at);
     if (already !== null) {
       monitor(already);
       return;

@@ -34,11 +34,32 @@ a second behaviour, and a second behaviour is a second thing to keep true.
 Working is a precondition.**
 
 `resume_working` in `crates/app/src/lib.rs` is `start_working` with one guard
-swapped. It takes the same press — `folder`, `ticket`, `adapter` — gates on the
-same awaited revalidation, and reaches the same `spawn_at`, `render`, `plan_in`
-and `kind_of`. Where Start Working requires `Frontier::Designated(ticket)`,
-Resume requires the node to read `NodeState::Claimed` on the model that
-revalidation just produced.
+swapped and two put back by hand. It takes the same press — `folder`, `ticket`,
+`adapter` — gates on the same awaited revalidation, and reaches the same
+`spawn_at`, `render`, `plan_in` and `kind_of`. Where Start Working requires
+`Frontier::Designated(ticket)`, Resume requires the node to read
+`NodeState::Claimed` on the model that revalidation just produced.
+
+**The two guards Resume cannot inherit, it re-states.** Start Working's target
+comes from the frontier, and the frontier's resolver has already answered two
+questions by the time it designates anything: `Node::is_takeable` refuses a node
+that is not a wayfinder ticket, and a ticket this host is not allowed to take is
+reported as `Frontier::NotOnThisMachine` rather than designated. Resume's target
+is the operator's selection, which has been through no resolver at all — and
+`NodeState` is derived from state and never from kind, so an assigned, unblocked
+spec node and an assigned, unblocked unclassified child both read `Claimed`, as
+does an assigned ticket labelled for another platform. Both are selectable rows
+in the Route. So `why_the_claim_cannot_be_resumed` asks both in front of its
+state match: *is this a wayfinder ticket*, which is what keeps the destination a
+destination rather than something an agent is launched at and a child with no
+recognised wayfinder type unspawnable; and *is this bound to another machine*,
+because [ADR 0015](0015-platform-bound-work-is-a-clause-in-the-one-resolver.md)
+promises of that label family that nothing is hidden and nothing is launched, and
+a claim over one is not the exception. Without the first, `kind_of` falls through
+to `RunKind::Work` and a work brief is rendered for a node no brief fits. The
+rail asks the same two questions in front of the same state, so the button is
+recessed with the reason on it rather than armed on a press that could only be
+refused.
 
 **The prompt is byte-identical.** One `prompt::work_ticket`, one
 `prompt::Coordinates`, one `work-ticket.md`, and the override read at spawn
@@ -97,8 +118,15 @@ decision rather than answered by it.
 `run_id` or `runs` may appear in a file that outlives the launch, and no adapter
 learns `--continue`, `--resume` or `--session-id`.
 
-**`RunReadout` gains the ticket its run is staked on.** It is the one value that
-joins a run to a node, and the rail needs that join to tell *claimed with a live
-terminal* from *claimed with none* — which is the whole of when Resume is
-offered. `crates/pty` is untouched and still does not know what a ticket is: the
-join is made in `crates/app`, where the stakes already live.
+**`RunReadout` gains the ticket and the folder its run is staked on.** Together
+they are the value that joins a run to a node, and the rail needs that join to
+tell *claimed with a live terminal* from *claimed with none* — which is the whole
+of which of the two things a press does. Both halves, because the join is the
+same one `live_run_on` makes: an issue number is unique inside one repository and
+means nothing across two, and this window holds every folder's runs at once, so a
+rail joining on the number alone would answer a claim in one repository with
+somebody else's run in another — moving the pane onto an unrelated agent and
+sending no command at all, which is the one branch of this verb Rust is never
+asked about. `crates/pty` is untouched and still does not know what a ticket or a
+repository is: both values are derived in `crates/app`, where the stakes already
+live.
