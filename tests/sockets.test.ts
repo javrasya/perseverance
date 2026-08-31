@@ -9,6 +9,7 @@ import {
   NO_FOLDER_OPEN,
   NO_MAP_OPEN,
   RESUME_ARRIVES,
+  STILL_READING,
   START_LABEL,
   TO_FRONTIER_LABEL,
   adapterAtPress,
@@ -22,7 +23,12 @@ import {
   type SocketId,
 } from "../src/chrome/sockets";
 import { NO_HARNESS, startWorking } from "../src/chrome/started";
-import type { AdapterReading } from "../src/environment/folder";
+import type { HarvestState } from "../src/environment/environment";
+import {
+  readoutFrom,
+  type AdapterReading,
+  type FolderReadout,
+} from "../src/environment/folder";
 import type { Frontier } from "../src/snapshot/model.generated";
 import { forgetPrompts, promptFor, recordPrompt } from "../src/terminal/prompts";
 
@@ -48,13 +54,22 @@ const missing = (id: string): AdapterReading => ({
   probes: [],
 });
 
+/**
+ * A readout the way the Rust side hands one over, so the shape under test is
+ * the decoder's own and not this file's idea of it.
+ */
+const readout = (
+  adapters: readonly AdapterReading[],
+  harvest: HarvestState = { kind: "harvested" },
+): FolderReadout => readoutFrom({ adapters, harvest }, "/work/repo");
+
 const DESIGNATED: Frontier = { frontier: "designated", number: 75 };
 
 function crossing(over: Partial<Crossing> = {}): Crossing {
   return {
     frontier: DESIGNATED,
     selection: null,
-    adapters: [resolved("claude")],
+    environment: readout([resolved("claude")]),
     folder: "/work/repo",
     press: { kind: "idle" },
     ...over,
@@ -71,7 +86,7 @@ describe("the rail", () => {
   it("is four sockets in one order, in every state the crossing can be in", () => {
     const everyState: Crossing[] = [
       crossing(),
-      crossing({ frontier: null, adapters: [], folder: null }),
+      crossing({ frontier: null, environment: readout([]), folder: null }),
       crossing({ frontier: { frontier: "nothingToStart" } }),
       crossing({ frontier: { frontier: "notOnThisMachine" } }),
       crossing({ press: { kind: "checking" } }),
@@ -88,7 +103,7 @@ describe("the rail", () => {
   });
 
   it("prints a condition on exactly the sockets that are recessed", () => {
-    for (const socket of railAt(crossing({ frontier: null, adapters: [] })).sockets) {
+    for (const socket of railAt(crossing({ frontier: null, environment: readout([]) })).sockets) {
       expect(socket.condition === null).toBe(socket.fill !== "recessed");
     }
   });
@@ -125,7 +140,26 @@ describe("Start Working", () => {
       ANOTHER_MACHINE,
     );
     expect(socketOf("start", { folder: null }).condition).toBe(NO_FOLDER_OPEN);
-    expect(socketOf("start", { adapters: [missing("claude")] }).condition).toBe(NO_ADAPTER);
+    expect(socketOf("start", { environment: readout([missing("claude")]) }).condition).toBe(
+      NO_ADAPTER,
+    );
+  });
+
+  /*
+   * *Found nothing* is an answer and *nobody has looked yet* is not one, and
+   * the seconds between them are the seconds a login-shell harvest takes —
+   * every *Ask again* and every second folder opened passes through them with a
+   * folder selected and no readout beside it. Printing the negative there would
+   * tell an operator their folder has no agent CLI while the search for one is
+   * still running.
+   */
+  it("says the folder is still being read rather than that it found nothing", () => {
+    expect(socketOf("start", { environment: null }).condition).toBe(STILL_READING);
+    expect(
+      socketOf("start", { environment: readout([], { kind: "harvesting" }) }).condition,
+    ).toBe(STILL_READING);
+    // And once the readout is actually back, the negative is the honest answer.
+    expect(socketOf("start", { environment: readout([]) }).condition).toBe(NO_ADAPTER);
   });
 
   it("says checking while the revalidation is in flight, and takes no press", () => {
@@ -215,7 +249,7 @@ describe("the adapter", () => {
     const readings = [missing("claude"), resolved("codex"), resolved("pi")];
 
     expect(offerable(readings)).toEqual(["codex", "pi"]);
-    expect(railAt(crossing({ adapters: readings })).adapters).toEqual(["codex", "pi"]);
+    expect(railAt(crossing({ environment: readout(readings) })).adapters).toEqual(["codex", "pi"]);
   });
 
   it("is a pick belonging to this press, falling back when the pick stops resolving", () => {

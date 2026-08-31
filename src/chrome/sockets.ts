@@ -20,7 +20,7 @@
  * frontier resolver and it is in Rust.
  */
 
-import type { AdapterReading } from "../environment/folder";
+import type { AdapterReading, FolderReadout } from "../environment/folder";
 import type { Frontier } from "../snapshot/model.generated";
 
 /** The four verbs, in the fixed order they occupy the rail in. */
@@ -62,8 +62,18 @@ export interface Crossing {
   /** `model.map.frontier`, or `null` when no map is open. */
   frontier: Frontier | null;
   selection: number | null;
-  /** This folder's readings. Only a resolved one is a choice. */
-  adapters: readonly AdapterReading[];
+  /**
+   * What this folder resolved, or `null` while nothing has come back for it.
+   *
+   * The whole readout rather than its adapters, because *no adapter here* and
+   * *nobody has looked yet* are different answers and only the readout can tell
+   * them apart: the harvest this reading waits on is a login shell, bounded in
+   * seconds rather than milliseconds, and for all of those seconds a folder is
+   * open with nothing known about it. An empty list would say the folder was
+   * searched and came up empty, which is a definite negative answer to a
+   * question nothing has yet asked.
+   */
+  environment: FolderReadout | null;
   /** The folder a run would be spawned in, or `null` when none is open. */
   folder: string | null;
   press: Press;
@@ -91,6 +101,13 @@ export const NOTHING_TAKEABLE = "nothing on this map is takeable";
 export const ANOTHER_MACHINE = "the frontier is bound to another machine";
 export const NO_FOLDER_OPEN = "open a folder — a run is started somewhere";
 export const NO_ADAPTER = "no agent CLI was found in this folder";
+/**
+ * Not *found nothing* — *has not looked yet*. It stands in front of
+ * [`NO_ADAPTER`] for the whole of a harvest, which is a login shell and takes
+ * seconds, and it is what an operator sees after pressing *Ask again* or
+ * opening a second folder.
+ */
+export const STILL_READING = "this folder's environment is still being read";
 export const ALREADY_THERE = "the frontier is already selected";
 
 /**
@@ -179,6 +196,19 @@ function standing(crossing: Crossing): Frontier | null {
   return frontier;
 }
 
+/**
+ * Whether this folder's answer is still on its way.
+ *
+ * Two ways it can be: no readout has landed at all — which is the state a fresh
+ * selection and an *Ask again* both pass through — and a readout that landed
+ * mid-harvest, whose adapter list is what was known before the shell answered.
+ * Either way the folder has not finished being read, and nothing here is
+ * entitled to say what it holds.
+ */
+function stillReading(environment: FolderReadout | null): boolean {
+  return environment === null || environment.harvest.kind === "harvesting";
+}
+
 function startSocket(
   crossing: Crossing,
   target: number | null,
@@ -195,9 +225,11 @@ function startSocket(
       ? whyNothingToStart(standing(crossing))
       : crossing.folder === null
         ? NO_FOLDER_OPEN
-        : offered.length === 0
-          ? NO_ADAPTER
-          : null;
+        : stillReading(crossing.environment)
+          ? STILL_READING
+          : offered.length === 0
+            ? NO_ADAPTER
+            : null;
 
   return {
     id: "start",
@@ -227,7 +259,7 @@ function toFrontierSocket(crossing: Crossing, target: number | null): Socket {
 
 /** The whole rail, from the crossing. Four sockets, always, in one order. */
 export function railAt(crossing: Crossing): Rail {
-  const offered = offerable(crossing.adapters);
+  const offered = offerable(crossing.environment?.adapters ?? []);
   const target = designated(standing(crossing));
 
   return {

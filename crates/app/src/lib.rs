@@ -1159,10 +1159,20 @@ struct Ambient {
     /// and the readout is not waiting on it: settling ahead of the `environment`
     /// event and the `EnvironmentSettled` poke would put up to a whole
     /// [`Bounds::for_this_machine`] between a launch and its first list, for a
-    /// value only a press reads. The `OnceLock` is still what makes it once per
-    /// launch — the first press to reach [`spawn_at`] seeds it, and every press
-    /// after reads what that one learned.
-    login: OnceLock<Option<String>>,
+    /// value only a press reads. The `OnceLock` is what makes a *learned* login
+    /// once per launch — the first press to reach [`spawn_at`] that gets an
+    /// answer seeds it, and every press after reads what that one learned.
+    ///
+    /// **Only a success is remembered**, which is why this holds a `String` and
+    /// not the `Option<String>` [`perseverance_github::read_login`] answers
+    /// with. Every way that read can fail — a DNS blip, a TLS reset, a timeout,
+    /// a 502, a 429 — comes back as the same `None`, and a `None` written into a
+    /// cell that fills once would make one cold network at one unlucky moment
+    /// the answer this process gives every press for the rest of its life, with
+    /// no way to ask again short of a restart nothing tells the operator to
+    /// perform. So a press that learned nothing leaves the cell empty and the
+    /// next press asks again; [`remembered_login`] is where that rule lives.
+    login: OnceLock<String>,
 }
 
 impl Ambient {
@@ -2564,11 +2574,12 @@ fn spawn_at(
     // The brief's step 1 branches on *already assigned to you*, so a prompt with
     // no operator in it is a brief a session cannot follow. Refused rather than
     // rendered with a hole.
-    // Asked here, over the socket, with the token above — and memoised, so the
-    // round trip is the first press's alone and every press after is a read of
-    // a `OnceLock`. It is deliberately after the token check: a run with no
-    // token has nothing to ask with.
-    let Some(operator) = ambient.login.get_or_init(|| read_login(token)) else {
+    // Asked here, over the socket, with the token above — and memoised on a
+    // success alone, so the round trip is the first *answered* press's and every
+    // press after is a read of a `OnceLock`, while a press that met a cold
+    // network leaves the next one free to ask again. It is deliberately after
+    // the token check: a run with no token has nothing to ask with.
+    let Some(operator) = remembered_login(&ambient.login, || read_login(token)) else {
         return Err(
             "this run never learned which GitHub account is signed in, and a brief names its \
              operator"
@@ -2579,7 +2590,7 @@ fn spawn_at(
     let question = read_ticket_body(token, &repo.owner, &repo.name, ticket)
         .map_err(|refusal| refusal.to_string())?;
 
-    let rendered = render(app, operator, &repo, map, node, question);
+    let rendered = render(app, &operator, &repo, map, node, question);
     let (spawn, launch) = plan_in(harvests, registry, folder, adapter, &rendered.text)?;
     let accepted = perseverance_pty::accept(launch).map_err(|refusal| refusal.to_string())?;
 
@@ -2589,6 +2600,33 @@ fn spawn_at(
         .map_err(|refusal| refusal.to_string())?;
 
     Ok((run, rendered))
+}
+
+/// The login this process learned, asked once more if it has not learned it yet.
+///
+/// The seam exists because the difference between *memoise the answer* and
+/// *memoise a success* is one line at a call site that cannot be tested — the
+/// only real reader there is a GitHub round trip — so the rule is lifted out to
+/// where the reader is an argument and both halves are ordinary tests.
+///
+/// A `None` from `ask` writes nothing, which is the whole point: it is not an
+/// answer, it is *this press did not get one*, and the next press is entitled to
+/// ask again. A `Some` fills the cell, and every call after it reads rather than
+/// asks — including the one that raced and lost the `set`, which reads the
+/// winner's answer instead of its own, since two presses that both learned a
+/// login learned the same one.
+fn remembered_login(
+    cell: &OnceLock<String>,
+    ask: impl FnOnce() -> Option<String>,
+) -> Option<String> {
+    if let Some(known) = cell.get() {
+        return Some(known.clone());
+    }
+
+    let learned = ask()?;
+    let _ = cell.set(learned);
+
+    cell.get().cloned()
 }
 
 /// The prompt, rendered at the moment of spawn.
@@ -3273,6 +3311,45 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A login this run did not learn is not an answer, and the cell that holds
+    /// one is only allowed to remember answers. The failing reader here stands
+    /// in for every way [`perseverance_github::read_login`] returns `None` — a
+    /// DNS blip, a TLS reset, a timeout, a 502, a 429 — and the press after it
+    /// has to be able to ask again, because otherwise one cold network at one
+    /// unlucky moment is what Start Working says for the life of the process.
+    #[test]
+    fn a_login_that_was_not_learned_is_asked_for_again() {
+        let cell = OnceLock::new();
+
+        assert_eq!(remembered_login(&cell, || None), None);
+
+        let mut asked = false;
+        let second = remembered_login(&cell, || {
+            asked = true;
+            Some("javrasya".to_string())
+        });
+
+        assert!(asked, "the second press has to reach the reader");
+        assert_eq!(second, Some("javrasya".to_string()));
+    }
+
+    /// The other half of the same rule: an answer *is* remembered, so the round
+    /// trip belongs to the press that got one and every press after it is a read
+    /// rather than a second trip to GitHub.
+    #[test]
+    fn a_login_that_was_learned_is_never_asked_for_twice() {
+        let cell = OnceLock::new();
+
+        assert_eq!(
+            remembered_login(&cell, || Some("javrasya".to_string())),
+            Some("javrasya".to_string())
+        );
+
+        let second = remembered_login(&cell, || panic!("the second press must not ask"));
+
+        assert_eq!(second, Some("javrasya".to_string()));
+    }
 
     /// The only Rust types the WebView ever sees are the ones in this file, and
     /// `src/launcher/launcher.ts` is a hand-written mirror of them. A rename

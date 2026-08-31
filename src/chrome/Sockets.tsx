@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { AdapterReading } from "../environment/folder";
+import type { FolderReadout } from "../environment/folder";
 import type { Frontier } from "../snapshot/model.generated";
 import { monitor } from "../stores/ui";
 import { recordPrompt } from "../terminal/prompts";
@@ -23,8 +23,12 @@ interface SocketsProps {
   /** `model.map.frontier`, and the only place the target comes from. */
   frontier: Frontier | null;
   selection: number | null;
-  /** What this folder resolved. Only a resolved reading is offerable. */
-  adapters: readonly AdapterReading[];
+  /**
+   * What this folder resolved, or `null` while the read is still out. The
+   * readout and not its adapters: see `Crossing.environment` for why the
+   * difference is the whole point.
+   */
+  environment: FolderReadout | null;
   folder: string | null;
   onSelect: (node: number | null) => void;
 }
@@ -53,7 +57,7 @@ interface SocketsProps {
  * snapshot, and a rail still printing the old number and the old sentence is a
  * screen lying about what is startable. So the incoming prop clears the press.
  */
-export function Sockets({ frontier, selection, adapters, folder, onSelect }: SocketsProps) {
+export function Sockets({ frontier, selection, environment, folder, onSelect }: SocketsProps) {
   const [press, setPress] = useState<Press>({ kind: "idle" });
   const [chosen, setChosen] = useState<string | null>(null);
   /* A press outlives the render that made it; an answer landing after this
@@ -82,7 +86,7 @@ export function Sockets({ frontier, selection, adapters, folder, onSelect }: Soc
     );
   }, [frontier]);
 
-  const rail = railAt({ frontier, selection, adapters, folder, press });
+  const rail = railAt({ frontier, selection, environment, folder, press });
   const adapter = adapterAtPress(rail.adapters, chosen);
 
   const start = async (target: number) => {

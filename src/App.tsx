@@ -695,7 +695,7 @@ export function App() {
           <Sockets
             frontier={snapshot.model.map?.frontier ?? null}
             selection={selectedNode}
-            adapters={folderEnvironment?.adapters ?? []}
+            environment={folderEnvironment}
             folder={selectedPath ?? null}
             onSelect={select}
           />

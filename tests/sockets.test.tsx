@@ -19,7 +19,11 @@ import {
   TO_FRONTIER_LABEL,
 } from "../src/chrome/sockets";
 import type { Started } from "../src/chrome/started";
-import type { AdapterReading } from "../src/environment/folder";
+import {
+  readoutFrom,
+  type AdapterReading,
+  type FolderReadout,
+} from "../src/environment/folder";
 import type { Frontier } from "../src/snapshot/model.generated";
 import { monitor, readUi } from "../src/stores/ui";
 import { forgetPrompts, promptFor } from "../src/terminal/prompts";
@@ -47,6 +51,9 @@ const CLAUDE: AdapterReading = {
   probes: [],
 };
 
+const readout = (adapters: readonly AdapterReading[]): FolderReadout =>
+  readoutFrom({ adapters, harvest: { kind: "harvested" } }, "/work/repo");
+
 const AT_75: Frontier = { frontier: "designated", number: 75 };
 
 let mounted: { root: ReturnType<typeof createRoot>; host: HTMLElement } | null = null;
@@ -64,7 +71,7 @@ function paint(props: Partial<Parameters<typeof Sockets>[0]> = {}): HTMLElement 
       <Sockets
         frontier={AT_75}
         selection={null}
-        adapters={[CLAUDE]}
+        environment={readout([CLAUDE])}
         folder="/work/repo"
         onSelect={(node) => {
           selected = node;
@@ -108,7 +115,7 @@ afterEach(() => {
 
 describe("the rail on screen", () => {
   it("has all four sockets whether or not any of them can be pressed", () => {
-    const host = paint({ frontier: { frontier: "nothingToStart" }, adapters: [] });
+    const host = paint({ frontier: { frontier: "nothingToStart" }, environment: readout([]) });
     const ids = [...host.querySelectorAll("[data-socket]")].map((el) =>
       el.getAttribute("data-socket"),
     );
@@ -121,7 +128,7 @@ describe("the rail on screen", () => {
   });
 
   it("prints every condition as visible text and none of it as a tooltip", () => {
-    const host = paint({ adapters: [] });
+    const host = paint({ environment: readout([]) });
 
     expect(socket(host, "start").textContent).toContain(NO_ADAPTER);
     expect(socket(host, "resume").textContent).toContain(RESUME_ARRIVES);
