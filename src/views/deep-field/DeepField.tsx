@@ -402,6 +402,9 @@ function PlateRow({
     <li
       className={styles.plate}
       data-node={node.number}
+      /* The hook the key router resolves a pickable row by — the same one The
+         Route's rows wear, so one table opens a node in either view. */
+      data-node-row={node.number}
       data-state={node.state}
       data-kind={node.kind.kind}
       data-rank={plate.rank}
@@ -414,14 +417,17 @@ function PlateRow({
       /* The same word `FolderRow` and The Route use for the row you picked, so
          the fill is not the only place the choice is said. */
       aria-current={selected ? "true" : undefined}
+      /*
+       * Reachable by keyboard, and bound by nobody here. `Enter` and `Space`
+       * are a row of the one key table in `src/keys/router.ts`, which resolves
+       * the plate from the `data-node-row` above and toggles the same selection
+       * this click does — including `preventDefault`, so `Space` does not
+       * scroll the lane out from under what is being picked. A second handler
+       * here would be a key this app binds outside the router, which
+       * `tests/no-loose-keys.test.ts` refuses.
+       */
       tabIndex={0}
       onClick={choose}
-      onKeyDown={(event) => {
-        if (event.key !== "Enter" && event.key !== " ") return;
-        // Space scrolls the lane otherwise, which moves the thing being picked.
-        event.preventDefault();
-        choose();
-      }}
     >
       <span className={styles.glyph} aria-hidden="true">
         {/* The cut's own shape, composed onto the one the form already chose
