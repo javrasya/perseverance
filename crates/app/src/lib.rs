@@ -2529,7 +2529,7 @@ fn start_working(
             terminals.staked(
                 run,
                 Stakes {
-                    ticket,
+                    ticket: Some(ticket),
                     folder,
                     kind: kind_of(&map, ticket),
                 },
@@ -2546,6 +2546,135 @@ fn start_working(
         }
         Err(refusal) => Started::refused(refusal, standing),
     }
+}
+
+/// Start Charting, from the idea box to the child.
+///
+/// **Nearly every guard `start_working` opens with is absent here, and each
+/// absence is the same fact twice: there is no ticket.** No awaited
+/// revalidation and no frontier comparison — that gate exists so a press is
+/// never silently retargeted, and nothing here has a target to be moved off.
+/// No claim — the agent's own conditional claim is what makes a ticket safe,
+/// and there is no ticket to make safe. No worktree — the spawn directory is
+/// the folder itself, and worktrees are a research run's. And no write to
+/// GitHub of any kind: the harness creates no label and opens no issue, the
+/// run does all of that, and the map it produces is discovered by the same
+/// label poll that discovers every other one.
+///
+/// A refusal here therefore always names `None` for the frontier: this press
+/// learned no target because it asked about none.
+// Nine, for the same reason `start_working` has eleven: managed state Tauri
+// resolves by type, plus the three facts about this press. `poker` is not the
+// frontend's business either — it is what puts the run on the live ladder.
+#[allow(clippy::too_many_arguments)]
+#[tauri::command(async)]
+fn start_charting(
+    app: AppHandle,
+    terminals: State<'_, Terminals>,
+    harvests: State<'_, Harvests>,
+    registry: State<'_, Registry>,
+    ambient: State<'_, Ambient>,
+    poker: State<'_, Poker>,
+    folder: String,
+    idea: String,
+    adapter: String,
+) -> Started {
+    match chart_in(
+        &app, &terminals, &harvests, &registry, &ambient, &folder, &idea, &adapter,
+    ) {
+        Ok((run, rendered)) => {
+            // Two writes and a bind, and not one of them happens before there
+            // is a run for them to be true of.
+            terminals.staked(
+                run,
+                Stakes {
+                    ticket: None,
+                    folder,
+                    kind: RunKind::Chart,
+                },
+            );
+            terminals.counting(run, poker.run_started());
+            // The operator watches what they started.
+            terminals.held().monitor(Some(run));
+
+            Started::Spawned {
+                run: run.as_u64(),
+                prompt: rendered,
+            }
+        }
+        Err(refusal) => Started::refused(refusal, None),
+    }
+}
+
+/// Everything between the press and the charting run, and every way it can
+/// refuse — [`spawn_at`]'s shape, minus the three hops that need a map.
+#[allow(clippy::too_many_arguments)]
+fn chart_in(
+    app: &AppHandle,
+    terminals: &Terminals,
+    harvests: &Harvests,
+    registry: &Registry,
+    ambient: &Ambient,
+    folder: &str,
+    idea: &str,
+    adapter: &str,
+) -> Result<(RunId, prompt::Rendered), String> {
+    // The store's own sentence, unedited, exactly as `spawn_at` carries it.
+    let repo =
+        perseverance_store::bind_repo(Path::new(folder)).map_err(|refusal| refusal.to_string())?;
+
+    // Wanted for one thing only — learning who is signed in — but a chart brief
+    // with no operator in it is as unfollowable as a work brief with none.
+    let Some(TokenOutcome::Acquired(token)) = ambient.token.get() else {
+        return Err("this run acquired no GitHub token, so no session can be started".to_string());
+    };
+    let Some(operator) = remembered_login(&ambient.login, || read_login(token)) else {
+        return Err(
+            "this run never learned which GitHub account is signed in, and a brief names its \
+             operator"
+                .to_string(),
+        );
+    };
+
+    let rendered = charting(app, &operator, &repo, idea);
+    let (spawn, launch) = plan_in(harvests, registry, folder, adapter, &rendered.text)?;
+    let accepted = perseverance_pty::accept(launch).map_err(|refusal| refusal.to_string())?;
+
+    let run = terminals
+        .held()
+        .open(accepted, &spawn.directory, &spawn.environment)
+        .map_err(|refusal| refusal.to_string())?;
+
+    Ok((run, rendered))
+}
+
+/// The charting prompt, rendered at the moment of spawn — [`render`]'s rule
+/// about the override, for the other template.
+fn charting(
+    app: &AppHandle,
+    operator: &str,
+    repo: &perseverance_store::RepoRef,
+    idea: &str,
+) -> prompt::Rendered {
+    let overriding = app
+        .path()
+        .app_data_dir()
+        .ok()
+        .and_then(|directory| prompt::chart_override(&directory));
+
+    prompt::chart(
+        overriding.as_deref(),
+        &prompt::Bearings {
+            repo: format!("{}/{}", repo.owner, repo.name),
+            // Built rather than carried: nothing has been read from GitHub yet,
+            // so there is no issue URL to take a sibling from — and the binding
+            // only answers for a remote it recognised as github.com in the
+            // first place.
+            repo_url: format!("https://github.com/{}/{}", repo.owner, repo.name),
+            operator: operator.to_string(),
+            idea: idea.to_string(),
+        },
+    )
 }
 
 /// What kind of run this ticket is, from the node the frontier named.
@@ -2789,12 +2918,19 @@ struct SpawnIn {
 pub enum RunKind {
     Work,
     Research,
+    /// A charting run, which is neither: it holds no claim because there is no
+    /// ticket yet, and it is the run that creates the ones the other two work.
+    Chart,
 }
 
 impl RunKind {
     /// The mapping, and the only one. Research runs AFK and everything else has
     /// somebody at the keyboard — the same line `attendanceOf` draws in
     /// `route.ts`, and drawn from the same enum so the two cannot drift.
+    ///
+    /// [`RunKind::Chart`] is deliberately not reachable from here: a charting
+    /// run has no ticket to be derived from, and the day one does it will be a
+    /// ticket somebody else already charted.
     pub fn of(ticket: TicketType) -> RunKind {
         match ticket {
             TicketType::Research => RunKind::Research,
@@ -2806,7 +2942,11 @@ impl RunKind {
 /// What one live run would lose if the app quit now.
 #[derive(Debug, Clone)]
 pub struct Stakes {
-    pub ticket: u64,
+    /// `None` is *this run is not working a ticket*, which today is exactly a
+    /// charting run — the one run that reaches a repository before any ticket
+    /// exists. Optional rather than a sentinel number, because a run named
+    /// `#0` is a run an operator would go looking for.
+    pub ticket: Option<u64>,
     pub folder: String,
     pub kind: RunKind,
 }
@@ -2834,6 +2974,15 @@ const RESEARCH_LOSS: &str =
 /// side table had no row for it would be a confirmation that under-reports
 /// exactly when the app is most confused, and *I do not know what this costs* is
 /// a thing an operator can act on where silence is not.
+/// A charting run's loss, which is the session and nothing else.
+///
+/// It strands no claim because it holds none — nothing is assigned until the
+/// tickets it is writing exist — and it keeps nothing on this side, so what it
+/// has already pushed to GitHub survives and what it has not does not. The
+/// labels, the map and the tickets it managed to create are all already there.
+const CHART_LOSS: &str =
+    "a charting session strands no claim, and keeps nothing it has not already pushed to GitHub";
+
 const UNKNOWN_LOSS: &str =
     "this app was not told what it is working on, so it cannot say what this one loses";
 
@@ -2854,12 +3003,17 @@ const KEEP_LABEL: &str = "Keep working";
 fn what_it_loses(run: RunId, stakes: Option<&Stakes>) -> String {
     match stakes {
         Some(stakes) => format!(
-            "#{} in {} — {}",
-            stakes.ticket,
-            stakes.folder,
+            "{} — {}",
+            // A charting run is named by the folder it is charting, because the
+            // ticket numbers it would be named by are the ones it is creating.
+            match stakes.ticket {
+                Some(ticket) => format!("#{ticket} in {}", stakes.folder),
+                None => format!("charting {}", stakes.folder),
+            },
             match stakes.kind {
                 RunKind::Work => WORK_LOSS,
                 RunKind::Research => RESEARCH_LOSS,
+                RunKind::Chart => CHART_LOSS,
             }
         ),
         // `RunId`'s own `Display` is *run 7*, which is the most this side can
@@ -3289,7 +3443,8 @@ pub fn run() {
             typed_at_run,
             settled_geometry,
             run_readouts,
-            start_working
+            start_working,
+            start_charting
         ])
         .build(tauri::generate_context!())
         .expect("perseverance failed to start")
@@ -6250,10 +6405,76 @@ mod tests {
 
     fn a_stake(ticket: u64, folder: &str, kind: RunKind) -> Stakes {
         Stakes {
-            ticket,
+            ticket: Some(ticket),
             folder: folder.to_string(),
             kind,
         }
+    }
+
+    /// The third run kind, whose whole difference from the other two is that
+    /// it has no ticket: it is named by the folder it is charting, and its
+    /// sentence promises no Resume, because there is no claim to pick back up.
+    ///
+    /// A pure call rather than a run through the registry — the end-to-end join
+    /// is covered below, and this is the prose.
+    #[test]
+    fn a_charting_run_is_named_by_its_folder_and_strands_no_claim() {
+        let charting = what_it_loses(
+            RunId::from_u64(4),
+            Some(&Stakes {
+                ticket: None,
+                folder: "perseverance".to_string(),
+                kind: RunKind::Chart,
+            }),
+        );
+
+        assert!(charting.contains("charting perseverance"), "{charting}");
+        assert!(charting.contains(CHART_LOSS), "{charting}");
+        // Not `#0`, which is a run an operator would go looking for.
+        assert!(
+            !charting.contains('#'),
+            "a charting run names a ticket it does not have: {charting}"
+        );
+
+        // And the run nobody staked still answers, unchanged by the ticket
+        // becoming optional beside it.
+        assert!(what_it_loses(RunId::from_u64(5), None).contains(UNKNOWN_LOSS));
+    }
+
+    /// Charting answers in [`Started`] and not in a second enum, so the
+    /// WebView has one shape to mirror — and every refusal of it names no
+    /// frontier, because a chart press asked about no target and learned none.
+    #[test]
+    fn what_start_charting_answers_crosses_in_the_shape_start_working_already_declares() {
+        let spawned = serde_json::to_value(Started::Spawned {
+            run: 9,
+            prompt: prompt::chart(
+                None,
+                &prompt::Bearings {
+                    repo: "javrasya/perseverance".to_string(),
+                    repo_url: "https://github.com/javrasya/perseverance".to_string(),
+                    operator: "javrasya".to_string(),
+                    idea: "an idea box on an empty folder".to_string(),
+                },
+            ),
+        })
+        .expect("serialises");
+
+        assert_eq!(spawned["kind"], "spawned");
+        assert_eq!(spawned["run"], 9);
+        assert_eq!(spawned["prompt"]["origin"], "stock");
+        assert_eq!(spawned.as_object().expect("an object").len(), 3);
+
+        let refused = serde_json::to_value(Started::refused(
+            "this folder holds no usable .git",
+            // The only frontier a chart refusal ever carries.
+            None,
+        ))
+        .expect("serialises");
+
+        assert_eq!(refused["kind"], "refused");
+        assert_eq!(refused["detail"], "this folder holds no usable .git");
+        assert_eq!(refused["frontier"], serde_json::Value::Null);
     }
 
     /// A run this app really opened, so the join between the registry and the

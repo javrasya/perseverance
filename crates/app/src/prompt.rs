@@ -34,10 +34,20 @@ use serde::Serialize;
 /// Bump it when the *conventions* change, not when the wording does.
 pub const WAYFINDER_REVISION: &str = "2026.1";
 
-/// The one template this build compiles in. Others (`chart`, `compose-spec`,
-/// `ask`) are their own tickets; the shape here takes a template as an argument
-/// so a second one costs a `const` and a function.
+/// The template a session working one ticket is spawned from. Others
+/// (`compose-spec`, `ask`) are their own tickets; the shape here takes a
+/// template as an argument so a second one costs a `const` and a function.
 const WORK_TICKET: &str = include_str!("prompts/work-ticket.md");
+
+/// The template a charting session is spawned from.
+///
+/// **Its own template rather than a mode of the one above**, because the two
+/// disagree about nearly everything: `chart` names a destination, fans out
+/// breadth-first and creates the labels a repository does not have yet, and it
+/// governs no write to an existing ticket at all. One template covering both
+/// would need a conditional, and a template that wants a conditional is two
+/// templates that have not been split yet.
+const CHART: &str = include_str!("prompts/chart.md");
 
 /// The override's file name, resolved against `app_data_dir()`.
 ///
@@ -49,6 +59,9 @@ const WORK_TICKET: &str = include_str!("prompts/work-ticket.md");
 /// value nobody will ever set. The read tolerates failure the same way its
 /// neighbour does: unreadable or blank is *no override*, never a refusal.
 pub const WORK_TICKET_OVERRIDE_FILE: &str = "work-ticket.md";
+
+/// The charting override's file name, read on exactly the same terms.
+pub const CHART_OVERRIDE_FILE: &str = "chart.md";
 
 /// Where the work is. Every field is a coordinate the agent can read its own
 /// way in from, plus the ticket's question, which is the one piece of map
@@ -67,6 +80,25 @@ pub struct Coordinates {
     pub operator: String,
     /// The claimed ticket's own question, verbatim.
     pub question: String,
+}
+
+/// Where a charting session starts from, which is a shorter list than
+/// [`Coordinates`] because nothing is charted yet.
+///
+/// No map number, no ticket and no question: there is no map to name, no ticket
+/// to carry, and the whole subject of the run is the sentence the operator
+/// typed. Its own struct rather than optional fields on [`Coordinates`], so
+/// neither template ever renders a hole the other one filled.
+#[derive(Debug, Clone)]
+pub struct Bearings {
+    /// `owner/name`.
+    pub repo: String,
+    pub repo_url: String,
+    /// The operator's GitHub login. A brief with no operator in it is a brief a
+    /// session cannot follow, so the caller refuses rather than render a hole.
+    pub operator: String,
+    /// What the operator typed, verbatim.
+    pub idea: String,
 }
 
 /// Which text a run was spawned from.
@@ -97,25 +129,28 @@ pub struct Rendered {
 /// No conditionals and no loops: a template that wants a conditional is two
 /// templates that have not been split yet. The workspace has no templating
 /// dependency and gains none for this.
-fn fill(template: &str, at: &Coordinates) -> String {
-    let map_number = at.map_number.to_string();
-    let ticket_number = at.ticket_number.to_string();
+fn fill(template: &str, values: &[(&str, &str)]) -> String {
+    values
+        .iter()
+        .fold(template.to_string(), |text, (name, value)| {
+            text.replace(name, value)
+        })
+}
 
-    [
-        ("{{revision}}", WAYFINDER_REVISION),
-        ("{{repo}}", at.repo.as_str()),
-        ("{{map_number}}", map_number.as_str()),
-        ("{{map_url}}", at.map_url.as_str()),
-        ("{{ticket_number}}", ticket_number.as_str()),
-        ("{{ticket_url}}", at.ticket_url.as_str()),
-        ("{{ticket_title}}", at.ticket_title.as_str()),
-        ("{{operator}}", at.operator.as_str()),
-        ("{{question}}", at.question.as_str()),
-    ]
-    .into_iter()
-    .fold(template.to_string(), |text, (name, value)| {
-        text.replace(name, value)
-    })
+/// One template, one pair list, one answer — the half both renderers below
+/// share, so that *an override is the whole prompt* is written once.
+fn rendered(overriding: Option<&str>, stock: &str, values: &[(&str, &str)]) -> Rendered {
+    let (template, origin) = match overriding {
+        Some(custom) => (custom, Origin::Custom),
+        None => (stock, Origin::Stock),
+    };
+    let text = fill(template, values);
+
+    Rendered {
+        characters: text.chars().count(),
+        text,
+        origin,
+    }
 }
 
 /// The override as it was written down, or nothing at all.
@@ -127,30 +162,62 @@ fn fill(template: &str, at: &Coordinates) -> String {
 /// `stored_override` treats an unparseable preference row — a spawn held shut
 /// by a bad file in a settings directory would be the worse outcome.
 pub fn work_ticket_override(app_data_dir: &Path) -> Option<String> {
-    let written = std::fs::read_to_string(app_data_dir.join(WORK_TICKET_OVERRIDE_FILE)).ok()?;
+    written_beside(app_data_dir, WORK_TICKET_OVERRIDE_FILE)
+}
+
+/// The charting override, on exactly the terms argued above.
+pub fn chart_override(app_data_dir: &Path) -> Option<String> {
+    written_beside(app_data_dir, CHART_OVERRIDE_FILE)
+}
+
+fn written_beside(app_data_dir: &Path, file: &str) -> Option<String> {
+    let written = std::fs::read_to_string(app_data_dir.join(file)).ok()?;
     (!written.trim().is_empty()).then_some(written)
 }
 
 /// The `work-ticket` prompt, rendered from the override when there is one and
 /// from the compiled-in text when there is not.
 pub fn work_ticket(overriding: Option<&str>, at: &Coordinates) -> Rendered {
-    let (template, origin) = match overriding {
-        Some(custom) => (custom, Origin::Custom),
-        None => (WORK_TICKET, Origin::Stock),
-    };
-    let text = fill(template, at);
+    let map_number = at.map_number.to_string();
+    let ticket_number = at.ticket_number.to_string();
 
-    Rendered {
-        characters: text.chars().count(),
-        text,
-        origin,
-    }
+    rendered(
+        overriding,
+        WORK_TICKET,
+        &[
+            ("{{revision}}", WAYFINDER_REVISION),
+            ("{{repo}}", at.repo.as_str()),
+            ("{{map_number}}", map_number.as_str()),
+            ("{{map_url}}", at.map_url.as_str()),
+            ("{{ticket_number}}", ticket_number.as_str()),
+            ("{{ticket_url}}", at.ticket_url.as_str()),
+            ("{{ticket_title}}", at.ticket_title.as_str()),
+            ("{{operator}}", at.operator.as_str()),
+            ("{{question}}", at.question.as_str()),
+        ],
+    )
+}
+
+/// The `chart` prompt, rendered from the override when there is one and from
+/// the compiled-in text when there is not.
+pub fn chart(overriding: Option<&str>, at: &Bearings) -> Rendered {
+    rendered(
+        overriding,
+        CHART,
+        &[
+            ("{{revision}}", WAYFINDER_REVISION),
+            ("{{repo}}", at.repo.as_str()),
+            ("{{repo_url}}", at.repo_url.as_str()),
+            ("{{operator}}", at.operator.as_str()),
+            ("{{idea}}", at.idea.as_str()),
+        ],
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use perseverance_model::{FOG_HEADING, OUT_OF_SCOPE_HEADING, WAYFINDER_PREFIX};
+    use perseverance_model::{FOG_HEADING, MAP_LABEL, OUT_OF_SCOPE_HEADING, WAYFINDER_PREFIX};
 
     fn somewhere() -> Coordinates {
         Coordinates {
@@ -178,13 +245,13 @@ mod tests {
     /// and it attempts no drift detection against upstream conventions: there
     /// is nothing in the tree to compare against, and a check that cannot be
     /// built honestly is worse than no check.
+    /// The parser's own source, so a rename of a ticket-type string over there
+    /// fails here — those five are matched as literals in `derive.rs` and are
+    /// not constants a test can name.
+    const DERIVE: &str = include_str!("../../model/src/derive.rs");
+
     #[test]
     fn the_template_still_instructs_every_structure_the_parser_reads() {
-        // The parser's own source, so a rename of a ticket-type string over
-        // there fails here — those five are matched as literals in `derive.rs`
-        // and are not constants this test can name.
-        const DERIVE: &str = include_str!("../../model/src/derive.rs");
-
         for kind in ["research", "prototype", "grilling", "task", "spec"] {
             assert!(
                 DERIVE.contains(&format!("\"{kind}\" =>")),
@@ -327,5 +394,195 @@ mod tests {
         assert_eq!(rendered.text, "Work #48 in javrasya/perseverance.");
         assert_eq!(rendered.origin, Origin::Custom);
         assert_eq!(rendered.characters, 34);
+    }
+
+    /* ------------------------------------------------------------ chart --- */
+
+    fn an_idea() -> Bearings {
+        Bearings {
+            repo: "javrasya/perseverance".to_string(),
+            repo_url: "https://github.com/javrasya/perseverance".to_string(),
+            operator: "javrasya".to_string(),
+            idea: "Charting should be startable from an empty folder".to_string(),
+        }
+    }
+
+    /// The conformance check above, for the template that creates the
+    /// structures rather than adding to them. Same rule and same reason: every
+    /// literal the parser keys on is asserted against the model crate's own
+    /// constants, so a rename on either side fails here.
+    #[test]
+    fn the_chart_template_still_instructs_every_structure_the_parser_reads() {
+        for kind in ["research", "prototype", "grilling", "task", "spec"] {
+            assert!(
+                DERIVE.contains(&format!("\"{kind}\" =>")),
+                "crates/model no longer classifies {kind:?}, so the template teaches a label \
+                 nothing reads"
+            );
+            assert!(
+                CHART.contains(&format!("{WAYFINDER_PREFIX}{kind}")),
+                "the chart template no longer names {WAYFINDER_PREFIX}{kind}, so a charting run \
+                 creates a child the map cannot classify"
+            );
+        }
+
+        // The map's own label, which no other template has to name: this is the
+        // run that opens the issue the poller discovers.
+        assert!(
+            CHART.contains(MAP_LABEL),
+            "the chart template no longer names {MAP_LABEL}, so the map it opens is invisible to \
+             the poll"
+        );
+
+        assert!(
+            CHART.contains(FOG_HEADING),
+            "the chart template no longer names the literal fog heading, and the parser matches \
+             no other spelling"
+        );
+        assert!(
+            CHART.contains(OUT_OF_SCOPE_HEADING),
+            "the chart template no longer names the literal out-of-scope heading, and the parser \
+             matches no other spelling"
+        );
+        assert!(
+            CHART.contains("link to the issue it cuts"),
+            "the chart template no longer requires an issue link in an out-of-scope bullet"
+        );
+
+        assert!(
+            CHART.contains("sub-issue"),
+            "the chart template no longer says children are attached as sub-issues"
+        );
+        assert!(
+            CHART.contains("dependency link"),
+            "the chart template no longer says blocking is recorded as a native dependency link"
+        );
+        assert!(
+            CHART.contains("never as a sentence"),
+            "the chart template no longer forbids recording blocking as prose"
+        );
+    }
+
+    /// The three rules that live only here, and the one suppression that is the
+    /// whole reason the harness spawns research runs itself.
+    #[test]
+    fn charting_creates_the_labels_fires_nothing_and_may_end_with_no_map() {
+        let text = chart(None, &an_idea()).text;
+
+        // Nothing else in the tree creates a label — the harness never writes
+        // to GitHub — so a chart run that stopped doing this leaves a
+        // repository whose tickets no poll can classify.
+        assert!(
+            text.contains("every label the harness reads"),
+            "the template no longer instructs creating the labels"
+        );
+
+        assert!(
+            text.contains("Do not fire research subagents"),
+            "the template no longer suppresses the fire-the-subagents step"
+        );
+        assert!(
+            text.contains("Leave every research ticket you created open and unresolved."),
+            "the template no longer leaves the research tickets for the harness to spawn"
+        );
+
+        // A charting session that judged the work small enough to just do is a
+        // success, and the prose has to say so in those terms or the agent
+        // invents fog to justify a map.
+        assert!(
+            text.contains("**Producing no map is a normal outcome.**"),
+            "the template no longer calls a run with no map a normal outcome"
+        );
+        assert!(
+            text.contains("is a success, not a failure"),
+            "the template no longer says a run that produced no map succeeded"
+        );
+
+        // The two steps `work-ticket` deliberately dropped.
+        assert!(
+            text.contains("name the destination"),
+            "the template no longer settles the destination first"
+        );
+        assert!(
+            text.contains("breadth-first"),
+            "the template no longer maps the frontier breadth-first"
+        );
+    }
+
+    #[test]
+    fn the_chart_prompt_carries_bearings_and_nothing_charted() {
+        let rendered = chart(None, &an_idea());
+
+        for bearing in [
+            "javrasya/perseverance",
+            "https://github.com/javrasya/perseverance",
+            "@javrasya",
+            "Charting should be startable from an empty folder",
+        ] {
+            assert!(rendered.text.contains(bearing), "{bearing} is missing");
+        }
+
+        assert!(
+            !rendered.text.contains("{{"),
+            "a placeholder went unsubstituted"
+        );
+
+        // Nothing is charted yet, so no issue number can be true of this run —
+        // and the harness's own reading of a map is never an input to one.
+        let numbered: Vec<&str> = rendered
+            .text
+            .match_indices('#')
+            .filter(|(at, _)| {
+                rendered.text[at + 1..]
+                    .chars()
+                    .next()
+                    .is_some_and(|next| next.is_ascii_digit())
+            })
+            .map(|(at, _)| &rendered.text[at..(at + 6).min(rendered.text.len())])
+            .collect();
+        assert!(
+            numbered.is_empty(),
+            "the chart prompt names an issue number: {numbered:?}"
+        );
+        // The word appears exactly once, naming the act of mapping the space —
+        // never a frontier the harness derived, which is not an input to any
+        // run and least of all to the one that has no map to derive it from.
+        assert_eq!(
+            rendered.text.matches("frontier").count(),
+            1,
+            "the chart prompt has grown a second sense of the frontier"
+        );
+
+        assert_eq!(rendered.origin, Origin::Stock);
+        assert_eq!(rendered.characters, rendered.text.chars().count());
+    }
+
+    #[test]
+    fn a_chart_override_is_the_whole_prompt_and_a_blank_one_is_absent() {
+        let dir = tempfile::tempdir().expect("a temporary directory");
+
+        assert!(chart_override(dir.path()).is_none());
+
+        let file = dir.path().join(CHART_OVERRIDE_FILE);
+        std::fs::write(&file, "   \n\t\n").expect("writes");
+        assert!(
+            chart_override(dir.path()).is_none(),
+            "a blank override is absent, not an empty prompt"
+        );
+
+        std::fs::write(&file, "Chart {{repo}} for @{{operator}}: {{idea}}").expect("writes");
+        let custom = chart_override(dir.path()).expect("an override");
+        let rendered = chart(Some(&custom), &an_idea());
+
+        assert_eq!(
+            rendered.text,
+            "Chart javrasya/perseverance for @javrasya: Charting should be startable from an \
+             empty folder"
+        );
+        assert_eq!(rendered.origin, Origin::Custom);
+
+        // The two overrides are separate files, so the one beside it is
+        // untouched by either write above.
+        assert!(work_ticket_override(dir.path()).is_none());
     }
 }
