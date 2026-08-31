@@ -112,6 +112,9 @@ import { useTheme } from "./theme/useTheme";
    case-insensitive filesystem the extensionless specifier resolves to the
    arithmetic module instead of the component. */
 import { Route } from "./views/route/Route.jsx";
+/* `DeepField.jsx` for the same reason, and it is the harder case: the module
+   beside it differs from the component only in its first letter. */
+import { DeepField } from "./views/deep-field/DeepField.jsx";
 /* `Ledger.jsx` for the same reason: `chrome/ledger.ts` is the words and the
    arithmetic, `chrome/Ledger.tsx` is the component, and an extensionless
    specifier finds the first of the two. */
@@ -1342,6 +1345,12 @@ export function App() {
                 />
               ) : view === "route" ? (
                 <Route
+                  model={snapshot.model}
+                  selected={selectedNode}
+                  onSelect={select}
+                />
+              ) : view === "deep-field" ? (
+                <DeepField
                   model={snapshot.model}
                   selected={selectedNode}
                   onSelect={select}

@@ -20,21 +20,21 @@ classification is
 
 ## The thirteen
 
-| # | Rule | Subject | Tier | Render-bound | Where it is enforced | route |
-| --- | --- | --- | --- | --- | --- | --- |
-| 1 | One derived model | codebase | structural | no | construction in `src/snapshot/model.generated.ts` | no slot |
-| 2 | Singular frontier | rendering | asserted | yes | assertion over the fixture space (#43) | no slot |
-| 3 | Fail-safe is not styling | rendering | asserted | yes | assertion over the fixture space (#43) | no slot |
-| 4 | Absence is never zero | rendering | **judged** | yes | asserted floor (#43), then declaration | declared |
-| 5 | No progress bar | rendering | asserted | yes | assertion over the fixture space (#43) | no slot |
-| 6 | Out-of-scope is never progress | rendering | asserted | yes | assertion over the fixture space (#43) | no slot |
-| 7 | The ledger is chrome | codebase | structural | no | construction in `src/views/views.ts` | no slot |
-| 8 | No stored positions | codebase | structural | no | construction in `crates/app/src/lib.rs` | no slot |
-| 9 | Motion is rationed | rendering | asserted | no | enumeration over the stylesheets (#43) | no slot |
-| 10 | Hover discloses nothing | reading | **judged** | yes | asserted floor (#43), then declaration | declared |
-| 11 | The field is not the label surface | reading | **judged** | yes | declaration only — no floor a machine can settle | declared |
-| 12 | Still-state equivalent | rendering | **judged** | yes | asserted floor (#43), then declaration | declared |
-| 13 | Resolved stays locatable | reading | **judged** | yes | asserted floor (#43), then declaration | declared |
+| # | Rule | Subject | Tier | Render-bound | Where it is enforced | route | deep-field |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | One derived model | codebase | structural | no | construction in `src/snapshot/model.generated.ts` | no slot | no slot |
+| 2 | Singular frontier | rendering | asserted | yes | assertion over the fixture space (#43) | no slot | no slot |
+| 3 | Fail-safe is not styling | rendering | asserted | yes | assertion over the fixture space (#43) | no slot | no slot |
+| 4 | Absence is never zero | rendering | **judged** | yes | asserted floor (#43), then declaration | declared | declared |
+| 5 | No progress bar | rendering | asserted | yes | assertion over the fixture space (#43) | no slot | no slot |
+| 6 | Out-of-scope is never progress | rendering | asserted | yes | assertion over the fixture space (#43) | no slot | no slot |
+| 7 | The ledger is chrome | codebase | structural | no | construction in `src/views/views.ts` | no slot | no slot |
+| 8 | No stored positions | codebase | structural | no | construction in `crates/app/src/lib.rs` | no slot | no slot |
+| 9 | Motion is rationed | rendering | asserted | no | enumeration over the stylesheets (#43) | no slot | no slot |
+| 10 | Hover discloses nothing | reading | **judged** | yes | asserted floor (#43), then declaration | declared | declared |
+| 11 | The field is not the label surface | reading | **judged** | yes | declaration only — no floor a machine can settle | declared | declared |
+| 12 | Still-state equivalent | rendering | **judged** | yes | asserted floor (#43), then declaration | declared | declared |
+| 13 | Resolved stays locatable | reading | **judged** | yes | asserted floor (#43), then declaration | declared | declared |
 
 A view column reads `no slot` wherever the rule is structural or asserted.
 That is not an omission: deviation is a function of tier, and only a judged
