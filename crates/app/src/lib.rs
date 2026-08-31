@@ -4539,7 +4539,14 @@ fn ask_at(
         },
     );
 
-    start_child(terminals, harvests, registry, folder, adapter, rendered)
+    start_child(
+        terminals,
+        harvests,
+        registry,
+        Path::new(folder),
+        adapter,
+        rendered,
+    )
 }
 
 /* --------------------------------------------------- what a quit costs --- */
