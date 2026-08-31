@@ -13,11 +13,14 @@
   "scripts": {
     "dev": "vite",
     "dev:web": "vite --open \"/?map=awkward-map\"",
+    "dev:web:serve": "vite --port 1421 --strictPort",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:conformance": "playwright test --project=webkit",
+    "test:conformance:chromium": "playwright test --project=chromium",
     "check:css-floor": "stylelint \"src/**/*.css\"",
     "check:model-purity": "node scripts/check-model-purity.mjs",
     "check:agent-solitude": "node scripts/check-agent-solitude.mjs",
@@ -33,6 +36,7 @@
     "react-dom": "^19"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@tauri-apps/cli": "^2",
     "@types/node": "^26.1.2",
     "@types/react": "^19",

@@ -48,23 +48,28 @@
 
 import type { Snapshot } from "./model.generated";
 
-import authFailed from "./fixtures/auth-failed.json";
-import awkwardMap from "./fixtures/awkward-map.json";
-import emptyMap from "./fixtures/empty-map.json";
-import fogCharted from "./fixtures/fog-charted.json";
-import fogEmpty from "./fixtures/fog-empty.json";
-import fogUnsurveyed from "./fixtures/fog-unsurveyed.json";
-import mapClosed from "./fixtures/map-closed.json";
-import mapGone from "./fixtures/map-gone.json";
-import noMapOpen from "./fixtures/no-map-open.json";
-import outOfScope from "./fixtures/out-of-scope.json";
-import platformBoundMacos from "./fixtures/platform-bound-macos.json";
-import platformBoundWindows from "./fixtures/platform-bound-windows.json";
-import rateLimited from "./fixtures/rate-limited.json";
-import specComposed from "./fixtures/spec-composed.json";
-import twoMapsOneOpen from "./fixtures/two-maps-one-open.json";
-import unreachable from "./fixtures/unreachable.json";
-import whileYouWereAway from "./fixtures/while-you-were-away.json";
+/* `with { type: "json" }` on every one of these. Vite does not need it, but
+   the conformance suite loads this module in plain Node ESM to learn the
+   fixture names, and Node refuses a JSON specifier without the attribute — so
+   without it the suite has no way to reach the list except by keeping a second
+   copy of it. */
+import authFailed from "./fixtures/auth-failed.json" with { type: "json" };
+import awkwardMap from "./fixtures/awkward-map.json" with { type: "json" };
+import emptyMap from "./fixtures/empty-map.json" with { type: "json" };
+import fogCharted from "./fixtures/fog-charted.json" with { type: "json" };
+import fogEmpty from "./fixtures/fog-empty.json" with { type: "json" };
+import fogUnsurveyed from "./fixtures/fog-unsurveyed.json" with { type: "json" };
+import mapClosed from "./fixtures/map-closed.json" with { type: "json" };
+import mapGone from "./fixtures/map-gone.json" with { type: "json" };
+import noMapOpen from "./fixtures/no-map-open.json" with { type: "json" };
+import outOfScope from "./fixtures/out-of-scope.json" with { type: "json" };
+import platformBoundMacos from "./fixtures/platform-bound-macos.json" with { type: "json" };
+import platformBoundWindows from "./fixtures/platform-bound-windows.json" with { type: "json" };
+import rateLimited from "./fixtures/rate-limited.json" with { type: "json" };
+import specComposed from "./fixtures/spec-composed.json" with { type: "json" };
+import twoMapsOneOpen from "./fixtures/two-maps-one-open.json" with { type: "json" };
+import unreachable from "./fixtures/unreachable.json" with { type: "json" };
+import whileYouWereAway from "./fixtures/while-you-were-away.json" with { type: "json" };
 
 /*
  * `as unknown as Snapshot`, and for the same reason `maps.ts` does it:

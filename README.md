@@ -289,6 +289,25 @@ ships an evergreen WebView; macOS ships one pinned to the OS version. macOS 13
 there by both stylelint and the Vite build target, so a violation is a build
 error rather than someone else's rendering surprise.
 
+**The rendered rules are settled in a real browser, and the required one is
+WebKit** — `npm run test:conformance`, `playwright.config.ts`,
+`tests/conformance/`. A theme is a `prefers-color-scheme` reassignment and
+motion is a `prefers-reduced-motion` guard; jsdom computes neither, so a rule
+about what is on screen cannot be settled by `npm test`. The suite drives an
+engine against the `dev:web` boot — no Rust, no PTY, no GitHub, only the
+checked-in fixtures — and `tests/conformance/support/drive.ts` turns one point
+of the fixture space (fixtures × two themes × reduced motion, crossed once in
+`tests/support/contract.ts`) into a loaded page. **WebKit is required and
+Chromium is opt-in**: Windows ships an evergreen WebView, macOS ships one
+pinned to the OS version and exposes no WebDriver, so this is the only
+automated thing that will ever exercise the tighter floor in a browser, and a
+Chromium-only run would be systematically blind to the platform most likely to
+break first. CI installs and runs WebKit and depends on it; Chromium
+(`npm run test:conformance:chromium`) is the second reading a developer can
+ask for, and is never what a build depends on. The suite needs a downloaded
+browser, so it is kept out of `npm test` and `npm run verify` — those stay
+runnable on a bare checkout.
+
 Both stack-level checks test themselves against known-bad input as well as
 against the tree. A check nobody has ever seen fail is indistinguishable from a
 check that cannot fail.

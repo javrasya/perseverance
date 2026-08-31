@@ -51,6 +51,20 @@ jobs:
       - name: Stack-level checks
         run: npm test
 
+      # WebKit and nothing else. macOS ships a WebView pinned to the OS version
+      # and exposes no WebDriver, so this is the only place the tighter CSS
+      # floor is ever exercised in a browser; a Chromium-only run would be
+      # blind to the platform most likely to break first. Chromium stays a
+      # developer's opt-in and is deliberately not installed here, so nothing
+      # in CI can come to depend on it. `--with-deps` is Linux-only.
+      - name: Conformance browser
+        run: npx playwright install webkit
+
+      # The encoding contract's rendered half, over dev:web: no Rust, no PTY
+      # and no GitHub behind it, only checked-in fixtures.
+      - name: Conformance suite (WebKit)
+        run: npm run test:conformance
+
       - name: Rust formatting
         run: cargo fmt --all --check
 
