@@ -1984,8 +1984,54 @@ fn clear_override(
 struct MapLayout {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     dial: Option<f64>,
+    /// The Plate's own key, and the one field a node position may arrive
+    /// through in this whole app — rule 8's exception, named. Read leniently
+    /// (see [`forgiving_pins`]) so a plate a newer build wrote in a shape this
+    /// one cannot read costs the pins and never the dial beside them.
+    #[serde(
+        default,
+        deserialize_with = "forgiving_pins",
+        skip_serializing_if = "Option::is_none"
+    )]
+    plate: Option<Vec<Pin>>,
     #[serde(flatten)]
     rest: serde_json::Map<String, serde_json::Value>,
+}
+
+/// One station, put where a hand left it: which child, and the cell.
+///
+/// Cells and never pixels. The drawing is laid out in cells and turned into
+/// pixels in one place in the WebView, so a pin in pixels would be a position
+/// that means something different at another scale.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+struct Pin {
+    node: u64,
+    column: i64,
+    row: i64,
+}
+
+/// The furthest cell a pin may name.
+///
+/// Not a claim about the drawing — the WebView decides how big a plate is — but
+/// a bound on what a stored envelope may say, so a hand-edited row cannot ask
+/// for a station a hundred thousand cells off the side of the field.
+const FURTHEST_CELL: i64 = 4_096;
+
+fn sane(pin: &Pin) -> bool {
+    pin.node > 0
+        && (0..=FURTHEST_CELL).contains(&pin.column)
+        && (0..=FURTHEST_CELL).contains(&pin.row)
+}
+
+/// A plate field this build cannot read is an absence, not a parse failure for
+/// the whole envelope. Without this a junk `plate` would cost the dial as well,
+/// and the two facts have nothing to do with each other.
+fn forgiving_pins<'de, D>(deserializer: D) -> Result<Option<Vec<Pin>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let written = serde_json::Value::deserialize(deserializer)?;
+    Ok(serde_json::from_value::<Vec<Pin>>(written).ok())
 }
 
 /// Where the dial was left on this map, or nothing at all.
@@ -2037,6 +2083,60 @@ fn remember_map_position(registry: State<'_, Registry>, folder_id: i64, map: u64
         .and_then(|written| serde_json::from_str(&written).ok())
         .unwrap_or_default();
     layout.dial = Some(position);
+
+    if let Ok(written) = serde_json::to_string(&layout) {
+        let _ = store.remember_map_layout(folder_id, map, &written);
+    }
+}
+
+/// Where the stations of this map were put by hand, or nothing at all.
+///
+/// The read half of rule 8's one exception, and the same house rule as
+/// [`map_position`]: a registry that would not open, a cell that is not JSON, an
+/// envelope with no plate in it and a pin naming a cell off the edge of any
+/// drawing all answer *nothing pinned*, and the WebView draws the generated
+/// plate it would have drawn anyway.
+#[tauri::command(async)]
+fn map_pins(registry: State<'_, Registry>, folder_id: i64, map: u64) -> Option<Vec<Pin>> {
+    let store = registry.store().ok()?;
+    let written = store.map_layout(folder_id, map).ok().flatten()?;
+    remembered_pins(&written)
+}
+
+/// The pins out of an envelope, or nothing.
+///
+/// A pin that is not sane is dropped rather than taking the rest of the layout
+/// with it: the drawing that results is partly authored and partly generated,
+/// which the WebView already has a word for — it stamps such a plate
+/// *provisional*.
+fn remembered_pins(layout_json: &str) -> Option<Vec<Pin>> {
+    let layout: MapLayout = serde_json::from_str(layout_json).ok()?;
+    let pins: Vec<Pin> = layout.plate?.into_iter().filter(sane).collect();
+    (!pins.is_empty()).then_some(pins)
+}
+
+/// Remembers where the stations of this map were put, for this map alone.
+///
+/// The **only** writer of a node position in this app, which is what rule 8
+/// asserts: one command, one field, one key. Read-modify-write like
+/// [`remember_map_position`], so the dial and whatever a newer build wrote
+/// survive a drag.
+///
+/// An empty list is how a plate goes back to generated — it is written, not
+/// ignored, because *the operator undid every pin* is a fact worth keeping.
+#[tauri::command(async)]
+fn remember_map_pins(registry: State<'_, Registry>, folder_id: i64, map: u64, pins: Vec<Pin>) {
+    let Ok(store) = registry.store() else {
+        return;
+    };
+
+    let mut layout: MapLayout = store
+        .map_layout(folder_id, map)
+        .ok()
+        .flatten()
+        .and_then(|written| serde_json::from_str(&written).ok())
+        .unwrap_or_default();
+    layout.plate = Some(pins.into_iter().filter(sane).collect());
 
     if let Ok(written) = serde_json::to_string(&layout) {
         let _ = store.remember_map_layout(folder_id, map, &written);
@@ -4676,6 +4776,8 @@ pub fn run() {
             clear_override,
             map_position,
             remember_map_position,
+            map_pins,
+            remember_map_pins,
             terminal_channel,
             monitor_run,
             run_took,
@@ -8212,6 +8314,96 @@ mod tests {
 
         assert!(written.contains("\"nickname\":\"the hard one\""));
         assert_eq!(remembered_dial(&written), Some(1.0));
+    }
+
+    /// The Plate's own key, from both ends: what a drag writes reads back, and
+    /// every other thing a `plate` field could hold is an absence.
+    #[test]
+    fn a_plate_that_does_not_parse_reads_as_nothing_pinned() {
+        let store = Store::open_in_memory().expect("opens");
+        let folder = store
+            .remember_folder(Path::new("/work/perseverance"))
+            .expect("remembers");
+
+        store
+            .remember_map_layout(
+                folder.id,
+                12,
+                "{\"plate\":[{\"node\":63,\"column\":12,\"row\":3}]}",
+            )
+            .expect("writes");
+        assert_eq!(
+            remembered_pins(
+                &store
+                    .map_layout(folder.id, 12)
+                    .expect("reads")
+                    .expect("a row")
+            ),
+            Some(vec![Pin {
+                node: 63,
+                column: 12,
+                row: 3
+            }])
+        );
+
+        // Not JSON, not an envelope, an envelope with no plate in it, a plate
+        // that is not a list of pins, a plate that is empty, and pins naming a
+        // cell no drawing has or a child no map numbers. None of these is a
+        // reason to refuse a window: the plate is drawn generated.
+        for written in [
+            "not json",
+            "0.3",
+            "{}",
+            "{\"plate\":null}",
+            "{\"plate\":\"north of the fold\"}",
+            "{\"plate\":[]}",
+            "{\"plate\":[{\"node\":63,\"column\":-1,\"row\":3}]}",
+            "{\"plate\":[{\"node\":63,\"column\":12,\"row\":99999}]}",
+            "{\"plate\":[{\"node\":0,\"column\":12,\"row\":3}]}",
+        ] {
+            assert_eq!(remembered_pins(written), None, "{written}");
+        }
+    }
+
+    /// The two facts in the envelope are independent: a plate this build cannot
+    /// read costs the pins and not the dial beside them.
+    #[test]
+    fn a_junk_plate_does_not_cost_the_dial_beside_it() {
+        assert_eq!(
+            remembered_dial("{\"dial\":0.3,\"plate\":\"nonsense\"}"),
+            Some(0.3)
+        );
+
+        let both = "{\"dial\":0.3,\"plate\":[{\"node\":63,\"column\":12,\"row\":3}]}";
+        assert_eq!(remembered_dial(both), Some(0.3));
+        assert_eq!(remembered_pins(both).map(|pins| pins.len()), Some(1));
+    }
+
+    /// The envelope's promise, kept by the field the Plate added: a dial move
+    /// keeps the pins, and a field a newer build wrote survives both.
+    #[test]
+    fn a_pin_and_a_dial_move_keep_each_other() {
+        let layout: MapLayout = serde_json::from_str(
+            "{\"dial\":0.3,\"plate\":[{\"node\":63,\"column\":12,\"row\":3}],\"nickname\":\"the hard one\"}",
+        )
+        .expect("parses");
+
+        let written = serde_json::to_string(&MapLayout {
+            dial: Some(1.0),
+            ..layout
+        })
+        .expect("serialises");
+
+        assert!(written.contains("\"nickname\":\"the hard one\""));
+        assert_eq!(remembered_dial(&written), Some(1.0));
+        assert_eq!(
+            remembered_pins(&written),
+            Some(vec![Pin {
+                node: 63,
+                column: 12,
+                row: 3
+            }])
+        );
     }
 
     /* ----------------------------------------------- what a quit costs --- */

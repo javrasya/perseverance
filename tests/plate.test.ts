@@ -2,14 +2,16 @@ import { describe, expect, it } from "vitest";
 import { FIXTURES, FIXTURE_NAMES } from "../src/snapshot/fixtures";
 import type { Map, Node } from "../src/snapshot/model.generated";
 import {
+  CELL_PIXELS,
   COMPETENCE_BAND,
   MIN_STATION_GAP,
   PLATE_FLOOR,
   boxHolds,
   plateOf,
-  plateStandDown,
   type Plate,
 } from "../src/views/plate/plate";
+import { VIEW_FLOORS, floorOf, fractionOf, sides, standDown } from "../src/panes/dial";
+import { VIEWS } from "../src/views/views";
 import { type Cell, cellGap, cellsAlong, isOctolinear } from "../src/views/plate/router";
 
 /**
@@ -351,21 +353,42 @@ describe("the floor, as numbers", () => {
     }
   });
 
-  it("stands down under the floor and says which reading it is", () => {
-    const plate = plateOf(branching());
-    expect(plateStandDown(plate, plate.requiredWidth)).toBeNull();
-    expect(plateStandDown(plate, PLATE_FLOOR - 1)).toEqual({
-      view: "plate",
-      why: "narrowerThanFloor",
-      needs: plate.requiredWidth,
-      has: PLATE_FLOOR - 1,
-    });
+  /*
+   * The floor is the registry's, not this module's second opinion. #63's
+   * acceptance criterion is a hard ~700px floor with an explicit stand-down, and
+   * this is where the geometry's number and the shell's answer are held to each
+   * other: the view is registered, `VIEW_FLOORS.plate` is `PLATE_FLOOR`, and
+   * `standDown` names the view, what it needs, what it has and two exits.
+   */
+  it("is registered at its own floor, and stands down under it", () => {
+    expect(VIEW_FLOORS.plate).toBe(PLATE_FLOOR);
+    expect(floorOf("plate")).toBe(PLATE_FLOOR);
+
+    /* A window whose map side is under the floor at every detent. */
+    const narrow = 690;
+    expect(sides(fractionOf("map"), narrow).map).toBeLessThan(PLATE_FLOOR);
+    const standing = standDown("plate", fractionOf("split"), narrow, VIEWS);
+    expect(standing?.view).toBe("plate");
+    expect(standing?.needs).toBe(PLATE_FLOOR);
+    expect(standing?.exits).toHaveLength(2);
+
+    /* And a window wide enough is drawn rather than explained. */
+    expect(standDown("plate", fractionOf("map"), 1600, VIEWS)).toBeNull();
   });
 
-  it("tells the two readings of too narrow apart", () => {
+  /*
+   * Above the floor and under this drawing's own width there is deliberately no
+   * second stand-down: the view is drawn at natural size and the column scrolls,
+   * because a plate scaled under 1:1 is a plate whose reserved label boxes no
+   * longer hold their words. What the geometry still owes is the number — the
+   * width the drawing needs — and it is a measurement rather than a floor.
+   */
+  it("asks for the width the drawing needs and never for a re-layout", () => {
     const wide = plateOf(mapOf(Array.from({ length: 24 }, (_, at) => node(at + 1))));
-    const plate: Plate = { ...wide, requiredWidth: PLATE_FLOOR + 200 };
-    expect(plateStandDown(plate, PLATE_FLOOR + 10)?.why).toBe("narrowerThanPlate");
+    expect(wide.requiredWidth).toBe(
+      Math.max(PLATE_FLOOR, wide.extent.columns * CELL_PIXELS),
+    );
+    expect(standDown("plate", fractionOf("map"), 1600, VIEWS)).toBeNull();
   });
 
   it("carries the competence band rather than a comment about it", () => {

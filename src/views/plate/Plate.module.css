@@ -46,11 +46,18 @@
   font-size: var(--s-text-body);
 }
 
+/*
+ * The drawing, at its natural size.
+ *
+ * Not `width: 100%`. The label boxes are reserved in cells and a cell is 14px,
+ * so a drawing scaled to fit a narrower column is a drawing whose plates no
+ * longer hold the words the solver reserved room for. Above the view's floor a
+ * column too narrow for the whole plate scrolls — `.plate` is the scrollport —
+ * and below the floor the shell stands the view down instead. Those are the
+ * only two answers; re-layout is not one.
+ */
 .field {
-  width: 100%;
-  min-width: 0;
-  height: auto;
-  flex: 1 1 auto;
+  flex: 0 0 auto;
 }
 
 /* The reserved column. A fixed share of the width rather than a share of what
@@ -64,6 +71,15 @@
   gap: var(--s-space-loose);
   padding-left: var(--s-space-base);
   border-left: var(--s-border-hairline) solid var(--s-line-quiet);
+}
+
+/* The drag, in words: the margin is where this view says the things the
+   drawing cannot say about itself, and an affordance only a pointer can find is
+   not one. */
+.note {
+  margin: 0;
+  color: var(--s-ink-secondary);
+  font-size: var(--s-text-micro);
 }
 
 .marginHeading {

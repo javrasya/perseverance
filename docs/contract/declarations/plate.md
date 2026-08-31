@@ -81,6 +81,13 @@ on either. The keyboard gets exactly what the pointer gets: focus lights the
 same thread hover does, so the one question hover answers is not answered to
 pointer users alone.
 
+A station can be dragged to where the operator thinks it belongs, and that
+affordance is **not** hover-only: the margin carries a sentence saying so, drawn
+beside the legend before anything is hovered, so the one gesture this view has
+that a reader could fail to discover is announced in words rather than by a
+cursor that changes shape when a pointer happens to cross a station. The cursor
+still changes; it is the second channel and it carries nothing on its own.
+
 The floor asserted for this rule is that nothing hover-reveals is absent
 elsewhere, and this view meets it by revealing nothing at all. A long name is
 clipped by its plate, and the recovery for that is stated under rule 11 rather
@@ -105,6 +112,18 @@ rather than allowed to grow out into the lanes the track runs through; a cut
 station is given two boxes across, which is a size the solver reserved and not a
 position anything chose. The whole title string stays in the document however
 short the plate is, so a search, a screen reader and a test all still find it.
+A station somebody dragged is placed by the same construction rather than
+beside it. The pin is an input to the geometry — `plateOf(map, pins)` puts the
+pinned station in the authored cell and lays every generated station out around
+it — so a pinned station is routed to, reserved a label box by the same
+eight-anchor solver, and counted in the same extent as any other. Nothing moves
+a station after the boxes are reserved, which is what keeps the router from
+routing around a box no plate is in. Where the pins and the graph have come
+apart — a pin for a child the map no longer has, or a child no pin names — the
+plate is stamped provisional, given a construction margin, and the legend says
+so, because a drawing that is partly somebody's hand and partly generated should
+not present itself as authored whole.
+
 The legend is what keeps the field from having to explain itself: a siding is
 the one convention on the drawing an operator cannot read off the picture, so it
 is named in words in the margin, with the count of sidings actually drawn.

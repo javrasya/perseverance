@@ -1,4 +1,11 @@
-import { useCallback, useMemo, useState, type ReactElement } from "react";
+import {
+  useCallback,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+  type ReactElement,
+} from "react";
 import type { Fog, Frontier, Node } from "../../snapshot/model.generated";
 import { NO_MAP_OPEN } from "../../snapshot/readout";
 /*
@@ -14,12 +21,14 @@ import { SPEC_TAG, UNCLASSIFIED_TAG } from "../vocabulary";
 import {
   CELL_PIXELS,
   plateOf,
+  type Cell,
   type Fan,
   type LegendEntry,
   type Plate as Geometry,
   type Station,
   type Track,
 } from "./plate";
+import { pinStation, usePins } from "./pins";
 import styles from "./Plate.module.css";
 
 /**
@@ -56,6 +65,15 @@ export const LEGEND_HEADING = "How to read this";
 export const FOG_HEADING = "NOT YET SPECIFIED";
 export const NOBODY_SURVEYED = "—";
 export const FOG_ALL_CHARTED = "nothing left unspecified";
+/**
+ * The drag, said out loud in the margin.
+ *
+ * Rule 10 the other way round: a station can be dragged, and an affordance that
+ * only exists under a pointer is an affordance half the operators never find.
+ * So the sentence is drawn beside the legend, before anything is hovered, and
+ * the cursor is not carrying the news on its own.
+ */
+export const PIN_NOTE = "Drag a station to put it where you want it. This map remembers.";
 
 /**
  * The eleven encodings this view draws.
@@ -157,8 +175,72 @@ function threadsOf(plate: Geometry): ReadonlyMap<number, number> {
 }
 
 export function Plate({ model, selected, onSelect }: ViewProps) {
-  const plate = useMemo(() => plateOf(model.map), [model]);
+  /*
+   * The stations somebody put where they are, from the store the shell opened
+   * for this map. Not derived and not view-local invention: rule 8's one
+   * exception, arriving through the one seam allowed to name a position, and
+   * handed to the geometry rather than applied over it — a pinned station is
+   * routed to, labelled by the same eight-anchor solver and counted in the same
+   * extent as a generated one, because `plateOf` places it and nothing here
+   * moves anything afterwards.
+   */
+  const pins = usePins();
+  const plate = useMemo(() => plateOf(model.map, pins), [model, pins]);
   const threads = useMemo(() => threadsOf(plate), [plate]);
+
+  /*
+   * The hand, while it is down. A ref and not state: a drag is dozens of
+   * positions a second, the drawing is re-derived from `plateOf` when a pin
+   * lands, and re-deriving a router's field per frame would be a new picture
+   * thirty times a second. Nothing moves until the gesture settles, and then it
+   * moves once — which is also the whole of what rule 9 asks of a drag: no
+   * transition, no animation, no motion spent on a claim this view cannot make.
+   */
+  const grabbed = useRef<{ node: number; from: Cell; x: number; y: number } | null>(null);
+  /* Whether the gesture that just ended was a drag. A drag ends in a click the
+     browser sends anyway, and a station that got picked because it was moved is
+     the app answering a question nobody asked. */
+  const dragged = useRef(false);
+
+  const grab = useCallback((node: number, from: Cell, event: ReactPointerEvent) => {
+    grabbed.current = { node, from, x: event.clientX, y: event.clientY };
+    dragged.current = false;
+  }, []);
+
+  /*
+   * The gesture, settled: one snap to the grid and one write.
+   *
+   * The drawing is at natural size — one cell is [`CELL_PIXELS`] on screen and
+   * the field scrolls rather than scaling — so pixels of hand become cells by
+   * division, and the rounding is the snap.
+   */
+  const settle = useCallback((event: ReactPointerEvent) => {
+    const holding = grabbed.current;
+    grabbed.current = null;
+    if (holding === null) return;
+
+    const column = Math.round((event.clientX - holding.x) / CELL_PIXELS);
+    const row = Math.round((event.clientY - holding.y) / CELL_PIXELS);
+    if (column === 0 && row === 0) return;
+
+    dragged.current = true;
+    pinStation(holding.node, {
+      column: Math.max(0, holding.from.column + column),
+      row: Math.max(0, holding.from.row + row),
+    });
+  }, []);
+
+  /* A press that moved is a drag and nothing else. */
+  const pick = useCallback(
+    (number: number, already: boolean) => {
+      if (dragged.current) {
+        dragged.current = false;
+        return;
+      }
+      onSelect(already ? null : number);
+    },
+    [onSelect],
+  );
 
   /*
    * Where the pointer is, and nothing else. View-local by rule 1's own terms —
@@ -188,11 +270,26 @@ export function Plate({ model, selected, onSelect }: ViewProps) {
     <section className={styles.plate} aria-label={PLATE_LABEL}>
       <svg
         className={styles.field}
+        /* Natural size, and never a scale to fit: the label boxes are reserved
+           in cells of [`CELL_PIXELS`], so a drawing squeezed into a narrower
+           column is a drawing whose plates no longer hold their own words. Too
+           narrow and above the floor, the view column scrolls; under the floor
+           the shell stands the view down. */
+        width={width}
+        height={height}
         viewBox={`0 0 ${width} ${height}`}
         role="group"
         aria-label="Stations, and the track between them"
         data-field
         data-lit={thread === null ? undefined : ""}
+        /* On the field rather than on the station: a hand that let go a little
+           past the station it grabbed still finished the gesture it started. */
+        onPointerUp={settle}
+        /* Off the drawing is a gesture abandoned, not a station put in the
+           margin. */
+        onPointerLeave={() => {
+          grabbed.current = null;
+        }}
       >
         {/* Track first, so a station is never drawn under the line reaching
             it. */}
@@ -224,7 +321,8 @@ export function Plate({ model, selected, onSelect }: ViewProps) {
               designated={designated === station.number}
               selected={selected === station.number}
               receded={thread !== null && threads.get(station.number) !== thread}
-              onSelect={onSelect}
+              onPick={pick}
+              onGrab={grab}
               onLight={light}
             />
           ))}
@@ -239,6 +337,7 @@ export function Plate({ model, selected, onSelect }: ViewProps) {
       */}
       <aside className={styles.margin}>
         <Legend entries={plate.legend} />
+        <p className={styles.note}>{PIN_NOTE}</p>
         <FogRegion fog={map.fog} />
       </aside>
     </section>
@@ -338,7 +437,8 @@ function StationMark({
   designated,
   selected,
   receded,
-  onSelect,
+  onPick,
+  onGrab,
   onLight,
 }: {
   station: Station;
@@ -346,7 +446,8 @@ function StationMark({
   designated: boolean;
   selected: boolean;
   receded: boolean;
-  onSelect: (number: number | null) => void;
+  onPick: (number: number, already: boolean) => void;
+  onGrab: (number: number, from: Cell, event: ReactPointerEvent) => void;
   onLight: (number: number | null) => void;
 }) {
   const { node } = station;
@@ -356,7 +457,7 @@ function StationMark({
 
   /* Picking the station you already picked puts it back, so a selection is
      never something you have to go somewhere else to undo. */
-  const choose = () => onSelect(selected ? null : node.number);
+  const choose = () => onPick(node.number, selected);
 
   const x = xOf(plate, station.at.column);
   const y = yOf(plate, station.at.row);
@@ -383,11 +484,15 @@ function StationMark({
       }
       data-elsewhere={node.boundElsewhere ? "" : undefined}
       data-cut={cut === null ? undefined : ""}
+      /* Whose hand put it here, so a reader — and a test — can tell an authored
+         station from a generated one without asking the store. */
+      data-pinned={station.pinned ? "" : undefined}
       data-plate={cut === null ? undefined : "double"}
       data-selected={selected ? "" : undefined}
       aria-current={selected ? "true" : undefined}
       tabIndex={0}
       onClick={choose}
+      onPointerDown={(event) => onGrab(node.number, station.at, event)}
       onKeyDown={(event) => {
         if (event.key !== "Enter" && event.key !== " ") return;
         // Space scrolls the pane otherwise, which moves the thing being picked.

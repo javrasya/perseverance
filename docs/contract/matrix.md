@@ -29,7 +29,7 @@ classification is
 | 5 | No progress bar | rendering | asserted | yes | assertion over the fixture space (#43) | no slot | no slot | no slot | no slot |
 | 6 | Out-of-scope is never progress | rendering | asserted | yes | assertion over the fixture space (#43) | no slot | no slot | no slot | no slot |
 | 7 | The ledger is chrome | codebase | structural | no | construction in `src/views/views.ts` | no slot | no slot | no slot | no slot |
-| 8 | No stored positions | codebase | structural | no | construction in `crates/app/src/lib.rs` | no slot | no slot | no slot | no slot |
+| 8 | No stored positions | codebase | asserted | no | assertion over `crates/app/src/lib.rs` | no slot | no slot | no slot | no slot |
 | 9 | Motion is rationed | rendering | asserted | no | enumeration over the stylesheets (#43) | no slot | no slot | no slot | no slot |
 | 10 | Hover discloses nothing | reading | **judged** | yes | asserted floor (#43), then declaration | declared | declared | declared | declared |
 | 11 | The field is not the label surface | reading | **judged** | yes | declaration only — no floor a machine can settle | declared | declared | declared, with deviation | declared |
@@ -78,6 +78,10 @@ headings, so *settled* is never read off silence in the section above.
 ### Rule 5, No progress bar (asserted)
 
 The widget half of the ban caught something that is not a bar: `src/panes/Dial.tsx` is a focusable window splitter carrying `role="separator"` with an `aria-valuenow`, and a check that reads the attribute alone bans the app's draggable seam. ARIA gives `aria-valuenow` to three input roles as well — `separator`, `slider`, `spinbutton` — where the value says where the operator put the control and the denominator is the window rather than anything in the model. Asserted has no deviation route, so the check was drawn rather than declared around: those three roles are excluded by selector in `tests/conformance/support/rules.ts`, and `progress`, `meter`, `role=progressbar` and `role=meter` stay banned outright in every element and role spelling. What the rule is about is a count from the model turned into an extent on screen; a seam the operator drags is not that, and a fourth role joining the exclusion costs an argument, not a line.
+
+### Rule 8, No stored positions (asserted)
+
+The exception is The Plate's and is the whole of it. A transit diagram is the one view whose positions are a judgement rather than an algorithm's output — a station dragged where the operator thinks it belongs is information the graph does not contain — so storing it is the only way that judgement survives a reload. Every other view derives its arrangement, which is why the seam lives under `src/views/plate/` and is keyed `perseverance.plate.` rather than beside the dial's: a general home for positions is how a second view would acquire them without anybody deciding it should.
 
 ### Rule 9, Motion is rationed (asserted)
 

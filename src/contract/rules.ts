@@ -218,15 +218,17 @@ export const RULES: readonly Rule[] = [
   {
     id: 8,
     name: "No stored positions",
-    text: "No stored node positions — except Deep Field, the sole view needing a plate, which stores it under its own key.",
+    text: "No stored node positions — except The Plate, which stores it under its own key.",
     subject: "codebase",
-    tier: "structural",
+    tier: "asserted",
     renderBound: false,
     mechanismPath: "crates/app/src/lib.rs",
     restatement:
-      "The narrowing is the write seam, not the schema: `map_view.layout_json` is an opaque `TEXT` envelope and would take a node position without a migration, so what makes one unwritable is that nothing in this app can name one on the way in.",
+      "The exception exists now, so what is registered is no longer *nothing can name a position* but *exactly one thing can*: `MapLayout.plate` is the one field a node position may arrive through, `remember_map_pins` is its only writer, and `src/views/plate/pins.ts` is the only module on this side that names either.",
     check:
-      "`map_view` ships (#52) with exactly three columns — `folder_id`, `map_number` and `layout_json` — and none of them is a position; that is where the *dial* lives, which is a fact about a window rather than about a node. The envelope is opaque, so the guarantee rests one level up: `remember_map_position` in `crates/app/src/lib.rs` is the only writer of that column and its whole payload is `(folder_id, map, position: f64)`, and the struct it serialises, `MapLayout`, names `dial` and a flattened `rest` that only ever carries back what a newer build wrote. A node position has no field to arrive through, the way rule 7's record has no prop. `tests/contract-registry.test.ts` holds the command's parameter list, the envelope's field names and the table's columns to exactly that. Deep Field's exception arrives as a field on `MapLayout` when Deep Field does — and on that day this entry becomes asserted, because the narrowing turns into a claim about who may use the field there is.",
+      "Three assertions, all in `tests/contract-registry.test.ts`, and all over source text rather than a rendering. First the envelope: `MapLayout` in `crates/app/src/lib.rs` names `dial`, `plate` and a flattened `rest` that only ever carries back what a newer build wrote, so a position has exactly one field to arrive through. Second the writers: `remember_map_position` still carries `(folder_id, map, position: f64)` and no cell, and `remember_map_pins` is the only command in the tree that takes pins — one command, one field. Third the reach: under `src/`, only `src/views/plate/` names the pin commands or the pin storage prefix, and `ViewProps` in `src/views/views.ts` carries no position, so no other view has any way to name one and a second view acquiring positions goes red rather than being caught in review. `map_view` still ships three columns and none of them is a position; the envelope is opaque `TEXT`, which is why every assertion is one level up from the schema. The two halves of the seam are held by their own suites: a junk plate reading as *nothing pinned* and a pin surviving a dial move in `crates/app`, and the per-map key, the drag and the provisional stamp in `tests/plate-pins.test.tsx`.",
+    settlement:
+      "The exception is The Plate's and is the whole of it. A transit diagram is the one view whose positions are a judgement rather than an algorithm's output — a station dragged where the operator thinks it belongs is information the graph does not contain — so storing it is the only way that judgement survives a reload. Every other view derives its arrangement, which is why the seam lives under `src/views/plate/` and is keyed `perseverance.plate.` rather than beside the dial's: a general home for positions is how a second view would acquire them without anybody deciding it should.",
   },
   {
     id: 9,

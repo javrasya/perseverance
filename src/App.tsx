@@ -90,6 +90,7 @@ import {
 import { currentState, install, type ActionId, type Handlers, type KeyState } from "./keys/router";
 import { clearance, peekWidth } from "./panes/peek";
 import { readPosition, writePosition } from "./panes/position";
+import { openPinsAt } from "./views/plate/pins";
 import { useBodyBox } from "./panes/useBodyBox";
 import { usePeek } from "./panes/usePeek";
 import { Rack } from "./rack/Rack.jsx";
@@ -732,6 +733,21 @@ export function App() {
       flush();
     };
   }, [selectedId, openMap, flush]);
+
+  /*
+   * Which map's plate is on screen, told to the one seam allowed to name a node
+   * position.
+   *
+   * The shell says it because the shell is the only thing that knows the
+   * folder: a view is handed the model and nothing else (rule 7), and a map
+   * number alone would key one folder's arrangement onto another's map of the
+   * same number. Nothing is handed *back* — the Plate reads its own pins from
+   * that seam — so no position passes through this file, which is what keeps
+   * rule 8's exception to the one view it is an exception for.
+   */
+  useEffect(() => {
+    openPinsAt(selectedId, openMap);
+  }, [selectedId, openMap]);
 
   /*
    * One write per completed gesture, and none per frame.

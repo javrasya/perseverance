@@ -844,35 +844,18 @@ function legendOf(
 /* ----------------------------------------------------------- the stand-down --- */
 
 /**
- * Why the Plate is not being drawn, in the four terms a stand-down is answered
- * in: which view, why, what it needs and what it has.
+ * There is no stand-down of this view's own, and that is a decision.
  *
- * The same shape the dial's stand-down uses, and deliberately not the same
- * type: that one is keyed to the registry of views and this view is not in the
- * registry yet. The arithmetic is here because it is arithmetic; the slice that
- * registers the view is where the two meet.
+ * Two readings of *too narrow* were available: under [`PLATE_FLOOR`], where no
+ * plate of any size is legible; and over the floor but under this drawing's own
+ * [`Plate.requiredWidth`], where the picture is simply bigger than the room. The
+ * first is the shell's already — `VIEW_FLOORS.plate` is this floor, and
+ * `standDown` in `src/panes/dial.ts` answers it in the four terms every view is
+ * answered in, with the two exits an operator can actually press. The second has
+ * no remedy worth a stand-down: this is the one view that cannot reflow, and
+ * scaling the drawing under 1:1 would defeat the label boxes the router reserved
+ * in cells, so the answer above the floor is natural size and a scrollport —
+ * which is what `Plate.module.css` does. A second stand-down type would have
+ * been a second thing entitled to disagree with the registry about when a view
+ * is drawn. See `docs/adr/0026-the-plate-pins-under-its-own-key.md`.
  */
-export type PlateStandDown = {
-  readonly view: "plate";
-  readonly why: "narrowerThanFloor" | "narrowerThanPlate";
-  readonly needs: number;
-  readonly has: number;
-};
-
-/**
- * `null` when the plate fits, which is the only answer that means *carry on*.
- *
- * Two readings of *too narrow*, because they have different remedies. Under
- * [`PLATE_FLOOR`] no plate of any size is legible here and the way out is a
- * wider window; over the floor but under this plate's own width, the drawing is
- * simply bigger than the room it was given.
- */
-export function plateStandDown(plate: Plate, has: number): PlateStandDown | null {
-  if (has >= plate.requiredWidth) return null;
-  return {
-    view: "plate",
-    why: has < PLATE_FLOOR ? "narrowerThanFloor" : "narrowerThanPlate",
-    needs: plate.requiredWidth,
-    has,
-  };
-}

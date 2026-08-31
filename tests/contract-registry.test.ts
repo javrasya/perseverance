@@ -26,7 +26,10 @@ import { REPO_ROOT, collect } from "./support/sources";
  */
 
 const REGISTRY = "src/contract/rules.ts";
-const STRUCTURAL: readonly RuleId[] = [1, 7, 8];
+/* Two, since #63. Rule 8 was structural while nothing in the app could name a
+   node position; the Plate's pins gave it a field, and a rule whose keeping is
+   *who may use the field there is* is asserted — see `ruleById(8).check`. */
+const STRUCTURAL: readonly RuleId[] = [1, 7];
 
 function registrySource(): string {
   const file = collect([".ts"]).find((source) => source.path === REGISTRY);
@@ -95,7 +98,7 @@ describe("deviation is a function of tier, and only judged has a route", () => {
     expect(DEVIATION.judged.declarable).toBe(true);
   });
 
-  it("leaves rules 1, 7 and 8 with nothing to declare", () => {
+  it("leaves rules 1 and 7 with nothing to declare", () => {
     for (const id of STRUCTURAL) {
       const rule = ruleById(id);
       expect(rule.tier).toBe("structural");
@@ -104,6 +107,23 @@ describe("deviation is a function of tier, and only judged has a route", () => {
       expect(rule.judgedResidue).toBeUndefined();
       expect(rule.mechanismPath).toBeDefined();
     }
+  });
+
+  it("leaves rule 8 asserted, with a settlement and still no route", () => {
+    const rule = ruleById(8);
+    expect(rule.tier).toBe("asserted");
+    /* Asserted has no appeal either, so the exception the Plate was granted is
+       not a door the next view can file itself through. */
+    expect(deviationFor(rule).declarable).toBe(false);
+    expect(rule.assertedFloor).toBeUndefined();
+    expect(rule.judgedResidue).toBeUndefined();
+    /* Settled in the entry rather than deferred: an asserted rule with an open
+       tension and no route to raise it would read as owing work nobody can do. */
+    expect(rule.settlement).toBeDefined();
+    expect(rule.tension).toBeUndefined();
+    /* Source text, not a rendering — the assertions below read files. */
+    expect(rule.renderBound).toBe(false);
+    expect(rule.mechanismPath).toBeDefined();
   });
 
   it("keeps the human remainder on three rules and the whole claim on two", () => {
@@ -157,7 +177,7 @@ describe("the two restatements, and the enumeration", () => {
 
 describe("the structural mechanisms are still where the registry points", () => {
   it("finds each named file", () => {
-    for (const id of STRUCTURAL) {
+    for (const id of [...STRUCTURAL, 8 as RuleId]) {
       const path = ruleById(id).mechanismPath!;
       expect(existsSync(join(REPO_ROOT, path))).toBe(true);
     }
@@ -206,11 +226,10 @@ describe("the structural mechanisms are still where the registry points", () => 
 
     /*
      * And the column itself proves nothing: `layout_json` is `TEXT`, and
-     * `{"nodes":…}` is a string SQLite would take without a migration. So the
-     * narrowing that actually holds rule 8 is one level up — the only writer of
-     * that column, whose whole payload is one number, and the envelope struct
-     * whose only named field is the dial. Deep Field's plate arrives as a field
-     * here, and that is the moment rule 8's entry stops being structural.
+     * `{"nodes":…}` is a string SQLite would take without a migration. So what
+     * holds rule 8 is one level up, and since #63 it is a claim about *use*
+     * rather than about absence: the envelope has exactly one field a position
+     * can arrive through, one command writes it, and one module names it.
      */
     const seam = readFileSync(join(REPO_ROOT, ruleById(8).mechanismPath!), "utf8");
     const writer = /fn remember_map_position\(([^)]*)\)/.exec(seam);
@@ -219,10 +238,46 @@ describe("the structural mechanisms are still where the registry points", () => 
       "registry: State<'_, Registry>, folder_id: i64, map: u64, position: f64",
     );
 
+    /* The Plate's own writer, and the only command in the tree that takes a
+       position. Its payload is the pins and the key they belong to — nothing
+       about a window, and nothing a second view could address. */
+    const pinWriters = [...seam.matchAll(/fn (\w*pins?\w*)\(([^)]*)\)/g)].filter((match) =>
+      (match[1] ?? "").startsWith("remember_"),
+    );
+    expect(pinWriters.map(([, name]) => name)).toEqual(["remember_map_pins"]);
+    expect(pinWriters[0]![2]!.replace(/\s+/g, " ").trim()).toBe(
+      "registry: State<'_, Registry>, folder_id: i64, map: u64, pins: Vec<Pin>",
+    );
+
     const envelope = /struct MapLayout \{([\s\S]*?)\n\}/.exec(seam);
     if (envelope === null) throw new Error("crates/app/src/lib.rs declares no MapLayout");
     const fields = [...envelope[1]!.matchAll(/^\s{4}(\w+):/gm)].map((match) => match[1]);
-    expect(fields).toEqual(["dial", "rest"]);
+    expect(fields).toEqual(["dial", "plate", "rest"]);
+  });
+
+  it("gives no view but the Plate a way to name a position (rule 8)", () => {
+    /* The exception is one view's, and this is what makes that a fact about the
+       tree rather than a convention: the command names, the storage prefix and
+       the pin-writing functions appear under `src/views/plate/` and nowhere
+       else on this side of the seam. */
+    const naming = collect([".ts", ".tsx"]).filter(
+      (file) =>
+        file.path.startsWith("src/") &&
+        // The registry names the mechanism in prose, which is the one place
+        // naming it is the point rather than a use of it.
+        file.path !== REGISTRY &&
+        /remember_map_pins|map_pins|perseverance\.plate\.|pinStation/.test(file.text),
+    );
+    expect([...naming.map((file) => file.path)].sort()).toEqual([
+      "src/views/plate/Plate.tsx",
+      "src/views/plate/pins.ts",
+    ]);
+
+    /* And nothing arrives by prop either: what every view is handed carries a
+       model, a selection and a way to change it, and no cell. */
+    const contract = collect([".ts"]).find((file) => file.path === ruleById(7).mechanismPath);
+    const fields = viewPropsFields(contract?.text ?? "");
+    expect(fields?.join(";")).not.toMatch(/position|column|row|cell|pin/i);
   });
 
   it("receives the model generated rather than deriving it here (rule 1)", () => {
