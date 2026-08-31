@@ -415,7 +415,7 @@ export const RULE_CHECKS: Partial<Record<RuleId, RuleEntry>> = {
   },
 
   5: {
-    why: "Asserted in the positive form the registry restates, over the page: the figures reach the screen as the model's own numerals, spelled — `describeModel` is what the rendering has to agree with — and nothing continuous stands between or behind them. Three ways a proportion could be drawn are refused: a widget (`progress`, `meter`, a progressbar role, an `aria-valuenow`) anywhere in the rendering; a painted image on the figures, on anything inside them or on anything behind them up to the body; and an inline style, which is the only route this app has from a number in the model to an extent on screen — every other length here is authored in a stylesheet and cannot vary with a count.",
+    why: "Asserted in the positive form the registry restates, over the page: the figures reach the screen as the model's own numerals, spelled — `describeModel` is what the rendering has to agree with — and nothing continuous stands between or behind them. Three ways a proportion could be drawn are refused: a widget (`progress`, `meter`, a progressbar or meter role, or an `aria-valuenow` on anything that is a reading rather than a control) anywhere in the rendering; a painted image on the figures, on anything inside them or on anything behind them up to the body; and an inline style, which is the only route this app has from a number in the model to an extent on screen — every other length here is authored in a stylesheet and cannot vary with a count.",
     applies: ({ snapshot }) =>
       snapshot.model.map === null
         ? "no map is open in this fixture, so no progress figures are rendered"
@@ -424,8 +424,19 @@ export const RULE_CHECKS: Partial<Record<RuleId, RuleEntry>> = {
       const figures = page.getByText(describeModel(snapshot.model), { exact: true });
       await expect(figures).toHaveCount(1);
 
+      /* `aria-valuenow` is not by itself a bar. ARIA gives the attribute to
+         three input roles as well — `separator`, `slider`, `spinbutton` — where
+         the value is where the operator put the control, not a reading of any
+         quantity. `src/panes/Dial.tsx` is one: a focusable window splitter whose
+         denominator is the window. Excluding those roles is what keeps this a
+         ban on *a proportion of the map drawn as an extent*, which is the rule,
+         rather than a ban on the app having a draggable seam. `progressbar` and
+         `meter` stay banned outright, in every role and element spelling. */
       await expect(
-        page.locator("progress, meter, [role=progressbar], [aria-valuenow]"),
+        page.locator(
+          "progress, meter, [role=progressbar], [role=meter], " +
+            "[aria-valuenow]:not([role=separator]):not([role=slider]):not([role=spinbutton])",
+        ),
       ).toHaveCount(0);
 
       const continuous = await figures.evaluate((element: Element) => {

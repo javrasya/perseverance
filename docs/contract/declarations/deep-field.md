@@ -53,12 +53,30 @@ plate, because the plate is where the words are and the mark carries a different
 attribute precisely so a count of rows stays a count of nodes. The second is
 that this view can decide it does not fit: below `widthNeededFor(depth)` it
 renders a stand-down in place of the picture, keeping the three integers and the
-frontier alive. At the viewport the conformance projects run (`Desktop Safari`,
-1280px, with the dial at its default `split` detent) every checked-in fixture
-clears its own floor with room to spare — the deepest needs 512px of the ~628
-the map side is worth — so the floors below read the drawn view rather than the
-stand-down. A narrower run would read the stand-down and skip on finding no
-rows, which is a hole in the reading rather than a green.
+frontier alive. **At the viewport the conformance projects run, every fixture
+stands down, and the first WebKit run is what found that out.** The arithmetic
+this paragraph used to carry read the map side as the view's box. It is not:
+the map side is a flex line of three columns — the drop region that holds the
+folder launcher, the view, and the rail — and the launcher is `flex: 1` on that
+line exactly as the view is, so the two split whatever the fixed rail leaves.
+Measured in `Desktop Safari` at 1280px: at the default `split` detent the view
+is drawn into **135px** of a 640px map side, and even at the `map` detent, with
+the whole window on the map, it is drawn into **445px**. `widthNeededFor(3)` is
+512. So no dial position on a 1280px window draws a three-rank map, and the
+floors below are, as of this run, read against the stand-down rather than
+against the picture — which is a hole in the reading and not a green.
+
+Three things have to change together before that hole closes, and none of them
+is this view's to decide alone. The launcher has to stop growing on equal terms
+with the view, which contradicts nothing in #48 — a column with a basis is not a
+column that disappeared — but does contradict `COLUMN_FLOORS`'s own stated
+priority, where the view is shed last because it is the reason the map side
+exists. `VIEW_FLOORS["deep-field"]` has to stop being a view-box number
+(`widthNeededFor(2)`) compared against a map-side width, because the shell
+mounts a view on that comparison and the view then stands itself down from
+inside. And the conformance driver has to open the dial where the view is drawn,
+the way it already seeds which view is open. Until then this file's floors are
+declared, not read.
 
 The floors run under Playwright against `dev:web` — a frontend-only Vite boot,
 no Rust, no Tauri shell, no PTY, no GitHub. WebKit is the required engine,
