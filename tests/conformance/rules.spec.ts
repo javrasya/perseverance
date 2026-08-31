@@ -55,9 +55,14 @@ test("every render-bound rule has an entry", () => {
     const entry = RULE_CHECKS[rule.id];
     expect(entry?.why.trim().length ?? 0, `rule ${rule.id} says nothing about itself`).toBeGreaterThan(0);
     /* An entry may assert nothing — but only where the registry already says a
-       machine settles nothing. A rule with a floor and no check is the floor
-       going unchecked, and no amount of prose makes that legitimate. */
+       machine settles nothing, and that is the tier before it is the floor. On
+       the asserted tier a test decides and its verdict is the whole verdict, so
+       an unasserted one is the rule going unchecked with nothing left to catch
+       it; floors are declared on judged rules only, so testing the floor alone
+       would wave the entire asserted tier through. Only a judged rule that
+       declares no floor may settle nothing here. */
     if (entry?.check === null) {
+      expect(rule.tier, `rule ${rule.id} is not judged but asserts nothing`).toBe("judged");
       expect(rule.assertedFloor, `rule ${rule.id} has a floor but asserts nothing`).toBeUndefined();
     }
   }

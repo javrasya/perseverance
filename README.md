@@ -349,9 +349,10 @@ rule with no test code written anywhere. One page load per view × state, and
 every applicable rule reads that one rendering; a rule that loaded its own page
 would turn seventy tests into six hundred navigations and a suite nobody runs.
 `tests/conformance/support/rules.ts` holds one entry per render-bound rule and a
-gate goes red if one is missing: an entry may legitimately assert nothing — rule
-11 is wholly judged — but it has to say so in prose, because a rule the suite
-quietly stopped covering is worse than no suite. A check that cannot apply to a
+gate goes red if one is missing: an entry may legitimately assert nothing, but
+only for a wholly judged rule — one whose tier says a machine settles nothing
+and which declares no asserted floor — and it has to say so in prose, because a
+rule the suite quietly stopped covering is worse than no suite. A check that cannot apply to a
 point of the space (no map is open; this fixture has no cut ticket) skips on a
 precondition read off the fixture's own snapshot and annotates the report with
 it. `tests/conformance/support/views.ts` is where a view declares how the
