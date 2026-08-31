@@ -1631,7 +1631,9 @@ export function App() {
               `1 1 0` — which is the arrangement `sides()` and `regionFor` are
               both written from: every pixel the line is short comes out of the
               region until it stands on its floor, and out of the pane after
-              that.
+              that. Written down in ADR
+              `0029-the-rack-shares-the-terminals-flex-line`, which is also
+              where the dock below is argued.
 
               Which run the pane shows is the rack's to change (#57): a row
               is pressable and the press patches `monitored`, Rust first and
@@ -1644,18 +1646,41 @@ export function App() {
               pending={queuedRuns}
               refusals={refusedRuns}
               spentElsewhere={rationHeldByMapSide}
+              /*
+                The rack's dock travels with the rack, and that is the whole of
+                why it is a prop rather than a row in the column below.
+
+                A dock is an *address* — the node panel names `rack` and the
+                operator expects the panel to appear at the rack — so the moment
+                the rack stopped being a row of the run side, a dock left behind
+                in that column was pointing at a box the rack is no longer in.
+                It is handed in rather than built inside `Rack` because which
+                panel is docked, which dock is chosen and where the node travels
+                are all the shell's, and the rack may not learn any of it to draw
+                a strip at its own foot.
+              */
+              dock={
+                <Dock
+                  dock="rack"
+                  occupant={occupant}
+                  chosen={chosenDock}
+                  hostRef={rackDock}
+                  onChoose={chooseDock}
+                />
+              }
             />
             {/*
-              The run side, as a column: the run bar's dock, the pane, the rack's.
-              The two docks are strips in the flow rather than anything positioned,
-              because this box is deliberately not a containing block — and they
-              are the reason the pane now sits in a slot of its own rather than
-              directly in this box.
+              The run side, as a column: the run bar's dock and the pane. The dock
+              is a strip in the flow rather than anything positioned, because this
+              box is deliberately not a containing block — and it is the reason the
+              pane sits in a slot of its own rather than directly in this box.
 
-              Both are the panel's *addresses* and neither is the surface around
-              them. The run bar's own contents are the pane's chrome strip, and the
-              region this rack dock sits in is #56's to build; what lands here now
-              is one dock apiece and the sentence a dock without the pass prints.
+              The rack's dock is not here. It is inside the rack, above, because a
+              dock is the panel's *address* and the rack is a sibling of this
+              column rather than a row in it; the two docks are strips in whatever
+              box each one names, and neither is the surface around it. The run
+              bar's own contents are the pane's chrome strip; what lands here now
+              is one dock and the sentence a dock without the pass prints.
             */}
             <div className={styles.runSide}>
               <Dock
@@ -1668,13 +1693,6 @@ export function App() {
               <div className={styles.paneSlot}>
                 <Pane terminals={terminals} readouts={runs} />
               </div>
-              <Dock
-                dock="rack"
-                occupant={occupant}
-                chosen={chosenDock}
-                hostRef={rackDock}
-                onChoose={chooseDock}
-              />
             </div>
           </div>
 
@@ -1693,14 +1711,19 @@ export function App() {
             and it is already the peek overlay's containing block, so the stud and
             the overlay are measured against the same edges.
 
-            Which leaves what the stud is drawn *over*. At the top right of the
-            body that is the rack, whose region reaches the body's right edge at
-            the `map` detent — so an opaque stud there would cover the head band,
-            the lamp and `N of M still running` with it, which is the same erasure
-            as clipping, done from on top. No inset fixes that: the region's right
-            edge moves with the dial and its top edge does not, so the clearance
-            has to be horizontal, and `--c-rack-strip` in `Rack.module.css` is the
-            rack giving it. The stud's own geometry is unchanged by that, and it
+            Which leaves what the stud is drawn *over*, and the answer moves with
+            the dial. At the `map` detent the terminal side is worth the rack's
+            floor and its own padding and nothing else, so the rack *is* the top
+            right of the body and an opaque stud there would cover the head band,
+            the lamp and `N of M still running` with it — the same erasure as
+            clipping, done from on top. At the other detents the rack sits on the
+            dial's side of the pane and what is under the stud is the pane's own
+            top right corner, which has nothing to lose to it. The reserve is
+            given at every detent all the same: the region's right edge moves with
+            the dial and its top edge does not, so there is no inset and no
+            detent-dependent rule that clears it — the clearance has to be
+            horizontal, it has to be unconditional, and `--c-rack-strip` in
+            `Rack.module.css` is the rack giving it. The stud's own geometry is unchanged by that, and it
             still sits above the promoted map side — a stud under the peek overlay
             is a button the pointer is still holding and the browser has just left,
             which releases the spring being held.

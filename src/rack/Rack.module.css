@@ -433,3 +433,24 @@
   color: var(--s-ink-faint);
   font-size: var(--s-text-micro);
 }
+
+/*
+ * The rack's dock: a strip at the foot of the region, and the one box in here
+ * whose contents this file does not own.
+ *
+ * It may take height and never width. The region's width is settled by the dial
+ * and by the floor above — that is the whole of `regionFor` and `tierFor` — so a
+ * docked panel wide enough to widen the rack would move the seam a live agent is
+ * laid out against, which is the same defect as a stud in the flow. `min-width:
+ * 0` is what makes the promise keepable against a panel with a long unbroken
+ * word in it, and the scroll is the slot's rather than the panel's so a panel
+ * taller than what is left of the column is reachable instead of clipped by the
+ * region's own `overflow: hidden`.
+ */
+.dockSlot {
+  display: flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+}

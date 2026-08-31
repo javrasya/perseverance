@@ -1,0 +1,163 @@
+# 28. A queue entry is not a run
+
+Status: accepted (2026-08-31)
+Context: [#59 The research
+queue](https://github.com/javrasya/perseverance/issues/59), under the spec
+[#28](https://github.com/javrasya/perseverance/issues/28). ADR 0020 settled the
+revalidation a spawn is gated on, ADR 0021 the rail a press arrives from, and
+ADR 0027 separated the GitHub invariant from the keyboard invariant. This
+settles what happens to a press that passes every one of those guards and meets
+a ceiling.
+
+`0028` because `0027` is the highest number on disk and several numbers below it
+were already written twice from parallel worktrees. Code that cites this ADR
+spells the whole slug rather than the digits, for the reason ADR 0027 gives.
+
+## Context
+
+Research was the one press that could be made four times over. Every other run
+in the harness is bounded by something the map can see — one claiming run per
+ticket, one keyed run per operator — and research is bounded by neither: four
+research runs on four different tickets break no invariant on GitHub and no
+invariant at the keyboard, and an operator mapping a spec presses it as fast as
+the rail will take it.
+
+What they do contend for is invisible from here. A research run spends the agent
+account's usage limits and the GitHub account's rate budget, and **both are held
+against an account rather than against a checkout**. Nothing in this process can
+read either one: there is no endpoint that answers *how much of your usage limit
+is left*, and the rate budget the poller watches is one of the two, not both.
+
+So the harness was refusing the fifth press. A refusal is the wrong answer to a
+press that is going to be fine in four minutes — it puts the operator in a
+polling loop against their own screen — and the two obvious alternatives are
+worse: spawning anyway spends a budget that is already spent, and writing a
+placeholder onto the map invents state GitHub does not have.
+
+## Decision
+
+**The ceiling is app-global, and its occupancy is the child process.** One
+number for the whole app, not one per folder: four crossings each running four
+research runs would be sixteen against one account budget, and no crossing can
+see the other three. What occupies a slot is a live research child and nothing
+else — `Terminals::live_research` counts children, so a run whose child has
+exited frees its slot the moment it exits, whatever the ticket under it did.
+Work and Ask are never counted and never queued: Work is bounded by the claim
+and Ask writes nothing at all (ADR 0027), and putting either behind this ceiling
+would make the interesting presses the ones that wait.
+
+**Four is a labelled guess with a stated basis and a stated revisit
+condition**, not a settled number: small enough that a machine sitting at it
+still has a keyboard, large enough that a map's research phase is not
+serialised. The evidence that would move it is one-directional and named on
+`RESEARCH_CEILING` — a research run dying on a usage limit while slots were
+still free.
+
+**Configurable means one row of the app key/value table, and today it is
+editable by hand only.** `research_ceiling` is a row beside the launcher
+override's, parsed where the override is parsed, and a cell that is not a
+positive decimal reads as *no stored ceiling* rather than as a failure — a
+ceiling nothing could be compared against would hold every research press in the
+app in a queue nothing leaves. Zero is inside that reading: there is no *stop all
+research* preference, and an operator who wants one has the press they can
+decline to make.
+
+The first cut of this shipped a getter and a setter as Tauri commands with no
+caller anywhere under `src/`. They are deleted. **Two commands standing in for a
+decision nobody has taken are worse than the absence**, because the next reader
+counts them as the answer and stops looking, and because the precedent they were
+argued from — the launcher's `use_override` — is genuinely wired to a field. The
+decision actually left open is *where an app-global preference lives*: this app
+has no settings surface, and the launcher argues at length that the override
+field sits inside the error it fixes precisely because there is no such screen.
+That is deferred here in the record rather than answered by a dead surface. The
+operator who needs a different ceiling writes the row; the operator who needs to
+change it *while a queue is standing* is the evidence that says the screen has to
+exist, and the commands come back with it.
+
+**`Started::Queued` is a third answer, not a softer refusal.** The press passed
+every guard — the awaited revalidation, the fresh reading, the takeability
+comparison — and what it met was the ceiling, so the crossing is told the ticket
+and the place, counted from one because a person reads it. There is no run
+number to carry, and that absence is the whole difference from `Spawned`.
+
+**A queue entry stakes nothing, and the list of nothings is the definition.** No
+child, no worktree, no claim, no run number, no PTY, no row in `Model`, no entry
+in the ledger, nothing on the snapshot the WebView draws. It is drawn in the rack
+and nowhere else — the rack's own channel, `pending-runs`, mirrored by
+`src/rack/pending.ts` rather than by anything under `src/views/`, and
+`findQueueReferences` in `tests/support/checks.ts` runs over the view sources to
+keep it that way. **The harness never invents state GitHub does not have**: a
+waiting ticket is a ticket nobody has claimed, and the graph says so.
+
+**The frontier takes a second input that is not GitHub's, and it reaches exactly
+one decision.** A press that wrote nothing was invisible to every read, so the
+derivation went on designating the ticket already waiting, Start Working admits
+nothing but the designated number, and the queue capped at one entry — *six
+presses, four spawns, two entries* was a screen the app could not produce. So
+the derivation takes `spoken_for`, the ticket numbers this window has accepted a
+press for, keyed by the folder's path because an issue number means nothing
+across two repositories. It moves `Frontier::of`'s designation and nothing else:
+the row keeps the state, the kind, the counts and the drawing GitHub's answer
+gave it, so a waiting ticket never reads as claimed to the graph, to the
+snapshot or to the foreign-claim announcement. It is a derivation-time input
+taken from the queue at the top of each tick and written down nowhere, which is
+what keeps *a pending entry stakes nothing* structural rather than a convention.
+A press that *spawned* needs no such input: the agent takes its own claim and the
+next read learns it from GitHub, which is the only writer there is. A waiting
+press has nobody to do that for it, and that asymmetry is the whole reason the
+parameter exists. The baseline the ledger resumes from is given the same slice,
+because two readings of one window that could disagree would report a frontier
+move the moment an operator looked away and back.
+
+**A freed slot starts the next entry with no further press, and the dequeue is a
+press rather than a resume.** The entry has been sitting for minutes; the world
+moved. So the drain opens with the same awaited revalidation a press opens with,
+takes a live reading keyed to *the entry's own* folder and map — `Ledgers` says
+which folder the ledger it holds is a reading of, so an entry is answered by its
+own repository or by no reading at all — and asks `why_the_wait_cannot_start`
+for takeability, which is what the frontier comparison a queued entry cannot make
+was standing in for. A folder with no live reading is named as an absence and
+never defaulted to *start it anyway*. Without those guards `booked` recorded a
+claim as this harness's own for a ticket it may never have taken, which is
+exactly what suppresses the foreign-claim announcement.
+
+**And none of that happens on the readout tick.** Two GitHub round trips, a
+worktree of its own, an environment harvest and a PTY spawn on the three-hertz
+thread froze every rack readout and the poller's own falling edge for seconds.
+The tick sends one nudge into a single-slot channel and goes on; a third thread
+listens and drains. The single slot is the whole of the guard against the same
+entry being handed out three times a second.
+
+**A deferred spawn that fails is reported once, as a sentence, and never
+retried.** The press it came from was answered long ago, so the rack prints the
+refusal beside the queue on exactly one emission. It is not a row: a refused
+entry has left the queue and is not waiting for anything, and a row for one would
+be a queue entry that never drains. The harness surfaces its own failures and
+does not paper over them with a retry the operator did not ask for.
+
+## Consequences
+
+The queue lives in the process and dies with it. A quit loses what has not
+started — which is correct, because nothing was staked: no checkout to clean up,
+no claim to release, nothing on GitHub that would have to be reconciled on the
+next launch. What the operator loses is a press.
+
+The ceiling cannot be changed from the screen. An operator sitting at four live
+runs with three waiting has exactly two moves — wait, or edit a row and restart —
+and that cost is the price of the deferral above. It is the thing to watch for:
+the first report of it is the argument for the settings surface.
+
+`PendingRun` is mirrored by hand in TypeScript. The type lives in `crates/app`
+rather than in the model crate — deliberately, because a field on the snapshot is
+the first thing a view would draw a queue entry from — so no generator emits a
+declaration for it and nothing fails a build when a field is added on the Rust
+side. What stands in for the generator is the shape being pinned from both ends:
+the Rust test asserts the wire keys and their count, and `tests/rack.test.tsx`
+asserts the mirror against the same names.
+
+`spoken_for` is a second input to a derivation whose whole virtue was that it
+read GitHub and nothing else. The mitigation is its reach — one designation, one
+call site, no persistence — and it is worth restating in any review that widens
+it: the moment a second decision reads it, a local press starts moving what the
+map says.

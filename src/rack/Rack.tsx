@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { useNow } from "../chrome/useNow";
 import { monitor, useUi } from "../stores/ui";
 import { monitorRun, type RunReadout } from "../terminal/runs";
@@ -64,6 +72,7 @@ export function Rack({
   pending,
   refusals,
   spentElsewhere,
+  dock,
 }: {
   readouts: readonly RunReadout[];
   /**
@@ -100,6 +109,25 @@ export function Rack({
    * — which is the two-pings-at-once defect, back with nothing red to show it.
    */
   spentElsewhere: boolean;
+  /**
+   * The rack's dock, drawn at the foot of this region.
+   *
+   * **A dock is an address, and this one's address is *the rack*.** So it is
+   * rendered inside this box rather than beside it: the rack is a child of the
+   * terminal side and a sibling of the run column — the only arrangement in
+   * which its width rules are read on the axis they were written for, see
+   * `src/App.tsx` — and a dock left behind in that column would have kept the
+   * name while pointing at somewhere else on the screen. Nothing here reads it,
+   * addresses it or styles what is inside it: it arrives as a node, the shell
+   * owns which panel is in it, and this component owns only the strip it sits
+   * in.
+   *
+   * Optional, unlike every other prop above, and for the opposite reason: the
+   * others carry facts a second call site could silently drop, while this one is
+   * chrome the tests render the rack without on purpose. A rack with no dock is
+   * still a rack, and `tests/rack.test.tsx` says so by never passing one.
+   */
+  dock?: ReactNode;
 }) {
   const { monitored } = useUi();
   const region = useRef<HTMLElement | null>(null);
@@ -308,6 +336,18 @@ export function Rack({
           ))}
         </ul>
       )}
+
+      {/*
+        The dock, under everything the rack itself has to say.
+
+        Last rather than first because the head is what the region is for: a
+        panel docked here may not push the lamp and `N of M still running` off
+        the top of the box. It takes height and never width — the region's width
+        is a function of the dial and of this region's own floor, and a docked
+        panel that widened the rack would be a piece of chrome moving the seam a
+        live agent is laid out against.
+      */}
+      {dock === undefined ? null : <div className={styles.dockSlot}>{dock}</div>}
     </section>
   );
 }

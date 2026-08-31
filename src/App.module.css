@@ -256,13 +256,18 @@
 }
 
 /*
- * The run side, as a column: the run bar's dock, the pane, the rack's dock.
+ * The run side, as a column: the run bar's dock and the pane.
  *
- * The docks are strips in this flow rather than boxes positioned against
- * anything, because `.terminal` is deliberately not a containing block — the
- * same reason the peek stud hangs off the body. They cost the pane height and
- * never width: no dial position and no dock is ever the reason a live agent
- * reflows *sideways*.
+ * The rack's dock is not in this column. It is inside `.rack`, which is a
+ * sibling of this box on the terminal side's flex line rather than a row in
+ * here, and a dock is the panel's *address*: the rack's dock has to be at the
+ * rack or the name is pointing at somewhere else on the screen.
+ *
+ * Both docks are strips in whatever column they sit in rather than boxes
+ * positioned against anything, because `.terminal` is deliberately not a
+ * containing block — the same reason the peek stud hangs off the body. They cost
+ * their column height and never width: no dial position and no dock is ever the
+ * reason a live agent reflows *sideways*.
  *
  * The height is not free, and that half is deliberate. Docking the pass here
  * swaps a one-line sentence for a panel up to `max-height` tall in the pane's
@@ -282,7 +287,7 @@
 }
 
 /* The pane's own share of that column, so the pane keeps growing into whatever
-   the two docks have not taken. */
+   the run bar's dock has not taken. */
 .paneSlot {
   display: flex;
   flex: 1 1 auto;

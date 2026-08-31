@@ -24,14 +24,16 @@ import type { RunKind } from "../terminal/runs";
  * tests asserts the wire keys and their count, and `tests/rack.test.tsx`
  * asserts this mirror against the same names.
  *
- * **The ceiling itself has no control on this side, deliberately.**
- * `research_ceiling` and `use_research_ceiling` are registered commands with no
- * caller under `src/`, and that is what *default 4, app-global, configurable*
- * asks for: the store-backed command surface is the configurability, and a
- * settings control is new chrome nobody asked for — with its own address, its
- * own encoding obligations and a number spelled a second time in TypeScript,
- * where it could drift from the Rust default that owns it. The number appears
- * nowhere in this file for that reason.
+ * **The ceiling itself has no control on this side, and no command either.**
+ * It is one row of the app key/value table, editable by hand and by nothing
+ * else, which is a deferral this file is not the place to argue away (ADR
+ * `0028-a-queue-entry-is-not-a-run`): a settings control is new chrome with its own address in an app that
+ * has no settings screen, and the two commands that used to stand where the
+ * control would go were called from nowhere — a surface with no caller reads as
+ * the answer and stops the next reader looking for one. The number itself
+ * appears nowhere in this file: a ceiling spelled a second time in TypeScript
+ * is a ceiling that can disagree with the Rust default that owns it, and a
+ * queue drawn against the wrong number is a queue the operator cannot explain.
  */
 
 /**

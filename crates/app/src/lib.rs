@@ -3368,6 +3368,21 @@ fn start_terminals(app: AppHandle) -> std::io::Result<()> {
 /// against an account, and a per-folder row would let two crossings agree to
 /// exceed a budget neither of them can see. No schema change and no migration —
 /// `STORE_SCHEMA_VERSION` is untouched.
+///
+/// **This row is the whole of *configurable*, and today it is editable only by
+/// hand.** There is no command over it and no control in the UI, and that is a
+/// stated deferral rather than an oversight (ADR
+/// `0028-a-queue-entry-is-not-a-run`). A getter and a setter
+/// were registered here first, with no caller under `src/`: two commands
+/// standing in for a decision nobody had taken is worse than the absence,
+/// because a reader counts them as the answer and stops looking. The decision
+/// the deferral leaves open is *where an app-global preference lives* — this app
+/// has no settings surface at all, and the launcher argues in
+/// `src/launcher/FolderList.tsx` that the override field sits inside the error
+/// it fixes precisely because there is no such screen. The first operator who
+/// needs a different ceiling can write this row with any SQLite client; the
+/// first one who needs to change it *while a queue is standing* is the evidence
+/// that says the screen has to exist, and the commands can come back with it.
 const CEILING_KEY: &str = "research_ceiling";
 
 /// How many research runs this app will have going at once, absent a stored
@@ -3409,12 +3424,6 @@ fn stored_ceiling(store: &Store) -> Option<usize> {
     (ceiling > 0).then_some(ceiling)
 }
 
-fn remember_ceiling(store: &Store, ceiling: usize) -> Result<(), String> {
-    store
-        .set_app(CEILING_KEY, &ceiling.to_string())
-        .map_err(|error| error.to_string())
-}
-
 /// The ceiling in force, including on a build that cannot read its own
 /// preferences — the precedent is [`remembered_override`], and the reason is the
 /// same one absence is spelled out for above.
@@ -3434,28 +3443,6 @@ fn remembered_ceiling(registry: &Registry) -> usize {
 /// run would exceed.
 fn there_is_room(live: usize, ceiling: usize) -> bool {
     live < ceiling
-}
-
-/// The effective ceiling, for an operator who wants to know what it is.
-#[tauri::command(async)]
-fn research_ceiling(registry: State<'_, Registry>) -> usize {
-    remembered_ceiling(&registry)
-}
-
-/// Sets the ceiling and answers with what is now in force.
-///
-/// Shaped like [`use_override`]: the answer is a fresh read rather than the
-/// argument echoed back, so a store that would not take the write says so by
-/// naming the ceiling that is still standing. A `0` is written and then read
-/// back as the default, which is [`stored_ceiling`]'s rule and not a second one
-/// here — there is no *stop all research* setting, and an operator who wants one
-/// has the press they can decline to make.
-#[tauri::command(async)]
-fn use_research_ceiling(registry: State<'_, Registry>, ceiling: usize) -> usize {
-    if let Ok(store) = registry.store() {
-        let _ = remember_ceiling(&store, ceiling);
-    }
-    remembered_ceiling(&registry)
 }
 
 /* ------------------------------------------------ the pending queue --- */
@@ -6043,8 +6030,6 @@ pub fn run() {
             settled_geometry,
             run_readouts,
             pending_runs,
-            research_ceiling,
-            use_research_ceiling,
             end_run,
             start_working,
             resume_working,
@@ -6235,7 +6220,7 @@ mod tests {
         assert_eq!(stored_ceiling(&store), None);
         assert_eq!(RESEARCH_CEILING, 4);
 
-        remember_ceiling(&store, 7).expect("writes");
+        store.set_app(CEILING_KEY, "7").expect("writes");
         assert_eq!(stored_ceiling(&store), Some(7));
 
         // A ceiling nothing can be compared against would hold every research
