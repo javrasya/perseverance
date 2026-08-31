@@ -22,14 +22,21 @@ function walk(dir: string, out: string[]): string[] {
   return out;
 }
 
-export function collect(extensions: readonly string[]): SourceFile[] {
-  return walk(SRC_ROOT, [])
+export function collectFrom(
+  root: string,
+  extensions: readonly string[],
+): SourceFile[] {
+  return walk(root, [])
     .filter((full) => extensions.some((ext) => full.endsWith(ext)))
     .map((full) => ({
       path: relative(REPO_ROOT, full).split(sep).join("/"),
       text: readFileSync(full, "utf8"),
     }))
     .sort((a, b) => a.path.localeCompare(b.path));
+}
+
+export function collect(extensions: readonly string[]): SourceFile[] {
+  return collectFrom(SRC_ROOT, extensions);
 }
 
 export function collectStylesheets(): SourceFile[] {

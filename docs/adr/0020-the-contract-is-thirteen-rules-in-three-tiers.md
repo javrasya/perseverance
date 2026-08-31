@@ -14,9 +14,9 @@ leans on.
 `0020` and not `0019`: the directory holds two ADRs numbered `0010`, so there
 are twenty files and `0019` is the highest number in use.
 
-This ADR classifies. The per-view declarations, the three gates, the deviation
-worklist and the rendered matrix are the second half of #42; the browser-side
-assertions are [#43].
+This ADR classifies, and — amended in the same ticket — it records where the
+judged tier's declarations live and what the rendered matrix is for. The
+browser-side assertions are [#43].
 
 ## Context
 
@@ -195,6 +195,51 @@ draws no edge because a grouped list is what it is, and that is the view's
 thesis rather than a fan-out it has yet to deliver. Nothing in the contract asks
 a view for an edge, and older ticket text asking The Route for a zero-edges
 declaration is stale.
+
+### Where a judged rule's answer is written, and what the matrix is for
+
+The tier says a person keeps the rule. The only artifact a person leaves is
+prose, so **every judged rule gets a written declaration per view**, in
+`docs/contract/declarations/<view>.md` — one section per judged rule, stating
+what the view actually does, explicitly free to say it does not comply. The
+declaration is a claim about a view's answer to a rule, so **it is written at
+view-design time and not per commit**: the round that changes the layout is the
+round that re-reads it, and the gates only make sure it exists.
+
+**Presence is asserted; content is not.** `tests/contract-declarations.test.ts`
+goes red on a missing view file, a missing section and a stubbed one, and on
+nothing else — grading the answer would be the assertion the tier already said
+cannot exist. **No checkboxes**: a box invites ticking, a ticked box says
+nothing about the view, and by the third view it is a rubber stamp, so a
+checkbox anywhere in a declaration is itself a failure. The one piece of
+structure the format has is a paragraph opening `Deviation:`, which is what the
+worklist collects verbatim.
+
+**A declared deviation is a worklist item, never a carve-out.** It is fog on the
+contract: something the view owes, rendered where it can be scheduled and worked
+off. Structural and asserted rules have no declaration slot and no deviation
+route at all, and the tests assert that too — a declaration filed under one
+would be an appeal the ladder does not grant.
+
+**Three gates, each keyed to what changed.** Adding a state ships one fixture:
+the fixture space (fixtures × two themes × reduced-motion) is derived from
+`FIXTURE_NAMES`, and no second enumeration of fixture names may exist anywhere
+for a new one to have to be added to. Adding a view brings the fixture space and
+a declaration for every judged rule, and the gate is driven off `VIEWS`, so the
+commit that registers a second view is the commit that goes red. Adding a rule
+requires a tier, and a rule landing in *judged* retro-fits a section onto every
+existing view — the same assertion, driven from the rule side, with the count
+pinned at thirteen so a fourteenth is a deliberate edit.
+
+**The matrix is the instrument and gates nothing.** `docs/contract/matrix.md`,
+regenerated from the registry and the declarations by `npm run contract:matrix`,
+carries one row per rule — tier, subject, where it is enforced, each view's
+declaration status — plus the worklist and the open obligations that have no
+deviation route. **Rows are rules, never rule × rendered state**: the unit of
+conformance is the rule, and a grid of cells is an artifact that goes stale in a
+way nothing fails. The only thing any test asserts about it is that it is
+current. A test that read a cell for conformance would make the file the
+contract, and a rule would then be kept by whoever last regenerated it.
 
 ## Alternatives rejected
 
