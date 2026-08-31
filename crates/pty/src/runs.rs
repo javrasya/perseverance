@@ -125,6 +125,21 @@ pub struct Telemetry {
     pub signal: Option<Signal>,
     /// Whether the session has opened, against the rule its launch declared.
     pub readiness: Readiness,
+    /// When this run was opened, as seconds since the epoch.
+    ///
+    /// A stamp and not an age, because what reads it prints a coarse word —
+    /// *4 minutes ago* — and an age recomputed three times a second would make
+    /// every readout differ for a word that never moved. The subtraction happens
+    /// where the rounding does; see [`Session::opened`].
+    ///
+    /// [`Session::opened`]: crate::Session::opened
+    pub opened: u64,
+    /// When this run last printed, as seconds since the epoch — which is when it
+    /// opened, for a run that has printed nothing at all.
+    ///
+    /// Silence is the subtraction from this, and it is a stamp for
+    /// [`Telemetry::opened`]'s reason.
+    pub spoke: u64,
 }
 
 /// One run as the registry holds it: the session that owns the child, and the
@@ -310,6 +325,8 @@ impl Runs {
                     quiet: run.session.quiet(),
                     signal: run.session.signal(),
                     readiness: run.session.readiness(),
+                    opened: run.session.opened(),
+                    spoke: run.session.spoke(),
                 }
             })
             .collect()

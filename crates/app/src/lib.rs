@@ -2533,6 +2533,33 @@ struct RunReadout {
     /// right — it means *poll GitHub sooner* — so nothing downstream may treat
     /// this as an answer about a ticket.
     signal: Option<RunSignal>,
+    /// What kind of run this is, or nothing for a run this app was never told
+    /// the stakes of.
+    ///
+    /// Joined here from the stakes for the reason `ticket` and `folder` are:
+    /// *work*, *research*, *chart* and *compose* are product vocabulary, and the
+    /// crate that owns the PTY is not allowed to hold any of it.
+    ///
+    /// Optional rather than defaulted to `work`, and that is the same posture
+    /// [`what_it_loses`] takes at a quit: a run nobody staked is still a run, and
+    /// it crosses saying it does not know what it is rather than being counted as
+    /// something it might not be.
+    kind: Option<RunKind>,
+    /// When this run was opened, as seconds since the epoch.
+    ///
+    /// A stamp rather than an age **because of what reads it**: the rack prints
+    /// *4 minutes ago*, rounded off a clock it ticks itself
+    /// (`src/chrome/useNow.ts`, `relativeAge`). An age computed on this side
+    /// would change on every one of the three readouts a second, so every
+    /// message would differ and every row would repaint for a word that had not
+    /// moved.
+    opened: u64,
+    /// When this run last printed, as seconds since the epoch — which is when it
+    /// opened, for a run that has printed nothing at all.
+    ///
+    /// How long a run has been silent is the subtraction from this, done where
+    /// the rounding is, for `opened`'s reason.
+    spoke: u64,
 }
 
 /// A live signal, as the WebView receives it.
@@ -2592,6 +2619,9 @@ impl RunReadout {
             folder: stakes.map(|stakes| stakes.folder.clone()),
             silence,
             signal: telemetry.signal.map(RunSignal::from),
+            kind: stakes.map(|stakes| stakes.kind),
+            opened: telemetry.opened,
+            spoke: telemetry.spoke,
         }
     }
 }
@@ -4081,7 +4111,13 @@ fn compose_at(
 /// only way one of these is meant to be made: the mapping is written once, here,
 /// and #48 calls it instead of writing it again. The day the model carries the
 /// distinction itself, both spellings move together.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// Serialised because a readout carries it: the rack prints what a row *is*
+/// before it prints anything about how it is going, and this is the only crate
+/// that may know. `crates/pty` carries no kind and must not learn one — the byte
+/// scan at the bottom of this file is what keeps that true.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub enum RunKind {
     Work,
     Research,
@@ -5205,6 +5241,9 @@ mod tests {
                 silent_for_ms: 90_000,
             },
             signal: Some(RunSignal::Busy),
+            kind: Some(RunKind::Research),
+            opened: 1_785_888_000,
+            spoke: 1_785_888_240,
         };
 
         let json = serde_json::to_value(&readout).expect("serialises");
@@ -5238,7 +5277,16 @@ mod tests {
         // Recorded for the chrome and acted on nowhere: a signal means *poll
         // GitHub sooner* and is never evidence about a ticket.
         assert_eq!(json["signal"], "busy");
-        assert_eq!(json.as_object().expect("an object").len(), 15);
+        // What the row is, joined from the stakes and spelled the way the rest
+        // of this file's enums cross.
+        assert_eq!(json["kind"], "research");
+        // Stamps and not ages, so the rack can round them to a word that holds
+        // still between readouts — and JSON numbers, not strings and not
+        // bigints, because `src/chrome/age.ts` subtracts them from a `number`.
+        assert_eq!(json["opened"], 1_785_888_000u64);
+        assert_eq!(json["spoke"], 1_785_888_240u64);
+        assert!(json["opened"].is_number() && json["spoke"].is_number());
+        assert_eq!(json.as_object().expect("an object").len(), 18);
 
         for (ending, spelt) in [
             (Ending::Live, "live"),
@@ -5273,12 +5321,26 @@ mod tests {
             // A run nothing has ever classified says so by having no signal,
             // rather than by naming a state nobody observed.
             signal: None,
+            kind: None,
             ..readout.clone()
         };
         let crossed = serde_json::to_value(unstaked).expect("serialises");
         assert!(crossed["ticket"].is_null());
         assert!(crossed["folder"].is_null());
         assert!(crossed["signal"].is_null());
+        // And it says it does not know what it is, rather than crossing as
+        // *work* — the same posture [`UNKNOWN_LOSS`] takes at a quit.
+        assert!(crossed["kind"].is_null());
+
+        for (kind, spelt) in [
+            (RunKind::Work, "work"),
+            (RunKind::Research, "research"),
+            (RunKind::Chart, "chart"),
+            (RunKind::Compose, "compose"),
+        ] {
+            let crossed = serde_json::to_value(kind).expect("serialises");
+            assert_eq!(crossed, spelt);
+        }
 
         // Every reading the silence predicate can produce, in the spelling
         // `src/terminal/runs.ts` switches on. A wedge names why, because the two
@@ -8596,6 +8658,59 @@ mod tests {
         assert!(terminals.staked_here().is_empty());
         assert!(terminals.resolved_here().is_empty());
         assert_eq!(poker.runs_live(), 0);
+    }
+
+    /// A rack row is *what kind of run, how old, how quiet*, and all three come
+    /// off one readout — the kind joined here from the stakes, the two stamps
+    /// carried up from the registry.
+    ///
+    /// A real run and the real join, because the promise is that the command and
+    /// the tick cannot disagree, and a pure call over a hand-built telemetry
+    /// would not be asking that.
+    #[test]
+    fn a_readout_carries_what_the_run_is_as_well_as_how_long_it_has_been_quiet() {
+        let directory = TempDir::new().expect("temp dir");
+        let terminals = Terminals::new();
+        let before = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("a clock after the epoch")
+            .as_secs();
+
+        let run = a_live_run_in(&terminals, directory.path());
+        terminals.staked(run, a_stake(77, "/repos/perseverance", RunKind::Research));
+
+        let readouts = terminals.readouts();
+        assert_eq!(readouts.len(), 1);
+        assert_eq!(readouts[0].kind, Some(RunKind::Research));
+        assert_eq!(readouts[0].ticket, Some(77));
+        assert!(readouts[0].opened >= before);
+        // A sleeper has printed nothing, so its silence is its whole age rather
+        // than a *never spoke* the rack would have to spell a second way.
+        assert_eq!(readouts[0].spoke, readouts[0].opened);
+        assert_eq!(readouts[0].end, 0);
+    }
+
+    /// A run this app was never told the stakes of is still a run.
+    ///
+    /// It crosses with no kind and no ticket rather than being dropped from the
+    /// readout — the posture [`UNKNOWN_LOSS`] takes at a quit, and for the same
+    /// reason: a live child left off the list is a terminal nobody can see, and
+    /// a rack that hid it would hide the one row worth asking about.
+    #[test]
+    fn a_run_nobody_staked_still_crosses_saying_it_does_not_know_what_it_is() {
+        let directory = TempDir::new().expect("temp dir");
+        let terminals = Terminals::new();
+
+        let run = a_live_run_in(&terminals, directory.path());
+
+        let readouts = terminals.readouts();
+        assert_eq!(readouts.len(), 1);
+        assert_eq!(readouts[0].run, run.as_u64());
+        assert_eq!(readouts[0].kind, None);
+        assert_eq!(readouts[0].ticket, None);
+        assert_eq!(readouts[0].folder, None);
+        assert!(!readouts[0].over);
+        assert!(readouts[0].opened > 0);
     }
 
     /// The mapping is written once. `route.ts` draws the same line for
