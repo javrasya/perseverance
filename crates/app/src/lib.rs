@@ -2136,7 +2136,7 @@ impl Terminals {
         live.into_iter().any(|run| {
             stakes
                 .get(&run)
-                .is_some_and(|staked| staked.kind == RunKind::Compose && staked.ticket == map)
+                .is_some_and(|staked| staked.kind == RunKind::Compose && staked.ticket == Some(map))
         })
     }
 }
