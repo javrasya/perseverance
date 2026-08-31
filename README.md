@@ -213,6 +213,28 @@ silently and breaks the still-state rule in the one state that matters. CSS
 animation and transitions only. The prohibition is stack-level precisely
 because it is invisible in review.
 
+**Motion is rationed, and reduced motion takes travel rather than colour** —
+`tests/motion-ration.test.ts`. Because SMIL is banned, every animation in this
+app is CSS text, so the ration is a set that can be *collected*: every
+`animation` declaration and every keyframes block under `src/`, held against a
+list that names, per selector and per keyframes name, the liveness claim the
+motion is spent on. Rule 9 rations motion to running-vs-stale and this side of
+the seam has no running bit, so the list settles what the one animation is
+allowed to mean: `claimed` is the only node state that is in progress rather
+than a settled fact about the graph, and that is the liveness this half of the
+app can carry. The list is one entry — the claimed mark's halo — and
+growing it costs an argument in the test rather than a line in an allow-list: a
+second animation anywhere, or that one moving to a selector carrying no claim,
+is red. The same walk reads the `prefers-reduced-motion` guard, which is global
+and is the only one allowed to exist: what it kills is looping animation and
+travel — transform, translate, rotate, scale, any geometric length — and what
+it keeps is opacity, colour and stroke, because the trigger is movement and a
+crossfade is not movement. A blanket `transition: none` is the wrong default and
+fails the same check. Rule 12 then reads the *rendering* against the same walk
+([the conformance suite](#the-conformance-suite)): whatever the stylesheets
+animate owes a still form, so an animation added with none turns rule 12 red in
+the browser suite instead of going uncovered.
+
 **Views consume semantic tokens only** — `tests/token-tiers.test.ts`. Three
 tiers: `--p-*` primitives defined in one file, `--s-*` semantics that name a
 job rather than a value, `--c-*` component tokens local to a module. Only the

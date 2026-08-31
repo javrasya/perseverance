@@ -138,9 +138,11 @@ or moving.
 
 What the motion means is a separate question and it is registered elsewhere.
 Rule 9 records that this animation rides on *someone holds this ticket* rather
-than on running-vs-stale, that `NodeState` carries no running bit, and that the
-settling belongs to #43. Rule 9 is asserted and has no deviation route, so that
-tension is not re-filed here.
+than on running-vs-stale, that `NodeState` carries no running bit, and how #43
+settled it: `claimed` is the one state that is in progress rather than settled,
+and it is the liveness this side of the seam can carry. Rule 9 is asserted and
+has no deviation route, so that settlement is the registry's and its
+enumeration's, and is not re-filed here.
 
 ## Rule 13 — Resolved stays locatable
 

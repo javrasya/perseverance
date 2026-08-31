@@ -33,6 +33,8 @@ import { expect, type Locator, type Page } from "@playwright/test";
 import type { RuleId } from "../../../src/contract/rules";
 import type { Cut, Node } from "../../../src/snapshot/model.generated";
 import { describeModel } from "../../../src/snapshot/readout";
+import { readMotion } from "../../support/checks";
+import { collectStylesheets } from "../../support/sources";
 import type { Rendering } from "./drive";
 
 /** Held, or not applicable here and why. There is no third answer. */
@@ -134,6 +136,58 @@ async function stillFormOf(glyph: Locator): Promise<Record<string, string>> {
     };
   });
 }
+
+/**
+ * Every selector the stylesheet walk finds an animation on.
+ *
+ * Rule 12's floor used to name `ping` and `.markClaimed::after` outright, so a
+ * second animation appearing elsewhere would have been uncovered by a test
+ * that stayed green. Rule 9's ration is enumerable over the stylesheets
+ * (`tests/motion-ration.test.ts`), so the floor is derived from the same walk
+ * instead: whatever moves owes a still form. Reading the selectors rather than
+ * the rendering is deliberate — the CSS is where the motion surface is
+ * complete, and a fixture that happens not to render the moving element would
+ * otherwise be a hole in the coverage rather than a skip.
+ */
+function animatedSelectors(): string[] {
+  const selectors = collectStylesheets().flatMap((file) =>
+    readMotion(file.text).animations.map((animation) => animation.selector),
+  );
+  return [...new Set(selectors)].sort();
+}
+
+/**
+ * The still form owed by one animated selector, read off a rendering under
+ * `prefers-reduced-motion: reduce`. Keyed by the selector as authored: an
+ * animation moving to another selector loses its entry and goes red.
+ */
+const STILL_FORMS: Record<string, (rendering: Rendering) => Promise<Verdict>> = {
+  ".markClaimed::after": async ({ root, surface, snapshot }) => {
+    const map = snapshot.model.map;
+    if (root === null || map === null) return skipped(NO_MAP);
+
+    const claimed = map.nodes.find((node) => node.state === "claimed");
+    const other = map.nodes.find((node) => node.state !== "claimed");
+    if (claimed === undefined || other === undefined) {
+      return skipped(
+        "this fixture renders no claimed node beside a node in another state, so no distinction here is carried by motion",
+      );
+    }
+
+    const moving = await stillFormOf(
+      root.locator(surface.row(claimed.number)).locator(surface.glyph),
+    );
+    const still = await stillFormOf(root.locator(surface.row(other.number)).locator(surface.glyph));
+
+    expect(moving.animationName, "motion survived the media query").toBe("none");
+    expect(moving.content, "the halo is gone with the animation").not.toBe("none");
+    expect(Number(moving.opacity)).toBeGreaterThan(0);
+    expect(moving.borderStyle).not.toBe("none");
+    expect(moving.borderWidth).not.toBe("0px");
+    expect(moving, "the two states are the same thing with the motion off").not.toEqual(still);
+    return HELD;
+  },
+};
 
 /* ------------------------------------------------------------ the table --- */
 
@@ -347,34 +401,36 @@ export const RULE_CHECKS: Partial<Record<RuleId, RuleEntry>> = {
   },
 
   12: {
-    why: "The floor of a judged rule, over the view root, and only at the reduced-motion half of the space — the still form is what the media query leaves standing, so the other half has nothing to read. Today the whole motion surface of this app is one keyframes block on the claimed mark's halo, with the halo itself authored as a still ring so the animation is additive. What is asserted is that pair: with reduce on the animation is gone, the ring is still drawn, and a row in another state still does not wear it — the distinction the motion carried survives in the still form. Whether what survives is the *same* distinction is the judged residue.",
-    check: async ({ root, surface, snapshot, state }) => {
-      const map = snapshot.model.map;
-      if (root === null || map === null) return skipped(NO_MAP);
-      if (state.motion !== "reduced") {
+    why: "The floor of a judged rule, over the view root, and only at the reduced-motion half of the space — the still form is what the media query leaves standing, so the other half has nothing to read. What owes a still form is not named here: it is whatever rule 9's walk over the stylesheets finds an animation on, so an animation added anywhere under `src/` arrives with no still form registered and turns this rule red rather than passing unread. For each animated selector the entry asserts the pair its still form describes — today the claimed mark's halo, where with reduce on the animation is gone, the ring authored underneath it is still drawn, and a row in another state still does not wear it. Whether what survives is the *same* distinction the motion carried is the judged residue: a machine can prove the two renderings still differ, not that the surviving difference is the one that was being made.",
+    check: async (rendering) => {
+      const animated = animatedSelectors();
+      expect(
+        animated.filter((selector) => !(selector in STILL_FORMS)),
+        "spends motion with no still form registered to check",
+      ).toEqual([]);
+      expect(
+        Object.keys(STILL_FORMS).filter((selector) => !animated.includes(selector)),
+        "a still form is registered for an animation no stylesheet runs",
+      ).toEqual([]);
+
+      if (rendering.state.motion !== "reduced") {
         return skipped(
           "the still form is what `prefers-reduced-motion: reduce` leaves standing, and motion is on at this point of the space",
         );
       }
-
-      const claimed = map.nodes.find((node) => node.state === "claimed");
-      const other = map.nodes.find((node) => node.state !== "claimed");
-      if (claimed === undefined || other === undefined) {
-        return skipped(
-          "this fixture renders no claimed node beside a node in another state, so no distinction here is carried by motion",
-        );
+      if (rendering.root === null || rendering.snapshot.model.map === null) {
+        return skipped(NO_MAP);
       }
 
-      const moving = await stillFormOf(root.locator(surface.row(claimed.number)).locator(surface.glyph));
-      const still = await stillFormOf(root.locator(surface.row(other.number)).locator(surface.glyph));
-
-      expect(moving.animationName, "motion survived the media query").toBe("none");
-      expect(moving.content, "the halo is gone with the animation").not.toBe("none");
-      expect(Number(moving.opacity)).toBeGreaterThan(0);
-      expect(moving.borderStyle).not.toBe("none");
-      expect(moving.borderWidth).not.toBe("0px");
-      expect(moving, "the two states are the same thing with the motion off").not.toEqual(still);
-      return HELD;
+      const verdicts: Verdict[] = [];
+      for (const selector of animated) {
+        verdicts.push(await STILL_FORMS[selector]!(rendering));
+      }
+      return (
+        verdicts.find((verdict) => "held" in verdict) ??
+        verdicts[0] ??
+        skipped("no stylesheet under `src/` spends motion, so no distinction here is carried by it")
+      );
     },
   },
 
