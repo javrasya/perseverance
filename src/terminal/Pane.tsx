@@ -1,9 +1,10 @@
 import { useEffect, useRef } from "react";
+import { briefSpan } from "../chrome/age";
 import { collapsed, gesture, type Occasion } from "../panes/geometry";
 import { monitor, useUi } from "../stores/ui";
 import { promptFor } from "./prompts";
 import { PromptBlock } from "./PromptBlock";
-import { endRun, type RunReadout } from "./runs";
+import { endRun, type RunReadout, type RunSignal } from "./runs";
 import type { Terminals } from "./terminals";
 import styles from "./Pane.module.css";
 
@@ -44,6 +45,74 @@ export function endingSentence(readout: RunReadout): string | null {
       return `this run has ended${readout.code === null ? "" : ` (${readout.code})`}`;
   }
 }
+
+/**
+ * The silence, as an observation.
+ *
+ * Every word here is a thing that is true of the screen — how long it has been
+ * still, and who is waiting on it. None of them is a thing that is true of the
+ * program: *hung*, *stuck*, *dead*, *frozen* and *fault* are all guesses about
+ * a child this side has never seen, and a run idle for an hour because somebody
+ * is reading a diff would be slandered by every one of them. So an hour of a
+ * person thinking reads as `quiet · 62m`, for any elapsed and forever.
+ *
+ * The elapsed is printed and never compared. What a duration *means* is a joint
+ * predicate over who is waiting and what the ticket says — `docs/adr/0025` — and
+ * a threshold written on this side would be a second copy of that predicate,
+ * silently disagreeing with the one Rust derives from six values this file can
+ * only see two of.
+ *
+ * Two readings print nothing at all. `nothing` is a child that has exited, and
+ * what that means is the ending sentence already beside this; `spent` is a
+ * closed ticket, which the same sentence already carries. Saying either twice
+ * in two vocabularies is how the two come to disagree.
+ */
+export const QUIET_READING = "quiet";
+export const AWAITING_OPERATOR_READING = "waiting for you";
+/*
+ * The trust prompt is named and never raised. It is the agent CLI's own modal,
+ * already on screen in the terminal immediately below this sentence, and the
+ * harness's whole contribution is to say where to look: a condition is a fact,
+ * and a modal is a thing that interrupts you to be dismissed.
+ */
+export const AWAITING_OPERATOR_DETAIL =
+  "the readiness rule ran out before this session opened, and what it is waiting on — most likely this CLI's own prompt asking you to trust the folder — is in the terminal below";
+export const UNWATCHED_READING = "nobody is watching";
+export const UNWATCHED_DETAIL = "this run has printed nothing, and nothing has ever classified it";
+
+export function silenceSentence(readout: RunReadout): string | null {
+  const silence = readout.silence;
+  switch (silence.kind) {
+    case "nothing":
+    case "spent":
+      return null;
+    case "quiet":
+      return `${QUIET_READING} · ${briefSpan(silence.silentForMs)}`;
+    case "wedged":
+      return silence.why === "awaitingOperator"
+        ? `${AWAITING_OPERATOR_READING} · ${briefSpan(silence.silentForMs)} — ${AWAITING_OPERATOR_DETAIL}`
+        : `${UNWATCHED_READING} · ${briefSpan(silence.silentForMs)} — ${UNWATCHED_DETAIL}`;
+  }
+}
+
+/**
+ * The last thing a watch classified this run as, in one word.
+ *
+ * `null` prints nothing, and the nothing means *no watch has ever classified
+ * this run* — a fact about the run's history. It is never worded as a fact
+ * about the adapter, and there is deliberately no branch here on whether one
+ * emits signals at all: every run is drained on identical terms, so the
+ * question has no call site to be asked from.
+ *
+ * Still, all three of them. `busy` is a word and not a spinner — the pane's
+ * stylesheet forbids motion beside a terminal, which is already the most
+ * moving thing on the screen.
+ */
+export const SIGNAL_READINGS: Record<RunSignal, string> = {
+  ready: "ready",
+  busy: "working",
+  idle: "idle",
+};
 
 export function Pane({
   terminals,
@@ -130,6 +199,8 @@ export function Pane({
    */
   const prompt = monitored === null ? null : promptFor(monitored);
   const sentence = readout === null ? null : endingSentence(readout);
+  const silence = readout === null ? null : silenceSentence(readout);
+  const signal = readout === null || readout.signal === null ? null : readout.signal;
 
   /*
    * The press, and the only thing in this app that ends a run.
@@ -172,6 +243,20 @@ export function Pane({
               this terminal is behind, and will be replayed whole when it catches up
             </span>
           ) : null}
+          {silence === null ? null : (
+            <span
+              className={
+                readout.silence.kind === "wedged" ? styles.wedged : styles.quiet
+              }
+            >
+              {silence}
+            </span>
+          )}
+          {signal === null ? null : (
+            <span className={signal === "ready" ? styles.ready : styles.signal}>
+              {SIGNAL_READINGS[signal]}
+            </span>
+          )}
           {sentence === null ? null : (
             <span
               className={readout.ending === "exitedUnresolved" ? styles.unresolved : styles.over}

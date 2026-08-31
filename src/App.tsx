@@ -49,7 +49,7 @@ import {
 import { describeModel } from "./snapshot/readout";
 import { loadSnapshot, watchSnapshot } from "./snapshot/snapshot";
 import { replaceSnapshot, useSnapshot } from "./stores/snapshots";
-import { moveDial, readUi, select, useUi } from "./stores/ui";
+import { monitor, moveDial, readUi, select, useUi } from "./stores/ui";
 /* `Dial.jsx` and `StandDown.jsx` for the same reason `Route.jsx` is spelled
    below: `panes/dial.ts` is the arithmetic and `panes/Dial.tsx` is the hand on
    it, and on a case-insensitive filesystem an extensionless specifier finds the
@@ -87,6 +87,7 @@ import {
   watchRunReadouts,
   type RunReadout,
 } from "./terminal/runs";
+import { fixtureRunToOpenOn } from "./terminal/fixtures";
 import { Terminals } from "./terminal/terminals";
 import { xterm } from "./terminal/xterm";
 import { ThemeSwitch } from "./theme/ThemeSwitch";
@@ -285,7 +286,13 @@ export function App() {
       }
       stop = off;
       return loadRunReadouts().then((next) => {
-        if (live) setRuns((current) => (current.length === 0 ? next : current));
+        if (!live) return;
+        setRuns((current) => (current.length === 0 ? next : current));
+        /* `dev:web` only, and `null` the moment there is a harness behind the
+           window: nothing in a browser spawns a run, so without this the
+           fixture readouts would be held and never bound to anything. */
+        const opening = fixtureRunToOpenOn(next);
+        if (opening !== null && readUi().monitored === null) monitor(opening);
       });
     });
 

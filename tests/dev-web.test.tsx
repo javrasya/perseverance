@@ -20,6 +20,14 @@ import { FIXTURES, FIXTURE_NAMES, type FixtureName } from "../src/snapshot/fixtu
 import type { Snapshot } from "../src/snapshot/model.generated";
 import { NOTHING_FOR_THIS_MACHINE, NO_MAP_OPEN } from "../src/snapshot/readout";
 import { hasRustBehindIt } from "../src/snapshot/snapshot";
+import { monitor } from "../src/stores/ui";
+import {
+  AWAITING_OPERATOR_READING,
+  QUIET_READING,
+  SIGNAL_READINGS,
+  UNWATCHED_READING,
+} from "../src/terminal/Pane";
+import { RUN_FIXTURES, RUN_FIXTURE_NAMES } from "../src/terminal/fixtures";
 
 /**
  * `dev:web` boots the whole frontend from a checked-in snapshot with no Rust
@@ -40,6 +48,29 @@ import { hasRustBehindIt } from "../src/snapshot/snapshot";
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
 
+/*
+ * The emulator itself, stood in for — and it is jsdom that decides this, not a
+ * choice about the app. xterm.js reaches for `matchMedia` and a canvas the
+ * moment a terminal is opened, and jsdom has neither.
+ *
+ * Nothing is lost, because every claim in this file is about the frame around
+ * the terminal rather than the terminal: with no Rust behind the window there
+ * is no PTY, no channel and so no byte to write, and what a real `dev:web` tab
+ * shows inside the pane is exactly this — an emulator that was opened and never
+ * written to.
+ */
+vi.mock("../src/terminal/xterm", () => ({
+  xterm: () => ({
+    element: document.createElement("div"),
+    write: () => {},
+    reset: () => {},
+    resize: () => {},
+    measure: () => null,
+    onData: () => () => {},
+    dispose: () => {},
+  }),
+}));
+
 let mounted: { root: ReturnType<typeof createRoot>; host: HTMLElement } | null = null;
 
 async function boot(search: string): Promise<string> {
@@ -51,6 +82,13 @@ async function boot(search: string): Promise<string> {
   // The one thing a browser cannot be talked out of: `jsdom` has a `window`,
   // and what makes this the `dev:web` path is that nothing put Tauri on it.
   window.history.replaceState({}, "", search);
+  /*
+   * Which run is on the pane lives in a module-level store that outlives a
+   * mount, so a fresh tab is spelled out rather than assumed: without this the
+   * fixture set one test opened would still be bound in the next one, and the
+   * empty pane would be a state no boot could get back to.
+   */
+  monitor(null);
 
   const host = document.createElement("div");
   document.body.appendChild(host);
@@ -1422,5 +1460,87 @@ describe("the compose offer is on screen from a fixture, and only on the rung th
       expect([name, theStart().textContent?.includes(START_LABEL)]).toEqual([name, true]);
       expect([name, theStart().textContent?.includes(COMPOSE_LABEL)]).toEqual([name, false]);
     }
+  });
+});
+
+describe("a wedged run is a state `dev:web` can be put into, and a browser cannot", () => {
+  /*
+   * The reason this parameter exists. A wedged AFK run wants five minutes of a
+   * research run saying nothing and an `awaitingOperator` one wants a CLI
+   * sitting on its own trust prompt — neither is a click, in this window or in
+   * a real one, so without a fixture set the still-states this ticket is about
+   * would be renderable only in a screenshot somebody took once.
+   */
+
+  /** The pane's chrome, which is where every fact about a stream is written. */
+  function thePane(): string {
+    return document.querySelector('[aria-label="Terminal"]')?.textContent ?? "";
+  }
+
+  it("boots the pane onto a run rather than onto nothing, with no Rust anywhere", async () => {
+    await boot("/?map=awkward-map&runs=awaiting-operator");
+
+    expect(hasRustBehindIt()).toBe(false);
+    expect(thePane()).not.toContain("Nothing is running here yet.");
+    expect(thePane()).toContain(AWAITING_OPERATOR_READING);
+    expect(thePane()).toContain("in the terminal below");
+  });
+
+  it("renders every silence the type has a tag for", async () => {
+    for (const [name, expected] of [
+      ["quiet", `${QUIET_READING} · 62m`],
+      ["awaiting-operator", AWAITING_OPERATOR_READING],
+      ["unwatched", UNWATCHED_READING],
+      // The two with nothing to add: the ending sentence beside them carries it.
+      ["spent", "the ticket closed"],
+      ["ended", "this run has ended (130)"],
+    ] as const) {
+      await boot(`/?map=awkward-map&runs=${name}`);
+      expect([name, thePane().includes(expected)]).toEqual([name, true]);
+    }
+  });
+
+  it("renders a signal for every run a watch has classified, and none for the rest", async () => {
+    await boot("/?map=awkward-map&runs=the-rack");
+
+    // The rack's own runs carry `ready`, `busy`, `idle` and `null` between
+    // them, so all four are a state this window can be opened onto — and the
+    // one on the pane is the wedged one, which has never been classified.
+    const signals = RUN_FIXTURES["the-rack"].map((readout) => readout.signal);
+    expect(new Set(signals)).toEqual(new Set(["ready", "busy", "idle", null]));
+    expect(thePane()).not.toContain(SIGNAL_READINGS.ready);
+  });
+
+  it("raises no modal and no toast with a wedged run on screen", async () => {
+    /*
+     * The trust prompt named in that sentence is the agent CLI's own, already
+     * in the terminal. The house rule holds with the loudest reading this app
+     * has on screen: a condition is a fact, and a modal is a thing that
+     * interrupts you to be dismissed.
+     */
+    for (const name of RUN_FIXTURE_NAMES) {
+      await boot(`/?map=awkward-map&runs=${name}`);
+
+      for (const interrupting of [
+        "[aria-live]",
+        '[role="alert"]',
+        '[role="status"]',
+        '[role="dialog"]',
+        '[role="alertdialog"]',
+        "dialog",
+      ]) {
+        expect([name, interrupting, document.querySelectorAll(interrupting).length]).toEqual([
+          name,
+          interrupting,
+          0,
+        ]);
+      }
+    }
+  });
+
+  it("opens on nothing when nothing was asked for, which is what `?map=` alone means", async () => {
+    await boot("/?map=awkward-map");
+
+    expect(thePane()).toContain("Nothing is running here yet.");
   });
 });

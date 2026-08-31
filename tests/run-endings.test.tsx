@@ -2,7 +2,13 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Pane } from "../src/terminal/Pane";
+import {
+  AWAITING_OPERATOR_READING,
+  Pane,
+  QUIET_READING,
+  SIGNAL_READINGS,
+  UNWATCHED_READING,
+} from "../src/terminal/Pane";
 import { forgetPrompts } from "../src/terminal/prompts";
 import { forgetStow } from "../src/terminal/reparent";
 import type {
@@ -218,8 +224,10 @@ describe("the press that ends a run", () => {
  * the same tags read from the type this file consumes. A rename on either side
  * is silent on the other, and two assertions is the whole of the defence.
  *
- * Nothing on screen reads either value yet — a later slice puts them there —
- * so what is pinned is the crossing and not a rendering of it.
+ * What is pinned here is the *crossing* and not the rendering of it: the chrome
+ * that prints both values is asserted further down, and the two claims are kept
+ * apart because a rename on the wire and a reworded sentence are different
+ * failures with different fixes.
  */
 describe("the silence reading crosses in the shape Rust writes", () => {
   it("fifteen keys cross, and these fifteen", () => {
@@ -271,5 +279,166 @@ describe("the silence reading crosses in the shape Rust writes", () => {
 
     expect(observed).toHaveLength(3);
     expect(readout("live").signal).toBe(null);
+  });
+});
+
+/* ------------------------------------------------------------- silence --- */
+
+/** The same run, with one reading and one signal swapped in. */
+function saying(silence: RunSilence, signal: RunSignal | null = null): RunReadout {
+  return { ...readout("live"), silence, signal };
+}
+
+/**
+ * Words this chrome may never contain, whatever the elapsed.
+ *
+ * Each one is a claim about a child this side has never seen. A run whose
+ * operator went to make coffee is the most ordinary thing a terminal does, and
+ * an app that calls it any of these is an app whose warnings get ignored.
+ */
+const VERDICTS = ["hung", "stuck", "dead", "frozen", "fault"];
+
+describe("the silence, printed as an observation", () => {
+  it("reads an hour of somebody thinking as quiet, and as nothing worse", () => {
+    monitor(7);
+    const { host, unmount } = mount([saying({ kind: "quiet", silentForMs: 62 * 60_000 })]);
+
+    expect(chrome(host)).toContain(`${QUIET_READING} · 62m`);
+
+    unmount();
+  });
+
+  it("prints the elapsed rather than comparing it against a number of its own", () => {
+    /*
+     * Three seconds and thirty days read the same way, because what an elapsed
+     * *means* is a joint predicate over who is waiting and what the ticket says
+     * — `docs/adr/0025` — and this side sees two of the six values it takes. So
+     * the duration is printed and the word beside it is Rust's.
+     */
+    monitor(7);
+    for (const [ms, span] of [
+      [3_000, "3s"],
+      [30 * 24 * 60 * 60_000, "30d"],
+    ] as const) {
+      const { host, unmount } = mount([saying({ kind: "quiet", silentForMs: ms })]);
+      expect(chrome(host)).toContain(`${QUIET_READING} · ${span}`);
+      unmount();
+    }
+  });
+
+  it("names the CLI's own trust prompt, and raises nothing of its own", () => {
+    monitor(7);
+    const { host, unmount } = mount([
+      saying({ kind: "wedged", why: "awaitingOperator", silentForMs: 12_000 }),
+    ]);
+
+    expect(chrome(host)).toContain(`${AWAITING_OPERATOR_READING} · 12s`);
+    expect(chrome(host)).toContain("trust");
+    // And where to look, which is the terminal immediately below the sentence.
+    expect(chrome(host)).toContain("in the terminal below");
+    /*
+     * The modal is the agent CLI's own, already on screen in that terminal. A
+     * condition is a fact and a modal is a thing that interrupts you to be
+     * dismissed, so the harness names one and opens none.
+     */
+    for (const interrupting of ['[role="dialog"]', '[role="alertdialog"]', "dialog"]) {
+      expect(host.querySelectorAll(interrupting)).toHaveLength(0);
+    }
+
+    unmount();
+  });
+
+  it("says nobody is watching an unattended run that nothing has classified", () => {
+    monitor(7);
+    const { host, unmount } = mount([
+      saying({ kind: "wedged", why: "silent", silentForMs: 5 * 60_000 }),
+    ]);
+
+    expect(chrome(host)).toContain(`${UNWATCHED_READING} · 5m`);
+    expect(chrome(host)).toContain("nothing has ever classified it");
+
+    unmount();
+  });
+
+  it("leaves the two readings with nothing to add silent, so the ending says it once", () => {
+    /*
+     * `spent` and `nothing` are already carried by the ending sentence beside
+     * this. Printing either twice in two vocabularies is how the two come to
+     * disagree — and a spent run is never quiet, however long it has said
+     * nothing.
+     */
+    monitor(7);
+    for (const silence of [{ kind: "spent" }, { kind: "nothing" }] as const) {
+      const { host, unmount } = mount([{ ...readout("spent"), silence }]);
+      expect(chrome(host)).not.toContain(QUIET_READING);
+      expect(chrome(host)).not.toContain(UNWATCHED_READING);
+      expect(chrome(host)).not.toContain(AWAITING_OPERATOR_READING);
+      unmount();
+    }
+  });
+
+  it("carries no verdict about the child, on any reading there is", () => {
+    monitor(7);
+    for (const silence of [
+      { kind: "quiet", silentForMs: 4 * 60 * 60_000 },
+      { kind: "wedged", why: "awaitingOperator", silentForMs: 30_000 },
+      { kind: "wedged", why: "silent", silentForMs: 42 * 60_000 },
+      { kind: "spent" },
+      { kind: "nothing" },
+    ] as const) {
+      const { host, unmount } = mount([saying(silence)]);
+      const printed = chrome(host).toLowerCase();
+      for (const verdict of VERDICTS) {
+        expect([silence.kind, verdict, printed.includes(verdict)]).toEqual([
+          silence.kind,
+          verdict,
+          false,
+        ]);
+      }
+      unmount();
+    }
+  });
+
+  it("prints the reading as visible text and never behind a tooltip", () => {
+    monitor(7);
+    const { host, unmount } = mount([
+      saying({ kind: "wedged", why: "awaitingOperator", silentForMs: 12_000 }),
+    ]);
+
+    for (const element of host.querySelectorAll("*")) {
+      expect(element.getAttribute("title")).toBe(null);
+    }
+
+    unmount();
+  });
+});
+
+describe("the signal, printed without ever asking about the adapter", () => {
+  it("reads each of the three a watch can classify a run as", () => {
+    monitor(7);
+    for (const signal of ["ready", "busy", "idle"] as const) {
+      const { host, unmount } = mount([saying({ kind: "nothing" }, signal)]);
+      expect(chrome(host)).toContain(SIGNAL_READINGS[signal]);
+      unmount();
+    }
+  });
+
+  it("says nothing at all for a run nothing has ever classified", () => {
+    /*
+     * `null` is a fact about this run's history and never an answer about its
+     * adapter. Nothing on screen may word it as *this adapter emits no
+     * signals*, because that is a question no call site is allowed to ask.
+     */
+    monitor(7);
+    const { host, unmount } = mount([saying({ kind: "nothing" }, null)]);
+
+    const printed = chrome(host).toLowerCase();
+    expect(printed).not.toContain("adapter");
+    expect(printed).not.toContain("signal");
+    for (const reading of Object.values(SIGNAL_READINGS)) {
+      expect(printed).not.toContain(reading);
+    }
+
+    unmount();
   });
 });

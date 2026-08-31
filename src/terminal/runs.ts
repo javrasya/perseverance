@@ -1,5 +1,6 @@
 import { hasRustBehindIt } from "../snapshot/snapshot";
 import type { Geometry } from "../stores/ui";
+import { requestedRunFixture, runFixtureNamed } from "./fixtures";
 
 /**
  * What one run's terminal is handed, and how it is handed over.
@@ -257,8 +258,15 @@ export async function endRun(run: number): Promise<void> {
   await invoke("end_run", { run });
 }
 
+/**
+ * Every run's readout, once.
+ *
+ * Without Rust behind it, a checked-in set named by the query parameter
+ * `fixtures.ts` spells once as `RUNS_PARAMETER` — see there for why a browser
+ * needs one at all, and for what these fixtures are not.
+ */
 export async function loadRunReadouts(): Promise<RunReadout[]> {
-  if (!hasRustBehindIt()) return [];
+  if (!hasRustBehindIt()) return runFixtureNamed(requestedRunFixture());
   const { invoke } = await import("@tauri-apps/api/core");
   return await invoke<RunReadout[]>("run_readouts");
 }

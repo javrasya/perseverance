@@ -52,3 +52,25 @@ export function relativeAge(since: number, now: number = nowSeconds()): string {
 function counted(amount: number, unit: string): string {
   return `${amount} ${unit}${amount === 1 ? "" : "s"} ago`;
 }
+
+/**
+ * How long something has gone on, as short as it can be said: `12s`, `62m`.
+ *
+ * Beside `relativeAge` and deliberately not it. An age answers *when did this
+ * happen* and reads as a sentence — "62 minutes ago"; a span answers *how long
+ * has this gone on*, and the one thing that needs it is a strip of chrome
+ * beside a terminal where every other fact is three words. Both spellings live
+ * in this one file so that one screen cannot end up with two accounts of an
+ * hour that came from two places.
+ *
+ * Minutes run to a whole day rather than rolling into hours at sixty, because
+ * the reading this exists for is a silence somebody is judging the length of,
+ * and `1h 2m` is arithmetic where `62m` is a number.
+ */
+export function briefSpan(ms: number): string {
+  const seconds = Math.max(0, Math.floor(ms / 1000));
+  if (seconds < MINUTE) return `${seconds}s`;
+  if (seconds < DAY) return `${Math.floor(seconds / MINUTE)}m`;
+  if (seconds < WEEK) return `${Math.floor(seconds / HOUR)}h`;
+  return `${Math.floor(seconds / DAY)}d`;
+}
