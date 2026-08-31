@@ -143,6 +143,28 @@ map nobody could read. What the contract standardises it delivers, and
 everything above the paint layer — its rows, its marks, its own floor — is the
 Bench's own identity rather than the Route restyled.
 
+The Plate is another view over the same model, and it is the one that draws the network: a Beck
+transit diagram in hand-rolled SVG, a station per child, octolinear track for
+*waits on*, ranks left to right so no track points backwards, sidings under the
+drawing for children nothing waits on, and a stem where finishing one station
+frees several. Where anything goes was decided in `src/views/plate/plate.ts` and
+`router.ts` — ranks, sidings, fan-out, an eight-anchor label solver and a
+two-cell gap the router will not cross — and `Plate.tsx` turns cells into pixels
+and picks a shape. Eleven encodings, and none of them is a hue on its own: the
+eight facts about the graph are eight shapes, and the three about the reader —
+ticket type, AFK versus HITL, and *not on this machine* — are words on the name
+plate. Hover is this view's own semantics and discloses nothing: it enlarges one
+station and brings its whole thread forward while the rest of the network
+recedes, which is the transit convention answering *which thread is this part
+of*. It spends no motion at all — `NodeState` carries no running bit for the
+ration to be spent on, so the claimed lozenge wears a second concentric outline
+instead of a pulse.
+[ADR 0025](docs/adr/0025-the-plate-is-shapes-and-words-and-spends-no-motion.md)
+records the three decisions, and
+`docs/contract/declarations/plate.md` records what it costs — a name too long
+for its reserved plate is clipped, and this view offers no tooltip to recover
+it.
+
 `perseverance-agent` is a trait with four members and one value. An adapter
 names itself, says what to look for, plans a launch, and optionally classifies
 bytes — it does not spawn, wait, inject a prompt or decide it is done, because

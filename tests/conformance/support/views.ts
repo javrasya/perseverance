@@ -2,7 +2,7 @@
  * How a view declares itself to the conformance suite.
  *
  * The fan-out is *rules × views × the fixture space*, and the view axis is
- * `VIEWS` — two entries today, four eventually. A check written against The
+ * `VIEWS` — four entries today. A check written against The
  * Route's own selectors would have been a check that silently stopped covering
  * anything the day a second view arrived, so the selectors are not in the checks: they
  * are here, once per view, in a table `satisfies Record<ViewName, ViewSurface>`
@@ -173,9 +173,36 @@ const DEEP_FIELD: ViewSurface = {
   fog: { region: "[data-fog]", unsurveyed: "[data-unsurveyed]", count: "[data-count]" },
 };
 
+/*
+ * The Plate declares the same seven hooks over completely different geometry,
+ * which is the point of the table: a rule reads *the designated node* or *the
+ * rows in this state* and never learns that one view draws a list and the other
+ * draws a diagram. Its rows are `<g>` elements inside the field, because a
+ * station is a group — a glyph, a plate and the words on it — and the hooks
+ * ride on the group exactly as the Route's ride on the `<li>`.
+ */
+const PLATE: ViewSurface = {
+  root: 'section[aria-label="The Plate"]',
+  mounts: (snapshot) => snapshot.model.map !== null,
+  rows: "g[data-node]",
+  row: (number) => `g[data-node="${number}"]`,
+  rowsInState: (state) => `g[data-state="${state}"]`,
+  rowsOfKind: (kind) => `g[data-kind="${kind}"]`,
+  /* `data-frontier` for the Route's reason: the mark yields to *claimed* when
+     somebody is already on the designated station, so the shape is not where
+     the designation is always readable and the attribute is. */
+  designated: "[data-frontier]",
+  /* The glyph is the station's own aria-hidden group, and the shapes inside it
+     are the whole of what a mark is drawn as. */
+  glyph: 'g[aria-hidden="true"]',
+  unclassifiedWord: PLATE_UNCLASSIFIED,
+  fog: { region: "[data-fog]", unsurveyed: "[data-unsurveyed]", count: "[data-count]" },
+};
+
 export const VIEW_SURFACES = {
   route: ROUTE,
   bench: BENCH,
+  plate: PLATE,
   "deep-field": DEEP_FIELD,
 } satisfies Record<ViewName, ViewSurface>;
 

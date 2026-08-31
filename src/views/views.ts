@@ -17,17 +17,17 @@
  * the arrangement rather than an omission — `ViewSwitcher.tsx` beside this file
  * is chrome on the shell's spine and reads its caps from here, so the registry
  * stays the one place a view exists and the labels, the floors and the
- * stand-down all point back at it. Three entries now — the Route, the Bench and
- * Deep Field — and the ones past the first are what make that worth anything: a
- * table with one row cannot be told apart from a constant. This file stays the
- * names, the labels, the floors' key and the remembered default; a view is
- * added by naming it here and then answering for it everywhere a `Record` over
- * [`ViewName`] refuses to compile without it.
+ * stand-down all point back at it. Four entries now — the Route, the Bench,
+ * The Plate and Deep Field — and the ones past the first are what make that
+ * worth anything: a table with one row cannot be told apart from a constant.
+ * This file stays the names, the labels, the floors' key and the remembered
+ * default; a view is added by naming it here and then answering for it
+ * everywhere a `Record` over [`ViewName`] refuses to compile without it.
  */
 
 import type { Model } from "../snapshot/snapshot";
 
-export type ViewName = "route" | "bench" | "deep-field";
+export type ViewName = "route" | "bench" | "plate" | "deep-field";
 
 /**
  * What every view is given, and the whole of it.
@@ -64,7 +64,7 @@ export interface ViewProps {
  *
  * [`standDown`]: ../panes/dial.ts
  */
-export const VIEWS: readonly ViewName[] = ["route", "bench", "deep-field"];
+export const VIEWS: readonly ViewName[] = ["route", "bench", "plate", "deep-field"];
 
 /**
  * What each view is called on screen, and the only place it is spelled.
@@ -78,6 +78,7 @@ export const VIEWS: readonly ViewName[] = ["route", "bench", "deep-field"];
 export const LABELS: Record<ViewName, string> = {
   route: "The Route",
   bench: "The Bench",
+  plate: "The Plate",
   /* The component's own `aria-label`, spelled the same, so the cap on the
      switcher and the region a reader lands in are one name. */
   "deep-field": "Deep Field",

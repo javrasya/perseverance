@@ -1,6 +1,7 @@
 import { RACK_RESERVE } from "../rack/rack";
 import { BENCH_WIDTH_FLOOR, RANK_RAIL } from "../views/bench/bench";
 import { widthNeededFor } from "../views/deep-field/deepField";
+import { PLATE_FLOOR } from "../views/plate/plate";
 import type { ViewName } from "../views/views";
 
 /**
@@ -348,6 +349,10 @@ export const BENCH_MAP_FLOOR =
 export const VIEW_FLOORS: Record<ViewName, number> = {
   route: 420,
   bench: BENCH_MAP_FLOOR,
+  /* The Plate's own hard floor, read from the geometry that decided it rather
+     than restated here: a diagram drawn in three inches is a diagram nobody can
+     read a label on, so under it the view stands down instead of shrinking. */
+  plate: PLATE_FLOOR,
   /*
    * Two rank columns' worth: the narrowest picture in which one ticket is drawn
    * releasing another, which is the whole of what this view is for. Asked of
