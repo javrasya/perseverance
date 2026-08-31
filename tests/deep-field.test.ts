@@ -280,7 +280,7 @@ describe("the plate/field split is a reserved region, not a habit", () => {
     for (const field of everyField()) {
       const { split, plates } = drawn(field);
       for (const plate of plates) {
-        expect(plate.box.x + plate.box.width).toBeLessThanOrEqual(split.boundary);
+        expect(plate.span.x + plate.span.width).toBeLessThanOrEqual(split.boundary);
       }
     }
   });

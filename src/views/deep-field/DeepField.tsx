@@ -45,9 +45,13 @@ import styles from "./DeepField.module.css";
  * after. Neither x is invented here; `deepField.ts` decided both.
  *
  * Nothing is derived in this file. One call to `deepFieldOf` answers with every
- * rank, coordinate, curve, tally and word that reaches the screen, and the same
- * map at the same width answers the same way every time — which is what makes
- * *no stored node positions* checkable rather than promised. There is no store
+ * rank, curve, tally and word that reaches the screen, and with every
+ * coordinate the field is drawn at, and the same map at the same width answers
+ * the same way every time — which is what makes *no stored node positions*
+ * checkable rather than promised. The plate lane is the one thing the layout
+ * does not place: it hands over the lane's width, and how tall a plate is and
+ * how far the next one sits below it are the stylesheet's, because a plate is
+ * as tall as the words in it. There is no store
  * here, no `localStorage`, and nothing remembered between two renders.
  *
  * The one thing this file finds out for itself is how wide it is, because
