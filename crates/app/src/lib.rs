@@ -2020,12 +2020,7 @@ fn remembered_dial(layout_json: &str) -> Option<f64> {
 /// for the WebView to do with a refusal except forget a position it is already
 /// showing.
 #[tauri::command(async)]
-fn remember_map_position(
-    registry: State<'_, Registry>,
-    folder_id: i64,
-    map: u64,
-    position: f64,
-) {
+fn remember_map_position(registry: State<'_, Registry>, folder_id: i64, map: u64, position: f64) {
     if !position.is_finite() || !(0.0..=1.0).contains(&position) {
         return;
     }
@@ -7488,7 +7483,12 @@ mod tests {
             .remember_map_layout(folder.id, 12, "{\"dial\":0.3}")
             .expect("writes");
         assert_eq!(
-            remembered_dial(&store.map_layout(folder.id, 12).expect("reads").expect("a row")),
+            remembered_dial(
+                &store
+                    .map_layout(folder.id, 12)
+                    .expect("reads")
+                    .expect("a row")
+            ),
             Some(0.3)
         );
 

@@ -1,17 +1,18 @@
-# 22. The peek borrows the dial and springs back
+# 23. The peek borrows the dial and springs back
 
 Status: accepted (2026-08-31)
 Context: [#52 The dial and the peek](https://github.com/javrasya/perseverance/issues/52),
 under the spec [#28](https://github.com/javrasya/perseverance/issues/28). It
 rests on
-[ADR 0021](0021-the-dial-is-four-detents-and-nothing-switches-by-itself.md),
+[ADR 0022](0022-the-dial-is-four-detents-and-nothing-switches-by-itself.md),
 which built the dial this glance borrows and left it exactly two things to
 inherit: a position the store already holds, and one component that owns the
 gesture.
 
-`0022` and not the file count: `docs/adr/` holds two ADRs numbered `0010` and
-`0005` was never written, so the number of files in the directory is no guide.
-`0021` is the highest number in use.
+`0023` and not `0022`: `0022` is the dial above.
+The number is one above the highest already on disk, which is not the file
+count: `0005` was never written, and `docs/adr/` holds two ADRs numbered
+`0010` and two numbered `0020`.
 
 ## Context
 

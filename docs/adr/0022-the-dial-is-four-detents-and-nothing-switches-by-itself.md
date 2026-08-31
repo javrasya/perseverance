@@ -1,4 +1,4 @@
-# 21. The dial is four detents, and nothing switches by itself
+# 22. The dial is four detents, and nothing switches by itself
 
 Status: accepted (2026-08-31)
 Context: [#52 The dial: four detents, the stand-down and the switcher](https://github.com/javrasya/perseverance/issues/52),
@@ -9,9 +9,11 @@ view is and what it may be handed, and on
 for the ledger's address, which this ticket makes a spine rather than a header
 slot.
 
-`0021` and not `0020`: `0020` is taken, `0005` was never written and the
-directory holds two ADRs numbered `0010`, so the highest number in use is
-`0020` and the count of files is no guide.
+`0022` and not `0021`: `0021` is taken by
+[ADR 0021](0021-the-rail-is-four-sockets-and-a-press-carries-its-own-adapter.md).
+The number is one above the highest already on disk, which is not the file
+count: `0005` was never written, and `docs/adr/` holds two ADRs numbered
+`0010` and two numbered `0020`.
 
 ## Context
 
@@ -135,11 +137,11 @@ nothing else. It has since moved: it is the registry's `map_view` table, one row
 per folder-and-map, written once per completed gesture rather than once per
 frame — and the seam held, in that the two functions grew an `await` and nothing
 outside them learned there is a table.
-[ADR 0023](0023-the-remembered-dial-is-one-row-per-map-and-one-write-per-gesture.md)
+[ADR 0024](0024-the-remembered-dial-is-one-row-per-map-and-one-write-per-gesture.md)
 is that move, and why the column is an envelope.
 
 The spring-loaded peek is not here. It was the next slice, and what this one left
 it — a position the store already holds and one component that owns the gesture —
 is exactly what it took:
-[ADR 0022](0022-the-peek-borrows-the-dial-and-springs-back.md) is the glance that
+[ADR 0023](0023-the-peek-borrows-the-dial-and-springs-back.md) is the glance that
 borrows this dial without moving it.

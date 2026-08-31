@@ -1,17 +1,18 @@
-# 23. The remembered dial is one row per map and one write per gesture
+# 24. The remembered dial is one row per map and one write per gesture
 
 Status: accepted (2026-08-31)
 Context: [#52 The dial and the peek](https://github.com/javrasya/perseverance/issues/52),
 under the spec [#28](https://github.com/javrasya/perseverance/issues/28). It
 closes what
-[ADR 0021](0021-the-dial-is-four-detents-and-nothing-switches-by-itself.md) left
+[ADR 0022](0022-the-dial-is-four-detents-and-nothing-switches-by-itself.md) left
 open: the dial's per-map memory was `localStorage` behind a two-function seam,
 and that seam existed so this slice could move it without touching anything
 else.
 
-`0023` and not the file count: `docs/adr/` holds two ADRs numbered `0010` and
-`0005` was never written, so the number of files in the directory is no guide.
-`0022` is the highest number in use.
+`0024` and not `0023`: `0023` is the peek above.
+The number is one above the highest already on disk, which is not the file
+count: `0005` was never written, and `docs/adr/` holds two ADRs numbered
+`0010` and two numbered `0020`.
 
 ## Context
 

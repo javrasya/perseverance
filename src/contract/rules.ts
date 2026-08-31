@@ -220,9 +220,11 @@ export const RULES: readonly Rule[] = [
     subject: "codebase",
     tier: "structural",
     renderBound: false,
-    mechanismPath: "crates/store/src/schema.rs",
+    mechanismPath: "crates/app/src/lib.rs",
+    restatement:
+      "The narrowing is the write seam, not the schema: `map_view.layout_json` is an opaque `TEXT` envelope and would take a node position without a migration, so what makes one unwritable is that nothing in this app can name one on the way in.",
     check:
-      "The store's migration list has `map_view` now (#52), and its three columns are `folder_id`, `map_number` and `layout_json` — where the *dial* was, which is a fact about a window rather than about a node. Nothing in the shipped migrations names a node, so a node position still has nowhere to be written rather than a rule against writing it. Deep Field's exception arrives as its own key in that envelope when Deep Field does; until then the exception has no subject.",
+      "`map_view` ships (#52) with exactly three columns — `folder_id`, `map_number` and `layout_json` — and none of them is a position; that is where the *dial* lives, which is a fact about a window rather than about a node. The envelope is opaque, so the guarantee rests one level up: `remember_map_position` in `crates/app/src/lib.rs` is the only writer of that column and its whole payload is `(folder_id, map, position: f64)`, and the struct it serialises, `MapLayout`, names `dial` and a flattened `rest` that only ever carries back what a newer build wrote. A node position has no field to arrive through, the way rule 7's record has no prop. `tests/contract-registry.test.ts` holds the command's parameter list, the envelope's field names and the table's columns to exactly that. Deep Field's exception arrives as a field on `MapLayout` when Deep Field does — and on that day this entry becomes asserted, because the narrowing turns into a claim about who may use the field there is.",
   },
   {
     id: 9,

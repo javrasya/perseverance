@@ -186,17 +186,15 @@ describe("the structural mechanisms are still where the registry points", () => 
   });
 
   it("stores no node position anywhere (rule 8)", () => {
-    const schema = readFileSync(join(REPO_ROOT, ruleById(8).mechanismPath!), "utf8");
+    const schema = readFileSync(join(REPO_ROOT, "crates/store/src/schema.rs"), "utf8");
     // Down to the test module and no further, the way `crates/app` reads this
     // same file: that crate's own tests write tables nobody ships.
     const shipped = schema.split("#[cfg(test)]")[0] ?? "";
 
     /*
      * `map_view` exists now — #52 gave the dial a durable home — so the check
-     * is the table's columns rather than its absence, which is the exception
-     * this assertion was always going to have to learn. What it holds is where
-     * the *dial* was: one seam per map, a fact about a window. A node position
-     * is a fact about a node, and there is still no column for one.
+     * is the table's columns rather than its absence. What it holds is where
+     * the *dial* was: one seam per map, a fact about a window.
      */
     expect(shipped).toMatch(/CREATE TABLE map_view/);
     const body = (shipped.split("CREATE TABLE map_view (")[1] ?? "").split("PRIMARY KEY")[0] ?? "";
@@ -206,10 +204,25 @@ describe("the structural mechanisms are still where the registry points", () => 
       .filter((name) => name !== "");
     expect(columns).toEqual(["folder_id", "map_number", "layout_json"]);
 
-    // `layout_json` is an envelope, and this is what stops it swallowing the
-    // exception silently: when Deep Field's plate lands it arrives under its
-    // own key, which is the moment rule 8's entry needs re-reading.
-    expect(shipped).not.toMatch(/\bnode_/i);
+    /*
+     * And the column itself proves nothing: `layout_json` is `TEXT`, and
+     * `{"nodes":…}` is a string SQLite would take without a migration. So the
+     * narrowing that actually holds rule 8 is one level up — the only writer of
+     * that column, whose whole payload is one number, and the envelope struct
+     * whose only named field is the dial. Deep Field's plate arrives as a field
+     * here, and that is the moment rule 8's entry stops being structural.
+     */
+    const seam = readFileSync(join(REPO_ROOT, ruleById(8).mechanismPath!), "utf8");
+    const writer = /fn remember_map_position\(([^)]*)\)/.exec(seam);
+    if (writer === null) throw new Error("crates/app/src/lib.rs writes no map position");
+    expect(writer[1]!.replace(/\s+/g, " ").trim()).toBe(
+      "registry: State<'_, Registry>, folder_id: i64, map: u64, position: f64",
+    );
+
+    const envelope = /struct MapLayout \{([\s\S]*?)\n\}/.exec(seam);
+    if (envelope === null) throw new Error("crates/app/src/lib.rs declares no MapLayout");
+    const fields = [...envelope[1]!.matchAll(/^\s{4}(\w+):/gm)].map((match) => match[1]);
+    expect(fields).toEqual(["dial", "rest"]);
   });
 
   it("receives the model generated rather than deriving it here (rule 1)", () => {
