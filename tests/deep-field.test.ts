@@ -575,8 +575,12 @@ describe("the same map in, the same picture out, and nothing kept", () => {
   it("keeps three integers and nothing a renderer could make a bar of", () => {
     const map = FIXTURES["awkward-map"].model.map;
     const field = deepFieldOf(map, AMPLE);
+    const down = standing(deepFieldOf(map, 10));
 
-    expect(Object.keys(drawn(field).counts).sort()).toEqual(["open", "specs", "tickets"]);
-    expect(map?.counts).toEqual(drawn(field).counts);
+    expect(Object.keys(down.counts).sort()).toEqual(["open", "specs", "tickets"]);
+    expect(map?.counts).toEqual(down.counts);
+    // And the drawn value carries no second copy of them to disagree with.
+    expect(drawn(field)).not.toHaveProperty("counts");
+    expect(drawn(field)).not.toHaveProperty("frontier");
   });
 });

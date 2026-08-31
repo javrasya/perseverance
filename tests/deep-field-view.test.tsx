@@ -418,14 +418,44 @@ describe("absence is never zero, and the region names itself", () => {
   });
 
   it("counts three numerals for progress and draws nothing continuous", async () => {
+    /*
+     * The readout lives in the stand-down and nowhere else, so this is where
+     * the *nothing a renderer could make a bar of* claim is read.
+     */
+    widthIs(320);
     const host = await paint(
-      modelOf([node(1)], { counts: { tickets: 9, open: 4, specs: 1 } }),
+      modelOf([node(1), node(2, { waitsOn: [1] })], {
+        counts: { tickets: 9, open: 4, specs: 1 },
+      }),
     );
     const progress = view(host).querySelector<HTMLElement>("[data-progress]");
 
     expect(progress?.querySelectorAll("[data-count-of]")).toHaveLength(3);
     // No hairline, no track, no bar: three entries and nothing between them.
     expect(progress?.children).toHaveLength(3);
+  });
+
+  it("says the three counts and the frontier once, beside no picture", async () => {
+    /*
+     * `MapChip` states the rule: the phase, the three counts and the frontier
+     * are the footer's line, and a second reading of them beside the picture
+     * could only differ from the footer if one of the two were wrong. The
+     * drawn view therefore repeats none of them — the stand-down does, and
+     * only because the picture they belong to is gone.
+     */
+    widthIs(AMPLE);
+    const host = await paint(
+      modelOf([node(1), node(2, { waitsOn: [1] })], {
+        counts: { tickets: 9, open: 4, specs: 1 },
+        frontier: { frontier: "designated", number: 1 },
+      }),
+    );
+    const drawn = view(host);
+
+    expect(drawn.querySelector("[data-stand-down]")).toBeNull();
+    expect(drawn.querySelector("[data-progress]")).toBeNull();
+    expect(drawn.querySelectorAll("[data-count-of]")).toHaveLength(0);
+    expect(drawn.querySelector("[data-frontier-reading]")).toBeNull();
   });
 });
 

@@ -167,8 +167,15 @@ export function DeepField({ model, selected, onSelect }: ViewProps) {
       {field.kind === "field" ? (
         <>
           <header className={styles.readout}>
-            <Progress counts={field.counts} />
-            <FrontierReading frontier={field.frontier} />
+            {/*
+              One line, and it is this view's own. The phase, the three counts
+              and the frontier are the footer's — `App`'s `describeModel` line
+              carries them at every dial position — and `MapChip` states the
+              rule this header keeps: a second reading of the same numbers
+              beside the picture could only differ from the footer if one of
+              them were wrong. Nothing here restates a number the shell already
+              says.
+            */}
             {/*
               Where this map's n sits against the band, and it is data rather
               than a verdict: the picture below is drawn either way. A view that
@@ -280,6 +287,12 @@ function StandDownNotice({ standDown }: { standDown: StandDown }) {
         <span data-needs>{`${NEEDS_LABEL} ${standDown.needs}px`}</span>
         <span data-has>{`${HAS_LABEL} ${standDown.has}px`}</span>
       </p>
+      {/* The one place this view repeats the footer's numbers, and the reason
+          is that the picture they belong to is not on screen: with the graph
+          gone the notice is the whole of the view, and a column opened to
+          answer *how far have I come* would otherwise answer nothing. ADR 0025
+          records why the stand-down departs from `MapChip`'s rule where the
+          drawn field keeps it. */}
       <Progress counts={standDown.counts} />
       <FrontierReading frontier={standDown.frontier} />
       <FogRegion fog={standDown.fog} />
