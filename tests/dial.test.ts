@@ -205,6 +205,28 @@ describe("a view below its floor stands down, and nothing switches by itself", (
     expect(surfaces(4000, WINDOW)).toBeNull();
   });
 
+  it("stands the view down in the band the dial's own column takes", () => {
+    // A body only just wider than the Route's floor, and the dial's column eats
+    // the difference: at the `map` detent the map side is 418px, not 430. The
+    // reach-blind answer here is `null` — the view drawn below its floor with
+    // nothing on screen saying so — which is the one thing that never happens.
+    const body = VIEW_FLOORS.route + 10;
+    const reach = 12;
+    expect(sides(fractionOf("map"), body, reach).map).toBeLessThan(VIEW_FLOORS.route);
+
+    const standing = standDown("route", fractionOf("map"), body, VIEWS, VIEW_FLOORS, reach);
+    expect(standing).not.toBeNull();
+    // `has` is the pixels the map side actually gets, dial column excluded.
+    expect(standing?.has).toBe(body - reach);
+    // No detent honours the floor, so the widen exit is offered and says so
+    // rather than sending the operator to a `map` detent that cannot help.
+    expect(surfaces(VIEW_FLOORS.route, body, reach)).toBeNull();
+    expect(standing?.exits[0]).toEqual({ kind: "widen", detent: "map", honoured: false });
+
+    // And it is the reach that does it: the same body with no dial column fits.
+    expect(standDown("route", fractionOf("map"), body, VIEWS)).toBeNull();
+  });
+
   it("answers which views fit, from floors alone", () => {
     const floors = { route: 900, plate: 100 };
     expect(fittingViews(512, ["route", PLATE], floors)).toEqual([PLATE]);

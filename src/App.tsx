@@ -58,6 +58,7 @@ import { Dial } from "./panes/Dial.jsx";
 import { PeekStud } from "./panes/PeekStud.jsx";
 import { StandDown } from "./panes/StandDown.jsx";
 import {
+  VIEW_FLOORS,
   clamp,
   columnsAt,
   floorOf,
@@ -645,7 +646,7 @@ export function App() {
     (wanted: ViewName) => {
       const floor = floorOf(wanted);
       if (!honours(floor, sides(position, bodyWidth, dialReach).map)) {
-        const detent: Detent = surfaces(floor, bodyWidth) ?? "map";
+        const detent: Detent = surfaces(floor, bodyWidth, dialReach) ?? "map";
         moveTo(fractionOf(detent));
       }
       chooseView(wanted);
@@ -677,7 +678,14 @@ export function App() {
    * where the view is being drawn: at map width no view stands down, which is
    * the whole reason a peek shows the real view instead of a plate.
    */
-  const standing = standDown(view, peeked ? fractionOf("map") : position, bodyWidth, VIEWS);
+  const standing = standDown(
+    view,
+    peeked ? fractionOf("map") : position,
+    bodyWidth,
+    VIEWS,
+    VIEW_FLOORS,
+    dialReach,
+  );
   /*
    * Whether the map side draws anything where a view would go — and it is two
    * questions, because the stand-down is not part of the view column.

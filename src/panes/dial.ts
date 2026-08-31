@@ -137,10 +137,13 @@ export function nextDetent(position: number, direction: 1 | -1): Detent {
  * the callers because this is the one function that answers *what each side is
  * worth*: a caller that forgot the correction would print a terminal side a
  * dozen pixels wider than the pixels the terminal has, and the whole point of
- * measuring the body was to stop the shell printing arithmetic. It defaults to
- * `0` for the callers that only ever read `.map` — [`surfaces`], [`standDown`]
- * — where the dial's column is on the other side of the number entirely, and a
- * reach of `0` leaves every answer here exactly what it was.
+ * measuring the body was to stop the shell printing arithmetic. The map side is
+ * no safer than the terminal side here: the cap below takes the seam out of the
+ * map end, so at the `map` detent a reach-blind `.map` is `reach` pixels wider
+ * than the pixels a view is drawn into — which is why [`surfaces`] and
+ * [`standDown`] thread the measured reach through rather than reading `.map`
+ * and hoping. The `0` default is for tests and for callers with no dial on
+ * screen to measure; it leaves every answer here exactly what it was.
  *
  * Map + reach + terminal is the body, exactly — at every position, the `map`
  * detent included. That is what the cap below is for: the seam has to come out
@@ -254,10 +257,15 @@ export function honours(floor: number, mapWidth: number): boolean {
 /**
  * The narrowest detent that gives a floor the pixels it asked for, or `null`
  * when this window is too small for it at any position.
+ *
+ * `reach` is the dial's own column, and it has to be the measured one: a floor
+ * inside the last `reach` pixels of the body is honoured by no detent at all,
+ * and answering `map` for it would send the operator to a position where the
+ * view still does not fit.
  */
-export function surfaces(floor: number, width: number): Detent | null {
+export function surfaces(floor: number, width: number, reach = 0): Detent | null {
   for (const detent of DETENTS) {
-    if (honours(floor, sides(fractionOf(detent), width).map)) return detent;
+    if (honours(floor, sides(fractionOf(detent), width, reach).map)) return detent;
   }
   return null;
 }
@@ -300,6 +308,14 @@ export interface StandDown {
  * Returns `null` when the view fits, which is the only answer that means
  * *carry on*. Nothing in here moves the dial or changes the view: the caller
  * renders the two exits as controls and the operator presses one.
+ *
+ * `reach` is the dial's own measured column, and it is what keeps `has` a
+ * measurement rather than arithmetic: the map side the view is drawn into is
+ * the body less that column at the `map` end, so a reach-blind answer would
+ * print a `has` too big by `reach` and, in the band the cap bites in, return
+ * `null` for a view that is being drawn below its floor with nothing on screen
+ * to say so. The same number goes into the widen exit, so `honoured` tells the
+ * truth about the detent it names.
  */
 export function standDown(
   view: ViewName,
@@ -307,12 +323,13 @@ export function standDown(
   width: number,
   views: readonly ViewName[],
   floors: Record<string, number> = VIEW_FLOORS,
+  reach = 0,
 ): StandDown | null {
-  const has = sides(position, width).map;
+  const has = sides(position, width, reach).map;
   const needs = floorOf(view, floors);
   if (honours(needs, has)) return null;
 
-  const wider = surfaces(needs, width);
+  const wider = surfaces(needs, width, reach);
   const alternatives = fittingViews(has, views, floors).filter((other) => other !== view);
 
   const widen: Exit =
