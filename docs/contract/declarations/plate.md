@@ -53,6 +53,18 @@ hands over `Fog` as a sum type and the unsurveyed arm has no number in it to
 print. The hatched ground is a fixed height that does not vary with the count,
 so it is a texture and not a gauge.
 
+The same refusal covers the two absences this drawing can make on its own. A
+child that waits on an issue no station here stands for is counted in the margin
+and named there, rather than drawn as a station with nothing attached to it. And
+where somebody's authored pin has walled a station in, the router answers with
+no track rather than running one through a reserved label box — so the legend
+carries a line saying how many links are on the map and not in the picture. An
+edge dropped in silence would be the failure this rule exists to refuse in its
+purest form: the drawing would read as a map with one fewer dependency in it,
+and nothing on screen would be wrong enough to notice. Both lines appear only
+where the count is above nought, so neither is a zero standing in for an absence
+of the thing it counts.
+
 The asserted floor under this rule is the fixture-level absence check, and what
 it settles is that no `0` appears where the fog is drawn on the unsurveyed
 fixtures and that the em dash is a form-level difference. The residue is *names
@@ -121,8 +133,15 @@ through one, and the geometry keeps a two-cell gap between stations so a plate
 always has somewhere to go. The plate is drawn at exactly the reserved box and
 `overflow: hidden` holds it there, so a long title is clipped by the plate
 rather than allowed to grow out into the lanes the track runs through; a cut
-station is given two boxes across, which is a size the solver reserved and not a
-position anything chose. The whole title string stays in the document however
+station is given two boxes across, and the doubling is in the reservation rather
+than in the paint. `labelsFor` widens that station's box to
+`CUT_LABEL_COLUMNS` before an anchor is chosen, so the wide box is what the
+solver placed, what the router has in its blocked set, what `boundsOf` sized the
+drawing around, and what `Plate.tsx` draws the plate at — one number, arrived at
+once, whichever of the eight anchors the station ends up facing. Nothing widens
+a plate after the boxes are reserved, because a width invented at paint time
+would be pixels laid over cells the router still believed were free.
+The whole title string stays in the document however
 short the plate is, so a search, a screen reader and a test all still find it.
 A station somebody dragged is placed by the same construction rather than
 beside it. The pin is an input to the geometry — `plateOf(map, pins)` puts the
@@ -138,7 +157,13 @@ not present itself as authored whole.
 
 The legend is what keeps the field from having to explain itself: a siding is
 the one convention on the drawing an operator cannot read off the picture, so it
-is named in words in the margin, with the count of sidings actually drawn.
+is named in words in the margin, with the count of sidings actually drawn. The
+same margin carries the one thing the picture cannot say about itself — that the
+map is outside the twelve-to-twenty band this view is competent at. Where the
+verdict is `thin`, `crowded` or `hairball` it is the first line of the legend,
+counted in stations, so a map this view is not for is read rather than
+discovered; a map inside the band gets no such line, because a drawing doing
+what it was built for has nothing to warn a reader about.
 
 Deviation: a title too long for its plate is clipped and this view offers no way
 to read the rest of it in place — no tooltip, by rule 10, and no expansion. The

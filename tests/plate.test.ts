@@ -4,6 +4,8 @@ import type { Map, Node } from "../src/snapshot/model.generated";
 import {
   CELL_PIXELS,
   COMPETENCE_BAND,
+  CUT_LABEL_COLUMNS,
+  LABEL_COLUMNS,
   MIN_STATION_GAP,
   PLATE_FLOOR,
   boxHolds,
@@ -417,8 +419,9 @@ describe("the floor, as numbers", () => {
  *
  * `COMPETENCE_BAND` is a claim this view makes about itself on screen, and
  * until a map in the fixture set reached twelve stations it was a claim nothing
- * rendered ever tested: every fixture drew *thin*, so the verdict the legend
- * spells for a competent plate was a word no drawing had been asked for. What
+ * rendered ever tested: every fixture drew *thin*, so *competent* — the one
+ * verdict the legend says nothing about, because there is nothing to warn a
+ * reader of — was a word no drawing had been asked for. What
  * is asserted here is that the set now holds such a map and that it has the
  * structures the band is a claim about — ranks with corners in them, a fan and
  * a siding — because a fifteen-station map with no topology would satisfy the
@@ -452,5 +455,174 @@ describe("the band the plate claims is a map somebody can open", () => {
     /* Corners, and not one straight run: a route with more than two points has
        bent at least once on the way. */
     expect([name, band.track.some((one) => one.points.length > 2)]).toEqual([name, true]);
+  });
+});
+
+/**
+ * The cut station's double plate, reserved rather than painted.
+ *
+ * A cut carries the words the branch stopped in, and this view puts them on the
+ * drawing as text — which needs twice the room a name needs. The room is the
+ * thing asserted here: a width the renderer doubled on its own would be pixels
+ * over cells the router still believed were free, and the extent would still be
+ * sized for half of it, so the second half of the plate would sit across live
+ * track or off the edge of the drawing depending on which anchor won.
+ */
+describe("a cut station's plate is reserved twice across, not widened at paint time", () => {
+  const REASON = "Out of scope: the vendor owns this half of the pipeline.";
+
+  it("reserves the double box, keeps track out of all of it, and sizes the drawing round it", () => {
+    const map = mapOf([
+      node(1),
+      node(2, { waitsOn: [1], cut: { cut: "fromScope", reason: REASON } }),
+      node(3, { waitsOn: [1] }),
+      node(4, { waitsOn: [3] }),
+    ]);
+    const plate = plateOf(map);
+    const cut = plate.stations.find((station) => station.node.cut.cut === "fromScope");
+    expect(cut).toBeDefined();
+    if (cut === undefined) return;
+
+    expect(cut.label.box.columns).toBe(CUT_LABEL_COLUMNS);
+    expect(CUT_LABEL_COLUMNS).toBe(LABEL_COLUMNS * 2);
+    for (const station of plate.stations) {
+      if (station.number === cut.number) continue;
+      expect([station.number, station.label.box.columns]).toEqual([station.number, LABEL_COLUMNS]);
+    }
+
+    /* The whole of the double box is in the router's field as blocked, which is
+       only checkable from out here as the thing it buys: no length of track
+       anywhere on the plate crosses any cell of it. */
+    for (const cell of cellsOf(plate)) {
+      expect([cell, boxHolds(cut.label.box, cell)]).toEqual([cell, false]);
+    }
+
+    // And the extent is sized for the box the plate is drawn at, so no part of
+    // the reason can fall outside the viewBox and be clipped away.
+    const { origin, columns, rows } = plate.extent;
+    expect(cut.label.box.column).toBeGreaterThanOrEqual(origin.column);
+    expect(cut.label.box.column + cut.label.box.columns).toBeLessThanOrEqual(
+      origin.column + columns,
+    );
+    expect(cut.label.box.row).toBeGreaterThanOrEqual(origin.row);
+    expect(cut.label.box.row + cut.label.box.rows).toBeLessThanOrEqual(origin.row + rows);
+  });
+
+  /* Every anchor, not only the one a fixture happens to pick. The doubling used
+     to live in the renderer, where a `west` anchor drew the second half back
+     across the station's own glyph and the corridor its track leaves by; with
+     the width in the reservation the box is the box whichever way it faces. */
+  it("holds for whichever anchor the solver gives it", () => {
+    const anchors = new Set<string>();
+    for (let extra = 0; extra < 8; extra += 1) {
+      const map = mapOf([
+        node(1),
+        node(2, { waitsOn: [1], cut: { cut: "fromScope", reason: REASON } }),
+        ...Array.from({ length: extra }, (_, at) => node(at + 3, { waitsOn: [1] })),
+      ]);
+      const plate = plateOf(map);
+      const cut = plate.stations.find((station) => station.node.cut.cut === "fromScope");
+      if (cut === undefined) continue;
+      anchors.add(cut.label.anchor);
+      expect([cut.label.anchor, cut.label.box.columns]).toEqual([
+        cut.label.anchor,
+        CUT_LABEL_COLUMNS,
+      ]);
+      for (const cell of cellsOf(plate)) {
+        expect([cut.label.anchor, boxHolds(cut.label.box, cell)]).toEqual([
+          cut.label.anchor,
+          false,
+        ]);
+      }
+    }
+    expect(anchors.size).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * A station walled in by somebody's hand, and the drawing saying so.
+ *
+ * The router answers `null` rather than running track through a reserved label
+ * box, and the only way to reach that answer is an authored pin — the free lane
+ * round the outside is a detour from everywhere else. What is asserted is that
+ * the answer does not stop there: an edge that is on the map and not in the
+ * picture is counted in `unrouted` *and* named in the legend, because a diagram
+ * quietly missing a dependency reads as a map that does not have one.
+ */
+describe("an edge the router could not draw is said out loud", () => {
+  /** A ring of pinned stations round node 2, at a radius its arrival corridor
+   *  cannot reach through, and node 1 outside it waiting to reach it. */
+  function walledIn(): { map: Map; pins: globalThis.Map<number, Cell> } {
+    const at = { column: 60, row: 60 };
+    const ring: Cell[] = [];
+    for (const along of [-3, 0, 3]) {
+      ring.push({ column: at.column - 4, row: at.row + along });
+      ring.push({ column: at.column + 4, row: at.row + along });
+      ring.push({ column: at.column + along, row: at.row - 4 });
+      ring.push({ column: at.column + along, row: at.row + 4 });
+    }
+    const pins = new globalThis.Map<number, Cell>([[2, at]]);
+    ring.forEach((cell, index) => pins.set(index + 3, cell));
+    return {
+      map: mapOf([
+        node(1),
+        node(2, { waitsOn: [1] }),
+        ...ring.map((_, index) => node(index + 3)),
+      ]),
+      pins,
+    };
+  }
+
+  it("counts the edge and gives the legend a line about it", () => {
+    const { map, pins } = walledIn();
+    const walled = plateOf(map, pins);
+    expect(walled.unrouted).toEqual([{ from: 1, to: 2 }]);
+    expect(walled.track.some((one) => one.from === 1 && one.to === 2)).toBe(false);
+
+    const said = walled.legend.find((entry) => entry.key === "unrouted");
+    expect(said?.count).toBe(1);
+    expect(said?.meaning.length ?? 0).toBeGreaterThan(0);
+
+    // And the same map with nobody's hand on it draws the edge and says nothing.
+    const generated = plateOf(map);
+    expect(generated.unrouted).toEqual([]);
+    expect(generated.legend.some((entry) => entry.key === "unrouted")).toBe(false);
+  });
+});
+
+/**
+ * The verdict, in the margin rather than only in the return value.
+ *
+ * `COMPETENCE_BAND` is this view's own claim about where it is worth reading,
+ * and a view that computes *you are outside what I am for* and keeps it to
+ * itself has left the operator to find that out by squinting. So every verdict
+ * but `competent` is a legend line, and `competent` is none: there is nothing
+ * to warn a reader about a drawing doing what it was built for.
+ */
+describe("the plate says when the map is outside what it is for", () => {
+  it("gives every verdict but competent a legend line, counted in stations", () => {
+    const cases: readonly (readonly [number, string])[] = [
+      [3, "thin"],
+      [COMPETENCE_BAND.to + 4, "crowded"],
+    ];
+    for (const [count, verdict] of cases) {
+      const map = mapOf(
+        Array.from({ length: count }, (_, at) => node(at + 1, at === 0 ? {} : { waitsOn: [at] })),
+      );
+      const plate = plateOf(map);
+      expect([count, plate.competence.verdict]).toEqual([count, verdict]);
+      const said = plate.legend.find((entry) => entry.key === verdict);
+      expect([count, said?.count]).toEqual([count, count]);
+      /* First in the margin: it is the one line that changes how everything
+         under it should be read. */
+      expect([count, plate.legend[0]?.key]).toEqual([count, verdict]);
+    }
+
+    const competent = plateOf(
+      mapOf(Array.from({ length: 14 }, (_, at) => node(at + 1, at === 0 ? {} : { waitsOn: [at] }))),
+    );
+    expect(competent.competence.verdict).toBe("competent");
+    const verdicts = new Set(["thin", "crowded", "hairball"]);
+    expect(competent.legend.filter((entry) => verdicts.has(entry.key))).toEqual([]);
   });
 });

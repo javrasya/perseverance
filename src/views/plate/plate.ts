@@ -137,6 +137,19 @@ export const MIN_STATION_GAP = 2;
 export const LABEL_COLUMNS = 3;
 export const LABEL_ROWS = 2;
 
+/**
+ * A cut station's reserved box, in cells: twice across.
+ *
+ * A cut carries a reason — the words the branch stopped in — and those words
+ * ride on the plate as visible text rather than in a tooltip nobody can read
+ * without a pointer. Twice across is the room they need, and it is reserved
+ * here rather than doubled at paint time: the box the solver reserves is the
+ * box the router treats as blocked, the box `boundsOf` sizes the drawing
+ * around, and the box the plate is drawn at. A width the renderer invented on
+ * its own would be pixels laid over track the router thought was free.
+ */
+export const CUT_LABEL_COLUMNS = LABEL_COLUMNS * 2;
+
 /** Cells of the station's own row kept clear on each side, so track always has
  *  somewhere to leave from and arrive on. Label boxes may not take these. */
 export const CORRIDOR = 3;
@@ -279,7 +292,26 @@ export type Fan = {
   readonly branches: readonly { readonly to: number; readonly leaves: Cell }[];
 };
 
-export type LegendKey = "siding" | "fan" | "provisional" | "beyondTheMap";
+/**
+ * The keys the legend can spell, which is every convention *and* every thing
+ * the drawing knows about itself that the picture cannot show.
+ *
+ * The last four are not conventions of the drawing at all — they are the
+ * drawing's own account of where it falls short: three verdicts for a map
+ * outside the band this view is competent at, and one for an edge the router
+ * could not draw. They ride the legend rather than a channel of their own
+ * because there is one margin, one place a reader looks for *what am I looking
+ * at*, and a second one would be a second thing to remember to read.
+ */
+export type LegendKey =
+  | "siding"
+  | "fan"
+  | "provisional"
+  | "beyondTheMap"
+  | "unrouted"
+  | "thin"
+  | "crowded"
+  | "hairball";
 
 /**
  * The conventions this drawing uses, as data.
@@ -303,6 +335,22 @@ export const LEGEND_MEANINGS: Record<LegendKey, string> = {
   fan: "A fan: finishing the station at the stem frees every branch off it.",
   provisional: "Provisional: the placed stations no longer match the graph.",
   beyondTheMap: "Waits on an issue with no station here, so no track is drawn.",
+  /* An edge that is on the map and not in the picture. Said out loud for the
+     same reason the fog is: a link nobody can see is a dependency the drawing
+     has quietly denied, and a diagram missing one is worse than a diagram
+     admitting it is. */
+  unrouted:
+    "Walled in by a station somebody placed: this many links are on the map and " +
+    "not drawn. Put that station back and the track comes with it.",
+  thin:
+    `Thinner than this view is for: under ${COMPETENCE_BAND.from} stations there is ` +
+    "barely a shape here, and the Route says the same thing in less.",
+  crowded:
+    `More stations than this view is competent at: over ${COMPETENCE_BAND.to} the ` +
+    "diagram is still drawn, and it is harder to read than it looks.",
+  hairball:
+    `Far past what this view can draw: over ${HAIRBALL_ABOVE} stations this is a ` +
+    "hairball rather than a diagram, and no reading of it is a safe one.",
 };
 
 /**
@@ -435,30 +483,39 @@ function unservedSources(nodes: readonly Node[]): ReadonlySet<number> {
 
 /* --------------------------------------------------------------- the labels --- */
 
-function boxFor(anchor: Anchor, at: Cell): Box {
-  const west = at.column - LABEL_COLUMNS;
+/**
+ * The box one anchor reserves, at the width that station's plate needs.
+ *
+ * `columns` is a parameter rather than the constant because a cut station's
+ * plate is twice across. Every consumer downstream — the anchor arithmetic
+ * here, `boxCells` and through it the router's blocked set, and `boundsOf` and
+ * through it the extent — is written off the box rather than off the constant,
+ * so a wide box is wide in all of them and in the pixels too.
+ */
+function boxFor(anchor: Anchor, at: Cell, columns: number = LABEL_COLUMNS): Box {
+  const west = at.column - columns;
   const east = at.column + 1;
-  const centre = at.column - Math.floor(LABEL_COLUMNS / 2);
+  const centre = at.column - Math.floor(columns / 2);
   const above = at.row - LABEL_ROWS;
   const below = at.row + 1;
 
   switch (anchor) {
     case "north":
-      return { column: centre, row: above, columns: LABEL_COLUMNS, rows: LABEL_ROWS };
+      return { column: centre, row: above, columns, rows: LABEL_ROWS };
     case "south":
-      return { column: centre, row: below, columns: LABEL_COLUMNS, rows: LABEL_ROWS };
+      return { column: centre, row: below, columns, rows: LABEL_ROWS };
     case "northEast":
-      return { column: east, row: above, columns: LABEL_COLUMNS, rows: LABEL_ROWS };
+      return { column: east, row: above, columns, rows: LABEL_ROWS };
     case "southEast":
-      return { column: east, row: below, columns: LABEL_COLUMNS, rows: LABEL_ROWS };
+      return { column: east, row: below, columns, rows: LABEL_ROWS };
     case "northWest":
-      return { column: west, row: above, columns: LABEL_COLUMNS, rows: LABEL_ROWS };
+      return { column: west, row: above, columns, rows: LABEL_ROWS };
     case "southWest":
-      return { column: west, row: below, columns: LABEL_COLUMNS, rows: LABEL_ROWS };
+      return { column: west, row: below, columns, rows: LABEL_ROWS };
     case "east":
-      return { column: east, row: at.row, columns: LABEL_COLUMNS, rows: LABEL_ROWS };
+      return { column: east, row: at.row, columns, rows: LABEL_ROWS };
     case "west":
-      return { column: west, row: at.row, columns: LABEL_COLUMNS, rows: LABEL_ROWS };
+      return { column: west, row: at.row, columns, rows: LABEL_ROWS };
   }
 }
 
@@ -506,7 +563,15 @@ function corridorsOf(at: Cell, leaves: boolean, arrives: boolean): Cell[] {
  * ugly, a name sitting where track must leave is an edge that cannot be drawn.
  */
 function labelsFor(
-  stations: readonly { number: number; at: Cell; leaves: boolean; arrives: boolean }[],
+  stations: readonly {
+    number: number;
+    at: Cell;
+    leaves: boolean;
+    arrives: boolean;
+    /** Cut from scope, so a reason has to fit beside the name and the box is
+     *  reserved twice across. */
+    cut: boolean;
+  }[],
 ): ReadonlyMap<number, Label> {
   const stationCells = new Set(stations.map((station) => cellKey(station.at)));
   const corridors = new Set<string>();
@@ -521,9 +586,10 @@ function labelsFor(
 
   for (const station of stations) {
     let best: { anchor: Anchor; box: Box; corridorHits: number; hits: number } | null = null;
+    const columns = station.cut ? CUT_LABEL_COLUMNS : LABEL_COLUMNS;
 
     for (const anchor of ANCHORS) {
-      const box = boxFor(anchor, station.at);
+      const box = boxFor(anchor, station.at, columns);
       let corridorHits = 0;
       let hits = 0;
       for (const cell of boxCells(box)) {
@@ -706,6 +772,7 @@ export function plateOf(map: Map | null, pins: ReadonlyMap<number, Cell> = NO_PI
       at: at.get(node.number) ?? { column: 0, row: 0 },
       leaves: leaves.has(node.number),
       arrives: arrives.has(node.number),
+      cut: node.cut.cut === "fromScope",
     })),
   );
 
@@ -719,7 +786,11 @@ export function plateOf(map: Map | null, pins: ReadonlyMap<number, Cell> = NO_PI
     pinned: pins.has(node.number),
     label: labels.get(node.number) ?? {
       anchor: "north",
-      box: boxFor("north", at.get(node.number) ?? { column: 0, row: 0 }),
+      box: boxFor(
+        "north",
+        at.get(node.number) ?? { column: 0, row: 0 },
+        node.cut.cut === "fromScope" ? CUT_LABEL_COLUMNS : LABEL_COLUMNS,
+      ),
       crowded: true,
     },
   }));
@@ -769,7 +840,15 @@ export function plateOf(map: Map | null, pins: ReadonlyMap<number, Cell> = NO_PI
 
   const fans = fansOf(track);
   const flat = track.length === 0;
-  const legend = legendOf(sidings.length, fans.length, provisional !== null, beyondTheMap);
+  const competence = competenceOf(stations.length, flat);
+  const legend = legendOf({
+    sidings: sidings.length,
+    fans: fans.length,
+    provisional: provisional !== null,
+    beyondTheMap,
+    unrouted: unrouted.length,
+    competence,
+  });
 
   return {
     stations,
@@ -781,7 +860,7 @@ export function plateOf(map: Map | null, pins: ReadonlyMap<number, Cell> = NO_PI
     extent,
     requiredWidth: Math.max(PLATE_FLOOR, extent.columns * CELL_PIXELS),
     provisional,
-    competence: competenceOf(stations.length, flat),
+    competence,
     beyondTheMap,
     unrouted,
   };
@@ -863,20 +942,39 @@ function fansOf(track: readonly Track[]): readonly Fan[] {
   return fans;
 }
 
-function legendOf(
-  sidings: number,
-  fans: number,
-  provisional: boolean,
-  beyondTheMap: number,
-): readonly LegendEntry[] {
+/**
+ * The margin's whole text, decided here rather than in the drawing.
+ *
+ * The verdict comes first and only when it is not `competent`: *this map is
+ * outside what this view is for* is the one line that changes how everything
+ * under it should be read, and a view that computes that and keeps it to itself
+ * has left the operator to discover it. `unrouted` is the same duty pointed at
+ * one edge instead of the whole map — the router returns `null` rather than
+ * drawing track through a label, and an edge dropped in silence would leave the
+ * drawing reading as a map with one fewer dependency in it.
+ */
+function legendOf(what: {
+  readonly sidings: number;
+  readonly fans: number;
+  readonly provisional: boolean;
+  readonly beyondTheMap: number;
+  readonly unrouted: number;
+  readonly competence: Competence;
+}): readonly LegendEntry[] {
   const entries: LegendEntry[] = [];
   const add = (key: LegendKey, count: number) => {
     if (count > 0) entries.push({ key, count, meaning: LEGEND_MEANINGS[key] });
   };
-  add("siding", sidings);
-  add("fan", fans);
-  add("provisional", provisional ? 1 : 0);
-  add("beyondTheMap", beyondTheMap);
+  /* Counted in stations, because the count is what the verdict is about: the
+     band is a claim about how many of these a reader can follow at once. */
+  if (what.competence.verdict !== "competent") {
+    add(what.competence.verdict, what.competence.stations);
+  }
+  add("siding", what.sidings);
+  add("fan", what.fans);
+  add("provisional", what.provisional ? 1 : 0);
+  add("beyondTheMap", what.beyondTheMap);
+  add("unrouted", what.unrouted);
   return entries;
 }
 

@@ -19,6 +19,7 @@ import {
   UNCLASSIFIED_TAG,
 } from "../src/views/plate/Plate.jsx";
 import { plateOf } from "../src/views/plate/plate";
+import { clearPins, pinStation } from "../src/views/plate/pins";
 import { collect } from "./support/sources";
 
 /**
@@ -441,5 +442,91 @@ describe("the gesture is in the margin before it is in anybody's hand", () => {
       expect([name, view.querySelectorAll("[title]").length]).toEqual([name, 0]);
       teardown();
     }
+  });
+});
+
+/**
+ * What the drawing knows about itself, said on the drawing.
+ *
+ * Two facts the picture cannot show and the geometry has always held: that the
+ * map is outside the band this view is competent at, and that an edge was one
+ * the router could not draw. Both used to live in the return value alone — a
+ * sixty-station hairball drew itself with no word about being one, and an edge
+ * an authored pin walled out simply vanished, leaving a diagram that read as a
+ * map with one fewer dependency in it. Both are legend lines now, which is the
+ * one place in the margin a reader is already looking.
+ */
+describe("the plate says what it knows about its own drawing", () => {
+  it("spells the verdict where the map is outside the band, and nothing where it is not", async () => {
+    const said = new Set<string>();
+    for (const { name, model } of mapped()) {
+      const geometry = plateOf(model.map);
+      const view = await paint(model);
+      const verdict = geometry.competence.verdict;
+      /* A map with no children draws no plate, and a verdict on a drawing that
+         is not there would be a legend for somebody else's diagram. */
+      const drawn = geometry.stations.length > 0;
+      if (drawn) said.add(verdict);
+
+      if (verdict === "competent" || !drawn) {
+        // Nothing to warn anybody about in a drawing doing what it is for.
+        for (const outside of ["thin", "crowded", "hairball"]) {
+          expect([name, view.querySelector(`[data-legend-key="${outside}"]`)]).toEqual([
+            name,
+            null,
+          ]);
+        }
+      } else {
+        const entry = view.querySelector(`[data-legend-key="${verdict}"]`);
+        expect([name, entry === null]).toEqual([name, false]);
+        // Counted in stations, because the band is a claim about how many.
+        expect([name, entry?.textContent]).toEqual([
+          name,
+          expect.stringContaining(String(geometry.competence.stations)),
+        ]);
+      }
+      teardown();
+    }
+    // The fixture space holds both readings, or this checks only one of them.
+    expect(said.size).toBeGreaterThan(1);
+  });
+
+  /*
+   * Built here for the same reason the fan is: no checked-in snapshot carries a
+   * hand-arranged plate, and walling a station in takes an authored pin by
+   * construction — the free lane round the outside of the drawing is the
+   * router's guarantee that every generated plate routes.
+   */
+  it("names an edge an authored pin walled out of the picture", async () => {
+    const at = { column: 60, row: 60 };
+    const ring: { column: number; row: number }[] = [];
+    for (const along of [-3, 0, 3]) {
+      ring.push({ column: at.column - 4, row: at.row + along });
+      ring.push({ column: at.column + 4, row: at.row + along });
+      ring.push({ column: at.column + along, row: at.row - 4 });
+      ring.push({ column: at.column + along, row: at.row + 4 });
+    }
+    const map = mapOf([
+      node(1),
+      node(2, { waitsOn: [1] }),
+      ...ring.map((_, index) => node(index + 3)),
+    ]);
+
+    act(() => {
+      pinStation(2, at);
+      for (const [index, cell] of ring.entries()) pinStation(index + 3, cell);
+    });
+    const view = await paint({ map });
+    const entry = view.querySelector('[data-legend-key="unrouted"]');
+    expect(entry).not.toBeNull();
+    expect(entry?.textContent).toContain("1");
+    // The edge really is missing from the picture, which is what the line is for.
+    expect(view.querySelectorAll("[data-track]")).toHaveLength(0);
+
+    // And with the hand taken off it, the track is drawn and nothing is said.
+    act(() => clearPins());
+    const generated = await paint({ map });
+    expect(generated.querySelector('[data-legend-key="unrouted"]')).toBeNull();
+    expect(generated.querySelectorAll("[data-track]")).toHaveLength(1);
   });
 });

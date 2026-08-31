@@ -488,8 +488,9 @@ function FanStem({ fan, plate, receded }: { fan: Fan; plate: Geometry; receded: 
  * refused the offer — a suppressed hook, never a second resolver.
  *
  * The plate is the solver's reserved box turned into pixels, and a cut station
- * gets two of them across: the words the branch stopped in are a text node on
- * the drawing, never a tooltip and never a `title`.
+ * gets two of them across because the solver reserved two: the words the branch
+ * stopped in are a text node on the drawing, never a tooltip and never a
+ * `title`.
  */
 function StationMark({
   station,
@@ -525,10 +526,13 @@ function StationMark({
 
   const x = xOf(plate, station.at.column);
   const y = yOf(plate, station.at.row);
-  /* The label's reserved box, in the station's own coordinates. Double across
-     when a reason has to fit beside the name — a size, never a position. */
+  /* The label's reserved box, in the station's own coordinates, and the plate
+     is exactly it. The doubling a cut station gets is in the reservation — the
+     solver widened the box, the router treats the whole of it as blocked and
+     the extent contains it — so there is no width invented here for the router
+     to be unaware of. */
   const box = station.label.box;
-  const plateWidth = box.columns * CELL_PIXELS * (cut === null ? 1 : 2);
+  const plateWidth = box.columns * CELL_PIXELS;
 
   return (
     <g
