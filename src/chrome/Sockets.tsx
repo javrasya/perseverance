@@ -34,6 +34,18 @@ interface SocketsProps {
    */
   phase: Phase | null;
   map: number | null;
+  /**
+   * The runs this window still shows as going, by id.
+   *
+   * The one thing the rail needs that the model cannot tell it. A compose takes
+   * no assignment and leaves its map on `specReady` for the whole of the run,
+   * so the snapshot reads the same during a compose as before one; what a
+   * second press would collide with is the run itself, and these ids are the
+   * only reading of *still going* this window has. Ids rather than the readouts
+   * they came from, for the reason every other prop here is a named scalar: a
+   * rail holding the readouts is a rail that could go looking for one more.
+   */
+  liveRuns: readonly number[];
   onSelect: (node: number | null) => void;
 }
 
@@ -81,10 +93,18 @@ export function Sockets({
   folder,
   phase,
   map,
+  liveRuns,
   onSelect,
 }: SocketsProps) {
   const [press, setPress] = useState<Press>({ kind: "idle" });
   const [chosen, setChosen] = useState<string | null>(null);
+  /* The compose this window started, kept until the run it names stops being
+     one of the live ones — which is the whole of what this side can know about
+     a compose being under way, and the same join `Terminals::composing` makes
+     in Rust out of the registry and the stakes. The harness is the guard: a
+     press made in the beat between the spawn and the readout that first counts
+     it is still refused there, in the same sentence this recesses with. */
+  const [composed, setComposed] = useState<{ run: number; map: number } | null>(null);
   /* A press outlives the render that made it; an answer landing after this
      rail has gone has nothing left to write to. */
   const live = useRef(true);
@@ -111,7 +131,17 @@ export function Sockets({
     );
   }, [frontier]);
 
-  const rail = railAt({ frontier, selection, environment, folder, phase, map, press });
+  const composing = composed !== null && liveRuns.includes(composed.run) ? composed.map : null;
+  const rail = railAt({
+    frontier,
+    selection,
+    environment,
+    folder,
+    phase,
+    map,
+    composing,
+    press,
+  });
   const adapter = adapterAtPress(rail.adapters, chosen);
 
   /* Which of the two commands this is was decided by the derivation; what is
@@ -128,6 +158,11 @@ export function Sockets({
     if (answer.kind === "spawned") {
       /* The prompt is told to this side exactly once, on this answer. */
       recordPrompt(answer.run, answer.prompt);
+      /* And a compose is remembered by the run it became, so the box that
+         spawned it stops offering to spawn another while it is going. One at a
+         time is the sub-issue's rule and not the rail's: `wayfinder:spec` is a
+         node, and two composes would make it a set. */
+      if (aim.kind === "compose") setComposed({ run: answer.run, map: aim.map });
       /* The pane binds what was just started. Rust set its own monitored run
          inside the command, so this is the declaration and not a second one. */
       monitor(answer.run);

@@ -731,6 +731,10 @@ export function App() {
             folder={selectedPath ?? null}
             phase={snapshot.model.map?.phase ?? null}
             map={snapshot.model.map?.number ?? null}
+            /* Which runs are still going, off the same readouts the pane
+               draws — so the rail and the terminal beside it cannot disagree
+               about whether the compose an operator is watching has ended. */
+            liveRuns={runs.filter((readout) => !readout.over).map((readout) => readout.run)}
             onSelect={select}
           />
         </div>

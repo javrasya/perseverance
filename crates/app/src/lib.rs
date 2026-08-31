@@ -2102,6 +2102,43 @@ impl Terminals {
             .map(|run| what_it_loses(run, stakes.get(&run)))
             .collect()
     }
+
+    /// Whether a compose run for this map is still going.
+    ///
+    /// The one question a second *Compose Spec* press has to ask, and it is
+    /// asked here rather than from the command because *live* is a join of the
+    /// two tables this type owns: the registry says which runs have not ended,
+    /// the stakes say what each of them is for, and a caller reaching into
+    /// either one alone would be entitled to a different answer than
+    /// [`Terminals::losses`] gives about the same run.
+    ///
+    /// **Liveness is the registry's reading and never the stake's.** A stake
+    /// outlives its run on purpose — a run that has exited is still in the
+    /// table so that what it was doing can still be named — so a guard written
+    /// as *a compose is staked to this map* would refuse every press for the
+    /// rest of the launch, and a compose that died before writing anything
+    /// would leave its map with no way to compose a spec at all.
+    ///
+    /// The two locks are taken one after the other and never nested, for
+    /// [`Terminals::losses`]'s reason: the frame thread takes the runs lock
+    /// several times a second, and a press is not entitled to be the thing that
+    /// makes it wait on anything else.
+    pub fn composing(&self, map: u64) -> bool {
+        let live: Vec<RunId> = self
+            .held()
+            .telemetry()
+            .iter()
+            .filter(|readout| !readout.over)
+            .map(|readout| readout.run)
+            .collect();
+
+        let stakes = self.staked_here();
+        live.into_iter().any(|run| {
+            stakes
+                .get(&run)
+                .is_some_and(|staked| staked.kind == RunKind::Compose && staked.ticket == map)
+        })
+    }
 }
 
 impl Default for Terminals {
@@ -3010,6 +3047,17 @@ fn why_the_spec_is_not_composable(map: &Map) -> Option<String> {
     }
 }
 
+/// What a second press is told, in the words the socket recesses with.
+///
+/// A sentence with a name rather than a `format!` at the guard, because both
+/// sides of the seam say it: `startSocket` in `src/chrome/sockets.ts` recesses
+/// the box with this text while the run it names is still going, so the
+/// operator reads the same reason whether the rail worked it out or the harness
+/// did.
+fn a_compose_is_already_open(map: u64) -> String {
+    format!("#{map} already has a compose run open")
+}
+
 /// The map's own URL, derived from a child's, exactly as [`render`] derives it.
 ///
 /// The map's URL never crosses the seam — the graph carries the map's number
@@ -3047,6 +3095,13 @@ fn where_the_map_lives(map: &Map) -> Option<String> {
 /// handle. What it stakes is the map's number, so the quit confirmation names
 /// `#<map>` rather than a run id.
 ///
+/// **The live run is the claim.** Nothing else can be: no assignment is taken,
+/// and the map stays on the rung that offers the compose until the spec lands
+/// at the end of the run — so a second press arrives at a harness that agrees
+/// with it, and two sessions each attach their own `wayfinder:spec` child. That
+/// is the set the sub-issue is not allowed to become, and the run staked to
+/// this map is what refuses the second press.
+///
 /// **One run, in the foreground.** No reduce, no staged outline and no per-area
 /// pass: the child goes down the ordinary PTY path and is monitored like any
 /// work run, and the four harness rules it follows are prose in the template
@@ -3083,6 +3138,14 @@ fn compose_spec(
     };
     if let Some(refusal) = why_the_spec_is_not_composable(&map) {
         return Composed::refused(refusal);
+    }
+    // The rung says nothing about a compose already under way: a run assigns
+    // nobody and the spec is its very last act, so the map reads
+    // `Phase::SpecReady` for the whole of it and every guard above this line
+    // answers a second press exactly as it answered the first. The live run is
+    // the only trace there is, so it is what this reads.
+    if terminals.composing(map.number) {
+        return Composed::refused(a_compose_is_already_open(map.number));
     }
 
     match compose_at(
@@ -7051,6 +7114,42 @@ mod tests {
         // The falling edge, exactly as the readout tick takes it.
         terminals.let_go_of(&[run]);
         assert_eq!(poker.runs_live(), 0);
+    }
+
+    /// The second press, and the only evidence there is for it to be refused on.
+    ///
+    /// A compose takes no claim and its map stays `Phase::SpecReady` until the
+    /// spec lands at the end of the run, so every guard the command has already
+    /// answers a second press exactly as it answered the first — the live run
+    /// is the whole of what is left. And it has to be *live*: a stake outlives
+    /// the run it describes, so reading the table alone would refuse every
+    /// press for the rest of the launch and leave a map whose compose died with
+    /// no way to compose a spec at all.
+    #[test]
+    fn a_live_compose_refuses_a_second_one_and_a_finished_compose_refuses_nothing() {
+        let directory = TempDir::new().expect("temp dir");
+        let terminals = Terminals::new();
+
+        let composing = a_live_run_in(&terminals, directory.path());
+        let working = a_live_run_in(&terminals, directory.path());
+        terminals.staked(composing, a_stake(28, "perseverance", RunKind::Compose));
+        terminals.staked(working, a_stake(75, "perseverance", RunKind::Work));
+
+        assert!(terminals.composing(28));
+        assert_eq!(
+            a_compose_is_already_open(28),
+            "#28 already has a compose run open"
+        );
+        // By map and by kind: a work run that happens to be numbered like a map
+        // is not a compose, and another map's compose is not this map's.
+        assert!(!terminals.composing(75));
+        assert!(!terminals.composing(29));
+
+        // The run ends. Its stake stays — what it was doing is still nameable —
+        // and the offer comes back, because liveness is the registry's reading
+        // rather than the table's.
+        terminals.held().shut_down();
+        assert!(!terminals.composing(28));
     }
 
     /// The mapping is written once. `route.ts` draws the same line for

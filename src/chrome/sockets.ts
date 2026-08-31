@@ -101,6 +101,23 @@ export interface Crossing {
   phase: Phase | null;
   /** `model.map.number` — the map a compose would be composed on. */
   map: number | null;
+  /**
+   * The map a compose run this window started is still writing a spec for, or
+   * `null` when none is.
+   *
+   * The one reading on this crossing that comes from neither the model nor the
+   * folder, and it has to: a compose assigns nobody and its map stays on
+   * `specReady` until the spec lands at the very end of the run, so the
+   * snapshot says the same thing during a compose as it says before one. The
+   * window's own spawn is the only trace of it this side has — `Sockets.tsx`
+   * remembers the run it started and reads whether the readouts still show it
+   * going, which is the same join `Terminals::composing` makes in Rust.
+   *
+   * The rail is the second half of that guard and never the whole of it: the
+   * harness refuses the duplicate press whatever the socket looks like, and
+   * this only keeps a filled button from promising a run it would not get.
+   */
+  composing: number | null;
   press: Press;
 }
 
@@ -156,6 +173,18 @@ export const NO_ADAPTER = "no agent CLI was found in this folder";
  */
 export const STILL_READING = "this folder's environment is still being read";
 export const ALREADY_THERE = "the frontier is already selected";
+
+/**
+ * Why a map that is already being composed offers no second compose, in the
+ * words `a_compose_is_already_open` in `crates/app/src/lib.rs` refuses with.
+ *
+ * Said twice on purpose, once per side: the harness is what enforces it — a
+ * press that gets past a stale rail is still refused there — and this is what
+ * an operator reads instead of a button that would spawn a second session
+ * attaching a second `wayfinder:spec` child to the same map.
+ */
+export const alreadyComposing = (map: number): string =>
+  `#${map} already has a compose run open`;
 
 /**
  * Resume is #49's and Ask is #55's. Their sockets are here because the rail is
@@ -297,17 +326,25 @@ function startSocket(
      that folder resolved — so the same three facts gate it, checked in the same
      order and printed in the same words. What the two presses do not share is
      why there might be nothing to press at all: that reading is the frontier's,
-     and a compose press cannot get here without a map. */
+     and a compose press cannot get here without a map.
+
+     One condition is a compose's alone, and it is read first because it is the
+     more particular answer: a map with a compose already going has a folder
+     open and an adapter resolved — that is how the run being named got
+     started — so any of the three below would be a truer-sounding reason for
+     the wrong thing. */
   const condition =
     start === null
       ? whyNothingToStart(standing(crossing))
-      : crossing.folder === null
-        ? NO_FOLDER_OPEN
-        : stillReading(crossing.environment)
-          ? STILL_READING
-          : offered.length === 0
-            ? NO_ADAPTER
-            : null;
+      : start.kind === "compose" && crossing.composing === start.map
+        ? alreadyComposing(start.map)
+        : crossing.folder === null
+          ? NO_FOLDER_OPEN
+          : stillReading(crossing.environment)
+            ? STILL_READING
+            : offered.length === 0
+              ? NO_ADAPTER
+              : null;
 
   return {
     id: "start",

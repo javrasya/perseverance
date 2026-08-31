@@ -14,6 +14,7 @@ import {
   START_LABEL,
   TO_FRONTIER_LABEL,
   adapterAtPress,
+  alreadyComposing,
   offerable,
   pressable,
   railAt,
@@ -75,6 +76,7 @@ function crossing(over: Partial<Crossing> = {}): Crossing {
     folder: "/work/repo",
     phase: "wayfinding",
     map: 28,
+    composing: null,
     press: { kind: "idle" },
     ...over,
   };
@@ -368,6 +370,32 @@ describe("Compose Spec", () => {
     // cannot, and both are text on the socket rather than an attribute.
     expect(primary({ folder: null }).fill).toBe("recessed");
     expect(primary({ folder: null }).aimedAt).toBe(SPEC_READY_MAP);
+  });
+
+  it("recesses while this map's compose is still going, and only this map's", () => {
+    /*
+     * The rung cannot say this and never will: a compose assigns nobody and its
+     * map reads `specReady` for the whole of the run, so the phase during a
+     * compose is the phase that offered it. What a second press would collide
+     * with is the run, and `wayfinder:spec` is a node rather than a set
+     * precisely so that two of them can never exist — hence the box goes dark
+     * while one is open, in the words the harness refuses with.
+     */
+    const going = primary({ composing: SPEC_READY_MAP });
+
+    expect(going.fill).toBe("recessed");
+    expect(going.condition).toBe(alreadyComposing(SPEC_READY_MAP ?? 0));
+    expect(pressable(going)).toBe(false);
+    // Still aimed at the map it would compose: the box says what it is about
+    // and why it cannot, and neither is an attribute.
+    expect(going.label).toBe(COMPOSE_LABEL);
+    expect(going.aimedAt).toBe(SPEC_READY_MAP);
+
+    // A compose going on some other map is somebody else's run, and a ticket
+    // press is not a compose at all — neither costs this socket its fill.
+    expect(primary({ composing: (SPEC_READY_MAP ?? 0) + 1 }).fill).toBe("filled");
+    expect(socketOf("start", { composing: 28 }).label).toBe(START_LABEL);
+    expect(socketOf("start", { composing: 28 }).fill).toBe("filled");
   });
 
   it("reads checking while a compose press is in flight, and takes no press", () => {
