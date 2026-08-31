@@ -1,0 +1,513 @@
+/*
+ * Tier 3 — component tokens, defined from semantic tokens only.
+ *
+ * Every difference between the seven marks is a `--c-plate-*` reassignment, so
+ * the whole of *what a mark looks like* is the blocks at the bottom of this
+ * file and a retheme reaches all of it. No colour is named here and none is
+ * written into the `.tsx` either: what the component sets inline is geometry —
+ * a left, a top and a width that `bench.ts` computed — and geometry is not
+ * something a retheme has an opinion about.
+ *
+ * **This is not the Route's stylesheet with a canvas bolted on.** The plate is
+ * a card and not a row, the marks are squares and not circles, the wire is a
+ * drawn line where that pane has none at all, and position here is the
+ * topology rather than a list's own order. The contract binds what a view
+ * means, never what it looks like; these two views are meant to look nothing
+ * alike.
+ */
+
+/* --------------------------------------------------------------- frame --- */
+
+/*
+ * The frame, and its own scrollport.
+ *
+ * A canvas is wider and taller than the pane on any real map, and both
+ * directions scroll: nothing is capped, nothing is sliced, and there is no
+ * *N more*. The frame is what `useCanvasWidth` measures, so it is the element
+ * whose width, less the rail, is handed to `benchOf`.
+ *
+ * Paper rather than the app's own ground, for the reason the Route's pane is:
+ * `--s-surface-hover` is one step off a *raised* surface and is the whole of
+ * what marks the plate you picked, so on the ground the pick would be painted
+ * in the colour it is painted on.
+ */
+.bench {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  background: var(--s-surface-raised);
+  overflow: auto;
+  text-align: left;
+}
+
+.bench::-webkit-scrollbar {
+  width: var(--s-space-tight);
+  height: var(--s-space-tight);
+}
+
+.bench::-webkit-scrollbar-thumb {
+  border: var(--s-border-emphasis) solid var(--s-surface-raised);
+  border-radius: var(--s-radius-panel);
+  background: var(--s-line-quiet);
+}
+
+/*
+ * The two things this view says instead of a drawing, and both are sentences.
+ * A stand-down that showed a squashed schematic would be worse than one that
+ * says what it needed: three columns is the floor, and below it the ranks stop
+ * reading as ranks.
+ */
+.standDown,
+.absence {
+  margin: 0;
+  padding: var(--s-space-base);
+  color: var(--s-ink-secondary);
+  font-size: var(--s-text-small);
+}
+
+/* ---------------------------------------------------------------- rail --- */
+
+/*
+ * The stage: the reserved annotation column, then the canvas. Rule 11 in one
+ * line — the rail is a sibling of the drawing and not an overlay on it, so
+ * there is no arrangement of plates that can grow into the labels and no label
+ * that can land on a plate.
+ */
+.stage {
+  display: flex;
+  position: relative;
+  flex: 0 0 auto;
+  align-items: flex-start;
+}
+
+.rail {
+  position: relative;
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0;
+  align-self: stretch;
+  list-style: none;
+}
+
+/*
+ * One label per band, at the band's own top and as tall as the band, so a rank
+ * that wrapped into five rows is labelled beside all five of them. Set as a
+ * label rather than a title — mono, micro, tracked, uppercased — because it
+ * names the drawing rather than being part of it.
+ */
+.rank {
+  position: absolute;
+  right: var(--s-space-tight);
+  left: 0;
+  border-right: var(--s-border-rail) solid var(--s-line-quiet);
+  color: var(--s-ink-faint);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-micro);
+  letter-spacing: var(--s-tracking-label);
+  text-align: right;
+  text-transform: uppercase;
+}
+
+/* -------------------------------------------------------------- canvas --- */
+
+/*
+ * The canvas is exactly the box `benchOf` laid out, in the width it was handed.
+ * Its size is inline because it is the arithmetic's answer and not a choice
+ * made here.
+ */
+.canvas {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+/* Under the plates, and covering the whole canvas: the polylines are already
+   in canvas coordinates, so this layer is not offset by anything. */
+.wires {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+.wire {
+  --c-wire: var(--s-line-strong);
+}
+
+/*
+ * A hairline, square-cornered, and never dashed: a dash reads as a *kind* of
+ * dependency and there is only one kind. The break where two wires cross is cut
+ * into the path itself in the component, so nothing here has to know about it.
+ */
+.wireLine {
+  fill: none;
+  stroke: var(--c-wire);
+  stroke-width: 1;
+}
+
+.wireHead {
+  fill: var(--c-wire);
+}
+
+/* -------------------------------------------------------------- plates --- */
+
+.plates {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/*
+ * One plate, at the coordinate it was given.
+ *
+ * The defaults are the takeable plate, and the six other marks are departures
+ * from it. The border is drawn on every plate and only recoloured by a mark, so
+ * a designation arriving moves nothing on the plates around it.
+ *
+ * `min-height` and not `height`: the box is the arithmetic's, and the one plate
+ * allowed to exceed it is the cut one below.
+ */
+.plate {
+  --c-plate-fill: var(--s-surface-sunken);
+  --c-plate-edge: var(--s-line-quiet);
+  --c-plate-glyph: var(--s-ink-faint);
+  --c-plate-ink: var(--s-ink-primary);
+  --c-plate-quiet: var(--s-ink-secondary);
+  --c-plate-faint: var(--s-ink-faint);
+
+  display: flex;
+  position: absolute;
+  box-sizing: border-box;
+  flex-flow: row wrap;
+  align-content: flex-start;
+  align-items: flex-start;
+  gap: var(--s-space-hair) var(--s-space-tight);
+  padding: var(--s-space-tight);
+  border: var(--s-border-hairline) solid var(--c-plate-edge);
+  border-radius: var(--s-radius-control);
+  background: var(--c-plate-fill);
+  font-size: var(--s-text-small);
+  cursor: pointer;
+  transition:
+    background-color var(--s-motion-fast) var(--s-motion-ease),
+    border-color var(--s-motion-fast) var(--s-motion-ease);
+}
+
+/*
+ * Rule 10, and the whole of it: a pixel of lift and a brighter edge. Nothing is
+ * revealed, because there is nothing held back — a schematic labels its parts,
+ * so everything a plate has to say is already on it. The lift is a transform
+ * rather than a shadow so a hovered plate cannot be told from a selected one by
+ * its ink.
+ */
+.plate:hover {
+  border-color: var(--s-line-strong);
+  transform: translateY(-1px);
+}
+
+/* Inside, because the canvas is its own scrollport and a ring drawn outside the
+   plate is a ring clipped at the edge of the scroll. */
+.plate:focus-visible {
+  outline-offset: -3px;
+}
+
+/*
+ * The doubled plate, and the one box on this canvas allowed to overhang the
+ * height the arithmetic reserved for it.
+ *
+ * Rule 6 forbids every cheaper answer — no ellipsis, no smaller face, no hover,
+ * no `title` — so a forty-word reason that needs a third line takes a third
+ * line. `bench.ts` leaves a whole rank gap of blank canvas below every band,
+ * which is where the overhang goes; it paints above its neighbours so the words
+ * stay legible if a wrapped row is close underneath. The lasting fix belongs in
+ * the arithmetic, as a taller box for a cut plate.
+ */
+.plate[data-cut] {
+  z-index: 1;
+  height: auto;
+}
+
+/*
+ * The mark's shape, and it is drawn in ink rather than in a line colour: a line
+ * token is a hairline drawn *between* things and lands near 1.7:1 on this
+ * paper, where a shape carrying the whole of *this is yours to take* needs 3:1.
+ */
+.stud {
+  display: flex;
+  flex: 0 0 14px;
+  width: 14px;
+  height: 14px;
+  align-items: center;
+  justify-content: center;
+  align-self: flex-start;
+}
+
+.id {
+  flex: 0 0 auto;
+  color: var(--c-plate-quiet);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-small);
+}
+
+/*
+ * Two lines, and the arithmetic is why: the plate is a 200 × 64 box, and two
+ * lines of title beside the stud is what fits in it above the facts. A third
+ * line is clamped by the browser and **never by the view** — the whole string
+ * stays in the document, so it is still found by a page search, still read
+ * aloud and still asserted on. There is no `title` attribute recovering it
+ * either: rule 10 says hover discloses nothing, and a plate is not allowed a
+ * private line.
+ */
+.title {
+  display: -webkit-box;
+  flex: 1 1 40%;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--c-plate-ink);
+  line-height: 1.25;
+  overflow-wrap: break-word;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+/*
+ * The facts, and they are words on the plate rather than a legend somewhere
+ * else. Fan-out first, because it is the question this view exists to answer.
+ */
+.facts {
+  display: flex;
+  flex: 1 1 100%;
+  flex-wrap: wrap;
+  gap: var(--s-space-hair);
+}
+
+.fact {
+  padding: 0 var(--s-space-hair);
+  border: var(--s-border-hairline) solid var(--s-line-quiet);
+  border-radius: var(--s-radius-chip);
+  color: var(--c-plate-faint);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-micro);
+  letter-spacing: var(--s-tracking-label);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/*
+ * The one word on this canvas that is a fault rather than a fact, so it takes
+ * the strongest ink there is — the ink a title is set in, where every other
+ * word on a plate sits at the faint one. Weight, never a hue: a hue passes the
+ * tier check and can still be rethemed into decoration, while *read this one*
+ * in primary ink beside a dashed circle survives the theme and the monochrome
+ * screen alike.
+ */
+.factLoud {
+  border-color: var(--s-ink-primary);
+  color: var(--s-ink-primary);
+}
+
+/*
+ * The cut's own sentence, in the second plate it was given. `normal` and not
+ * `nowrap`: a reason the browser ellipsises is a reason nobody read.
+ */
+.reason {
+  flex: 1 1 100%;
+  min-width: 0;
+  color: var(--c-plate-quiet);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-micro);
+  line-height: 1.3;
+  white-space: normal;
+  overflow-wrap: break-word;
+}
+
+/* --------------------------------------------------------------- marks --- */
+
+/*
+ * Seven shapes, and the square is the one they are all read against — this is a
+ * schematic, and a terminal on a schematic is square. The Route's vocabulary is
+ * circles; that is its identity and this is this view's, and neither is the
+ * contract's business. What the contract does bind is that the seven differ in
+ * *geometry*: a hollow square, a filled chevron, a filled square with a ring, a
+ * hatched square, a faded square, a dashed circle and a hollow diamond are
+ * still seven things when every ink on the screen collapses to one value.
+ */
+
+/* Yours to take: an open terminal. */
+.markTakeable {
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid var(--c-plate-glyph);
+}
+
+/*
+ * The one answer to *what next*, and the only shape here that points: a filled
+ * chevron, drawn in borders so it is a triangle rather than a glyph in a font.
+ */
+.markDesignated {
+  width: 0;
+  height: 0;
+  border-top: 7px solid transparent;
+  border-bottom: 7px solid transparent;
+  border-left: 11px solid var(--c-plate-glyph);
+}
+
+/* Somebody is on it: the terminal is filled, because it is not yours to take. */
+.markClaimed {
+  position: relative;
+  width: 10px;
+  height: 10px;
+  background: var(--c-plate-glyph);
+}
+
+/*
+ * The halo, and it does not move.
+ *
+ * #10 recorded this view's liveness vocabulary as marching ants plus a 1Hz
+ * blink and recorded no still-state for either, which is the gap rule 12
+ * exists because of. This is where it is closed, and it is closed by spending
+ * nothing: the ration in `tests/motion-ration.test.ts` is one animation for the
+ * whole app, it is spent on `claimed`, and The Route already spends it. A
+ * second animation here would be motion bought to say a thing the app is
+ * already saying — and the ring below says it on its own, on a reduced-motion
+ * machine and on a still screenshot alike, which is what a still-state is.
+ *
+ * Marching ants are not built for the harder reason: an ant train says *this
+ * edge is live*, and no such bit crosses the seam. `NodeState` is four words
+ * and none of them is *running*.
+ */
+.markClaimed::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border: 1.5px solid var(--c-plate-glyph);
+  opacity: 0.5;
+}
+
+/* Waiting on something: the hatch is the wait, and it is not a colour. */
+.markBlocked {
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid var(--c-plate-glyph);
+  background: repeating-linear-gradient(
+    0deg,
+    var(--c-plate-glyph) 0 1.5px,
+    transparent 1.5px 4px
+  );
+}
+
+/* Finished: filled and faded, still a terminal and still on the canvas. The
+   fade is on the shape and never on the plate — rule 13. */
+.markResolved {
+  width: 11px;
+  height: 11px;
+  background: var(--c-plate-glyph);
+  opacity: 0.55;
+}
+
+/*
+ * Nobody classified it: round, and dashed. Two departures from every one of the
+ * five work shapes rather than one — not square, and not drawn in a solid line
+ * — so it is told apart at a glance, on a monochrome screen, and after a
+ * retheme has reassigned every ink on the canvas.
+ */
+.markUnclassified {
+  width: 11px;
+  height: 11px;
+  border: 1.5px dashed var(--c-plate-glyph);
+  border-radius: 50%;
+}
+
+/* The destination: a hollow waypoint off the square's axis. Open, because the
+   far end of the map is not a terminal anything connects to. */
+.markDestination {
+  width: 9px;
+  height: 9px;
+  border: 1.5px solid var(--c-plate-glyph);
+  transform: rotate(45deg);
+}
+
+/*
+ * Cut: the resolved terminal it is composed onto, struck through. A shape
+ * change and nothing else — no colour of its own and no opacity on the plate,
+ * because a decision the map cut is still a decision and still has to be read.
+ * Always the resolved square, whatever kind was cut, so the bar is always level.
+ */
+.markCut {
+  position: relative;
+}
+
+.markCut::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: -3px;
+  left: -3px;
+  height: 1.5px;
+  background: var(--c-plate-glyph);
+  transform: translateY(-50%);
+}
+
+/* ----------------------------------------------------------- plate ink --- */
+
+.plate[data-mark="designated"] {
+  --c-plate-fill: var(--s-designated-bg);
+  --c-plate-edge: var(--s-designated-edge);
+  --c-plate-glyph: var(--s-designated);
+}
+
+.plate[data-mark="claimed"] {
+  --c-plate-fill: var(--s-live-bg);
+  --c-plate-edge: var(--s-live-edge);
+  --c-plate-glyph: var(--s-live);
+}
+
+/*
+ * Blocked has no block of its own: the hatch is the whole of what it says, and
+ * its ink is the plate's default, because a wait is not a fainter version of
+ * *yours to take*.
+ *
+ * Resolved recedes in ink weight and in nothing else — never opacity on the
+ * plate, never `display`, never `visibility` — so a finished ticket keeps its
+ * coordinate, its click and its focus. This view's own author predicted that
+ * resolved work would disappear from the canvas by design; it does not, and
+ * `tests/bench-view.test.tsx` reads this block and fails on anything arriving
+ * in it that reduces visibility rather than salience.
+ */
+.plate[data-mark="resolved"] {
+  --c-plate-ink: var(--s-ink-secondary);
+  --c-plate-quiet: var(--s-ink-faint);
+}
+
+/*
+ * Nobody classified it, and the plate says so in its outline as well as in its
+ * word: a dashed edge is a form break, which is what has to survive every
+ * semantic colour collapsing to one value.
+ */
+.plate[data-mark="unclassified"] {
+  --c-plate-glyph: var(--s-ink-primary);
+
+  border-style: dashed;
+}
+
+/* The far end of the map, and it is calm on purpose: nothing about a spec is
+   urgent, so the waypoint sits in the secondary ink. */
+.plate[data-mark="destination"] {
+  --c-plate-glyph: var(--s-ink-secondary);
+}
+
+/*
+ * The plate you have chosen, and it is a fill change and nothing else. It comes
+ * after the marks on purpose: a designated or claimed plate that you pick keeps
+ * its edge and its shape, which are facts about the map, and gives up only its
+ * wash, which is decoration of the same fact.
+ */
+.plate[data-selected] {
+  --c-plate-fill: var(--s-surface-hover);
+}
