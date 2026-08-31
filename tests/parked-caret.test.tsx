@@ -95,6 +95,10 @@ function a(run: number, over: boolean): RunReadout {
     ticket: 50,
     folder: "/work/perseverance",
     ending: over ? "exited" : "live",
+    kind: "work",
+    // Stamps and not ages, so a row's words hold still between readouts.
+    opened: 1_785_888_000,
+    spoke: 1_785_888_000,
   };
 }
 

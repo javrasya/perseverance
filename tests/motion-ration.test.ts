@@ -14,6 +14,7 @@ import { collectMarkupAndStyles, collectStylesheets } from "./support/sources";
 const GUARD_PATH = "src/styles/global.css";
 
 const ROUTE_PATH = "src/views/route/Route.module.css";
+const RACK_PATH = "src/rack/Rack.module.css";
 
 /**
  * The whole of the motion this app is allowed to spend, and the claim each
@@ -34,10 +35,21 @@ const ROUTE_PATH = "src/views/route/Route.module.css";
  * animation is therefore either licensed here with its claim written down or
  * it comes out of the stylesheet.
  *
- * The list is one entry and is meant to stay hard to grow. A second animation,
- * or this one moving to a selector carrying no such claim, is a red test whose
- * fix is an argument in this comment — never a line added to this array by
- * reflex.
+ * The list is meant to stay hard to grow. A new animation, or one of these
+ * moving to a selector carrying no such claim, is a red test whose fix is an
+ * argument in this comment — never a line added to this array by reflex.
+ *
+ * The second entry is the rack's, and it is the *other* half of rule 9's
+ * ration: the Route's `claimed` is as close to liveness as the snapshot gets,
+ * while a run readout carries the real thing — a child process that is either
+ * printing or has stopped. It is licensed on three conditions, all of which
+ * `tests/rack.test.tsx` holds to. It is spent **once for the whole rack** rather
+ * than once per row, because four live runs pinging at once is ambient motion
+ * however defensible each ping is on its own. It is authored over a still ring
+ * that survives `prefers-reduced-motion`, the way `.markClaimed` is. And it
+ * moves in one direction only: a landing takes motion away — the lamp stops when
+ * the last live run lands — so nothing in that surface ever starts moving
+ * because something ended.
  */
 const LICENSED_MOTION: readonly LicensedMotion[] = [
   {
@@ -46,6 +58,13 @@ const LICENSED_MOTION: readonly LicensedMotion[] = [
     keyframes: "ping",
     carries:
       "claimed — the one node state that is in progress rather than settled, and the only liveness this side of the seam can carry",
+  },
+  {
+    path: RACK_PATH,
+    selector: ".lampLive::after",
+    keyframes: "rackPing",
+    carries:
+      "anything in the rack is still running — one lamp for the whole rack rather than one per row, and its ceasing is how the last landing is announced",
   },
 ];
 

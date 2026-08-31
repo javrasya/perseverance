@@ -191,6 +191,27 @@ assertion — a resize that landed mid-grilling would rewrap what the operator w
 typing. The cost is accepted and named: a background research PTY is reflowed by
 a dial it has nothing to do with.
 
+**The rack is every run as one row each, and its tier is width and never N.**
+Reading N transcripts in parallel is refused, so what the rack carries instead is
+the four facts that say whether a run is alive, progressing or wedged: its kind,
+its age, the bytes its terminal has not been handed yet, and how long it has been
+quiet. It draws at one of three widths — bays, boards, studs — chosen by
+measuring its own region and by nothing else, and each narrow tier prints in
+visible text what it dropped. Nothing the world does moves the window: the region
+is a fixed basis over an exported floor rather than sized to its content, rows
+are a fixed height in the order the runs were opened, and a landed run keeps its
+row until a press takes it away. There is exactly one animated element in it
+however many runs are live — one lamp for the whole rack — so a landing is
+announced by that ping *ceasing*, never by an onset, and live-versus-landed is
+still readable in words and ink when `prefers-reduced-motion` kills every
+animation in the app. `src/rack/runs.fixture.json` is what stands behind it in
+`dev:web`, carrying a noisy run, one silent for minutes, one whose terminal is a
+megabyte behind, one that has landed and one nobody recorded stakes for — as
+durations rather than stamps, because *silent for six minutes* is the state and a
+checked-in stamp would age into a year.
+[ADR 0025](docs/adr/0025-the-racks-tier-is-a-function-of-width-not-of-n.md)
+records the decision, the reading it turned down, and what falsifies it.
+
 **A quit is one confirmation and one deadline.** One dialog however many runs
 are live, naming per run what that run loses — a work run's claim is a GitHub
 assignment nothing here holds, so it survives; a research run keeps nothing. The

@@ -1,3 +1,4 @@
+import { nowSeconds } from "../chrome/age";
 import { hasRustBehindIt } from "../snapshot/snapshot";
 import type { RunReadout } from "./runs";
 
@@ -34,7 +35,7 @@ import type { RunReadout } from "./runs";
  * into the interface fails the build here rather than being silently absent
  * from every fixture.
  */
-const ORDINARY: RunReadout = {
+const ORDINARY: FixtureRun = {
   run: 0,
   held: 0,
   dropped: 0,
@@ -50,15 +51,41 @@ const ORDINARY: RunReadout = {
   folder: null,
   silence: { kind: "nothing" },
   signal: null,
+  kind: null,
+  openedSecondsAgo: 0,
+  quietSecondsAgo: 0,
 };
 
-function a(readout: Partial<RunReadout> & Pick<RunReadout, "run">): RunReadout {
+/**
+ * A fixture row, in durations rather than stamps.
+ *
+ * **Seconds-ago and never an absolute second**, which is the difference between
+ * a fixture that keeps its meaning and one that rots: the whole point of a row
+ * is *silent for six minutes*, and a stamp checked in on the day this file was
+ * written would read as silent for a year. `runFixtureNamed` turns them into
+ * the stamps a readout carries, against the clock the window is running on now.
+ */
+export interface FixtureRun extends Omit<RunReadout, "opened" | "spoke"> {
+  openedSecondsAgo: number;
+  quietSecondsAgo: number;
+}
+
+function a(readout: Partial<FixtureRun> & Pick<FixtureRun, "run">): FixtureRun {
   return { ...ORDINARY, ...readout };
+}
+
+/** One fixture row as Rust would have sent it: durations resolved to stamps. */
+function stamped({ openedSecondsAgo, quietSecondsAgo, ...readout }: FixtureRun): RunReadout {
+  const now = nowSeconds();
+  return { ...readout, opened: now - openedSecondsAgo, spoke: now - quietSecondsAgo };
 }
 
 /** An hour of a person reading a diff, which is the most ordinary thing there is. */
 const QUIET_HOUR = a({
   run: 1,
+  kind: "work",
+  openedSecondsAgo: 10_800,
+  quietSecondsAgo: 62 * 60,
   ticket: 50,
   folder: "/work/perseverance",
   held: 262_144,
@@ -72,6 +99,9 @@ const QUIET_HOUR = a({
 /** A CLI that never opened its session, because its own trust prompt is up. */
 const AWAITING_OPERATOR = a({
   run: 2,
+  kind: "work",
+  openedSecondsAgo: 150,
+  quietSecondsAgo: 12,
   ticket: 51,
   folder: "/work/perseverance",
   monitored: true,
@@ -84,6 +114,9 @@ const AWAITING_OPERATOR = a({
  */
 const UNWATCHED = a({
   run: 3,
+  kind: "research",
+  openedSecondsAgo: 2_520,
+  quietSecondsAgo: 5 * 60 + 4,
   ticket: 52,
   folder: "/work/perseverance",
   held: 8_192,
@@ -96,6 +129,9 @@ const UNWATCHED = a({
 /** A closed ticket over a child that may still be printing. Never quiet, ever. */
 const SPENT = a({
   run: 4,
+  kind: "work",
+  openedSecondsAgo: 18_000,
+  quietSecondsAgo: 3,
   ticket: 47,
   folder: "/work/perseverance",
   held: 131_072,
@@ -110,6 +146,9 @@ const SPENT = a({
 /** A child that stopped, where the ending is the reading and the silence is not. */
 const ENDED = a({
   run: 5,
+  kind: "research",
+  openedSecondsAgo: 740,
+  quietSecondsAgo: 740,
   ticket: 44,
   folder: "/work/perseverance",
   held: 65_536,
@@ -134,6 +173,9 @@ const ENDED = a({
  */
 const STREAMING = a({
   run: 7,
+  kind: "work",
+  openedSecondsAgo: 1_560,
+  quietSecondsAgo: 0,
   ticket: 54,
   folder: "/work/perseverance",
   held: 49_152,
@@ -146,6 +188,9 @@ const STREAMING = a({
 /** A run a watch has seen go idle, so the third signal is a thing on screen too. */
 const IDLING = a({
   run: 6,
+  kind: "compose",
+  openedSecondsAgo: 900,
+  quietSecondsAgo: 90,
   ticket: 53,
   folder: "/work/other",
   held: 4_096,
@@ -154,6 +199,102 @@ const IDLING = a({
   silence: { kind: "quiet", silentForMs: 90_000 },
   signal: "idle",
 });
+
+/**
+ * A run this app was never told the stakes of: no ticket, no folder, no kind.
+ *
+ * On the rack for the reason the others are — it is a row that has to draw, and
+ * a row that guessed *work* would be naming something nobody said.
+ */
+const UNSTAKED = a({
+  run: 8,
+  held: 12_288,
+  through: 4_096,
+  end: 12_288,
+  openedSecondsAgo: 420,
+  quietSecondsAgo: 20,
+});
+
+/**
+ * The six rows the rack itself is read against.
+ *
+ * A set of its own rather than a reading of `the-rack` above, because the two
+ * are about different things: that one is every *silence* at once, and this one
+ * is every *row* at once — all four kinds, a run nobody staked, a terminal a
+ * megabyte behind, and one that has landed. Six of them, because *the tier is
+ * width and never N* is a claim, and a fixture with two rows in it would let
+ * that claim rot without anything going red.
+ */
+const RACK: FixtureRun[] = [
+  a({
+    run: 1,
+    kind: "work",
+    ticket: 214,
+    folder: "C:\\Users\\you\\Workspace\\perseverance",
+    openedSecondsAgo: 10_800,
+    quietSecondsAgo: 3,
+    held: 482_112,
+    through: 480_000,
+    end: 482_112,
+  }),
+  a({
+    run: 2,
+    kind: "research",
+    ticket: 217,
+    folder: "C:\\Users\\you\\Workspace\\perseverance",
+    openedSecondsAgo: 2_520,
+    quietSecondsAgo: 372,
+    held: 90_210,
+    through: 90_210,
+    end: 90_210,
+  }),
+  a({
+    run: 3,
+    kind: "chart",
+    folder: "D:\\Archive\\atlas",
+    openedSecondsAgo: 740,
+    quietSecondsAgo: 18,
+    held: 4_194_304,
+    dropped: 65_536,
+    through: 2_989_424,
+    end: 4_194_304,
+    truncated: true,
+    desynced: true,
+  }),
+  a({
+    run: 4,
+    kind: "work",
+    ticket: 219,
+    folder: "C:\\Users\\you\\Workspace\\perseverance",
+    openedSecondsAgo: 18_000,
+    quietSecondsAgo: 5_760,
+    held: 128_744,
+    through: 128_744,
+    end: 128_744,
+    over: true,
+    code: 0,
+    ending: "spent",
+    silence: { kind: "spent" },
+  }),
+  a({
+    run: 5,
+    openedSecondsAgo: 150,
+    quietSecondsAgo: 92,
+    held: 640,
+    through: 0,
+    end: 640,
+  }),
+  a({
+    run: 6,
+    kind: "compose",
+    folder: "C:\\Users\\you\\Workspace\\ledger",
+    openedSecondsAgo: 1_560,
+    quietSecondsAgo: 205,
+    held: 20_480,
+    through: 20_352,
+    end: 20_480,
+  }),
+];
 
 /**
  * The sets, each named for the reading it is there to put on screen.
@@ -183,8 +324,10 @@ export const RUN_FIXTURES = {
     a({ ...ENDED, monitored: false }),
     STREAMING,
     IDLING,
+    UNSTAKED,
   ],
-} satisfies Record<string, RunReadout[]>;
+  rack: RACK,
+} satisfies Record<string, FixtureRun[]>;
 
 export type RunFixtureName = keyof typeof RUN_FIXTURES;
 
@@ -194,7 +337,7 @@ export const DEFAULT_RUN_FIXTURE: RunFixtureName = "none";
 
 /** A copy each time, so a caller editing one cannot edit the fixture itself. */
 export function runFixtureNamed(name: RunFixtureName): RunReadout[] {
-  return structuredClone(RUN_FIXTURES[name]) as RunReadout[];
+  return (structuredClone(RUN_FIXTURES[name]) as FixtureRun[]).map(stamped);
 }
 
 /**
