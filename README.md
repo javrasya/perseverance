@@ -308,6 +308,23 @@ ask for, and is never what a build depends on. The suite needs a downloaded
 browser, so it is kept out of `npm test` and `npm run verify` — those stay
 runnable on a bare checkout.
 
+**The suite writes its own assertions** — `tests/conformance/rules.spec.ts`.
+Nothing in it enumerates anything: the rules are `renderBoundRules()`, the views
+are `VIEWS`, the fixtures are `FIXTURE_NAMES` and the crossing is `fixtureSpace`,
+so adding a fixture — or a view — produces assertions across every render-bound
+rule with no test code written anywhere. One page load per view × state, and
+every applicable rule reads that one rendering; a rule that loaded its own page
+would turn seventy tests into six hundred navigations and a suite nobody runs.
+`tests/conformance/support/rules.ts` holds one entry per render-bound rule and a
+gate goes red if one is missing: an entry may legitimately assert nothing — rule
+11 is wholly judged — but it has to say so in prose, because a rule the suite
+quietly stopped covering is worse than no suite. A check that cannot apply to a
+point of the space (no map is open; this fixture has no cut ticket) skips on a
+precondition read off the fixture's own snapshot and annotates the report with
+it. `tests/conformance/support/views.ts` is where a view declares how the
+contract reads in it — its root, whether a given fixture puts it on screen, its
+rows, its designated encoding — so the checks name no view's selectors.
+
 Both stack-level checks test themselves against known-bad input as well as
 against the tree. A check nobody has ever seen fail is indistinguishable from a
 check that cannot fail.

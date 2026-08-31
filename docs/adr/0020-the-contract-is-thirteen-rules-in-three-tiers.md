@@ -305,10 +305,26 @@ pointer nobody re-reads is a claim about the day it was written, and the day rul
 8's mechanism learns Deep Field's exception is exactly the day rule 8's entry
 needs re-reading — so that line goes red rather than staying quietly true.
 
-**Nine rules are registered with no check that runs.** Rules 2, 3, 4, 5, 6, 10,
-11, 12 and 13 have no automated check in this repo today; the registry says what
-the check *is*, and #43 makes it run. That is the honest state and it is now
-visible in one file rather than absent from thirteen sentences.
+**Eight of the nine render-bound rules have a check that runs, and the ninth says
+why it never will.** `tests/conformance/support/rules.ts` holds one entry per
+render-bound rule: rules 2, 3, 4, 5, 6, 10, 12 and 13 assert against a rendering,
+and rule 11 is registered with `check: null` and the reason written out, because
+the only checkable form of *reserved space* is a clearance figure and the figure
+belongs to one view's layout. A gate in `tests/conformance/rules.spec.ts` fails
+if a render-bound rule has no entry at all, and refuses `check: null` to any rule
+the registry gave an `assertedFloor` — an entry that asserts nothing is
+legitimate, an entry that is *absent* never is. How a rule reaches a view is
+declared once per view in `tests/conformance/support/views.ts` rather than inside
+the checks, so a second view is a compile error until somebody says how the
+contract reads in it.
+
+**A check that cannot apply skips on a precondition read off the fixture's own
+snapshot.** Much of the fixture space has no cut ticket, no claimed node, or no
+map open at all — and a check that found nothing and said nothing would be green
+for the same reason a broken one would be. The precondition is never a list of
+fixture names, which drifts the day a fixture is added; it is derived from the
+`Snapshot` the rendering was built from, and it is annotated onto the report, so
+*not applicable here* is on the record rather than inferred from silence.
 
 **Two rules can move tier without their text changing**, and that is the design
 working. Widen `ViewProps` and rule 7 falls from structural to asserted. Land

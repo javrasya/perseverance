@@ -1,6 +1,13 @@
 import type { Locator, Page } from "@playwright/test";
-import { FIXTURE_PARAMETER } from "../../../src/snapshot/fixtures";
+import {
+  FIXTURE_PARAMETER,
+  fixtureNamed,
+  isFixtureName,
+} from "../../../src/snapshot/fixtures";
+import type { Snapshot } from "../../../src/snapshot/model.generated";
+import { DEFAULT_VIEW, type ViewName } from "../../../src/views/views";
 import type { FixtureState } from "../../support/contract";
+import { surfaceOf, type ViewSurface } from "./views";
 
 /**
  * One point of the fixture space, on screen, in a real engine.
@@ -25,17 +32,49 @@ import type { FixtureState } from "../../support/contract";
  * used from a test that needs two states side by side, and #43's fan-out is
  * exactly that shape.
  */
-export const ROUTE_VIEW = 'section[aria-label="The Route"]';
+export const ROUTE_VIEW = surfaceOf("route").root;
 
 /**
- * Loads `state` into `page` and returns the Route view once it has painted.
+ * One rendering, and everything a rule check is allowed to know about it.
  *
- * Settled means the view root is visible and the fonts are resolved: a metric
- * a rule reads — a size, a spacing, a line count — is measured against a
- * fallback face until `document.fonts` is done, and that is a flake nobody can
- * reproduce.
+ * The `snapshot` is the fixture's own, read from `src/snapshot/fixtures.ts`
+ * rather than scraped back off the page: a precondition — *this fixture renders
+ * no resolved node*, *this map's fog was surveyed* — has to come from the model
+ * the rendering was built from, or it is the rendering being asked to vouch for
+ * itself. Which is also why a hand-kept list of fixture names is not a
+ * precondition: it stops being true the first time a fixture changes.
+ *
+ * `root` is `null` when this view is not on screen for this fixture at all, and
+ * that is a state rather than a failure — `App` mounts no view with no map
+ * open. A rule whose subject is the view says so and skips; a rule whose
+ * subject is the whole rendering carries on.
  */
-export async function render(page: Page, state: FixtureState): Promise<Locator> {
+export interface Rendering {
+  readonly page: Page;
+  readonly view: ViewName;
+  readonly surface: ViewSurface;
+  readonly state: FixtureState;
+  readonly snapshot: Snapshot;
+  readonly root: Locator | null;
+}
+
+/**
+ * Loads one point of the fixture space into `page`, for one view.
+ *
+ * Settled means the view root is visible where there is one, and the fonts are
+ * resolved either way: a metric a rule reads — a size, a spacing, a line count
+ * — is measured against a fallback face until `document.fonts` is done, and
+ * that is a flake nobody can reproduce.
+ */
+export async function load(
+  page: Page,
+  view: ViewName,
+  state: FixtureState,
+): Promise<Rendering> {
+  const surface = surfaceOf(view);
+  if (!isFixtureName(state.fixture)) throw new Error(`no such fixture: ${state.fixture}`);
+  const snapshot = fixtureNamed(state.fixture);
+
   await page.emulateMedia({
     colorScheme: state.theme,
     reducedMotion: state.motion === "reduced" ? "reduce" : "no-preference",
@@ -43,11 +82,29 @@ export async function render(page: Page, state: FixtureState): Promise<Locator> 
 
   await page.goto(`/?${FIXTURE_PARAMETER}=${encodeURIComponent(state.fixture)}`);
 
-  const route = page.locator(ROUTE_VIEW);
-  await route.waitFor({ state: "visible" });
+  /* The chrome is what is on screen in every state, including the one where no
+     view is: waiting on it is what makes *the app booted* separable from *this
+     view mounted*, which is the difference the null root reports. */
+  await page.locator("header").first().waitFor({ state: "visible" });
+
+  let root: Locator | null = null;
+  if (surface.mounts(snapshot)) {
+    root = page.locator(surface.root);
+    await root.waitFor({ state: "visible" });
+  }
+
   await page.evaluate(() => document.fonts.ready);
 
-  return route;
+  return { page, view, surface, state, snapshot, root };
+}
+
+/** The Route, on screen, for a state that has a map open. */
+export async function render(page: Page, state: FixtureState): Promise<Locator> {
+  const rendering = await load(page, DEFAULT_VIEW, state);
+  if (rendering.root === null) {
+    throw new Error(`${state.fixture} does not put ${DEFAULT_VIEW} on screen`);
+  }
+  return rendering.root;
 }
 
 /** How a state reads in a test name, so a failure says which point it was. */
