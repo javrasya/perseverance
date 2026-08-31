@@ -564,6 +564,18 @@ impl Ledgers {
         self.hold().latest.clone()
     }
 
+    /// Which folder and map this window is watching, or nothing at all.
+    ///
+    /// Exposed for one reader, and it is the reader that made it necessary:
+    /// [`start_what_is_waiting`] holds an entry queued minutes ago against a
+    /// named folder, and [`Ledgers::held`] answers with a snapshot that does not
+    /// say which folder it is a reading *of*. Without this the drain would have
+    /// to take one repository's map as an account of another's — which is a
+    /// worse stale read than the one the re-read is there to prevent.
+    fn attending(&self) -> Option<Watched> {
+        self.hold().of
+    }
+
     /// Called at the top of every poll, before anything reaches a socket.
     ///
     /// **The ordering is load-bearing.** The baseline is the cached graph as it
@@ -3226,12 +3238,21 @@ fn end_run(terminals: State<'_, Terminals>, run: u64) {
     terminals.ended(RunId::from_u64(run));
 }
 
-/// The frame pump and the readout tick, on one thread each.
+/// The frame pump, the readout tick and the research queue, on one thread each.
 ///
-/// Two rather than one because they are two different rates for two different
-/// reasons — bytes at a frame because that is when a screen can change, readouts
-/// at three hertz because that is as often as a number is worth reading — and
-/// one thread doing both would make the slower one the faster one's jitter.
+/// The first two are two different rates for two different reasons — bytes at a
+/// frame because that is when a screen can change, readouts at three hertz
+/// because that is as often as a number is worth reading — and one thread doing
+/// both would make the slower one the faster one's jitter.
+///
+/// The third is not a rate at all: it is the one place in this process where
+/// something blocks for seconds on purpose. A deferred spawn awaits a
+/// revalidation, asks GitHub twice, makes a worktree, harvests an environment
+/// and starts a child, and the argument that keeps the readouts off the frames
+/// applies to it several times over — a drain on the readout tick would freeze
+/// every number in the rack and the poller's own falling edge behind a `git
+/// worktree add`. It listens rather than ticks, because there is nothing to do
+/// until a slot comes free and the tick is what notices that.
 fn start_terminals(app: AppHandle) -> std::io::Result<()> {
     let frames = app.clone();
     std::thread::Builder::new()
@@ -3264,6 +3285,31 @@ fn start_terminals(app: AppHandle) -> std::io::Result<()> {
             }
         })?;
 
+    // One nudge in flight at a time, and that single slot is the whole of the
+    // guard against a tick at three hertz handing the same entry out three times
+    // a second: a send that finds the slot full is dropped rather than queued,
+    // the thread below is the only thing that ever pops an entry, and it drains
+    // everything it can before it listens again. So an entry is held by exactly
+    // one start at a time, and a tick that lands mid-start adds nothing.
+    let (nudge, nudged) = std::sync::mpsc::sync_channel::<()>(1);
+    let queue = app.clone();
+    std::thread::Builder::new()
+        .name("perseverance-research-queue".to_string())
+        .spawn(move || {
+            // A channel with no sender left is the app going away, which is the
+            // one reason to stop listening. Everything else — a folder that is
+            // not being watched, a spawn that refused — is the drain's own
+            // business and leaves this thread waiting for the next slot.
+            while nudged.recv().is_ok() {
+                let (Some(terminals), Some(pending)) =
+                    (queue.try_state::<Terminals>(), queue.try_state::<Pending>())
+                else {
+                    continue;
+                };
+                start_what_is_waiting(&queue, &terminals, &pending);
+            }
+        })?;
+
     std::thread::Builder::new()
         .name("perseverance-readouts".to_string())
         .spawn(move || loop {
@@ -3291,12 +3337,19 @@ fn start_terminals(app: AppHandle) -> std::io::Result<()> {
                     poker.poke(Poke::Idle);
                 }
             }
-            // The falling edge is also what frees a research slot, so the queue
-            // is drained here and nowhere else — see [`start_what_is_waiting`].
-            // Before the emissions, so a run that just started is already gone
-            // from the pending rows the same tick it appears in the rack.
+            // The falling edge is also what frees a research slot, so this tick
+            // is where the drain is *noticed* — and deliberately not where it is
+            // done. What it sends is one nudge, and what it never does is block:
+            // see [`start_terminals`]'s third thread, and [`Pending`].
+            //
+            // A row therefore leaves the rack on the emission after the start
+            // rather than on the same one. That is the price of not freezing
+            // every other number on this tick, and a third of a second of a row
+            // that is already going is the cheapest thing in this file.
             if let Some(pending) = app.try_state::<Pending>() {
-                start_what_is_waiting(&app, &terminals, &pending);
+                if pending.anything_waiting() {
+                    let _ = nudge.try_send(());
+                }
                 let _ = app.emit("pending-runs", pending.announced());
             }
             let _ = app.emit("run-readouts", readouts);
@@ -3418,6 +3471,15 @@ fn use_research_ceiling(registry: State<'_, Registry>, ceiling: usize) -> usize 
 /// clone either: [`spawn_at`] re-reads the ticket body from GitHub, so the map's
 /// only jobs here are naming the node and answering [`kind_of`], and the press
 /// was accepted against exactly this map's frontier.
+///
+/// **What the clone is not is the map the deferred spawn runs against.** Minutes
+/// can pass in this queue, and in them the ticket can be closed, gain a blocker
+/// or be claimed by somebody else, so [`start_what_is_waiting`] re-reads before
+/// it spawns — see [`the_live_reading_for`], which is keyed to `folder` and to
+/// this map's `number` precisely so that the objection above still holds: an
+/// entry is answered by its own folder's reading or by no reading at all, never
+/// by whichever folder the operator happens to be looking at. The clone's
+/// remaining job is to say which reading this entry is owed.
 #[derive(Debug, Clone)]
 struct Waiting {
     /// This entry's own identity, and never a run's: a pending entry has no run,
@@ -3569,6 +3631,16 @@ impl Pending {
         self.refusals_here().push((waiting, detail));
     }
 
+    /// Whether anything is waiting at all.
+    ///
+    /// The readout tick's whole question, and it is this small on purpose: the
+    /// tick may take one lock and answer one bool, and every other question a
+    /// drain asks — is there room, is the folder still being watched, is the
+    /// node still takeable — belongs to the thread that is allowed to block.
+    fn anything_waiting(&self) -> bool {
+        !self.waiting_here().is_empty()
+    }
+
     /// The queue as the rack reads it.
     fn waiting_now(&self) -> Vec<PendingRun> {
         self.waiting_here().iter().map(PendingRun::of).collect()
@@ -3676,53 +3748,88 @@ fn admitted(
     })
 }
 
-/// Starts whatever the freed slots will take, from the readout tick.
+/// Starts whatever the freed slots will take, on the queue thread.
 ///
-/// **No further press, and the same path a press uses.** [`spawn_at`] then
-/// [`booked`], with the stakes a press would have written, so a run that waited
-/// is indistinguishable from one that did not the moment it is going —
-/// including the pane, which [`booked`] binds to it exactly as it would for a
-/// press. That last part is a consequence and not an oversight: the operator's
-/// pane moves onto the run that just started, which is what the rack's pending
-/// rows are for and is that slice's to soften.
+/// **No further press, and every guard a press goes through.** A deferred spawn
+/// is the one spawn in this app nobody is watching happen, so it is the last
+/// place a stale read may be acted on — and the read it would otherwise act on
+/// is the map cloned into the entry when the press was accepted, which can be
+/// minutes old. In those minutes the ticket can be closed, gain a blocker, or be
+/// claimed by another machine; spawning anyway would make a worktree and start
+/// an agent at a node that is not takeable, and [`booked`] would record the
+/// claim as this harness's own — which is exactly what stops a foreign claim
+/// announcing itself, so the harness would go quiet about the one change on
+/// screen it did not cause.
 ///
-/// Hooked here rather than given a thread of its own for the reason
-/// [`Terminals::let_go_of`] is: this tick is the one thing in the process that
-/// already asks whether a child has ended, and a second watcher would be
-/// entitled to disagree with it about when a slot came free.
+/// So the order below is [`start_working`]'s order, with the frontier comparison
+/// replaced by the thing that comparison was standing in for. The awaited
+/// revalidation is the same one a press awaits; the fresh reading is
+/// [`the_live_reading_for`]; and [`why_the_wait_cannot_start`] is the guard,
+/// which asks for takeability rather than for designation because a queued entry
+/// is deliberately *not* the designated node — [`Pending::spoken_for`] moved the
+/// frontier past it the moment it joined the queue.
 ///
-/// A deferred spawn that refuses — no token, an unreadable ticket, a worktree
-/// that could not be made — has already left the queue and carries its sentence
-/// out on the next emission. Nothing is retried: this loop would otherwise spin
-/// at three hertz against a folder whose credentials are simply not there.
+/// Only then [`spawn_at`] and [`booked`], against the fresh map rather than the
+/// carried one, with the stakes a press would have written — so a run that
+/// waited is indistinguishable from one that did not the moment it is going,
+/// including the pane, which [`booked`] binds exactly as it would for a press.
+///
+/// Noticed from the readout tick and done here, because that tick is the one
+/// thing in the process that already asks whether a child has ended — a second
+/// watcher would be entitled to disagree with it about when a slot came free —
+/// and because everything below blocks: see [`start_terminals`].
+///
+/// A deferred spawn that refuses — no token, a folder nobody is watching, a
+/// ticket somebody else took, a worktree that could not be made — has already
+/// left the queue and carries its sentence out on the next emission. Nothing is
+/// retried, and that is one rule for a refusal that is transient and one that is
+/// permanent alike: the alternative is a loop spinning against a folder whose
+/// credentials are simply not there, and the operator has the press they can
+/// make again.
 fn start_what_is_waiting(app: &AppHandle, terminals: &Terminals, pending: &Pending) {
-    let (Some(harvests), Some(registry), Some(ambient), Some(claims), Some(poker)) = (
+    let (Some(harvests), Some(registry), Some(ambient), Some(ledgers), Some(claims), Some(poker)) = (
         app.try_state::<Harvests>(),
         app.try_state::<Registry>(),
         app.try_state::<Ambient>(),
+        app.try_state::<Ledgers>(),
         app.try_state::<Claims>(),
         app.try_state::<Poker>(),
     ) else {
         return;
     };
 
-    let ceiling = remembered_ceiling(&registry);
-    while there_is_room(terminals.live_research(), ceiling) {
-        let Some(waiting) = pending.next_in_line() else {
-            break;
-        };
-        match spawn_at(
-            app,
-            terminals,
-            &harvests,
-            &registry,
-            &ambient,
-            &waiting.map,
-            waiting.ticket,
-            &waiting.folder,
-            &waiting.adapter,
-        ) {
-            Ok((run, _)) => booked(
+    drain_the_queue(
+        terminals,
+        pending,
+        remembered_ceiling(&registry),
+        |waiting| {
+            // The same awaited revalidation the press opened with, and it is
+            // more load-bearing here than there: a press was made against a map
+            // an operator had just looked at, and this entry has been waiting.
+            // `None` from the token cell is a harvest that has not settled, and
+            // it is the only thing that tells a launch that has not finished
+            // starting up apart from a folder watching no map.
+            let harvest_settled = ambient.token.get().is_some();
+            if let Some(refusal) =
+                why_the_check_is_not_a_read(poker.revalidate(CHECKING), harvest_settled)
+            {
+                return Err(refusal);
+            }
+            the_live_reading_for(&registry, &ledgers, waiting)
+        },
+        |waiting, map| {
+            let (run, _) = spawn_at(
+                app,
+                terminals,
+                &harvests,
+                &registry,
+                &ambient,
+                map,
+                waiting.ticket,
+                &waiting.folder,
+                &waiting.adapter,
+            )?;
+            booked(
                 terminals,
                 &claims,
                 &poker,
@@ -3730,12 +3837,197 @@ fn start_what_is_waiting(app: &AppHandle, terminals: &Terminals, pending: &Pendi
                 Stakes {
                     ticket: Some(waiting.ticket),
                     folder: waiting.folder.clone(),
-                    kind: waiting.kind,
+                    // Off the fresh map, exactly as a press takes it off the map
+                    // it was guarded against. `why_the_wait_cannot_start` has
+                    // already refused an entry whose node stopped being a
+                    // research ticket, so this cannot be the kind that would
+                    // have run in the operator's own checkout.
+                    kind: kind_of(map, waiting.ticket),
                 },
-            ),
-            Err(refusal) => pending.could_not_start(waiting, refusal),
+            );
+            Ok(())
+        },
+    );
+}
+
+/// The drain itself, with the two blocking halves as arguments.
+///
+/// **The seam is here because everything on the other side of it needs an
+/// `AppHandle`**, and a test cannot get the one the shipped app runs on. What is
+/// left is the part that was never covered and is the ticket's headline
+/// behaviour: a freed slot takes the oldest entry, the room is re-read after
+/// every start rather than once at the top, and an entry that cannot be started
+/// leaves the queue with a sentence instead of going round again.
+///
+/// One at a time and never in parallel, which is not an accident of the `while`:
+/// [`Terminals::live_research`] is the occupancy the ceiling is compared
+/// against, and it counts only a run that has already been staked, so two starts
+/// begun before either was booked would both be admitted against one free slot.
+fn drain_the_queue(
+    terminals: &Terminals,
+    pending: &Pending,
+    ceiling: usize,
+    checked: impl Fn(&Waiting) -> Result<Map, String>,
+    start: impl Fn(&Waiting, &Map) -> Result<(), String>,
+) {
+    while there_is_room(terminals.live_research(), ceiling) {
+        let Some(waiting) = pending.next_in_line() else {
+            break;
+        };
+        let map = match checked(&waiting) {
+            Ok(map) => map,
+            Err(refusal) => {
+                pending.could_not_start(waiting, refusal);
+                continue;
+            }
+        };
+        if let Some(refusal) = why_the_wait_cannot_start(terminals, &map, &waiting) {
+            pending.could_not_start(waiting, refusal);
+            continue;
+        }
+        if let Err(refusal) = start(&waiting, &map) {
+            pending.could_not_start(waiting, refusal);
         }
     }
+}
+
+/// One sentence for every way a queued entry can have no reading of its own to
+/// be checked against.
+///
+/// Written once because the four of them differ only in the clause before the
+/// comma, and because the shape is the point: *this is what is missing*, and
+/// never *so it was started anyway*. An absence here is a refusal, exactly as an
+/// unreadable ticket is one.
+fn nothing_to_check_against(ticket: u64, why: &str) -> String {
+    format!("{why}, so nothing could be re-checked about #{ticket} and nothing was started")
+}
+
+/// This entry's own folder's live map, or why there is not one.
+///
+/// **Keyed to the entry and never to whatever is on screen.** The queue is
+/// app-global and spans checkouts while the ledger holds the single map the
+/// operator has open now, so this asks the ledger *which* folder it is watching
+/// — [`Ledgers::attending`] — and refuses unless it is this entry's. An entry
+/// answered by another repository's map would be a spawn against a reading of
+/// the wrong repository, which is worse than the stale read it replaced: issue
+/// numbers collide across repositories, and `#59` there would happily stand in
+/// for `#59` here.
+///
+/// The map number is compared for the same reason the folder is: two maps in one
+/// checkout are two sets of nodes, and an entry queued against one of them
+/// learns nothing from the other.
+///
+/// **A folder nobody is watching is named, not defaulted.** An operator who
+/// queued four presses and then looked at another folder gets four sentences
+/// saying so, on the emission after the slot came free, rather than four agents
+/// started against a reading nothing re-checked. That is the house rule about
+/// absences, and this is the expensive direction to be wrong in: a press can be
+/// made again, and a worktree with an agent in it against a ticket somebody else
+/// took cannot be un-made.
+///
+/// The store guard is taken and dropped before the ledger is read, because two
+/// locks in this file are never nested.
+fn the_live_reading_for(
+    registry: &Registry,
+    ledgers: &Ledgers,
+    waiting: &Waiting,
+) -> Result<Map, String> {
+    let ticket = waiting.ticket;
+    let Some(watched) = ledgers.attending() else {
+        return Err(nothing_to_check_against(ticket, "no map is being watched"));
+    };
+
+    let listed = {
+        // The store's own sentence, unedited, exactly as `spawn_at` carries one.
+        let store = registry.store()?;
+        store.folders().map_err(|error| error.to_string())?
+    };
+    let Some(folder) = listed
+        .into_iter()
+        .find(|folder| folder.path == waiting.folder)
+    else {
+        return Err(nothing_to_check_against(
+            ticket,
+            &format!(
+                "{} is not on this app's folder list any more",
+                waiting.folder
+            ),
+        ));
+    };
+    if watched.folder_id != folder.id {
+        return Err(nothing_to_check_against(
+            ticket,
+            "this window is watching another folder",
+        ));
+    }
+
+    let Some(map) = ledgers.held().model.map else {
+        return Err(nothing_to_check_against(ticket, "no map is open"));
+    };
+    if map.number != waiting.map.number {
+        return Err(nothing_to_check_against(
+            ticket,
+            &format!(
+                "this window is watching map #{} and this entry was queued against #{}",
+                map.number, waiting.map.number
+            ),
+        ));
+    }
+
+    Ok(map)
+}
+
+/// Why this entry must not be spawned against the reading just taken, or nothing
+/// at all.
+///
+/// **Takeability rather than designation, and that is the one guard a press has
+/// that this cannot copy.** [`start_working`] admits only
+/// `Frontier::Designated(ticket)`; a queued entry is never that number, because
+/// [`Pending::spoken_for`] took it out of the derivation so the frontier could
+/// move on to the next ticket. What the frontier comparison was *asserting* —
+/// this node is an open, unblocked, unclaimed ticket this machine may take — is
+/// [`Node::is_takeable`], asked here of the node itself.
+///
+/// The kind is asked again because it decides where the child runs:
+/// [`where_it_runs`] gives a research run a worktree and everything else the
+/// operator's own checkout, so a ticket relabelled out of research while it
+/// waited would put an unattended agent in the folder somebody is reading. It is
+/// asked through [`RunKind::ceilinged`] rather than by naming research, so the
+/// rule stays written down once.
+///
+/// The live-run check is Resume's, and it is here for Resume's reason: a claim
+/// whose child is still alive is re-focused by the rail and never spawned over.
+/// It is nearly unreachable — a ticket with a live run of ours reads `Claimed`
+/// and fails the guard above — and it is cheap, and *nearly* is not a guarantee
+/// worth spending a duplicate worktree on.
+fn why_the_wait_cannot_start(
+    terminals: &Terminals,
+    map: &Map,
+    waiting: &Waiting,
+) -> Option<String> {
+    let ticket = waiting.ticket;
+    let Some(node) = map.nodes.iter().find(|node| node.number == ticket) else {
+        return Some(format!(
+            "#{ticket} is not on this map any more, so nothing was started"
+        ));
+    };
+    if !node.is_takeable() {
+        return Some(format!(
+            "#{ticket} is not something this map offers to start any more, so nothing was started"
+        ));
+    }
+    if !kind_of(map, ticket).ceilinged() {
+        return Some(format!(
+            "#{ticket} is not a research ticket any more, so nothing was started"
+        ));
+    }
+    if terminals.live_run_on(ticket, &waiting.folder) {
+        return Some(format!(
+            "#{ticket} already has a run in this window and it is still live, so nothing was started"
+        ));
+    }
+
+    None
 }
 
 /* ----------------------------------------------------- starting working --- */
@@ -6169,6 +6461,215 @@ mod tests {
         assert_eq!(announced[0].refused.as_deref(), Some(NO_TOKEN));
         // Drained as it was read: the entry is gone from the queue and the
         // sentence is gone with it, so nothing retries and nothing repeats.
+        assert!(pending.announced().is_empty());
+        assert!(pending.waiting_now().is_empty());
+    }
+
+    /// **Occupancy, off real runs rather than off a number a test wrote down.**
+    ///
+    /// The two halves of the admission that only a live app used to be able to
+    /// answer: [`Terminals::live_research`] is the intersection of the stakes
+    /// table and the telemetry, and neither side of it is exercised by
+    /// [`there_is_room`] on its own.
+    ///
+    /// Work and Ask are the acceptance criterion — background research must
+    /// never be able to starve the interactive run, so the interactive run must
+    /// never be able to fill the queue's ceiling either — and a run nobody
+    /// staked counts as nothing, which is the same reading `live_run_on` gives
+    /// one.
+    #[test]
+    fn only_a_research_run_counts_against_the_ceiling_and_only_while_its_child_is_alive() {
+        let directory = TempDir::new().expect("temp dir");
+        let terminals = Terminals::new();
+
+        let work = a_live_run_in(&terminals, directory.path());
+        let asking = a_live_run_in(&terminals, directory.path());
+        let research = a_live_run_in(&terminals, directory.path());
+        let _unstaked = a_live_run_in(&terminals, directory.path());
+
+        terminals.staked(work, a_stake(51, "/work/one", RunKind::Work));
+        terminals.staked(asking, a_stake(52, "/work/one", RunKind::Ask));
+        terminals.staked(research, a_stake(59, "/work/one", RunKind::Research));
+
+        // Four children and one slot taken.
+        assert_eq!(terminals.live_research(), 1);
+        assert!(there_is_room(terminals.live_research(), RESEARCH_CEILING));
+
+        // And occupancy is the child process and nothing else: the stakes are
+        // all still in the table below, and every slot is free because every
+        // child is over.
+        terminals.held().shut_down();
+        assert_eq!(terminals.live_research(), 0);
+    }
+
+    /// **Nothing is spawned against the read the press was accepted on.**
+    ///
+    /// Minutes can pass in the queue, and the ticket that costs something is the
+    /// one somebody else took while it waited: [`booked`] would record that
+    /// claim as this harness's own, and the next foreign claim on the map would
+    /// go unannounced because this side believes it caused it.
+    ///
+    /// Every arm is asserted through the sentence an operator reads, because a
+    /// deferred spawn has no socket to refuse to and the sentence is the whole
+    /// of what crosses.
+    #[test]
+    fn a_queued_entry_is_re_checked_against_a_live_reading_before_anything_is_started() {
+        const FOLDER: &str = "/work/one";
+        let terminals = Terminals::new();
+        let pending = Pending::new();
+        let mut nodes = vec![a_takeable_research_ticket(65)];
+
+        let pressed = a_map_of(Phase::Wayfinding, nodes.clone());
+        pending.joined(65, FOLDER, "claude", RunKind::Research, &pressed);
+        let waiting = pending.next_in_line().expect("an entry");
+
+        // A reading that still says yes is the only one that starts anything.
+        assert!(why_the_wait_cannot_start(&terminals, &pressed, &waiting).is_none());
+
+        // Claimed by somebody else while it waited.
+        claimed_by_the_agent(&mut nodes, 65);
+        let taken = a_map_of(Phase::Wayfinding, nodes.clone());
+        let refusal = why_the_wait_cannot_start(&terminals, &taken, &waiting).expect("a sentence");
+        assert!(refusal.contains("#65"), "{refusal}");
+        assert!(refusal.ends_with("so nothing was started"), "{refusal}");
+
+        // Closed, and gone from the map with it.
+        let gone = a_map_of(Phase::Wayfinding, Vec::new());
+        assert!(why_the_wait_cannot_start(&terminals, &gone, &waiting)
+            .expect("a sentence")
+            .contains("not on this map any more"));
+
+        // Relabelled out of research, which is the one that would put an
+        // unattended agent in the checkout the operator is reading.
+        let mut relabelled = vec![a_takeable_research_ticket(65)];
+        relabelled[0].kind = ChildKind::Ticket(TicketType::Task);
+        assert!(why_the_wait_cannot_start(
+            &terminals,
+            &a_map_of(Phase::Wayfinding, relabelled),
+            &waiting
+        )
+        .expect("a sentence")
+        .contains("not a research ticket any more"));
+
+        // And a folder with no live reading at all is named as an absence
+        // rather than defaulted to *start it anyway*.
+        let absent = nothing_to_check_against(65, "no map is being watched");
+        assert!(absent.starts_with("no map is being watched"), "{absent}");
+        assert!(absent.contains("#65"), "{absent}");
+        assert!(absent.ends_with("nothing was started"), "{absent}");
+    }
+
+    /// **A freeing slot starts the next queued run with no further press**, and
+    /// one at a time.
+    ///
+    /// The headline acceptance criterion, run through the drain that really runs
+    /// it — [`spawn_at`] and [`booked`] stand in as one closure, because what is
+    /// under test is the loop around them and not the spawn, and the stand-in
+    /// opens a real run through the registry so that the occupancy the next turn
+    /// reads is a child rather than a counter this test keeps.
+    ///
+    /// The ceiling is one, so the second entry can only leave the queue after
+    /// the first run's child is gone — which is the difference between a queue
+    /// that drains and a queue that empties itself into the machine.
+    #[test]
+    fn a_freed_slot_starts_the_next_queued_run_and_the_room_is_read_again_after_every_start() {
+        const FOLDER: &str = "/work/one";
+        let directory = TempDir::new().expect("temp dir");
+        let terminals = Terminals::new();
+        let pending = Pending::new();
+        let map = a_map_of(
+            Phase::Wayfinding,
+            vec![
+                a_takeable_research_ticket(65),
+                a_takeable_research_ticket(66),
+            ],
+        );
+
+        pending.joined(65, FOLDER, "claude", RunKind::Research, &map);
+        pending.joined(66, FOLDER, "claude", RunKind::Research, &map);
+
+        let started: std::sync::Mutex<Vec<(u64, RunId)>> = std::sync::Mutex::new(Vec::new());
+        let start = |waiting: &Waiting, _: &Map| {
+            let run = a_live_run_in(&terminals, directory.path());
+            terminals.staked(
+                run,
+                a_stake(waiting.ticket, &waiting.folder, RunKind::Research),
+            );
+            started.lock().expect("a lock").push((waiting.ticket, run));
+            Ok(())
+        };
+
+        drain_the_queue(&terminals, &pending, 1, |_| Ok(map.clone()), start);
+
+        // One start, and the second entry is still waiting rather than refused:
+        // it closed up to the front of the queue and holds no run.
+        assert_eq!(
+            started
+                .lock()
+                .expect("a lock")
+                .iter()
+                .map(|(ticket, _)| *ticket)
+                .collect::<Vec<u64>>(),
+            vec![65]
+        );
+        assert_eq!(pending.waiting_now().len(), 1);
+        assert_eq!(pending.place_of(66, FOLDER), Some(1));
+        assert_eq!(terminals.live_research(), 1);
+
+        // A tick against a full app takes nothing, which is what stops the drain
+        // from being a second admission policy.
+        drain_the_queue(&terminals, &pending, 1, |_| Ok(map.clone()), start);
+        assert_eq!(pending.waiting_now().len(), 1);
+
+        // The slot comes free the way it really does — the run ends — and the
+        // next entry starts with nobody pressing anything.
+        let first = started.lock().expect("a lock")[0].1;
+        terminals.ended(first);
+        assert_eq!(terminals.live_research(), 0);
+
+        drain_the_queue(&terminals, &pending, 1, |_| Ok(map.clone()), start);
+
+        assert_eq!(
+            started
+                .lock()
+                .expect("a lock")
+                .iter()
+                .map(|(ticket, _)| *ticket)
+                .collect::<Vec<u64>>(),
+            vec![65, 66]
+        );
+        // Nothing left waiting and nothing refused: every entry left by the
+        // spawn path rather than by the sentence path.
+        assert!(pending.announced().is_empty());
+
+        terminals.held().shut_down();
+    }
+
+    /// An entry the live reading cannot answer for leaves the queue with a
+    /// sentence and starts nothing — the absence is carried, never defaulted.
+    #[test]
+    fn a_queued_entry_with_no_live_reading_is_dropped_and_says_so_once() {
+        const FOLDER: &str = "/work/two";
+        let terminals = Terminals::new();
+        let pending = Pending::new();
+        let map = a_research_map();
+
+        pending.joined(59, FOLDER, "claude", RunKind::Research, &map);
+
+        let missing = nothing_to_check_against(59, "this window is watching another folder");
+        drain_the_queue(
+            &terminals,
+            &pending,
+            RESEARCH_CEILING,
+            |_| Err(missing.clone()),
+            |_, _| panic!("nothing may be spawned against a reading that was never taken"),
+        );
+
+        let announced = pending.announced();
+        assert_eq!(announced.len(), 1);
+        assert_eq!(announced[0].refused.as_deref(), Some(missing.as_str()));
+        // Carried once and never retried: the queue is empty and a second
+        // emission says nothing.
         assert!(pending.announced().is_empty());
         assert!(pending.waiting_now().is_empty());
     }
