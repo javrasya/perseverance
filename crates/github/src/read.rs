@@ -530,6 +530,60 @@ fn interpret_ticket(body: &str) -> Result<String, ReadFailure> {
     }
 }
 
+/// The document this run's own identity is asked with — see the file for why it
+/// is a second document rather than a field on the first, and why it is a
+/// document at all rather than a `gh api user` run.
+pub const VIEWER_READ_QUERY: &str = include_str!("viewer-read.graphql");
+
+/// Who the token belongs to: the operator's GitHub login.
+///
+/// **Over the socket this app owns, like everything else here.** `docs/adr/0003`
+/// weighed delegating a GitHub request to `gh` and rejected it — the README's
+/// *`perseverance-github` owns every network call* and ADR 0002's argument for
+/// the env split are both false the moment one call is a subprocess — so the
+/// login is asked the way the map and the ticket body are: a document, `send`,
+/// and the token already in hand. That is also why this takes a [`Token`] and
+/// not an [`Environment`](perseverance_env::Environment): the credential the
+/// launch order buys in step three is the credential this spends.
+///
+/// **Beside the token and never inside it.** [`Token`]'s only accessor is
+/// `expose` and it is written down nowhere; a login is an ordinary coordinate
+/// that reaches a prompt, a UI and a transcript, so the two do not travel
+/// together and this returns a plain `String`.
+///
+/// `None` is *this run does not know*, in every way it can fail to: a network
+/// that would not answer, a token GitHub no longer accepts, an answer that did
+/// not name a viewer. Nothing here classifies which, because the only caller
+/// refuses either way — a prompt whose `@operator` is missing is a brief whose
+/// assignee step cannot be decided.
+pub fn read_login(token: &Token) -> Option<String> {
+    let body = serde_json::json!({ "query": VIEWER_READ_QUERY });
+    let answer = send(token, &body.to_string()).ok()?;
+
+    // No taxonomy and no `resets_at`: a rate-limited or refused login is the
+    // same *this run does not know* as a socket that never opened, and the one
+    // caller has one branch for it. The read next door classifies because a
+    // ticket body's refusal becomes a sentence an operator reads; this does not.
+    if !(200..300).contains(&answer.status) {
+        return None;
+    }
+
+    interpret_login(&answer.body)
+}
+
+/// What the viewer document's answer says. Pure, so every branch is reachable
+/// with no token and no network.
+fn interpret_login(body: &str) -> Option<String> {
+    let answered: serde_json::Value = serde_json::from_str(body).ok()?;
+
+    // An `errors` array is not inspected: a refused query leaves `viewer` null
+    // or absent, and the pointer below already answers *nothing named a login*.
+    match answered.pointer("/data/viewer/login") {
+        Some(serde_json::Value::String(login)) if !login.is_empty() => Some(login.clone()),
+        _ => None,
+    }
+}
+
 /// The request body, as JSON. Separated so a test can read the document this
 /// build actually ships rather than a copy of it.
 pub fn request_body(owner: &str, repo: &str, map: Option<u64>) -> String {
@@ -773,6 +827,40 @@ mod tests {
             interpret_ticket(r#"{"data":{"repository":null}}"#),
             Err(ReadFailure::Unreadable(ReadError::NoRepository))
         );
+    }
+
+    /// The viewer document's answers, from text in this file. Every failure is
+    /// the same `None`, because the one caller has one branch for *this run
+    /// does not know*.
+    #[test]
+    fn a_viewer_read_is_the_login_when_github_named_one_and_nothing_when_it_did_not() {
+        assert_eq!(
+            interpret_login(r#"{"data":{"viewer":{"login":"javrasya"}}}"#),
+            Some("javrasya".to_string())
+        );
+
+        // A revoked token: GraphQL answers a refused query with `viewer` null
+        // beside the `errors` array, and null is already *no login*.
+        assert_eq!(
+            interpret_login(r#"{"data":{"viewer":null},"errors":[{"type":"FORBIDDEN"}]}"#),
+            None
+        );
+
+        // An empty string is a login nothing can address a brief to, so it is
+        // not one — the same rule the token read applies to an empty token.
+        assert_eq!(interpret_login(r#"{"data":{"viewer":{"login":""}}}"#), None);
+
+        assert_eq!(interpret_login("<html>not json</html>"), None);
+    }
+
+    /// The document this build ships is the one the login is asked with, read
+    /// from the binary rather than copied into the assertion.
+    #[test]
+    fn the_viewer_document_asks_for_a_login_and_nothing_else() {
+        assert!(VIEWER_READ_QUERY.contains("viewer"));
+        assert!(VIEWER_READ_QUERY.contains("login"));
+        // No variables, so nothing has to be supplied beside it.
+        assert!(!VIEWER_READ_QUERY.contains('$'));
     }
 
     #[test]

@@ -98,45 +98,6 @@ pub fn acquire_token(environment: &Environment) -> TokenOutcome {
     }
 }
 
-/// The operator's GitHub login, asked the same way and in the same place as the
-/// token.
-///
-/// **Beside the token and never inside it.** [`Token`]'s only accessor is
-/// `expose` and it is written down nowhere; a login is an ordinary coordinate
-/// that reaches a prompt, a UI and a transcript, so the two do not travel
-/// together and this returns a plain `String`.
-///
-/// It is asked here rather than added to `map-read.graphql` as a `viewer`
-/// field: that document is what every recorded fixture and every generated
-/// WebView snapshot in this repository is taken through, and widening it would
-/// re-record all of them for a value that does not change while the process
-/// runs. And it is asked at the root, in the harvested environment, for
-/// `acquire_token`'s own reason — whether this operator has signed in, and as
-/// whom, is a fact about the machine rather than about a folder.
-///
-/// `None` is *this run does not know*, in every way it can fail to: no `gh`, no
-/// sign-in, a network that would not answer. Nothing here classifies which,
-/// because the only caller refuses either way — a prompt whose `@operator` is
-/// missing is a brief whose assignee step cannot be decided.
-pub fn acquire_login(environment: &Environment) -> Option<String> {
-    let asked = run_in(
-        environment,
-        "gh",
-        &["api", "user", "--jq", ".login"],
-        &harvest_cwd(),
-        &Bounds::for_this_machine(),
-    );
-
-    let captured = asked.ok()?;
-    if !captured.succeeded() {
-        return None;
-    }
-
-    // Trimmed of the newline `gh` prints after it, exactly as the token is.
-    let login = String::from_utf8_lossy(&captured.stdout).trim().to_string();
-    (!login.is_empty()).then_some(login)
-}
-
 /// What a finished `gh auth token` run means. Pure, so every branch is tested
 /// with no `gh` on either runner — which matters, because a GitHub CI image has
 /// `gh` installed and has never signed in, so exactly one of four branches is

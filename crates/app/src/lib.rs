@@ -28,9 +28,9 @@ use perseverance_env::{
     Tally,
 };
 use perseverance_github::{
-    acquire_login, acquire_token, map_read_query_id, read_maps, read_ticket_body, Ahead, Attention,
-    Fault, FreshRead, Held, Poke, Poker, ReadFailure, RunHandle, Tick, Timings, TokenOutcome,
-    Watched,
+    acquire_token, map_read_query_id, read_login, read_maps, read_ticket_body, Ahead, Attention,
+    Fault, FreshRead, Held, Poke, Poker, ReadFailure, Revalidated, RunHandle, Tick, Timings,
+    TokenOutcome, Watched,
 };
 use perseverance_model::{
     read_response, ChangeLog, ChildKind, Degraded, Frontier, Machine, Map, MapRead, Model,
@@ -1151,9 +1151,17 @@ struct Ambient {
     environment: OnceLock<Environment>,
     token: OnceLock<TokenOutcome>,
     /// Who this operator is on GitHub, asked beside the token and never carried
-    /// with it — see [`perseverance_github::acquire_login`], which argues both
+    /// with it — see [`perseverance_github::read_login`], which argues both
     /// halves of that. `None` is *this run does not know*, and the one thing
     /// that needs it refuses rather than guessing.
+    ///
+    /// **Filled on first need and not at launch.** It is a network round trip
+    /// and the readout is not waiting on it: settling ahead of the `environment`
+    /// event and the `EnvironmentSettled` poke would put up to a whole
+    /// [`Bounds::for_this_machine`] between a launch and its first list, for a
+    /// value only a press reads. The `OnceLock` is still what makes it once per
+    /// launch — the first press to reach [`spawn_at`] seeds it, and every press
+    /// after reads what that one learned.
     login: OnceLock<Option<String>>,
 }
 
@@ -1193,7 +1201,6 @@ fn settle_into(
     ambient: &Ambient,
     take: impl FnOnce() -> HarvestAttempt,
     ask: impl FnOnce(&Environment) -> TokenOutcome,
-    identify: impl FnOnce(&Environment) -> Option<String>,
 ) -> EnvironmentReadout {
     let attempt = take();
     let taken = &attempt.outcome;
@@ -1215,16 +1222,11 @@ fn settle_into(
         Err(_) => TokenOutcome::NotAttempted,
     };
     let token = ambient.token.get_or_init(|| outcome);
-    // Only where there is already a token, and in the same environment: the two
-    // are one sign-in, and asking a second time after `gh` has just said there
-    // is none would be a second refusal saying nothing new. It reaches no
-    // readout — the login is a coordinate a prompt carries, not a state the
-    // WebView draws — so nothing below this line looks at it.
-    let named = match token {
-        TokenOutcome::Acquired(_) => identify(environment),
-        _ => None,
-    };
-    let _ = ambient.login.set(named);
+    // And the login is *not* asked here. It is a second GitHub round trip, it
+    // reaches no readout — a login is a coordinate a prompt carries, not a
+    // state the WebView draws — and the readout below plus the poke that
+    // follows it are what a launch is waiting on. [`Ambient::login`] is filled
+    // on the first press that needs it instead.
 
     let path = environment.path().map(|path| path.into_owned());
     let readout = EnvironmentReadout {
@@ -1293,7 +1295,6 @@ fn start_harvesting(app: AppHandle) -> std::io::Result<()> {
                 app.state::<Ambient>().inner(),
                 perseverance_env::harvest,
                 acquire_token,
-                acquire_login,
             );
             // Nobody listening is not a failure. The readout is in `Ambient`
             // either way and the WebView asks as well as subscribing, because a
@@ -2328,6 +2329,58 @@ fn start_terminals(app: AppHandle) -> std::io::Result<()> {
 /// surfaces, and still lands in the graph and the ledger.
 const CHECKING: Duration = Duration::from_secs(6);
 
+/// Why a revalidation is not the fresh read a press may act on, or `None` when
+/// it is one.
+///
+/// **Three answers, three sentences.** [`Revalidated::is_fresh`] is a single
+/// bit, and this is the one place where the difference between its three false
+/// answers is the whole of what an operator needs: a deadline that ran out, a
+/// pass that never asked anybody anything, and a read that landed and was
+/// refused are three different things to do next. Collapsing them prints *the
+/// check did not land in time* over a revoked token, which is simply false —
+/// and `docs/adr/0009`'s taxonomy exists so that the socket's note and the
+/// graph's `Degraded` condition tell the same story about the same failure.
+fn why_the_check_is_not_a_read(answer: Revalidated) -> Option<String> {
+    match answer {
+        // The one answer a spawn is allowed to stand on.
+        Revalidated::Ticked(Tick::Read(_)) => None,
+        Revalidated::NotInTime => {
+            Some("the check of GitHub did not land in time, so nothing was started".to_string())
+        }
+        // Nothing failed and nothing was asked: no map is being watched, so the
+        // pass had nothing to read. Naming a timeout here would send an
+        // operator to look at their network for a state that is about the app.
+        Revalidated::Ticked(Tick::NotAttempted) => Some(
+            "no map is being watched, so there was nothing to check and nothing was started"
+                .to_string(),
+        ),
+        // The read landed and GitHub refused it. The fault is named, so this
+        // sentence and the condition on the graph are about the same thing.
+        Revalidated::Ticked(Tick::Failed(fault)) => Some(what_github_refused(fault)),
+    }
+}
+
+/// One fault, as the sentence the press gets back.
+///
+/// One exhaustive match, so a fifth [`Fault`] is a compile error here rather
+/// than a refusal that quietly reads as a timeout.
+fn what_github_refused(fault: Fault) -> String {
+    let reason = match fault {
+        Fault::Unreachable => "GitHub could not be reached".to_string(),
+        Fault::AuthFailed => "GitHub would not accept this run's credentials".to_string(),
+        Fault::MapGone => "GitHub no longer has the map this folder is watching".to_string(),
+        // Zero or less is [`Fault::of`]'s *no moment was named*, not *the reset
+        // is now*, so it is reported as a spent budget with no clock on it
+        // rather than as a wait of zero seconds.
+        Fault::RateLimited { seconds_to_reset } if seconds_to_reset > 0 => {
+            format!("GitHub's rate limit is spent for another {seconds_to_reset}s")
+        }
+        Fault::RateLimited { .. } => "GitHub's rate limit is spent".to_string(),
+    };
+
+    format!("{reason}, so nothing was started")
+}
+
 /// What one press came to.
 ///
 /// Two answers and no third — this is a socket return, not a condition on the
@@ -2407,11 +2460,8 @@ fn start_working(
     ticket: u64,
     adapter: String,
 ) -> Started {
-    if !poker.revalidate(CHECKING).is_fresh() {
-        return Started::refused(
-            "the check of GitHub did not land in time, so nothing was started",
-            None,
-        );
+    if let Some(refusal) = why_the_check_is_not_a_read(poker.revalidate(CHECKING)) {
+        return Started::refused(refusal, None);
     }
 
     // The frontier as the one resolver derived it, on the pass that press just
@@ -2514,7 +2564,11 @@ fn spawn_at(
     // The brief's step 1 branches on *already assigned to you*, so a prompt with
     // no operator in it is a brief a session cannot follow. Refused rather than
     // rendered with a hole.
-    let Some(Some(operator)) = ambient.login.get() else {
+    // Asked here, over the socket, with the token above — and memoised, so the
+    // round trip is the first press's alone and every press after is a read of
+    // a `OnceLock`. It is deliberately after the token check: a run with no
+    // token has nothing to ask with.
+    let Some(operator) = ambient.login.get_or_init(|| read_login(token)) else {
         return Err(
             "this run never learned which GitHub account is signed in, and a brief names its \
              operator"
@@ -3293,6 +3347,66 @@ mod tests {
         assert_eq!(unchecked["frontier"], serde_json::Value::Null);
     }
 
+    /// Every answer the awaited revalidation can give, told apart — which is
+    /// the whole point of the gate: one of these four is a spawn and the other
+    /// three are three different things to tell an operator.
+    #[test]
+    fn a_check_that_is_not_a_read_says_which_of_the_three_it_was() {
+        // A read is the only answer that is not a refusal, budget or no budget.
+        assert_eq!(
+            why_the_check_is_not_a_read(Revalidated::Ticked(Tick::Read(None))),
+            None
+        );
+
+        assert_eq!(
+            why_the_check_is_not_a_read(Revalidated::NotInTime).as_deref(),
+            Some("the check of GitHub did not land in time, so nothing was started")
+        );
+
+        // Not a timeout and not a failure: nothing was asked, because nothing
+        // is being watched.
+        assert_eq!(
+            why_the_check_is_not_a_read(Revalidated::Ticked(Tick::NotAttempted)).as_deref(),
+            Some("no map is being watched, so there was nothing to check and nothing was started")
+        );
+
+        // And the read that landed and was refused names the fault, so this
+        // sentence and the `Degraded` condition on the graph agree. A revoked
+        // token used to print the timeout sentence above.
+        assert_eq!(
+            why_the_check_is_not_a_read(Revalidated::Ticked(Tick::Failed(Fault::AuthFailed)))
+                .as_deref(),
+            Some("GitHub would not accept this run's credentials, so nothing was started")
+        );
+    }
+
+    /// Each fault as its own sentence, including the two a rate limit has.
+    #[test]
+    fn each_fault_a_check_can_land_on_is_named_rather_than_collapsed() {
+        assert_eq!(
+            what_github_refused(Fault::Unreachable),
+            "GitHub could not be reached, so nothing was started"
+        );
+        assert_eq!(
+            what_github_refused(Fault::MapGone),
+            "GitHub no longer has the map this folder is watching, so nothing was started"
+        );
+        assert_eq!(
+            what_github_refused(Fault::RateLimited {
+                seconds_to_reset: 42
+            }),
+            "GitHub's rate limit is spent for another 42s, so nothing was started"
+        );
+        // Zero is `Fault::of`'s *no moment was named*, and a wait of zero
+        // seconds is not what an operator should be told to do.
+        assert_eq!(
+            what_github_refused(Fault::RateLimited {
+                seconds_to_reset: 0
+            }),
+            "GitHub's rate limit is spent, so nothing was started"
+        );
+    }
+
     #[test]
     fn each_repo_binding_crosses_as_the_tag_the_launcher_switches_on() {
         let bindings = [
@@ -3717,12 +3831,6 @@ mod tests {
 ";
 
     /// A harvest that settled on `outcome`, or one that has not settled at all.
-    /// The launch step these tests are not about. Every one of them is about
-    /// the harvest or the token, and a login is neither.
-    fn no_login(_: &Environment) -> Option<String> {
-        None
-    }
-
     fn ambient_with(outcome: Option<TokenOutcome>) -> Ambient {
         let ambient = Ambient::harvesting();
         if let Some(outcome) = outcome {
@@ -5296,7 +5404,6 @@ mod tests {
             &ambient,
             || harvest_of(&[("PATH", b"/opt/homebrew/bin:/usr/bin")]),
             |_| a_token(),
-            no_login,
         );
 
         let json = serde_json::to_value(&readout).expect("serialises");
@@ -5342,12 +5449,11 @@ mod tests {
             kind: perseverance_env::classify_stderr(refused.as_bytes()),
         };
 
-        let named = settle_into(&Ambient::harvesting(), || attempt, |_| a_token(), no_login);
+        let named = settle_into(&Ambient::harvesting(), || attempt, |_| a_token());
         let quiet = settle_into(
             &Ambient::harvesting(),
             || harvest_of(&[("PATH", b"C:\\Windows\\system32")]),
             |_| a_token(),
-            no_login,
         );
 
         let json = serde_json::to_value(&named).expect("serialises");
@@ -5458,7 +5564,6 @@ mod tests {
             // `gh` is never looked for, so this is never called. A closure that
             // would panic is how that is asserted.
             |_| panic!("a discarded harvest asked gh for a token"),
-            no_login,
         );
 
         let json = serde_json::to_value(&readout).expect("serialises");
@@ -5498,13 +5603,11 @@ mod tests {
             &Ambient::harvesting(),
             || discarded_after(""),
             |_| TokenOutcome::NotAttempted,
-            no_login,
         );
         let spoken = settle_into(
             &Ambient::harvesting(),
             || discarded_after("profile cannot be loaded. The file is not digitally signed."),
             |_| TokenOutcome::NotAttempted,
-            no_login,
         );
 
         // Both harvests were discarded and both fell back to inheritance, so
@@ -5533,7 +5636,6 @@ mod tests {
                 ])
             },
             |_| a_token(),
-            no_login,
         );
 
         // The environment has exactly one exit from Rust and this is it.
@@ -5562,7 +5664,6 @@ mod tests {
                 *asked_inside.borrow_mut() = environment.path().map(|path| path.into_owned());
                 a_token()
             },
-            no_login,
         );
 
         // The launch order, tested. `gh` is not on a GUI bundle's PATH, so a
@@ -5595,7 +5696,6 @@ mod tests {
                 asks.set(asks.get() + 1);
                 a_token()
             },
-            no_login,
         );
 
         // Asking for the readout is the command's whole body, and it re-reads
@@ -5647,7 +5747,6 @@ mod tests {
             &ambient,
             || perseverance_env::harvest_with(&command, &nonce, &Bounds::for_this_machine()),
             |_| TokenOutcome::NotAttempted,
-            no_login,
         );
 
         let json = serde_json::to_value(&readout).expect("serialises");

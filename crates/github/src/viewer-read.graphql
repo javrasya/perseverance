@@ -1,0 +1,19 @@
+# Who the token belongs to, and nothing else.
+#
+# Asked over this app's own socket rather than by running `gh api user`,
+# because `docs/adr/0003` settled that: this crate makes every GitHub request
+# itself, and the README's "perseverance-github owns every network call" plus
+# ADR 0002's argument for the env split both stop being true the moment one of
+# them is delegated to a subprocess. The token is already in hand by the time
+# this is asked, so the socket costs nothing the subprocess would have saved.
+#
+# Its own document rather than a `viewer` field on `map-read.graphql`, for the
+# reason `ticket-read.graphql` gives: the map read is what every fixture in
+# `crates/model` is recorded from and what the WebView's snapshots are
+# generated through, and widening it would re-record all of them for a value
+# that does not change while the process runs.
+query ViewerRead {
+  viewer {
+    login
+  }
+}

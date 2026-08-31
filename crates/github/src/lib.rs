@@ -51,7 +51,8 @@ pub use poller::{
     start, Ahead, Poke, Poker, Reply, Revalidated, RunHandle, Tick, Timings, Watched,
 };
 pub use read::{
-    interpret_read, map_read_query_id, read_maps, read_ticket_body, request_body, Answer,
-    FreshRead, ReadFailure, GRAPHQL_ENDPOINT, MAP_READ_QUERY, TICKET_READ_QUERY,
+    interpret_read, map_read_query_id, read_login, read_maps, read_ticket_body, request_body,
+    Answer, FreshRead, ReadFailure, GRAPHQL_ENDPOINT, MAP_READ_QUERY, TICKET_READ_QUERY,
+    VIEWER_READ_QUERY,
 };
-pub use token::{acquire_login, acquire_token, interpret, Token, TokenOutcome, TokenRefusal};
+pub use token::{acquire_token, interpret, Token, TokenOutcome, TokenRefusal};
