@@ -86,9 +86,14 @@ and no ranking of the WebView's own gets an opinion about what is takeable. The
 one place the refusal's frontier wins over the snapshot's is the one place it is
 newer — it came from the pass that press bought.
 
-Everything on the rail is a pure function of the crossing —
-`railAt(frontier, selection, adapters, folder, press)` — so the four states, the
-five conditions and the re-arm are asserted as arithmetic in
-`tests/sockets.test.ts`, and only the wiring needs a mounted test. The prompt a
+Everything on the rail is a pure function of the crossing — `railAt(crossing)`,
+over `{ frontier, selection, environment, folder, phase, map, composing, press }`
+— so the four states, the conditions and the re-arm are asserted as arithmetic
+in `tests/sockets.test.ts`, and only the wiring needs a mounted test.
+[Amended by
+[ADR 0024](0024-a-compose-holds-no-claim-so-the-live-run-is-the-claim.md): #66
+widened the crossing with `phase`, `map` and `composing`, and put a second verb
+in the Start Working socket. `composing` is the first field here that reads
+neither the model nor the folder — it reads this window's own live runs.] The prompt a
 spawn answers with is kept per run in `src/terminal/prompts.ts`, because that
 answer is the only time this side is ever told the text.
