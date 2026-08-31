@@ -104,10 +104,20 @@ function mount(node: React.ReactNode): HTMLElement {
   return host;
 }
 
+/*
+ * Keyed to the folder, because `App.tsx` keys it to the folder: the press is a
+ * fact about the folder it was made in, and re-rendering this element at a new
+ * folder has to be a new box rather than the old one holding the old press.
+ * Painting the same folder twice — a poll landing — keeps the instance.
+ */
 function paint(props: Partial<Parameters<typeof IdeaBox>[0]> = {}): HTMLElement {
-  return mount(
-    <IdeaBox folder="/work/repo" environment={readout([CLAUDE])} readouts={[]} {...props} />,
-  );
+  const all = {
+    folder: "/work/repo" as string | null,
+    environment: readout([CLAUDE]),
+    readouts: [] as readonly RunReadout[],
+    ...props,
+  };
+  return mount(<IdeaBox key={all.folder ?? "none"} {...all} />);
 }
 
 const field = (host: HTMLElement): HTMLTextAreaElement => {
@@ -379,6 +389,48 @@ describe("a press", () => {
 
     await act(async () => {
       button(host).click();
+    });
+
+    expect(invoke).toHaveBeenCalledTimes(2);
+  });
+
+  it("leaves the press behind with the folder, so the next folder gets its own", async () => {
+    invoke.mockResolvedValue({
+      kind: "spawned",
+      run: 4,
+      prompt: { text: "chart it", characters: 8, origin: "custom" },
+    } satisfies Started);
+    const host = paint();
+    type(host, "chart it");
+
+    await act(async () => {
+      button(host).click();
+    });
+
+    expect(host.textContent).toContain(ALREADY_CHARTING);
+
+    /* Another read-and-empty folder draws its box at the same position in the
+       list, so an unkeyed element would hand it this press: a folder with
+       nothing running, printing *already running* and refusing the only press
+       that starts a session there. The idea and the pick go with it. */
+    const host2 = paint({
+      folder: "/work/other",
+      environment: readoutFrom(
+        { adapters: [CLAUDE], harvest: { kind: "harvested" } },
+        "/work/other",
+      ),
+      readouts: [running(4)],
+    });
+
+    expect(host2.textContent).not.toContain(ALREADY_CHARTING);
+    expect(field(host2).value).toBe("");
+    expect(host2.textContent).toContain(NO_IDEA);
+
+    type(host2, "chart this one");
+    expect(button(host2).getAttribute("aria-disabled")).toBe("false");
+
+    await act(async () => {
+      button(host2).click();
     });
 
     expect(invoke).toHaveBeenCalledTimes(2);

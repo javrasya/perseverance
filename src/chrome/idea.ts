@@ -51,6 +51,10 @@ export const NO_IDEA = "type what you want charted";
  * map issue. The rail has no equivalent hole because a claimed frontier
  * recesses its socket; nothing recesses this one but this.
  *
+ * The guard is scoped to the folder that is open: `App.tsx` keys the box to it,
+ * so a folder change discards the press along with the idea and the pick, and
+ * this sentence is never said about a folder whose own press was never made.
+ *
  * It says *is running*, so it is true only while one is: the sentence retires
  * the moment the run it speaks for is over. See `boxAt`.
  */

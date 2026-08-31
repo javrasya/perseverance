@@ -53,6 +53,14 @@ interface IdeaBoxProps {
  * sentence goes. Nothing here decides that — the box is handed the runs and
  * `idea.ts` reads them.
  *
+ * **The press belongs to the folder.** The guard above is component state, and
+ * the map list draws this box at one position for every read-and-empty folder,
+ * so `App.tsx` keys the element to the open folder: a folder change discards
+ * the press, the idea and the pick together. Without that key one instance
+ * would carry a press across folders in both directions — the *already running*
+ * sentence into a folder where nothing runs, and, by way of a folder that has
+ * maps, a second pressable box for the folder whose session is still going.
+ *
  * **Nothing is registered afterwards.** A map the run creates carries the map
  * label and arrives on an ordinary poll, at the cadence the ladder decided, so
  * a successful press invokes `start_charting` and nothing else — no refresh, no
