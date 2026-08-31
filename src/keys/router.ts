@@ -58,7 +58,9 @@ export type ActionId =
   | "dial-terminal"
   | "dial-map"
   | "palette"
-  | "palette-away";
+  | "palette-away"
+  | "keys"
+  | "keys-away";
 
 /**
  * What routing a key needs to know, and the whole of it.
@@ -178,6 +180,34 @@ function commanding(os: string): Chord {
 }
 
 /**
+ * The keys page's chord: `⌘/` on macOS, `Alt+/` everywhere else.
+ *
+ * The per-platform shape is not a choice, it is the same constraint the
+ * crossing, the peek and the palette are all built on: `⌘` never reaches the
+ * shell, and off macOS `Alt` is the one modifier no shell reads as a control
+ * character. The whole `Ctrl`+letter row is out for the reason written above
+ * `commanding` — `Ctrl+K` kill-line, `Ctrl+R` reverse-i-search, `Ctrl+G` `BEL`.
+ *
+ * `/` and not another letter, for two reasons. The letters are spent: `E`
+ * crosses, `K` is the palette, and `G` is the peek together with every one of
+ * its rebind alternates (`src/panes/peek.ts`). And `/` is what a keyboard
+ * reaches for when it wants to be told about the keyboard — it is the help key
+ * of nearly every application an operator already has open, via its shifted
+ * form `?`. `?` itself cannot be the binding: unmodified it is a character, and
+ * a character is the agent's, typed into the run underneath. So the modifier
+ * this app already uses carries it, and the chord asks for no `Shift` — `⌘?`
+ * would be a third key in the hand for a page that is only being read.
+ *
+ * Nothing else in the table is punctuation at all: `Ctrl+0` is home, the six
+ * dial keys and `Enter`/`Space` are bare, and every modified row is on a
+ * letter. So this collides with no row in any state where both apply, and
+ * `tests/keys.test.ts` says so row by row rather than taking it on trust.
+ */
+function consulting(os: string): Chord {
+  return isMac(os) ? chord("/", { meta: true }) : chord("/", { alt: true });
+}
+
+/**
  * The table.
  *
  * Order is resolution order, and no two rows share a chord in a state where
@@ -278,6 +308,26 @@ export const ENTRIES: readonly Entry[] = [
        surface, never one row with a state-dependent `dismisses` — the readout
        stays a lookup rather than a computation of its own. */
     dismisses: "the command palette",
+  },
+  {
+    id: "keys",
+    chords: (state) => [consulting(state.os)],
+    verb: "open the keys page: the whole keyboard, at full window, to read",
+    // The palette's predicate, for the palette's reason: `inFront` is one field
+    // with one value, so no surface may be raised over another.
+    when: (state) => state.inFront === null,
+  },
+  {
+    id: "keys-away",
+    chords: () => [chord("Escape")],
+    verb: "put the keys page away",
+    when: (state) => state.inFront === "keys",
+    /* A dismiss row of its own rather than a `dismisses` that reads the state:
+       one row per surface is what keeps `escDestination` a lookup over this
+       table instead of a second computation of what is on screen — and it is
+       this row, not a line in `EscReadout.tsx`, that makes the sentence beside
+       the terminal name the keys page. */
+    dismisses: "the keys page",
   },
 ];
 

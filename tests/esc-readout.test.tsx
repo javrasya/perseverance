@@ -79,6 +79,14 @@ describe("the Esc readout", () => {
       dismiss();
     });
     expect(host.textContent).toContain("reaches the agent CLI");
+
+    /* The second surface, and the actual proof: the keys page landed as one row
+       with `dismisses` on it, and this sentence names it although nothing in
+       `EscReadout.tsx` has been touched since the palette. */
+    await act(async () => {
+      raise("keys");
+    });
+    expect(host.textContent).toContain("dismisses the keys page");
   });
 
   it("is one line that cannot become two", async () => {

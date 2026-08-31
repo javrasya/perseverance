@@ -127,6 +127,7 @@ import { Detail } from "./detail/Detail.jsx";
    boarding pass is, and `Dock.tsx` is one address on screen. */
 import { Dock } from "./detail/Dock.jsx";
 import { effectiveDock } from "./detail/docks";
+import { KeysPage } from "./keys/KeysPage.jsx";
 import { Palette } from "./keys/Palette.jsx";
 import { useDefaultView } from "./views/useDefaultView";
 import styles from "./App.module.css";
@@ -786,6 +787,15 @@ export function App() {
           raise("palette");
           return;
         case "palette-away":
+          away();
+          return;
+        case "keys":
+          raise("keys");
+          return;
+        case "keys-away":
+          /* The same `away` the palette's dismiss row uses, and deliberately not
+             a `dismiss()` of the page's own: giving the keyboard back is one
+             decision, made here, for whichever surface just left. */
           away();
           return;
         case "cross": {
@@ -1457,6 +1467,16 @@ export function App() {
           onDismiss={away}
         />
       ) : null}
+
+      {/*
+        The keys page, from the shell for the reason the palette is: it is an
+        account of *the window's* keyboard, and a surface inside the map column
+        would vanish with a stand-down while one inside the terminal would be
+        clipped to nothing at the `map` detent. It takes no handler at all —
+        nothing on it is pressable, and the one key that acts on it is the
+        router's own dismiss row.
+      */}
+      {inFront === "keys" ? <KeysPage /> : null}
 
       <EnvironmentReadout readout={environment} shown={environmentShown} />
 

@@ -128,6 +128,54 @@ describe("the one chord table", () => {
     }
   });
 
+  it("the keys page is a chord no shell reads, and it is per-platform", () => {
+    expect(route(press("/", { altKey: true }), state())?.id).toBe("keys");
+    expect(route(press("/", { metaKey: true }), state({ os: MAC, summon: chordFor(MAC) }))?.id).toBe(
+      "keys",
+    );
+    const keys = ENTRIES.find((entry) => entry.id === "keys")!;
+    expect(labelFor(keys, state({ os: MAC }))).toBe("⌘/");
+    expect(labelFor(keys, state())).toBe("Alt+/");
+
+    // Bare it is a character the run underneath is owed, and `Ctrl+/` is the
+    // shell's undo — neither is offered to the app.
+    expect(route(press("/"), state())).toBeNull();
+    expect(route(press("/", { ctrlKey: true }), state())).toBeNull();
+  });
+
+  it("no other row answers the keys page's chord, in any state both apply", () => {
+    /* The collision check spelled out rather than argued, as it is for the
+       palette: every other row is asked for this chord in the state that arms
+       it, and the keys page is what answers. */
+    const armed = [
+      state(),
+      state({ os: MAC, summon: chordFor(MAC) }),
+      state({ focusedNode: 4 }),
+      state({ dialFocused: true }),
+      state({ typing: true, monitored: 7 }),
+    ];
+    for (const each of armed) {
+      expect(
+        route(press("/", { metaKey: each.os === MAC, altKey: each.os !== MAC }), each)?.id,
+      ).toBe("keys");
+    }
+  });
+
+  it("Esc puts the keys page away, and only while the keys page is in front", () => {
+    const up = state({ inFront: "keys", typing: true, monitored: 7 });
+    expect(route(press("Escape"), up)?.id).toBe("keys-away");
+    // One dismiss row per surface: with the palette in front it is the palette's
+    // row that answers, and with nothing in front the run keeps its interrupt.
+    expect(route(press("Escape"), state({ inFront: "palette", monitored: 7 }))?.id).toBe(
+      "palette-away",
+    );
+    expect(route(press("Escape"), state({ typing: true, monitored: 7 }))).toBeNull();
+
+    // And neither opening chord applies over a surface already in front.
+    expect(route(press("/", { altKey: true }), up)).toBeNull();
+    expect(route(press("k", { altKey: true }), up)).toBeNull();
+  });
+
   it("Esc dismisses the surface in front, and only while one is", () => {
     const up = state({ inFront: "palette", typing: true, monitored: 7 });
     /* Typing is true because the palette's filter field has the keyboard — and
@@ -190,6 +238,19 @@ describe("the Esc readout is computed from that table", () => {
       "dismisses the command palette",
     );
     // And the run has the key back the moment it is gone.
+    expect(escDestination(state({ monitored: 4 }))).toBe("reaches the agent CLI");
+  });
+
+  it("names the keys page while the keys page is in front", () => {
+    /* The second surface, and the proof the mechanism is a mechanism: the row
+       declares `dismisses` and this sentence changes, with `escDestination`
+       untouched since the palette landed. */
+    expect(escDestination(state({ inFront: "keys", monitored: 4 }))).toBe(
+      "dismisses the keys page",
+    );
+    expect(escDestination(state({ inFront: "palette", monitored: 4 }))).toBe(
+      "dismisses the command palette",
+    );
     expect(escDestination(state({ monitored: 4 }))).toBe("reaches the agent CLI");
   });
 

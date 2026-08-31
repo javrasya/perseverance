@@ -93,11 +93,13 @@ export interface Ui {
 /**
  * The surfaces that can stand in front of the terminal.
  *
- * A union rather than the literal, because the keys page arrives beside the
- * palette and stands in exactly the same place: in front of the terminal,
- * holding the keys, dismissed by `Esc`.
+ * A union rather than the literal, because the keys page stands beside the
+ * palette in exactly the same place: in front of the terminal, holding the
+ * keys, dismissed by `Esc`. Both are here and neither is a flag of its own —
+ * *what is in front* stays one fact with one value, so `Esc` never has two
+ * destinations at once.
  */
-export type Surface = "palette";
+export type Surface = "palette" | "keys";
 
 /**
  * What a peek is on screen, and the whole of what this store keeps about one.
