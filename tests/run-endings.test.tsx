@@ -75,6 +75,11 @@ function readout(ending: RunEnding, code: number | null = null): RunReadout {
     ticket: 49,
     folder: "/work/repo",
     ending,
+    kind: "work",
+    // Stamps rather than ages, which is what lets the words a row prints hold
+    // still while readouts land three times a second.
+    opened: 1_785_888_000,
+    spoke: 1_785_888_240,
   };
 }
 

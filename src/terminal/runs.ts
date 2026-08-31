@@ -142,6 +142,16 @@ export type RunSilence =
  */
 export type RunSignal = "ready" | "busy" | "idle";
 
+/**
+ * What a run is doing, as Rust joined it from the stakes a press wrote.
+ *
+ * - `work` — a ticket somebody is at the keyboard for.
+ * - `research` — a ticket that runs AFK.
+ * - `chart` — charting a repository that has no tickets yet.
+ * - `compose` — writing a spec, which is no ticket at all.
+ */
+export type RunKind = "work" | "research" | "chart" | "compose";
+
 /** One run's readout, as Rust writes it. Counts and flags, never bytes. */
 export interface RunReadout {
   run: number;
@@ -185,6 +195,35 @@ export interface RunReadout {
    * is nothing here to ask whether one produces signals.
    */
   signal: RunSignal | null;
+  /**
+   * What kind of run this is, or `null` for a run the harness was never told
+   * about.
+   *
+   * The same one-bit split of a ticket `attendanceOf` draws in `route.ts`, plus
+   * the two kinds that have no ticket at all: `chart` reaches a repository
+   * before any ticket exists, and `compose` is writing a spec for one.
+   *
+   * `null` rather than a default, because a run nobody staked is still a run and
+   * a rack row that guessed *work* would be naming something nobody said.
+   */
+  kind: RunKind | null;
+  /**
+   * When this run was opened, in seconds since the epoch.
+   *
+   * **A stamp and not an age**, which is what lets a row hold still: readouts
+   * land three times a second, and the age is rounded to a word here with
+   * `relativeAge` off the clock `useNow` ticks. An age Rust recomputed per tick
+   * would make every message differ for a word that never moved.
+   */
+  opened: number;
+  /**
+   * When this run last printed, in seconds since the epoch — which is when it
+   * opened, for a run that has printed nothing at all.
+   *
+   * How long it has been silent is `now - spoke`, rounded the same way, for the
+   * reason `opened` gives.
+   */
+  spoke: number;
 }
 
 /**

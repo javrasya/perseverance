@@ -110,6 +110,10 @@ const staked = (
   ending: over ? "exitedUnresolved" : "live",
   ticket,
   folder,
+  kind: "work",
+  // The rail reads neither stamp; they are here because a readout carries them.
+  opened: 1_785_888_000,
+  spoke: 1_785_888_000,
 });
 
 function crossing(over: Partial<Crossing> = {}): Crossing {

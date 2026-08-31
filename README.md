@@ -15,7 +15,7 @@ A Cargo workspace of seven crates plus a React 19 + TypeScript frontend.
 | `perseverance-model` | Deriving the model from a GitHub graph | Tauri, the network, a browser |
 | `perseverance-github` | Every network call, and the poller | Writing to GitHub |
 | `perseverance-agent` | The agent trait and its adapters; planning | Spawning anything |
-| `perseverance-pty` | PTY and child-process ownership, the per-run ring, the byte channel's contiguity, the deadline a quit gives every run, and refusing a launch whose program is not a native image | Deciding what to run, knowing what a run is working on, or handing over a non-contiguous byte range |
+| `perseverance-pty` | PTY and child-process ownership, the per-run ring, when a run opened and when it last printed, the byte channel's contiguity, the deadline a quit gives every run, and refusing a launch whose program is not a native image | Deciding what to run, knowing what a run is working on, or handing over a non-contiguous byte range |
 | `perseverance-store` | The launcher registry: one SQLite file, its schema, and binding a folder to its repo | The network, Tauri, a child process |
 | `perseverance-env` | The environment harvest: the operator's login shell asked once, in memory, and running one program inside the answer | Owning a terminal |
 | `perseverance-app` | The Tauri window and command surface | Any decision at all |
