@@ -20,6 +20,7 @@ import {
   PLATE_WIDTH,
   VIEW_NAME,
 } from "../src/views/deep-field/deepField";
+import { install } from "../src/keys/router";
 import { FOG_HEADING } from "../src/views/vocabulary";
 import { REPO_ROOT } from "./support/sources";
 
@@ -96,6 +97,8 @@ async function paint(
   }
   const { root, host } = mounted;
 
+  routeKeys(selected, onSelect);
+
   await act(async () => {
     root.render(<DeepField model={model} selected={selected} onSelect={onSelect} />);
   });
@@ -103,7 +106,32 @@ async function paint(
   return host;
 }
 
+/*
+ * The plate's keys, where they live now.
+ *
+ * `Enter` and `Space` are a row of the one chord to action table in
+ * `src/keys/router.ts` — the view binds nothing, exactly as The Route binds
+ * nothing — so a test that synthesises them has to stand up the same router the
+ * app installs. What is spelled below is the app's own dispatch for `open` and
+ * nothing more: the toggle, and the `preventDefault` that keeps `Space` from
+ * scrolling the lane, are the router's.
+ */
+let routing: (() => void) | null = null;
+
+function routeKeys(selected: number | null, onSelect: (number: number | null) => void): void {
+  routing?.();
+  routing = install({
+    press: (id, state) => {
+      if (id !== "open" || state.focusedNode === null) return;
+      onSelect(state.focusedNode === selected ? null : state.focusedNode);
+    },
+    release: () => {},
+  });
+}
+
 function teardown() {
+  routing?.();
+  routing = null;
   widthIs(AMPLE);
   if (mounted === null) return;
   const { root, host } = mounted;
@@ -557,11 +585,18 @@ describe("what a plate carries", () => {
     const host = await paint(modelOf([node(1)]), null, (number) => picked.push(number));
     const plate = view(host).querySelector<HTMLElement>("[data-node='1']");
 
+    expect(plate?.getAttribute("tabindex")).toBe("0");
+    // The hook the router resolves a pickable row by, worn by the plate for the
+    // same reason The Route's rows wear it.
+    expect(plate?.getAttribute("data-node-row")).toBe("1");
+
     for (const key of ["Enter", " "]) {
       const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
       await act(async () => {
         plate?.dispatchEvent(event);
       });
+      // Space would otherwise scroll the lane, which moves the plate being
+      // picked out from under the keyboard that picked it.
       expect(event.defaultPrevented).toBe(true);
     }
     expect(picked).toEqual([1, 1]);
