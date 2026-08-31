@@ -307,3 +307,73 @@ describe("with nothing in front, Esc is not the app's", () => {
     expect(readUi().inFront).toBeNull();
   });
 });
+
+describe("a surface in front is modal", () => {
+  /*
+   * ADR 0025's premise, made structural rather than assumed: while a
+   * dismissible surface stands in front of the terminal, the CLI is not being
+   * typed at. The router decides from the table and not from where the focus
+   * is, so the focus is what has to be honest — otherwise a Tab out of the
+   * palette lands in the route rows, the dial or xterm's helper textarea, and
+   * the operator types at a warm agent CLI while `Esc` is still the surface's
+   * dismiss row. A scrim over the window only stops the mouse; `inert` stops
+   * the keyboard.
+   *
+   * jsdom implements no focus semantics for `inert`, so what is asserted here
+   * is the mark itself, on the element that carries everything behind the
+   * surface — and its absence on the surface, which would otherwise inherit it.
+   */
+  it("takes the shell behind the palette out of the keyboard's reach", async () => {
+    await boot();
+    expect(theTerminal()?.closest("[inert]")).toBeNull();
+
+    await press("palette");
+
+    expect(theTerminal()?.closest("[inert]")).not.toBeNull();
+    expect(thePalette()?.closest("[inert]")).toBeNull();
+
+    await escape();
+
+    expect(theTerminal()?.closest("[inert]")).toBeNull();
+  });
+
+  it("does the same behind the keys page", async () => {
+    await boot();
+
+    await press("keys");
+
+    expect(theTerminal()?.closest("[inert]")).not.toBeNull();
+    expect(theKeysPage()?.closest("[inert]")).toBeNull();
+
+    /* Put away before the next case: what is in front is the store's, and the
+       store outlives a mount. */
+    await escape();
+
+    expect(theTerminal()?.closest("[inert]")).toBeNull();
+  });
+});
+
+describe("home, with nothing in front", () => {
+  /*
+   * `home` puts whatever is in front away before it changes anything, and
+   * putting a surface away hands the keyboard back to the warm run. With no
+   * surface up there is nothing to hand back: a press that asks only for the
+   * default view at the default detent would otherwise drop the operator's next
+   * keystrokes into a running agent CLI they never aimed at — and with no warm
+   * run it would blur whatever held them, the focused route row included. The
+   * row's verb is the view and the detent, and says nothing about the keyboard.
+   */
+  it("goes home and leaves the keyboard where it was", async () => {
+    await boot();
+    /* Focused outside the shell, so the assertion is about the press and not
+       about what `inert` does to a control behind a surface. */
+    const picker = await rail();
+    picker.focus();
+    expect(document.activeElement).toBe(picker);
+
+    await press("home");
+
+    expect(readUi().inFront).toBeNull();
+    expect(document.activeElement).toBe(picker);
+  });
+});

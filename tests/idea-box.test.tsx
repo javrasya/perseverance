@@ -19,6 +19,7 @@ import {
   CHECKING_LABEL,
   NO_ADAPTER,
   NO_FOLDER_OPEN,
+  RUN_IS_UP,
   STILL_READING,
 } from "../src/chrome/sockets";
 import { NO_HARNESS, type Started } from "../src/chrome/started";
@@ -61,6 +62,12 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 const CLAUDE: AdapterReading = {
   id: "claude",
   resolution: { kind: "resolved", name: "claude", program: "/usr/bin/claude", from: "candidate" },
+  probes: [],
+};
+
+const CODEX: AdapterReading = {
+  id: "codex",
+  resolution: { kind: "resolved", name: "codex", program: "/usr/bin/codex", from: "candidate" },
   probes: [],
 };
 
@@ -470,6 +477,41 @@ describe("a press", () => {
     expect(invoke).not.toHaveBeenCalled();
     expect(host.textContent).toContain(NO_HARNESS);
     expect(readUi().monitored).toBeNull();
+  });
+});
+
+describe("the box's picker", () => {
+  /*
+   * The rail's lock, on the box's own picker and read from the same fact.
+   *
+   * The box recesses for the charting press *it* made, which is a different
+   * thing entirely: the run that press started is live on the pane beside a box
+   * still drawing a picker, and the folder can be running for a press this box
+   * never made. Swapping the adapter under a live run would name an agent that
+   * is not the one on the pane — and a changeable select here also takes the
+   * palette's agent row, which reaches for the first picker that can be
+   * changed, so the keyboard would land on it with no reason printed anywhere.
+   */
+  it("prints the adapter with the reason while a run is live in the folder", () => {
+    const live = { ...running(4), folder: "/work/repo" };
+    const host = paint({ environment: readout([CLAUDE, CODEX]), readouts: [live] });
+
+    expect(host.querySelector("select[data-picker]")).toBeNull();
+    const printed = host.querySelector("[data-picker]");
+    expect(printed?.getAttribute("data-picker-fixed")).toBe(RUN_IS_UP);
+    // The reason as text on screen, which is the half a `title` would lose.
+    expect(printed?.textContent).toContain(RUN_IS_UP);
+  });
+
+  /* And the lock is the run's, not the folder's: once it is over the choice is
+     the operator's again. */
+  it("offers the choice back once that run is over", () => {
+    const done = { ...finished(4), folder: "/work/repo" };
+    const host = paint({ environment: readout([CLAUDE, CODEX]), readouts: [done] });
+
+    const select = host.querySelector("select[data-picker]");
+    expect(select).not.toBeNull();
+    expect(select?.hasAttribute("data-picker-fixed")).toBe(false);
   });
 });
 

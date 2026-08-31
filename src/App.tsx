@@ -763,6 +763,15 @@ export function App() {
    * one that knows whether there is a terminal to hand them to.
    */
   const away = () => {
+    /* Nothing in front is nothing to put away, and the guard is the focus half's
+       as much as the dismissal's. `home` calls this before doing its own work,
+       and an unguarded `away` made a layout reset move the keyboard: with a warm
+       run it dropped the keys into a running agent CLI nobody had asked to type
+       at, and with none it blurred whatever held them — the focused route row
+       included, taking the `open` row that reads `focusedNode` down with it.
+       Read from the store rather than from this render's `inFront` so the fact
+       is the one true at the moment of the press. */
+    if (readUi().inFront === null) return;
     dismiss();
     if (monitored !== null) terminals.for(monitored).focus();
     else (document.activeElement as HTMLElement | null)?.blur();
@@ -1091,371 +1100,456 @@ export function App() {
   );
 
   return (
-    <div className={styles.app}>
-      <header className={styles.chrome}>
-        <span className={styles.brand}>perseverance</span>
-        {/* The same `model` the footer readout spells and the Route is drawn
-            from. One value, three renderings, and no way for them to disagree. */}
-        <MapChip model={snapshot.model} />
-        {/*
-          The change ledger, in one fixed slot.
+    <>
+      {/*
+        The shell, and `inert` while a surface stands in front of it.
 
-          It is chrome at a fixed address, shared across every view and every
-          dial position — no view renders it, and its snapshot field sits
-          outside the type a view is handed, so that stays structural rather
-          than a rule to remember. #52 builds the divider's spine and this
-          record's address on it; relocating it from here is moving one element.
+        ADR 0025's premise — a dismissible surface in front of the terminal means
+        the CLI is not being typed at — is a fact about where the keyboard is, and
+        a scrim over the window only stops the mouse. Without this the operator
+        could Tab out of the palette into the route rows, the dial or xterm's
+        helper textarea and type at a warm agent CLI while `Esc` was still the
+        surface's dismiss row: the interrupt key taken from a run being typed at,
+        which is the one failure this table exists to prevent. The router decides
+        from the table rather than from where the focus happens to be, so the
+        focus is what has to be made honest, and `inert` is what makes it so.
 
-          `select` is passed straight through, which is what gives a
-          reference its set-and-never-toggle behaviour for free: the Route's own
-          rows toggle, and a record of things already true has no state to put
-          back.
-        */}
-        <Ledger
-          ledger={snapshot.ledger}
-          readThrough={readThrough}
-          onRead={setReadThrough}
-          onSelectNode={select}
-        />
-        {/*
-          The view switcher, on the spine and never inside a pane.
+        The two surfaces below are drawn outside this element rather than inside
+        it, because `inert` is inherited by every descendant — a palette within
+        the shell would go inert with it the moment it was raised. Both are
+        `position: fixed`, so standing outside the shell's flex column costs them
+        nothing.
+      */}
+      <div className={styles.app} inert={inFront !== null}>
+        <header className={styles.chrome}>
+          <span className={styles.brand}>perseverance</span>
+          {/* The same `model` the footer readout spells and the Route is drawn
+              from. One value, three renderings, and no way for them to disagree. */}
+          <MapChip model={snapshot.model} />
+          {/*
+            The change ledger, in one fixed slot.
 
-          It survives every position of the dial because it is drawn here, above
-          the body the dial divides — and every registered view has a cap here at
-          every detent, including the ones that cannot be drawn at this width.
-          Those say so on the cap and are shaped differently, and pressing one
-          both widens the dial to where it fits and opens it. What may never
-          happen is the other order of events: this app does not swap a view for
-          one that happens to fit.
-        */}
-        <ViewSwitcher view={view} mapWidth={mapWidth} onChoose={onChooseView} />
-        <ThemeSwitch preference={preference} onChoose={chooseTheme} />
-      </header>
+            It is chrome at a fixed address, shared across every view and every
+            dial position — no view renders it, and its snapshot field sits
+            outside the type a view is handed, so that stays structural rather
+            than a rule to remember. #52 builds the divider's spine and this
+            record's address on it; relocating it from here is moving one element.
 
-      <div className={styles.body} ref={bodyRef}>
-        {/*
-          Both at once, and neither is a mode. A map being open is not a reason
-          to take the launcher off the screen: the map list is the only way to
-          open a different map, and the launcher is the only way to reach a
-          different folder — so a shell that swapped the launcher out for the
-          view would put open, locate, forget, *open a new folder* and every
-          other map in this repository somewhere unreachable for the life of
-          the process, and the view has no way back to any of them.
-
-          How much window each of the two is worth is the dial's answer, and it
-          is a share rather than a mode: the launcher and the view are columns of
-          the map side, shed by measured width alone, and everything shed comes
-          back by moving the one control that is on screen at every position.
-        */}
-        {/*
-          The map side: everything the dial's position is a share *of*. Its
-          columns are shed by measured width and by nothing else — never by
-          which map is open and never by which view is up — and every shed
-          column comes back by moving the dial, which is on screen at every
-          position.
-        */}
-        <div
-          className={styles.mapSide}
-          style={{
-            flexBasis: `${clamp(position) * 100}%`,
-            /*
-              The dial's own column, kept out of the map side's share — the same
-              correction `sides()` makes to the number it prints, made to the box
-              that number is about. At the `map` detent a basis of 100% puts the
-              seam and the terminal's padding past the body's clip edge, and the
-              column that goes over it is the dial's: the one control that brings
-              back everything the position shed. Measured rather than named,
-              because `--c-dial-reach` is declared on the dial and this box is
-              not one of its descendants.
-            */
-            maxWidth: `calc(100% - ${dialReach}px)`,
-          }}
-        >
-        {/*
-          The peek promotes *this* box — the same element, the same children,
-          the same view instance and the same model — over the terminal. There
-          is no second rendering of the map anywhere in this file, because two
-          renderings are two things that can disagree, and the one an operator
-          glances at would be the one nobody is maintaining.
-        */}
-        <div
-          className={peeking.held === null ? styles.inside : `${styles.inside} ${styles.peeking}`}
-          data-peeking={peeking.held === null ? "false" : "true"}
-          style={
-            peeking.held === null
-              ? undefined
-              : { right: `${dialReach}px`, bottom: `${clearance(promptShown)}px` }
-          }
-        >
-        {columns.includes("launcher") ? (
-        <DropRegion onFoldersDropped={onFoldersDropped}>
-          <FolderList
-            outcome={outcome}
-            now={now}
-            selectedId={selectedId}
-            note={note}
-            onOpen={onOpen}
-            onLocate={onLocate}
-            onForget={onForget}
-            onOpenNew={onOpenNew}
-            onOverride={onOverride}
-            onAskAgain={onAskAgain}
+            `select` is passed straight through, which is what gives a
+            reference its set-and-never-toggle behaviour for free: the Route's own
+            rows toggle, and a record of things already true has no state to put
+            back.
+          */}
+          <Ledger
+            ledger={snapshot.ledger}
+            readThrough={readThrough}
+            onRead={setReadThrough}
+            onSelectNode={select}
           />
           {/*
-            What the folder you picked resolves under, beside the folder rather
-            than in the footer: the app-global readout in the footer answers a
-            different question — what *this process* is running in — and the
-            whole of #45 is that the two can differ.
+            The view switcher, on the spine and never inside a pane.
+
+            It survives every position of the dial because it is drawn here, above
+            the body the dial divides — and every registered view has a cap here at
+            every detent, including the ones that cannot be drawn at this width.
+            Those say so on the cap and are shaped differently, and pressing one
+            both widens the dial to where it fits and opens it. What may never
+            happen is the other order of events: this app does not swap a view for
+            one that happens to fit.
           */}
-          {folderEnvironment === null ? null : (
-            <FolderPanel
-              readout={folderEnvironment}
-              shown={folderShown}
-              onToggle={() => setFolderShown((open) => !open)}
+          <ViewSwitcher view={view} mapWidth={mapWidth} onChoose={onChooseView} />
+          <ThemeSwitch preference={preference} onChoose={chooseTheme} />
+        </header>
+
+        <div className={styles.body} ref={bodyRef}>
+          {/*
+            Both at once, and neither is a mode. A map being open is not a reason
+            to take the launcher off the screen: the map list is the only way to
+            open a different map, and the launcher is the only way to reach a
+            different folder — so a shell that swapped the launcher out for the
+            view would put open, locate, forget, *open a new folder* and every
+            other map in this repository somewhere unreachable for the life of
+            the process, and the view has no way back to any of them.
+
+            How much window each of the two is worth is the dial's answer, and it
+            is a share rather than a mode: the launcher and the view are columns of
+            the map side, shed by measured width alone, and everything shed comes
+            back by moving the one control that is on screen at every position.
+          */}
+          {/*
+            The map side: everything the dial's position is a share *of*. Its
+            columns are shed by measured width and by nothing else — never by
+            which map is open and never by which view is up — and every shed
+            column comes back by moving the dial, which is on screen at every
+            position.
+          */}
+          <div
+            className={styles.mapSide}
+            style={{
+              flexBasis: `${clamp(position) * 100}%`,
+              /*
+                The dial's own column, kept out of the map side's share — the same
+                correction `sides()` makes to the number it prints, made to the box
+                that number is about. At the `map` detent a basis of 100% puts the
+                seam and the terminal's padding past the body's clip edge, and the
+                column that goes over it is the dial's: the one control that brings
+                back everything the position shed. Measured rather than named,
+                because `--c-dial-reach` is declared on the dial and this box is
+                not one of its descendants.
+              */
+              maxWidth: `calc(100% - ${dialReach}px)`,
+            }}
+          >
+          {/*
+            The peek promotes *this* box — the same element, the same children,
+            the same view instance and the same model — over the terminal. There
+            is no second rendering of the map anywhere in this file, because two
+            renderings are two things that can disagree, and the one an operator
+            glances at would be the one nobody is maintaining.
+          */}
+          <div
+            className={peeking.held === null ? styles.inside : `${styles.inside} ${styles.peeking}`}
+            data-peeking={peeking.held === null ? "false" : "true"}
+            style={
+              peeking.held === null
+                ? undefined
+                : { right: `${dialReach}px`, bottom: `${clearance(promptShown)}px` }
+            }
+          >
+          {columns.includes("launcher") ? (
+          <DropRegion onFoldersDropped={onFoldersDropped}>
+            <FolderList
+              outcome={outcome}
+              now={now}
+              selectedId={selectedId}
+              note={note}
+              onOpen={onOpen}
+              onLocate={onLocate}
+              onForget={onForget}
+              onOpenNew={onOpenNew}
+              onOverride={onOverride}
               onAskAgain={onAskAgain}
             />
-          )}
-          {/*
-            The folder is what you pick; the maps in it are what you find once
-            you are inside. So the list appears under the folder you picked
-            rather than replacing the launcher — there is no mode to be in.
-          */}
-          {selectedId === null ? null : (
-            <MapList
-              view={maps}
-              selected={openMap}
-              onOpen={onOpenMap}
-              /*
-                The idea box, handed to the list rather than placed beside it:
-                it belongs under the *no map in this repository* copy, which is
-                the one sentence on screen that already says a charting session
-                leaving no map behind is that session working correctly.
-              */
-              ideaBox={
-                /* The same readouts the pane is given: the box recesses
-                   while the session it started is running and re-arms once
-                   that run is over, and these are how it learns which. */
-                <IdeaBox
-                  /* Keyed to the folder, because the single-press guard the box
-                     holds is a fact about *this* folder and nothing takes the
-                     box away between two mapless folders: the list draws it at
-                     one position, so without a key one React instance would
-                     carry a press made in one folder into the next — printing
-                     *already running* where nothing runs, and losing the guard
-                     on the folder that does have a session the moment a folder
-                     with maps is visited in between. A folder change discards
-                     the press, the idea and the pick together. */
-                  key={selectedPath ?? "none"}
-                  folder={selectedPath ?? null}
-                  environment={folderEnvironment}
-                  readouts={runs}
-                />
-              }
-            />
-          )}
-        </DropRegion>
-        ) : null}
-
-        {!mapSideDraws ? null : (
-          <div className={viewColumn ? styles.view : `${styles.view} ${styles.narrow}`}>
             {/*
-              Which run's bytes are on the pane, said on the map side too. A map
-              drawn while a run is going has the run's presence on it, so the
-              picture and the bar under the terminal cannot disagree about which
-              run this window is watching. Nothing about *running* is derived
-              here — the model has no such bit — it is read off what is bound.
+              What the folder you picked resolves under, beside the folder rather
+              than in the footer: the app-global readout in the footer answers a
+              different question — what *this process* is running in — and the
+              whole of #45 is that the two can differ.
             */}
-            {monitored === null ? null : (
-              <p className={styles.run}>
-                run #{monitored} is on the pane
-                {monitoredRun?.over === true ? ", and it has ended" : ""}
-              </p>
+            {folderEnvironment === null ? null : (
+              <FolderPanel
+                readout={folderEnvironment}
+                shown={folderShown}
+                onToggle={() => setFolderShown((open) => !open)}
+                onAskAgain={onAskAgain}
+              />
             )}
-            {standing !== null ? (
-              <StandDown
-                standing={standing}
-                model={snapshot.model}
-                onWiden={(detent) => moveTo(fractionOf(detent))}
-                onOpen={onChooseView}
-                onTerminal={() => moveTo(fractionOf("terminal"))}
+            {/*
+              The folder is what you pick; the maps in it are what you find once
+              you are inside. So the list appears under the folder you picked
+              rather than replacing the launcher — there is no mode to be in.
+            */}
+            {selectedId === null ? null : (
+              <MapList
+                view={maps}
+                selected={openMap}
+                onOpen={onOpenMap}
+                /*
+                  The idea box, handed to the list rather than placed beside it:
+                  it belongs under the *no map in this repository* copy, which is
+                  the one sentence on screen that already says a charting session
+                  leaving no map behind is that session working correctly.
+                */
+                ideaBox={
+                  /* The same readouts the pane is given: the box recesses
+                     while the session it started is running and re-arms once
+                     that run is over, and these are how it learns which. */
+                  <IdeaBox
+                    /* Keyed to the folder, because the single-press guard the box
+                       holds is a fact about *this* folder and nothing takes the
+                       box away between two mapless folders: the list draws it at
+                       one position, so without a key one React instance would
+                       carry a press made in one folder into the next — printing
+                       *already running* where nothing runs, and losing the guard
+                       on the folder that does have a session the moment a folder
+                       with maps is visited in between. A folder change discards
+                       the press, the idea and the pick together. */
+                    key={selectedPath ?? "none"}
+                    folder={selectedPath ?? null}
+                    environment={folderEnvironment}
+                    readouts={runs}
+                  />
+                }
               />
-            ) : view === "route" ? (
-              <Route
-                model={snapshot.model}
-                selected={selectedNode}
-                onSelect={select}
-              />
-            ) : null}
-          </div>
-        )}
+            )}
+          </DropRegion>
+          ) : null}
 
-        {/*
-          The crossing, between what the map says and the run that answers it.
-
-          Chrome at a fixed address, exactly like the ledger and for the same
-          reason: the four verbs are true of every view, and no view is handed
-          the folder's environment or a command to invoke. The rail reads the
-          frontier off `model.map` — the one resolver's answer — and never off a
-          row of whatever is on screen beside it.
-
-          Two tickets cross, because two of the verbs are armed on different
-          nodes: Start Working on the frontier, Resume on the selection, and only
-          while the selection reads `claimed`. The state crosses rather than a
-          verdict — the four states are derived once, in `derive.rs`, and the
-          rail is not entitled to a softer opinion about what a claim is. The
-          kind crosses beside it because the derivation reads state and never
-          kind: the destination and the unclassified children are selectable
-          rows too, and an assigned one of either reads `claimed`. The label that
-          binds a ticket to another machine crosses for the same reason and in
-          the same breath — it is invisible to the state, and the frontier's
-          resolver asks it only for the node it designates.
-        */}
-        {columns.includes("rail") ? (
-          <div className={styles.rail}>
-            <Sockets
-            frontier={snapshot.model.map?.frontier ?? null}
-            selection={selectedNode}
-            selectionReads={selectedChild?.state ?? null}
-            selectionIsTicket={selectedChild?.kind.kind === "ticket"}
-            selectionBoundElsewhere={selectedChild?.boundElsewhere ?? false}
-            environment={folderEnvironment}
-            folder={selectedPath ?? null}
-            phase={snapshot.model.map?.phase ?? null}
-            map={snapshot.model.map?.number ?? null}
-            /* Which runs are still going, off the same readouts the pane
-               draws — so the rail and the terminal beside it cannot disagree
-               about whether the compose an operator is watching has ended. */
-            liveRuns={runs.filter((readout) => !readout.over).map((readout) => readout.run)}
-            runs={runs}
-            onSelect={select}
-            />
-          </div>
-        ) : null}
-        </div>
-        </div>
-
-        {/*
-          The terminal, on the far side of the dial.
-
-          Mounted at every position, including `map`, where it is worth no pixels
-          at all: a dial move collapses this box by width and never unmounts,
-          remounts or reparents the node inside it. A terminal taken out of the
-          tree is a screen the harness has no way to put back, so *collapsed* and
-          *gone* have to be different things.
-
-          It is outside `DropRegion` and outside the view slot because it belongs
-          to neither: a run is not a folder and it is not a rendering of the map,
-          and putting it inside either would make it disappear whenever that one
-          did.
-        */}
-        <Dial
-          position={position}
-          width={bodyWidth}
-          peeking={peeking.held !== null}
-          elementRef={dialRef}
-          onMove={moveTo}
-        />
-
-        <div className={styles.terminal}>
-          {/*
-            The run side, as a column: the run bar's dock, the pane, the rack's.
-            The two docks are strips in the flow rather than anything positioned,
-            because this box is deliberately not a containing block — and they
-            are the reason the pane now sits in a slot of its own rather than
-            directly in this box.
-
-            Both are the panel's *addresses* and neither is the surface around
-            them. The run bar's own contents are the pane's chrome strip, and the
-            region this rack dock sits in is #56's to build; what lands here now
-            is one dock apiece and the sentence a dock without the pass prints.
-          */}
-          <div className={styles.runSide}>
-            <Dock
-              dock="runBar"
-              occupant={occupant}
-              chosen={chosenDock}
-              hostRef={runBarDock}
-              onChoose={chooseDock}
-            />
-            <div className={styles.paneSlot}>
-              <Pane terminals={terminals} readouts={runs} />
+          {!mapSideDraws ? null : (
+            <div className={viewColumn ? styles.view : `${styles.view} ${styles.narrow}`}>
+              {/*
+                Which run's bytes are on the pane, said on the map side too. A map
+                drawn while a run is going has the run's presence on it, so the
+                picture and the bar under the terminal cannot disagree about which
+                run this window is watching. Nothing about *running* is derived
+                here — the model has no such bit — it is read off what is bound.
+              */}
+              {monitored === null ? null : (
+                <p className={styles.run}>
+                  run #{monitored} is on the pane
+                  {monitoredRun?.over === true ? ", and it has ended" : ""}
+                </p>
+              )}
+              {standing !== null ? (
+                <StandDown
+                  standing={standing}
+                  model={snapshot.model}
+                  onWiden={(detent) => moveTo(fractionOf(detent))}
+                  onOpen={onChooseView}
+                  onTerminal={() => moveTo(fractionOf("terminal"))}
+                />
+              ) : view === "route" ? (
+                <Route
+                  model={snapshot.model}
+                  selected={selectedNode}
+                  onSelect={select}
+                />
+              ) : null}
             </div>
-            {/* #56 builds the rack around this. */}
-            <Dock
-              dock="rack"
-              occupant={occupant}
-              chosen={chosenDock}
-              hostRef={rackDock}
-              onChoose={chooseDock}
-            />
+          )}
+
+          {/*
+            The crossing, between what the map says and the run that answers it.
+
+            Chrome at a fixed address, exactly like the ledger and for the same
+            reason: the four verbs are true of every view, and no view is handed
+            the folder's environment or a command to invoke. The rail reads the
+            frontier off `model.map` — the one resolver's answer — and never off a
+            row of whatever is on screen beside it.
+
+            Two tickets cross, because two of the verbs are armed on different
+            nodes: Start Working on the frontier, Resume on the selection, and only
+            while the selection reads `claimed`. The state crosses rather than a
+            verdict — the four states are derived once, in `derive.rs`, and the
+            rail is not entitled to a softer opinion about what a claim is. The
+            kind crosses beside it because the derivation reads state and never
+            kind: the destination and the unclassified children are selectable
+            rows too, and an assigned one of either reads `claimed`. The label that
+            binds a ticket to another machine crosses for the same reason and in
+            the same breath — it is invisible to the state, and the frontier's
+            resolver asks it only for the node it designates.
+          */}
+          {columns.includes("rail") ? (
+            <div className={styles.rail}>
+              <Sockets
+              frontier={snapshot.model.map?.frontier ?? null}
+              selection={selectedNode}
+              selectionReads={selectedChild?.state ?? null}
+              selectionIsTicket={selectedChild?.kind.kind === "ticket"}
+              selectionBoundElsewhere={selectedChild?.boundElsewhere ?? false}
+              environment={folderEnvironment}
+              folder={selectedPath ?? null}
+              phase={snapshot.model.map?.phase ?? null}
+              map={snapshot.model.map?.number ?? null}
+              /* Which runs are still going, off the same readouts the pane
+                 draws — so the rail and the terminal beside it cannot disagree
+                 about whether the compose an operator is watching has ended. */
+              liveRuns={runs.filter((readout) => !readout.over).map((readout) => readout.run)}
+              runs={runs}
+              onSelect={select}
+              />
+            </div>
+          ) : null}
           </div>
+          </div>
+
+          {/*
+            The terminal, on the far side of the dial.
+
+            Mounted at every position, including `map`, where it is worth no pixels
+            at all: a dial move collapses this box by width and never unmounts,
+            remounts or reparents the node inside it. A terminal taken out of the
+            tree is a screen the harness has no way to put back, so *collapsed* and
+            *gone* have to be different things.
+
+            It is outside `DropRegion` and outside the view slot because it belongs
+            to neither: a run is not a folder and it is not a rendering of the map,
+            and putting it inside either would make it disappear whenever that one
+            did.
+          */}
+          <Dial
+            position={position}
+            width={bodyWidth}
+            peeking={peeking.held !== null}
+            elementRef={dialRef}
+            onMove={moveTo}
+          />
+
+          <div className={styles.terminal}>
+            {/*
+              The run side, as a column: the run bar's dock, the pane, the rack's.
+              The two docks are strips in the flow rather than anything positioned,
+              because this box is deliberately not a containing block — and they
+              are the reason the pane now sits in a slot of its own rather than
+              directly in this box.
+
+              Both are the panel's *addresses* and neither is the surface around
+              them. The run bar's own contents are the pane's chrome strip, and the
+              region this rack dock sits in is #56's to build; what lands here now
+              is one dock apiece and the sentence a dock without the pass prints.
+            */}
+            <div className={styles.runSide}>
+              <Dock
+                dock="runBar"
+                occupant={occupant}
+                chosen={chosenDock}
+                hostRef={runBarDock}
+                onChoose={chooseDock}
+              />
+              <div className={styles.paneSlot}>
+                <Pane terminals={terminals} readouts={runs} />
+              </div>
+              {/* #56 builds the rack around this. */}
+              <Dock
+                dock="rack"
+                occupant={occupant}
+                chosen={chosenDock}
+                hostRef={rackDock}
+                onChoose={chooseDock}
+              />
+            </div>
+          </div>
+
+          {/*
+            The stud hangs off *the body* rather than off the terminal, and that is
+            the whole of it being drawn at all.
+
+            It may not sit in any flow — a strip that took width would narrow the
+            pane, and a terminal narrowed by a piece of chrome is a live agent
+            reflowed by a decoration — so it has to be absolutely positioned
+            against something. The terminal is the wrong something: at the `map`
+            detent the terminal's box is worth no pixels and clips its own
+            overflow, so a stud hung there is clipped to nothing at exactly the
+            position where the refusal it prints is the only feedback there is.
+            The body is the box the dial cannot collapse, and it is already the
+            peek overlay's containing block, so the stud and the overlay are
+            measured against the same edges.
+          */}
+          <PeekStud
+            label={peek.label}
+            chord={peek.chord}
+            os={peek.os}
+            peeking={peeking}
+            onHold={peek.hold}
+            onLetGo={peek.letGo}
+            onRebind={peek.rebind}
+          />
         </div>
 
         {/*
-          The stud hangs off *the body* rather than off the terminal, and that is
-          the whole of it being drawn at all.
+          The node panel, at one fixed address on the spine.
 
-          It may not sit in any flow — a strip that took width would narrow the
-          pane, and a terminal narrowed by a piece of chrome is a live agent
-          reflowed by a decoration — so it has to be absolutely positioned
-          against something. The terminal is the wrong something: at the `map`
-          detent the terminal's box is worth no pixels and clips its own
-          overflow, so a stud hung there is clipped to nothing at exactly the
-          position where the refusal it prints is the only feedback there is.
-          The body is the box the dial cannot collapse, and it is already the
-          peek overlay's containing block, so the stud and the overlay are
-          measured against the same edges.
+          Chrome, exactly like the ledger and the rail: it describes the selection
+          the UI store holds, no view is handed the job, and it survives every
+          dial position because it is drawn outside the body the dial divides.
+          Below the body rather than inside it, so it takes no share of the split
+          — the dial's arithmetic is entirely about widths, and a column added to
+          the map side would shed the view at widths the stand-down still calls
+          fine.
+
+          It is passed the same `selectedNode` the Route, the rail and the ledger
+          are, and it writes nothing: selection lives in the store, and a panel
+          with an opinion of its own about what is selected is a second answer to
+          a question that has one.
+
+          What the panel says is nine fields and five never-empty states, with the
+          markdown rendered and sanitised on this side. Where it *is* is this
+          dock's answer and the two on the run side: the panel is one element that
+          moves between the three by `reparent`, never unmounted, so it arrives at
+          each one holding the scroll offset it left the last one with.
+
+          This dock is the one no dial position can take away, which is why it is
+          also the one a collapsed dock's pass is borrowed onto.
         */}
-        <PeekStud
-          label={peek.label}
-          chord={peek.chord}
-          os={peek.os}
-          peeking={peeking}
-          onHold={peek.hold}
-          onLetGo={peek.letGo}
-          onRebind={peek.rebind}
+        <Dock
+          dock="spine"
+          occupant={occupant}
+          chosen={chosenDock}
+          hostRef={spineDock}
+          onChoose={chooseDock}
         />
+        {/*
+          The panel, rendered once into a target that never changes. The portal is
+          written here — beside the dock it starts at — but where it appears on
+          screen is not this line's doing and never can be: the pass is moved by
+          the effect above, and React only ever sees the one host.
+        */}
+        {createPortal(<Detail model={snapshot.model} selection={selectedNode} />, pass)}
+
+        <EnvironmentReadout readout={environment} shown={environmentShown} />
+
+        <footer className={styles.readout}>
+          <span>schema v{snapshot.schemaVersion}</span>
+          {/*
+            The derived model, as one line. A diagnostic beside the view rather
+            than a substitute for it: these are the numbers the view is built
+            from, spelled, so a view that listed the wrong thing has something on
+            screen to disagree with.
+          */}
+          <span>{describeModel(snapshot.model)}</span>
+          {/*
+            The ledger is not spelled here. It has a slot of its own in the
+            chrome above, and a second rendering of its numeral in the footer
+            would be a second account of how much is unread — the one thing a
+            single read marker exists to prevent.
+          */}
+          {/*
+            And how old that model is, beside it rather than anywhere else. The
+            derivation is the same whether the poll landed or failed — a failed
+            poll re-emits the last model with aged provenance rather than going
+            silent — so the model alone cannot tell you which of the two you are
+            looking at. Without this the two states are the same pixels.
+          */}
+          <CacheStamp what="model" provenance={snapshot.provenance} now={now} />
+          {/*
+            How old what you are reading is, on chrome that survives every state.
+            It is here rather than beside the map list because it may never be a
+            casualty of what else is on screen — the moment it is conditional is
+            the moment a stale screen can look fresh.
+
+            A second stamp rather than a merged one: the map list and the model
+            are read by different commands and go stale independently, and one
+            stamp covering both would have to report the fresher or the staler,
+            either of which is a lie about the other.
+          */}
+          {/*
+            And whether the poller is holding itself back to leave the rate limit
+            alone, which is a fact about this stamp's subject and no other: the
+            model has no poller behind it, so it is passed nothing to say.
+
+            This is also where a read that did not land says what stopped it. The
+            footer is the app's readout — the spine foot #52 will build is a
+            different surface, and this is the one that exists — so the condition
+            lands on chrome that survives every state rather than in a modal or a
+            toast. There is no branch anywhere below that removes a stamp: a
+            screen with no stamp on it is a screen whose age nobody can read, and
+            that is the state a failed poll is most likely to be in.
+          */}
+          <CacheStamp
+            what="maps"
+            provenance={maps.provenance}
+            now={now}
+            yielding={maps.yieldingToRateLimit}
+          />
+          {/* One more field of the readout that already exists, rather than a
+              second place to look for machine facts. */}
+          <EnvironmentSummary
+            readout={environment}
+            shown={environmentShown}
+            onToggle={() => setEnvironmentShown((open) => !open)}
+          />
+        </footer>
       </div>
-
-      {/*
-        The node panel, at one fixed address on the spine.
-
-        Chrome, exactly like the ledger and the rail: it describes the selection
-        the UI store holds, no view is handed the job, and it survives every
-        dial position because it is drawn outside the body the dial divides.
-        Below the body rather than inside it, so it takes no share of the split
-        — the dial's arithmetic is entirely about widths, and a column added to
-        the map side would shed the view at widths the stand-down still calls
-        fine.
-
-        It is passed the same `selectedNode` the Route, the rail and the ledger
-        are, and it writes nothing: selection lives in the store, and a panel
-        with an opinion of its own about what is selected is a second answer to
-        a question that has one.
-
-        What the panel says is nine fields and five never-empty states, with the
-        markdown rendered and sanitised on this side. Where it *is* is this
-        dock's answer and the two on the run side: the panel is one element that
-        moves between the three by `reparent`, never unmounted, so it arrives at
-        each one holding the scroll offset it left the last one with.
-
-        This dock is the one no dial position can take away, which is why it is
-        also the one a collapsed dock's pass is borrowed onto.
-      */}
-      <Dock
-        dock="spine"
-        occupant={occupant}
-        chosen={chosenDock}
-        hostRef={spineDock}
-        onChoose={chooseDock}
-      />
-      {/*
-        The panel, rendered once into a target that never changes. The portal is
-        written here — beside the dock it starts at — but where it appears on
-        screen is not this line's doing and never can be: the pass is moved by
-        the effect above, and React only ever sees the one host.
-      */}
-      {createPortal(<Detail model={snapshot.model} selection={selectedNode} />, pass)}
 
       {/*
         The palette, over the body and under nothing.
@@ -1493,70 +1587,6 @@ export function App() {
         router's own dismiss row.
       */}
       {inFront === "keys" ? <KeysPage /> : null}
-
-      <EnvironmentReadout readout={environment} shown={environmentShown} />
-
-      <footer className={styles.readout}>
-        <span>schema v{snapshot.schemaVersion}</span>
-        {/*
-          The derived model, as one line. A diagnostic beside the view rather
-          than a substitute for it: these are the numbers the view is built
-          from, spelled, so a view that listed the wrong thing has something on
-          screen to disagree with.
-        */}
-        <span>{describeModel(snapshot.model)}</span>
-        {/*
-          The ledger is not spelled here. It has a slot of its own in the
-          chrome above, and a second rendering of its numeral in the footer
-          would be a second account of how much is unread — the one thing a
-          single read marker exists to prevent.
-        */}
-        {/*
-          And how old that model is, beside it rather than anywhere else. The
-          derivation is the same whether the poll landed or failed — a failed
-          poll re-emits the last model with aged provenance rather than going
-          silent — so the model alone cannot tell you which of the two you are
-          looking at. Without this the two states are the same pixels.
-        */}
-        <CacheStamp what="model" provenance={snapshot.provenance} now={now} />
-        {/*
-          How old what you are reading is, on chrome that survives every state.
-          It is here rather than beside the map list because it may never be a
-          casualty of what else is on screen — the moment it is conditional is
-          the moment a stale screen can look fresh.
-
-          A second stamp rather than a merged one: the map list and the model
-          are read by different commands and go stale independently, and one
-          stamp covering both would have to report the fresher or the staler,
-          either of which is a lie about the other.
-        */}
-        {/*
-          And whether the poller is holding itself back to leave the rate limit
-          alone, which is a fact about this stamp's subject and no other: the
-          model has no poller behind it, so it is passed nothing to say.
-
-          This is also where a read that did not land says what stopped it. The
-          footer is the app's readout — the spine foot #52 will build is a
-          different surface, and this is the one that exists — so the condition
-          lands on chrome that survives every state rather than in a modal or a
-          toast. There is no branch anywhere below that removes a stamp: a
-          screen with no stamp on it is a screen whose age nobody can read, and
-          that is the state a failed poll is most likely to be in.
-        */}
-        <CacheStamp
-          what="maps"
-          provenance={maps.provenance}
-          now={now}
-          yielding={maps.yieldingToRateLimit}
-        />
-        {/* One more field of the readout that already exists, rather than a
-            second place to look for machine facts. */}
-        <EnvironmentSummary
-          readout={environment}
-          shown={environmentShown}
-          onToggle={() => setEnvironmentShown((open) => !open)}
-        />
-      </footer>
-    </div>
+    </>
   );
 }

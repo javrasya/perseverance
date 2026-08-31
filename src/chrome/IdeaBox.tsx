@@ -12,7 +12,7 @@ import {
   pressable,
   type ChartPress,
 } from "./idea";
-import { adapterAtPress, CHECKING_LABEL, picking } from "./sockets";
+import { adapterAtPress, CHECKING_LABEL, picking, runningIn } from "./sockets";
 /* `Sockets.jsx` and not `Sockets`: on a case-insensitive filesystem the
    extensionless specifier resolves to `sockets.ts`, the derivation. */
 import { Picker } from "./Sockets.jsx";
@@ -133,13 +133,25 @@ export function IdeaBox({ folder, environment, readouts }: IdeaBoxProps) {
       >
         {box.fill === "checking" ? CHECKING_LABEL : CHART_LABEL}
       </button>
-      {/* The same picker the crossing rail draws, in the same shape: the box
-          spawns a run, and *which agent* is one question with one answer. No
-          run of this window's can be going in the folder while the box is
-          armed — the box recesses itself for that — so nothing here locks. */}
+      {/* The same picker the crossing rail draws, in the same shape and locked
+          by the same fact: the box spawns a run, and *which agent* is one
+          question with one answer. The lock is read out of the readouts rather
+          than assumed away — the box recesses for its own charting press, but
+          the run that press started is live on the pane beside it, and the
+          folder can be running for presses the box never made. Swapping the
+          adapter under a live run would name an agent that is not the one on
+          the pane. */}
       <Picker
         offered={box.adapters}
-        picking={picking(box.adapters, chosen, false)}
+        picking={picking(
+          box.adapters,
+          chosen,
+          runningIn(
+            readouts,
+            readouts.filter((readout) => !readout.over).map((readout) => readout.run),
+            folder,
+          ),
+        )}
         onChoose={setChosen}
       />
       {/*
