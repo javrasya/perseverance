@@ -36,7 +36,10 @@
 //! **A worktree whose directory the operator deleted by hand.** Listing one is
 //! ordinary: git keeps the registration, prints it with a `prunable` reason, and
 //! the entry comes back with [`Working::Gone`] in it and no error anywhere —
-//! that is the state, not a failure to read one. The offer on it does not wait
+//! that is the state, not a failure to read one. Gone is read off the disk and
+//! never off that reason: git says `prunable` about a broken `gitdir` pointer
+//! too, and there the directory is still sitting there with whatever the
+//! operator left in it. The offer on it does not wait
 //! on pushedness: the pushed rule guards commits in a working copy, this entry
 //! has none, and withholding the offer would leave the abandoned unpushed run
 //! neither runnable — [`crate::worktree_for`] refuses to build over the stale
@@ -81,9 +84,10 @@ pub struct Record {
     /// `Some` when git holds the worktree locked, carrying the operator's reason
     /// where they gave one and empty where they did not.
     pub locked: Option<String>,
-    /// `Some` when git's registration points at a directory that is not there —
-    /// almost always because somebody deleted it by hand. Git's own words for
-    /// why, so the readout can say them.
+    /// `Some` when git will not vouch for the registration — the directory
+    /// deleted by hand, or the `gitdir` pointer inside it broken. Git's own
+    /// words for why, so the readout can say them, and never on its own the
+    /// answer to *is the directory there?*: only the disk answers that.
     pub prunable: Option<String>,
 }
 
@@ -514,9 +518,25 @@ fn offer(record: &Record, probed: &Probed, ticket: u64) -> Option<Removal> {
 /// The absence is answered before git is asked rather than by reading a failure:
 /// a missing directory is an ordinary state of this list, and a state inferred
 /// from an error message is a state that changes when git rewords one.
+///
+/// The disk decides the absence, and git's `prunable` reason does not get a
+/// vote. Git says `prunable` about a broken `gitdir` pointer as readily as about
+/// a directory that has gone, and reading the first as [`Working::Gone`] would
+/// tell the operator their directory is not there while their unsaved file is
+/// still in it — and would mint an offer over it, which is the one thing
+/// uncommitted work is supposed to take away.
 fn working_state(record: &Record) -> Working {
-    if record.prunable.is_some() || !record.path.is_dir() {
+    if !record.path.is_dir() {
         return Working::Gone;
+    }
+    if let Some(reason) = &record.prunable {
+        // The directory is there and its way back to the repository is not, so
+        // no `git status` run inside it would be about this worktree: discovery
+        // climbs out of a worktree with no `.git` and answers about whichever
+        // repository is above it. Unanswerable, therefore not removable.
+        return Working::Unreadable {
+            detail: reason.clone(),
+        };
     }
 
     let finished = Command::new("git")
@@ -602,8 +622,33 @@ fn publication_of(folder: &Path, branch: Option<&str>) -> Publication {
     }
 }
 
+/// The path canonicalised, and then spelled the way git spells one.
+///
+/// The root is the only path in this module built locally rather than read out
+/// of the porcelain, so it is the only place the two spellings can disagree. On
+/// Windows they do: `std::fs::canonicalize` answers an extended-length path
+/// (`\\?\C:\…`) while `git worktree list --porcelain` prints `C:/…`, and Rust
+/// compares those two prefixes by variant, so an unstripped root would answer
+/// *foreign* about every worktree this app made and the whole feature would go
+/// quiet there. Stripping the prefix is the whole of the difference, and four
+/// lines of it are cheaper than a dependency.
 fn canonical(path: &Path) -> PathBuf {
-    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+    without_verbatim_prefix(std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()))
+}
+
+/// `\\?\C:\repo` as `C:\repo`, and everything else untouched.
+///
+/// Only a drive path is unwrapped. `\\?\UNC\server\share` needs more than a
+/// prefix taken off it to become the `//server/share` git would print, and a
+/// spelling this cannot fix is better left as it was than half-rewritten.
+fn without_verbatim_prefix(path: PathBuf) -> PathBuf {
+    let Some(rest) = path.to_str().and_then(|path| path.strip_prefix(r"\\?\")) else {
+        return path;
+    };
+    match rest.as_bytes() {
+        [drive, b':', b'\\', ..] if drive.is_ascii_alphabetic() => PathBuf::from(rest),
+        _ => path,
+    }
 }
 
 #[cfg(test)]
@@ -904,6 +949,27 @@ locked in use
         .is_none());
     }
 
+    /// The root is the one path here that is built locally instead of read out
+    /// of the porcelain, and on Windows the two spellings differ. Pure string
+    /// work, so the case is checked on every platform rather than only on the
+    /// one that has the bug.
+    #[test]
+    fn a_verbatim_root_is_spelled_the_way_git_spells_one() {
+        assert_eq!(
+            without_verbatim_prefix(PathBuf::from(r"\\?\C:\repo\.perseverance\worktrees")),
+            PathBuf::from(r"C:\repo\.perseverance\worktrees")
+        );
+        assert_eq!(
+            without_verbatim_prefix(PathBuf::from(r"\\?\UNC\server\share")),
+            PathBuf::from(r"\\?\UNC\server\share"),
+            "a share is not a drive and half-rewriting it helps nobody"
+        );
+        assert_eq!(
+            without_verbatim_prefix(PathBuf::from("/repo/.perseverance/worktrees")),
+            PathBuf::from("/repo/.perseverance/worktrees")
+        );
+    }
+
     #[test]
     fn a_folder_that_is_no_repository_refuses() {
         let folder = TempDir::new().expect("a temporary directory");
@@ -947,6 +1013,19 @@ locked in use
             Some(Publication::Unpushed { .. })
         ));
         assert!(ours.removal.is_none());
+
+        // Counted off the classification rather than found by a path lookup:
+        // where the porcelain and a canonicalised root are spelled differently,
+        // this is the assertion that goes red instead of the feature going
+        // quiet.
+        assert_eq!(
+            listed
+                .iter()
+                .filter(|entry| matches!(entry.origin, Origin::Ours { ticket: 60, .. }))
+                .count(),
+            1,
+            "{listed:?}"
+        );
 
         let main = listed
             .iter()
@@ -1034,6 +1113,46 @@ locked in use
             &perseverance_store::common_git_dir(folder.path()).expect("a git directory"),
             &made.branch
         ));
+    }
+
+    /// The other thing git calls `prunable`: the directory is there, the
+    /// operator's unsaved file is in it, and only the `gitdir` pointer is
+    /// broken. Reading that reason as an absence would print *the directory is
+    /// not there* over a directory that is, and draw a removal over work — so
+    /// the entry is not gone, and nothing is offered on it.
+    #[test]
+    fn a_broken_pointer_over_a_present_directory_is_not_gone() {
+        let Some(folder) = a_repository() else {
+            return;
+        };
+        let made = crate::worktree_for(folder.path(), 60, "Worktree hygiene").expect("a worktree");
+        std::fs::write(made.path.join("notes.md"), "unsaved\n").expect("writes in the worktree");
+        std::fs::remove_file(made.path.join(".git")).expect("breaks the pointer back");
+
+        let listed = inventory(folder.path(), &known(&[60])).expect("a listing");
+        let ours = listed
+            .iter()
+            .find(|entry| matches!(entry.origin, Origin::Ours { ticket: 60, .. }))
+            .expect("the worktree is still an entry");
+
+        assert!(ours.record.prunable.is_some(), "{:?}", ours.record);
+        assert!(made.path.is_dir(), "the directory went");
+        assert!(
+            matches!(
+                ours.probed.as_ref().map(|probed| &probed.working),
+                Some(Working::Unreadable { .. })
+            ),
+            "{:?}",
+            ours.probed
+        );
+        assert!(
+            ours.removal.is_none(),
+            "a removal offered over uncommitted work"
+        );
+        assert!(
+            made.path.join("notes.md").exists(),
+            "the operator's file went"
+        );
     }
 
     /// Uncommitted work end to end: the lines come back verbatim, and no offer
