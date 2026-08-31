@@ -83,10 +83,20 @@ no Rust, no Tauri shell, no PTY, no GitHub. WebKit is the required engine,
 because macOS ships a WebView pinned to the OS version and exposes no
 WebDriver, so this is the only automated reading the tighter CSS floor
 (`browserslist`, `safari >= 16.4`) will ever get; Chromium is an optional second
-reading and is not what CI gates on. **The suite has not been run against this
-view.** It was written in an environment with no `@playwright/test` installed,
-so the surface in `tests/conformance/support/views.ts` is unrun and the
-declarations below are the only reading these five rules have had here.
+reading and is not what CI gates on. **The suite has been run against this
+view once, in WebKit**, and the two paragraphs above are what that run
+returned. It is what caught rule 5 banning `[aria-valuenow]` page-wide over the
+Dial, and it is what measured the 135px and the 445px the view is actually
+drawn into. It is also what turned the floors below into a partial reading:
+every Deep Field state in that run rendered the stand-down rather than the
+picture, so what the surface in `tests/conformance/support/views.ts` read was
+the stand-down's DOM, and no floor below has yet seen a rank column, a mark or
+a fan-out curve on a screen. The stand-down's half of each rule is read; the
+picture's half is declared and unread, and it stays that way until the three
+changes named above are made. Re-reading it is a deliberate run on a machine
+with WebKit: `@playwright/test` is not installed in this checkout and
+`npm run verify` does not include the conformance projects, so nothing in the
+ordinary gate will do it for the next person.
 
 ## Rule 4 — Absence is never zero
 

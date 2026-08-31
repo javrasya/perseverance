@@ -51,6 +51,14 @@
  * of it shared. The numbers below are this view's own and belong in no registry:
  * the contract binds meaning, never geometry.
  *
+ * The field's geometry is decided here down to the four numbers of its viewBox.
+ * The plate lane's is not, and the split is deliberate: the lane is a flow of
+ * DOM elements, a plate is as tall as its own words, and the blank between two
+ * of them is a `gap` in the stylesheet — so this module says how far right the
+ * lane reaches ([`Span`]) and stops, rather than exporting a plate height the
+ * rendering never agreed to. What a caller gets from here is true of the
+ * screen; what the stylesheet decides is asked of the stylesheet.
+ *
  * Nothing here re-derives what is *true*. A node's state, its classification and
  * the designated frontier are read off the model as words and copied onto the
  * plate; `waitsOn` is walked once, in `../graph`, by the same function The Route
@@ -80,8 +88,6 @@ const Lookup = globalThis.Map;
  * renderer is free to spend two of them on a row that has more to say.
  */
 export const PLATE_WIDTH = 260;
-export const PLATE_HEIGHT = 30;
-export const PLATE_GAP = 6;
 
 /**
  * The blank kept on the field side of the zone boundary, in pixels.
@@ -128,15 +134,38 @@ export type Box = {
 };
 
 /**
+ * A horizontal reach and nothing else: a left edge and a width.
+ *
+ * The plate lane is a stack of DOM elements, and its vertical geometry is the
+ * browser's to decide — a plate is as tall as the words in it, a wrapped cut
+ * reason or a second tag row makes it taller, and the blank between two plates
+ * is the lane's `gap` in `DeepField.module.css`. This module cannot know any of
+ * that without measuring the rendering, which it may not do, so it says only
+ * what it decides and what the renderer honours: how far right the lane
+ * reaches, which is what the boundary is a consequence of. A [`Box`] here would
+ * be two invented numbers a later reader would trust against a DOM that never
+ * agreed to them.
+ */
+export type Span = {
+  readonly x: number;
+  readonly width: number;
+};
+
+/**
  * The two zones and the line between them.
  *
  * `boundary` is one x, drawn once by the renderer rather than invented twice,
  * and `clearance` is the blank to its right that no mark may enter. The field's
  * own box already starts after that blank, so the invariant is checkable
  * against these three numbers alone.
+ *
+ * The two zones are not the same shape, and the asymmetry is the honest one:
+ * the field is an SVG whose viewBox this module writes all four numbers of, and
+ * the plate lane is a flow of DOM elements whose height the browser decides. So
+ * the field is a [`Box`] and the lane is a [`Span`].
  */
 export type Split = {
-  readonly plates: Box;
+  readonly plates: Span;
   readonly field: Box;
   readonly boundary: number;
   readonly clearance: number;
@@ -223,7 +252,12 @@ export type Plate = {
   readonly blockers: BlockerTally;
   /** This node is an end of an edge the ranker refused. */
   readonly circular: boolean;
-  readonly box: Box;
+  /**
+   * How far right this plate reaches, and no more — see [`Span`]. Where it
+   * stands in the lane is this array's own order, and how tall it is is however
+   * tall its words make it.
+   */
+  readonly span: Span;
 };
 
 /* ----------------------------------------------------------------- field --- */
@@ -355,7 +389,6 @@ export type DeepField =
   | { readonly kind: "standDown"; readonly standDown: StandDown }
   | {
       readonly kind: "field";
-      readonly extent: Box;
       readonly split: Split;
       /** Map order, one per node, and the same length as `map.nodes`. */
       readonly plates: readonly Plate[];
@@ -479,7 +512,7 @@ export function deepFieldOf(map: Map | null, width: number): DeepField {
     columns.push({ rank, x, marks: column });
   }
 
-  const plates: Plate[] = nodes.map((node, index) => ({
+  const plates: Plate[] = nodes.map((node) => ({
     node,
     rank: ranked.rankOf.get(node.number) ?? 0,
     designated: node.number === designated,
@@ -490,16 +523,8 @@ export function deepFieldOf(map: Map | null, width: number): DeepField {
     stateName: STATE_NAMES[node.state],
     blockers: blockers.get(node.number) ?? NOTHING_IN_THE_WAY,
     circular: circular.has(node.number),
-    box: {
-      x: 0,
-      y: index * (PLATE_HEIGHT + PLATE_GAP),
-      width: PLATE_WIDTH,
-      height: PLATE_HEIGHT,
-    },
+    span: { x: 0, width: PLATE_WIDTH },
   }));
-
-  const platesHeight =
-    nodes.length === 0 ? 0 : nodes.length * (PLATE_HEIGHT + PLATE_GAP) - PLATE_GAP;
 
   const needs = widthNeededFor(depth);
   const has = Number.isFinite(width) ? Math.max(0, Math.floor(width)) : 0;
@@ -520,14 +545,8 @@ export function deepFieldOf(map: Map | null, width: number): DeepField {
 
   return {
     kind: "field",
-    extent: {
-      x: 0,
-      y: 0,
-      width: needs,
-      height: Math.max(platesHeight, fieldHeight),
-    },
     split: {
-      plates: { x: 0, y: 0, width: PLATE_WIDTH, height: platesHeight },
+      plates: { x: 0, width: PLATE_WIDTH },
       field: { x: fieldX, y: 0, width: fieldWidth, height: fieldHeight },
       boundary: PLATE_WIDTH,
       clearance: GUTTER_CLEARANCE,

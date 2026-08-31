@@ -67,6 +67,10 @@ reader asking why a check is drawn where it is should find the answer here
 rather than reconstruct it. An entry sits under exactly one of these two
 headings, so *settled* is never read off silence in the section above.
 
+### Rule 5, No progress bar (asserted)
+
+The widget half of the ban caught something that is not a bar: `src/panes/Dial.tsx` is a focusable window splitter carrying `role="separator"` with an `aria-valuenow`, and a check that reads the attribute alone bans the app's draggable seam. ARIA gives `aria-valuenow` to three input roles as well — `separator`, `slider`, `spinbutton` — where the value says where the operator put the control and the denominator is the window rather than anything in the model. Asserted has no deviation route, so the check was drawn rather than declared around: those three roles are excluded by selector in `tests/conformance/support/rules.ts`, and `progress`, `meter`, `role=progressbar` and `role=meter` stay banned outright in every element and role spelling. What the rule is about is a count from the model turned into an extent on screen; a seam the operator drags is not that, and a fourth role joining the exclusion costs an argument, not a line.
+
 ### Rule 9, Motion is rationed (asserted)
 
 The one animation in `src/` — `ping`, on `.markClaimed::after` in `src/views/route/Route.module.css` — rides on *someone holds this ticket*, and `NodeState` is `resolved | blocked | claimed | takeable`, so running-vs-stale is not representable on this side of the seam at all. Asserted has no deviation route, so #43 settled it rather than filing it: `claimed` is the liveness this half of the app can carry — of the four states it is the only one in progress rather than a settled fact about the graph — and the ration is spent telling that apart from the three that are not moving. The licensed list is one entry, and growing it costs an argument, not a line.
