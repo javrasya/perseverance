@@ -52,6 +52,15 @@ no death path calls `monitor(...)`, and `src/stores/ui.ts` says so on the
 mutator itself. A live run arriving in the same readout set is not an
 invitation.
 
+There is exactly one non-press caller and it is named on the mutator too, so
+that a reader grepping `monitor(` lands on the boundary rather than on a
+precedent: the `dev:web` fixture boot in `src/terminal/fixtures.ts`, which opens
+the pane on a hand-written readout because nothing in a browser spawns a run.
+`fixtureRunToOpenOn` answers `null` whenever `hasRustBehindIt()`, so there is no
+harness it can reach and no conversation for a keystroke to land in. The
+substantive rule is unchanged: on a real harness nothing automatic moves the
+caret.
+
 **The pane stays bound, and the row stays.** The terminal is not disposed —
 `Terminals.forget` is still reached only from the End press — so the node on the
 pane is the same node holding the same bytes it held a frame ago. The run keeps

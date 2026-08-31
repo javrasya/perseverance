@@ -72,7 +72,9 @@ this run — and produces one tagged reading. The table, in order:
    waiting for the operator, most likely a trust prompt.*
 4. An attended run silent with its ticket still open is `quiet`, carrying the
    elapsed, **for any elapsed and forever**. There is no length at which it
-   becomes a fault, because there is somebody in front of it.
+   becomes a fault, because there is somebody in front of it. Under a few
+   seconds it reads as nothing at all — see the floor below, which is about
+   whether the reading is printed and not about what it means.
 5. An unattended run silent with its ticket still open is wedged once the
    applicable number passes. The five-minute byte-silence fallback is that number
    only for a run **no signal has ever been observed for**.
@@ -83,6 +85,20 @@ every run is drained through a `Box<dyn Watch>` on identical terms, the readout
 carries the last signal or `None`, and `None` means *nothing has ever been
 classified here*. Five minutes is a provisional guess with a stated basis, and it
 is documented as one at `WEDGED`.
+
+**There is a floor on printing a reading, and it is not a threshold on what a
+reading means.** A run streaming output is silent for a beat between frames, so
+without a floor the fall-through calls every working terminal `quiet · 0s` and
+the chrome repeats it three times a second — copy that states an observation
+nobody made, which is the failure this taxonomy exists to avoid from the other
+end. Under `WORTH_SAYING` the reading is `nothing`. It is a different kind of
+number from the one refused above and cannot become that one: both sides of it
+are the same state, no run is classified differently for crossing it, and it is
+never consulted about a wedge — a diagnosis is printed at any elapsed. It also
+lives entirely in Rust, where the predicate already is; `silenceSentence`
+switches on the tag and holds no duration comparison, because a threshold on that
+side would be a second copy of a predicate it can only see two of the six inputs
+to.
 
 **Readiness is a declared rule the harness clocks, and its expiry is a
 diagnosis.** The adapter declares `Ready::AltScreen { timeout }` or
@@ -117,6 +133,12 @@ research agent reading a repository; the readiness timeouts are the adapters' ow
 declared ones, an order of magnitude above a ~223 ms measured alt-screen. What
 would settle the first is a distribution of real silences per adapter, and the
 revisit trigger is the first report of a working research run called wedged.
+
+The floor is a third number and is deliberately not one of those two, because
+nothing is classified by it. Five seconds is how long a working run gets to say
+nothing before the chrome bothers mentioning it; moving it changes what is on
+screen and never what any run *is*. Its revisit trigger is somebody saying the
+sentence arrives too late to be useful, or soon enough to be untrue.
 
 The attendance line is now drawn twice and still only twice — `RunKind` in Rust,
 `attendanceOf` in the route — from the same `TicketType`. `RunKind::unattended`

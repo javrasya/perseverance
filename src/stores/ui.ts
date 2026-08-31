@@ -192,6 +192,15 @@ export function select(selection: number | null): void {
  * row in the readouts as `exited`, because a run vanishing from the layout would
  * be the world rearranging the operator's screen. The one exception is the End
  * press, which is a person deciding they are finished reading.
+ *
+ * One non-press caller exists and it is named here so that the rule above can be
+ * read as absolute wherever it matters: the `dev:web` fixture boot, in
+ * `src/terminal/fixtures.ts`, which binds the pane to a hand-written readout on
+ * the window's first tick. It is gated on `hasRustBehindIt()` and answers `null`
+ * the moment there is a harness behind the window, so it cannot move a caret
+ * that any keystroke could follow — there is no child on the other end of it to
+ * steal a keystroke for. On a real harness the rule holds without exception, and
+ * nothing driven by a poll, a readout tick or a death path reaches this.
  */
 export function monitor(run: number | null): void {
   change((current) => (current.monitored === run ? current : { ...current, monitored: run }));

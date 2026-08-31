@@ -63,10 +63,12 @@ export function endingSentence(readout: RunReadout): string | null {
  * silently disagreeing with the one Rust derives from six values this file can
  * only see two of.
  *
- * Two readings print nothing at all. `nothing` is a child that has exited, and
- * what that means is the ending sentence already beside this; `spent` is a
- * closed ticket, which the same sentence already carries. Saying either twice
- * in two vocabularies is how the two come to disagree.
+ * Two readings print nothing at all. `nothing` is a child that has exited, or
+ * one that printed a moment ago — the first is the ending sentence already
+ * beside this, and the second is a run working, which Rust decides with a floor
+ * of its own so that no elapsed is compared here; `spent` is a closed ticket,
+ * which the same ending sentence already carries. Saying any of it twice in two
+ * vocabularies is how the two come to disagree.
  */
 export const QUIET_READING = "quiet";
 export const AWAITING_OPERATOR_READING = "waiting for you";

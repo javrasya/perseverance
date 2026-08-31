@@ -121,6 +121,28 @@ const ENDED = a({
   ending: "exited",
 });
 
+/**
+ * The ordinary case, and the only one here that is not a state a browser
+ * struggles to reach: a run printing right now.
+ *
+ * It earns a fixture anyway, because it is what the other five are read
+ * against. Its silence is `nothing` — Rust's floor, not an absence of data —
+ * and the pane says nothing about it beside a terminal that is visibly working.
+ * Without it on screen the readings look like a set of complaints with no
+ * baseline, and `quiet · 0s` on a healthy run would have been invisible to
+ * every fixture in this file.
+ */
+const STREAMING = a({
+  run: 7,
+  ticket: 54,
+  folder: "/work/perseverance",
+  held: 49_152,
+  through: 49_152,
+  end: 49_152,
+  silence: { kind: "nothing" },
+  signal: "busy",
+});
+
 /** A run a watch has seen go idle, so the third signal is a thing on screen too. */
 const IDLING = a({
   run: 6,
@@ -141,10 +163,13 @@ const IDLING = a({
  * *Nothing is running here yet.* still a state somebody can look at.
  *
  * `the-rack` is every reading at once and every signal at once, which is the
- * only place the four silences can be compared rather than remembered.
+ * only place the silences can be compared rather than remembered — the working
+ * run among them, because a set of readings with no baseline reads as a set of
+ * complaints.
  */
 export const RUN_FIXTURES = {
   none: [],
+  streaming: [STREAMING],
   quiet: [QUIET_HOUR],
   "awaiting-operator": [AWAITING_OPERATOR],
   unwatched: [UNWATCHED],
@@ -156,6 +181,7 @@ export const RUN_FIXTURES = {
     a({ ...UNWATCHED, monitored: false }),
     a({ ...SPENT, monitored: false }),
     a({ ...ENDED, monitored: false }),
+    STREAMING,
     IDLING,
   ],
 } satisfies Record<string, RunReadout[]>;

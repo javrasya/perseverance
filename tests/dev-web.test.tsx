@@ -1500,6 +1500,22 @@ describe("a wedged run is a state `dev:web` can be put into, and a browser canno
     }
   });
 
+  it("says nothing beside a run that is printing, which is the ordinary case", async () => {
+    /*
+     * The one fixture here that is not a state a browser struggles to reach,
+     * and the one the other five are read against. A run streaming output has
+     * no silence to report — Rust's floor answers `nothing`, which is a reading
+     * and not an absence of data — so the chrome carries its signal and no
+     * sentence at all. `quiet · 0s` re-rendered three times a second beside a
+     * terminal that is visibly working is copy this app cannot produce.
+     */
+    await boot("/?map=awkward-map&runs=streaming");
+
+    expect(thePane()).not.toContain("Nothing is running here yet.");
+    expect(thePane()).not.toContain(QUIET_READING);
+    expect(thePane()).toContain(SIGNAL_READINGS.busy);
+  });
+
   it("renders a signal for every run a watch has classified, and none for the rest", async () => {
     await boot("/?map=awkward-map&runs=the-rack");
 

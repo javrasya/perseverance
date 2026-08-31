@@ -333,9 +333,12 @@ export function App() {
       return loadRunReadouts().then((next) => {
         if (!live) return;
         setRuns((current) => (current.length === 0 ? next : current));
-        /* `dev:web` only, and `null` the moment there is a harness behind the
-           window: nothing in a browser spawns a run, so without this the
-           fixture readouts would be held and never bound to anything. */
+        /* The one `monitor` call no press is behind, named as the exception on
+           the mutator and in `docs/adr/0026`. `dev:web` only, and `null` the
+           moment there is a harness behind the window: nothing in a browser
+           spawns a run, so without this the fixture readouts would be held and
+           never bound to anything, and with Rust behind it there is nothing
+           here to move a caret onto. */
         const opening = fixtureRunToOpenOn(next);
         if (opening !== null && readUi().monitored === null) monitor(opening);
       });

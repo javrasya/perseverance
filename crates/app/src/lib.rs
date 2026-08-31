@@ -2677,6 +2677,34 @@ fn ending(over: bool, seen: Option<NodeState>) -> Ending {
 /// trigger is the first report of a working research run called wedged.
 const WEDGED: Duration = Duration::from_secs(300);
 
+/// How long a run must have printed nothing before the silence is worth putting
+/// on the chrome at all.
+///
+/// **A floor on the printing, and never a threshold on the meaning.** A run
+/// streaming output is silent for a beat between frames, and `quiet · 0s`
+/// re-rendered three times a second beside a terminal that is visibly working is
+/// not an observation — it is noise borrowing the vocabulary of one, and the
+/// copy's whole claim is that it states what it saw. Under this the reading is
+/// [`Silence::Nothing`], which is the honest thing to say about a run that just
+/// printed.
+///
+/// It is deliberately not the shared quiet/wedged number `docs/adr/0025`
+/// refuses, and it cannot grow into one: it decides whether a reading is worth
+/// printing and never what a reading means. Both sides of it are the same state
+/// — a live run with its ticket open, doing whatever it is doing — and no run is
+/// classified differently for being on one side rather than the other. [`WEDGED`]
+/// is the other kind of number entirely, the one that changes what a silence
+/// *is*, which is why it is gated on who is waiting and on the run's own history
+/// rather than on the elapsed alone.
+///
+/// Five seconds because an agent CLI pauses for a beat between tool calls and
+/// nobody needs to be told about a beat, and because the shortest silence
+/// anybody has asked to read is spec #28's `quiet · 62m`, which is most of three
+/// orders of magnitude above it. Nothing measured this either; what would settle
+/// it is somebody watching a working run and saying when the sentence started
+/// being useful.
+const WORTH_SAYING: Duration = Duration::from_secs(5);
+
 /// What a run's silence means, or that it means nothing.
 ///
 /// **A joint predicate over two independent facts, and never a shared
@@ -2692,9 +2720,10 @@ const WEDGED: Duration = Duration::from_secs(300);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 enum Silence {
-    /// Nothing to say. The child has exited — an ending is what that is, and it
-    /// is on the same readout — or its ticket is in a state that makes silence
-    /// beside the point.
+    /// Nothing to say, and two ways to get here. The child has exited — an
+    /// ending is what that is, and it is on the same readout — or the run
+    /// printed within [`WORTH_SAYING`], which is a run working rather than a
+    /// silence anybody wants a sentence about.
     Nothing,
 
     /// The ticket closed, so the silence is the silence of finished work.
@@ -2711,6 +2740,10 @@ enum Silence {
     /// has gone to lunch mid-review, is a run behaving exactly as intended.
     /// The elapsed is carried so the chrome can print it, not so anything can
     /// judge it.
+    ///
+    /// Reached past [`WORTH_SAYING`] and not before, which is a floor on the
+    /// printing: a run that printed a moment ago is [`Silence::Nothing`] and not
+    /// a quiet of no length.
     #[serde(rename_all = "camelCase")]
     Quiet { silent_for_ms: u64 },
 
@@ -2784,6 +2817,12 @@ fn silence(
             why: Wedge::Silent,
             silent_for_ms,
         };
+    }
+    // The floor, and last of all so that nothing above it is muted: a wedge is a
+    // diagnosis and gets said at any elapsed. Under it the run printed a moment
+    // ago, and a working run has nothing to report.
+    if quiet < WORTH_SAYING {
+        return Silence::Nothing;
     }
     Silence::Quiet { silent_for_ms }
 }
@@ -5297,6 +5336,57 @@ mod tests {
             Silence::Wedged {
                 why: Wedge::Silent,
                 silent_for_ms: 300_000,
+            }
+        );
+    }
+
+    /// The floor is on the printing and not on the meaning, and the difference
+    /// is visible in both directions.
+    ///
+    /// A run that printed a moment ago has nothing said about it rather than
+    /// being called quiet for no time, which is the sentence the taxonomy would
+    /// otherwise put beside every working terminal three times a second. A wedge
+    /// under the same elapsed is still a wedge: the floor mutes an observation
+    /// and never a diagnosis.
+    #[test]
+    fn a_run_that_printed_a_moment_ago_has_nothing_said_about_it_rather_than_a_quiet_of_no_time() {
+        let just_printed = |quiet| {
+            silence(
+                false,
+                Some(NodeState::Claimed),
+                Some(RunKind::Work),
+                quiet,
+                Readiness::Ready,
+                true,
+            )
+        };
+
+        assert_eq!(just_printed(Duration::ZERO), Silence::Nothing);
+        assert_eq!(
+            just_printed(WORTH_SAYING - Duration::from_millis(1)),
+            Silence::Nothing
+        );
+        assert_eq!(
+            just_printed(WORTH_SAYING),
+            Silence::Quiet {
+                silent_for_ms: 5_000
+            }
+        );
+
+        // The same nothing-elapsed, with the readiness rule run out: the floor
+        // is above the fall-through to quiet and below every wedge.
+        assert_eq!(
+            silence(
+                false,
+                Some(NodeState::Claimed),
+                Some(RunKind::Work),
+                Duration::ZERO,
+                Readiness::Overdue,
+                true,
+            ),
+            Silence::Wedged {
+                why: Wedge::AwaitingOperator,
+                silent_for_ms: 0,
             }
         );
     }
