@@ -1,4 +1,6 @@
 import { expect, test } from "@playwright/test";
+import { BENCH_MAP_FLOOR, DEFAULT_DETENT, fractionOf } from "../../src/panes/dial";
+import { BENCH_WIDTH_FLOOR } from "../../src/views/bench/bench";
 import { fixtureSpace, type FixtureState } from "../support/contract";
 import { load } from "./support/drive";
 
@@ -23,16 +25,21 @@ import { load } from "./support/drive";
  *
  * Two widths, because they are two different drawings: one where the first rank
  * wraps into short rows and one where it barely wraps at all. The narrow one is
- * the one that matters, since it is the one with rows below rows.
+ * the one that matters, since it is the one with rows below rows, and it is the
+ * Bench's own [`BENCH_WIDTH_FLOOR`] — the narrowest canvas the view will draw a
+ * map on at all, where three plates to a row is the whole of what fits.
  *
- * **It shares one precondition with every other bench check in this directory,
- * and that precondition is not met yet.** `load(page, "bench", …)` seeds the
- * stored view and waits for the Bench's root, and on this branch the app opens
- * on The Route instead for every point of the space — the whole `bench` axis of
- * `rules.spec.ts` fails on the same wait. That is the view-floor coupling
- * between `BENCH_WIDTH_FLOOR` and `src/panes/dial.ts`, which is somebody else's
- * slice; this file is written against the harness as it is meant to work, and
- * goes green with the rest of the axis when the Bench can be opened.
+ * **Neither width is a number chosen here, and that is the one constraint this
+ * file has to honour.** The Bench mounts only where the map side clears
+ * [`BENCH_MAP_FLOOR`]; below it `App` draws its stand-down where the view should
+ * be, the Bench's root never reaches the document, and `load` spends its timeout
+ * waiting for a root that is not coming. So the viewport is computed back from
+ * the floor rather than named — [`bodyFor`] turns a wanted canvas into the body
+ * the opening detent needs for it, out of the same exported constants the shell
+ * converts with — and a floor that moves moves these viewports with it. It is
+ * also why this is the one file in the directory that sets a viewport at all:
+ * `playwright.config.ts` gives every project a window wide enough for every
+ * view's floor, and this check is the one that wants a Bench near its own.
  */
 
 function state(fixture: string): FixtureState {
@@ -56,14 +63,51 @@ type Box = {
   readonly bottom: number;
 };
 
-for (const canvas of [{ width: 820, height: 1200 }, { width: 1500, height: 1200 }]) {
-  test(`every plate fits the box the arithmetic reserved — ${canvas.width}px`, async ({
+/**
+ * The map side a canvas of `canvas` pixels costs.
+ *
+ * [`BENCH_MAP_FLOOR`] is already the map side that [`BENCH_WIDTH_FLOOR`] of
+ * canvas asks for — the rank rail, the view column's padding and the rail
+ * column are all inside it — so a wider canvas is that floor plus the widening,
+ * and the widening is doubled because the launcher and the view are both
+ * `flex: 1` and halve the map side between them. No length is respelled here:
+ * both constants are imported, and the only number is that pair of columns.
+ */
+const VIEW_COLUMNS = 2;
+
+function mapFor(canvas: number): number {
+  return BENCH_MAP_FLOOR + VIEW_COLUMNS * (canvas - BENCH_WIDTH_FLOOR);
+}
+
+/**
+ * The window that canvas needs, at the detent a map with nothing remembered
+ * about it opens on.
+ *
+ * The slack is there because a body is measured and not decreed: the viewport
+ * is not the body box, and a run that landed exactly on the floor would leave a
+ * scrollbar's width between this file and a stand-down.
+ */
+const BODY_SLACK = 64;
+
+function bodyFor(canvas: number): number {
+  return Math.ceil(mapFor(canvas) / fractionOf(DEFAULT_DETENT)) + BODY_SLACK;
+}
+
+for (const canvas of [BENCH_WIDTH_FLOOR, 1500]) {
+  test(`every plate fits the box the arithmetic reserved — ${canvas}px of canvas`, async ({
     page,
   }) => {
-    await page.setViewportSize(canvas);
+    const width = bodyFor(canvas);
+    await page.setViewportSize({ width, height: 1200 });
     const rendering = await load(page, "bench", WIDE_MAP);
     const root = rendering.root;
-    if (root === null) throw new Error("the Bench is on screen for wide-map");
+    if (root === null) {
+      throw new Error(
+        `the Bench is not on screen for wide-map at ${width}px of window: ` +
+          `${canvas}px of canvas wants ${mapFor(canvas)}px of map side, and the ` +
+          `shell's floor is ${BENCH_MAP_FLOOR}`,
+      );
+    }
 
     const boxes: Box[] = await root.evaluate((element) =>
       [...element.querySelectorAll("li[data-node]")].map((plate) => {
