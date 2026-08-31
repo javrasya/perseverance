@@ -268,28 +268,67 @@ way nothing fails. The only thing any test asserts about it is that it is
 current. A test that read a cell for conformance would make the file the
 contract, and a rule would then be kept by whoever last regenerated it.
 
-### The spec's forty-four encodings, and what one registered view owes
+### The spec's forty-four encodings, and what the fixture set owes
 
-Spec [#28] costs the design at *four views, forty-four encodings*, and [#43]'s
-first acceptance criterion repeats the number. **Forty-four is a four-view
-total, and it is not a count this branch reaches or should try to reach.** One
-view is registered — The Route, [#34] — and the fixture space the floors
-actually run over is `FIXTURE_NAMES` × two themes × two motion settings, which
-is 17 × 2 × 2 = 68 states today. That arithmetic is written here and nowhere in
-code: every enumeration in the suite is derived from `FIXTURE_NAMES`, `VIEWS`
-and `renderBoundRules()`, so a hardcoded 44 or 68 anywhere would be the parallel
-list that goes one fixture stale.
+What [#28] actually says is worth quoting before anything is concluded from it.
+It sizes the fixture space as *the forty-four encodings × two themes ×
+reduced-motion*, and it computes *thirteen rules × forty-four encodings yields
+572*. **Neither product has a view axis in it.** Forty-four multiplies against
+themes and against rules and never against views, which reads as forty-four
+encodings *of the model* — and encodings of one model do not multiply by the
+number of views that render it. An earlier draft of this section closed the
+acceptance criterion by declaring forty-four a four-view total and the branch
+therefore owing a quarter of it. That reading is not in #28, and closing a
+criterion by reinterpreting it is not the same act as meeting it, so it is
+withdrawn.
 
-**Nothing is missing for The Route.** Every render-bound rule has an entry in
+**What the branch counts instead is what the model can express.** A fixture
+earns its place by holding a value some closed set in `crates/model` can take
+and no other fixture holds, and the set is argued from those sets rather than
+from a target. Every value of `Phase`, `NodeState`, `Frontier`, `Fog`,
+`ChildKind`, `TicketType`, `Cut`, `Since`, `Degraded`, `ReadOutcome` and
+`ClauseKind` — including all sixteen clause kinds, which before this branch
+were a vocabulary only the model crate's unit tests had ever seen — is now
+reached by some checked-in fixture. That is the count's argument, and the
+fixture space the floors run over falls out of it: `FIXTURE_NAMES` × two themes
+× two motion settings, 19 × 2 × 2 = 76 states today. The arithmetic is written
+here and nowhere in code — every enumeration in the suite is derived from
+`FIXTURE_NAMES`, `VIEWS` and `renderBoundRules()`, so a hardcoded 44, 68 or 76
+would be the parallel list that goes one fixture stale.
+
+**Two gates keep the argument from rotting, and a third is owed.** Every
+`NodeState` value must appear on a node of some fixture, and every `Phase` value
+on the map of some fixture; both enumerate from the one `Record<…, string>` in
+`src/` that a new variant cannot be added without, so the commit that names a
+sixth rung is red until the fixture reaching it lands. The phase gate is here
+because `specReady` had no fixture at all while the set looked complete — rule 5
+asserts the spelled figures reach the screen, and the word `PHASE_NAMES` keeps
+for that rung reached no screen to be asserted about. The third gate, unwritten,
+would do the same for `ClauseKind`: the sixteen words are all exercised today by
+`ledger-sweep`, but nothing goes red if a seventeenth arrives with no entry
+carrying it. It is not written because the enumeration a gate needs does not
+exist yet in `src/` — `chrome/ledger.ts` holds the words, and turning it into an
+exhaustive witness is a change to the file that owns the change vocabulary
+rather than to this suite.
+
+**Three states remain out of reach, and the reason is the boot mode rather than
+the work.** `Occasion::Tick` has no fixture because an ordinary tick is
+reachable by leaving the app open — it is not a state a browser cannot get into.
+`Source::Github` cannot be reached: a `dev:web` fixture is derived with
+`Source::Fixture`, and a file claiming to be a live GitHub read would be exactly
+the fiction the generated fixtures exist to prevent. And a `RateLimited` reset
+that is `None` is a fixture nobody has needed; it is a variant of a variant, not
+a rung of a ladder.
+
+**What is not covered is the other three views, and that is a scope fact rather
+than a gap in this one.** Every render-bound rule has an entry in
 `tests/conformance/support/rules.ts`, the fan-out gate goes red on a rule that
-has none, and rule 11's `check: null` is a decision with its reason written
-down rather than an omission. The encodings still unwritten are the other three
-views' — The Plate [#63], Deep Field [#64], and the map [#65] — and each of
-those tickets is where its own encodings land: registering a view in `VIEWS`
-turns the existing fan-out onto it and demands a declaration file for every
-judged rule, with no new test code. So the remainder is tracked by the view
-tickets, not by a count kept in a doc, and the number closes itself as the views
-land.
+has none, and rule 11's `check: null` is a decision with its reason written down
+rather than an omission. The Plate [#63], Deep Field [#64] and the map [#65]
+each land their own encodings: registering a view in `VIEWS` turns the existing
+fan-out onto it and demands a declaration file for every judged rule, with no
+new test code. So the remainder is tracked by the view tickets, not by a count
+kept in a doc.
 
 ## Alternatives rejected
 

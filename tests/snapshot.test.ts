@@ -493,11 +493,14 @@ describe("the ledger rides beside the model rather than inside it", () => {
 
   it("says first open rather than zero for every map nothing has been compared for", () => {
     for (const name of FIXTURE_NAMES) {
-      if (name === "while-you-were-away") continue;
+      // Which fixtures those are is read off the fixtures themselves rather
+      // than listed here: a ledger with no entries in it is the whole of what
+      // *nothing has been compared* means, and a name written in this file
+      // would be the parallel list that goes one fixture stale.
+      if (FIXTURES[name].ledger.entries.length > 0) continue;
       // A map nobody has read is not a map that has not moved, and the two are
       // two different values rather than one number.
       expect([name, FIXTURES[name].ledger.since]).toEqual([name, "firstOpen"]);
-      expect([name, FIXTURES[name].ledger.entries]).toEqual([name, []]);
     }
 
     expect(noMapOpen().ledger.since).toBe("firstOpen");

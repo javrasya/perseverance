@@ -37,8 +37,8 @@ The sections state where that line falls, so a reader can tell an asserted claim
 from an unasserted one without opening the suite. Rule 11 is the fifth, and has
 no floor by decision; its section says why.
 
-The space the floors run over is 17 checked-in `Snapshot` fixtures × 2 themes
-(light, dark) × 2 motion settings (full, reduced) = 68 states per view.
+The space the floors run over is 19 checked-in `Snapshot` fixtures × 2 themes
+(light, dark) × 2 motion settings (full, reduced) = 76 states per view.
 `FIXTURE_NAMES` in `src/snapshot/fixtures.ts` is the fixture half and
 `fixtureSpace()` in `tests/support/contract.ts` crosses it with the other two,
 so adding a state costs one checked-in fixture and no test code. The floors run
@@ -49,10 +49,14 @@ the only automated reading the tighter CSS floor (`browserslist`,
 `safari >= 16.4`) will ever get; Chromium is an optional second reading and is
 not what CI gates on.
 
-How that number relates to the spec's "forty-four encodings" is a contract-level
-accounting question rather than something this view declares, so it is settled
-in
-[ADR 0020](../../adr/0020-the-contract-is-thirteen-rules-in-three-tiers.md#the-specs-forty-four-encodings-and-what-one-registered-view-owes).
+Nineteen is not a target anybody picked. Each fixture is there because it holds
+a value of the model that no other fixture holds, and the set is argued from
+what the model can express rather than from a number — including the two gates
+that go red when a value of `NodeState` or of `Phase` has no fixture reaching
+it. How that accounting relates to the spec's "forty-four encodings" is a
+contract-level question rather than something this view declares, so it is
+settled in
+[ADR 0020](../../adr/0020-the-contract-is-thirteen-rules-in-three-tiers.md#the-specs-forty-four-encodings-and-what-the-fixture-set-owes).
 
 The Route is a grouped list in one column — Now/Next, Frontier, Blocked,
 Resolved, Out of scope, Unclassified — with the fog and the destination beside

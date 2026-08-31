@@ -1,0 +1,238 @@
+{
+  "_why": "The baseline half of the ledger sweep: one map with a child in each state a child can start in, so the answer beside it can move every one of them at once. Two of the words the vocabulary keeps — *became the spec*, *lost its classification* — are reclassifications rather than arrivals, so #80 and #81 have to be here already wearing the labels they lose. Nothing here is interesting on its own: it exists to be the *before*, and every clause kind the comparison can emit is a difference between this file and `ledger-sweep-later.json`.",
+  "data": {
+    "repository": {
+      "nameWithOwner": "o/r",
+      "maps": {
+        "pageInfo": { "hasNextPage": false },
+        "nodes": [
+          {
+            "number": 70,
+            "title": "Sweeping the ledger",
+            "state": "OPEN",
+            "url": "https://github.com/o/r/issues/70",
+            "updatedAt": "2026-08-04T09:00:00Z"
+          }
+        ]
+      },
+      "issue": {
+        "number": 70,
+        "title": "Sweeping the ledger",
+        "state": "OPEN",
+        "url": "https://github.com/o/r/issues/70",
+        "updatedAt": "2026-08-04T09:00:00Z",
+        "body": "## Notes\n\nThe copy the last session ended on.\n",
+        "labels": { "nodes": [{ "name": "wayfinder:map" }] },
+        "subIssues": {
+          "pageInfo": { "hasNextPage": false },
+          "nodes": [
+            {
+              "number": 71,
+              "title": "Read the socket",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/71",
+              "updatedAt": "2026-08-01T10:00:00Z",
+              "labels": { "nodes": [{ "name": "wayfinder:research", "color": "0e8a16" }] },
+              "assignees": { "nodes": [] },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 0,
+                "blocking": 1,
+                "totalBlocking": 1
+              },
+              "blockedBy": { "pageInfo": { "hasNextPage": false }, "nodes": [] }
+            },
+            {
+              "number": 72,
+              "title": "Split the terminal",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/72",
+              "updatedAt": "2026-08-01T10:05:00Z",
+              "labels": { "nodes": [{ "name": "wayfinder:task", "color": "1d76db" }] },
+              "assignees": { "nodes": [] },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 0,
+                "blocking": 0,
+                "totalBlocking": 0
+              },
+              "blockedBy": { "pageInfo": { "hasNextPage": false }, "nodes": [] }
+            },
+            {
+              "number": 73,
+              "title": "Rank the frontier",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/73",
+              "updatedAt": "2026-08-01T10:10:00Z",
+              "labels": { "nodes": [{ "name": "wayfinder:task", "color": "1d76db" }] },
+              "assignees": { "nodes": [] },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 0,
+                "blocking": 0,
+                "totalBlocking": 0
+              },
+              "blockedBy": { "pageInfo": { "hasNextPage": false }, "nodes": [] }
+            },
+            {
+              "number": 74,
+              "title": "Hold the claim",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/74",
+              "updatedAt": "2026-08-01T10:15:00Z",
+              "labels": { "nodes": [{ "name": "wayfinder:task", "color": "1d76db" }] },
+              "assignees": { "nodes": [{ "login": "javrasya" }] },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 0,
+                "blocking": 0,
+                "totalBlocking": 0
+              },
+              "blockedBy": { "pageInfo": { "hasNextPage": false }, "nodes": [] }
+            },
+            {
+              "number": 75,
+              "title": "Retire the poller",
+              "state": "CLOSED",
+              "stateReason": "COMPLETED",
+              "url": "https://github.com/o/r/issues/75",
+              "updatedAt": "2026-08-01T10:20:00Z",
+              "labels": { "nodes": [{ "name": "wayfinder:task", "color": "1d76db" }] },
+              "assignees": { "nodes": [] },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 0,
+                "blocking": 0,
+                "totalBlocking": 0
+              },
+              "blockedBy": { "pageInfo": { "hasNextPage": false }, "nodes": [] }
+            },
+            {
+              "number": 76,
+              "title": "Wait on the socket",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/76",
+              "updatedAt": "2026-08-01T10:25:00Z",
+              "labels": { "nodes": [{ "name": "wayfinder:task", "color": "1d76db" }] },
+              "assignees": { "nodes": [] },
+              "issueDependenciesSummary": {
+                "blockedBy": 1,
+                "totalBlockedBy": 1,
+                "blocking": 0,
+                "totalBlocking": 0
+              },
+              "blockedBy": {
+                "pageInfo": { "hasNextPage": false },
+                "nodes": [
+                  {
+                    "number": 71,
+                    "title": "Read the socket",
+                    "state": "OPEN",
+                    "repository": { "nameWithOwner": "o/r" }
+                  }
+                ]
+              }
+            },
+            {
+              "number": 77,
+              "title": "Chart the fog",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/77",
+              "updatedAt": "2026-08-01T10:30:00Z",
+              "labels": { "nodes": [{ "name": "wayfinder:task", "color": "1d76db" }] },
+              "assignees": { "nodes": [] },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 0,
+                "blocking": 0,
+                "totalBlocking": 0
+              },
+              "blockedBy": { "pageInfo": { "hasNextPage": false }, "nodes": [] }
+            },
+            {
+              "number": 78,
+              "title": "Leaves the map",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/78",
+              "updatedAt": "2026-08-01T10:35:00Z",
+              "labels": { "nodes": [{ "name": "wayfinder:task", "color": "1d76db" }] },
+              "assignees": { "nodes": [] },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 0,
+                "blocking": 0,
+                "totalBlocking": 0
+              },
+              "blockedBy": { "pageInfo": { "hasNextPage": false }, "nodes": [] }
+            },
+            {
+              "number": 80,
+              "title": "Spec: swept",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/80",
+              "updatedAt": "2026-08-01T10:36:00Z",
+              "labels": { "nodes": [{ "name": "wayfinder:task", "color": "1d76db" }] },
+              "assignees": { "nodes": [] },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 0,
+                "blocking": 0,
+                "totalBlocking": 0
+              },
+              "blockedBy": { "pageInfo": { "hasNextPage": false }, "nodes": [] }
+            },
+            {
+              "number": 81,
+              "title": "Nobody labelled this",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/81",
+              "updatedAt": "2026-08-01T10:38:00Z",
+              "labels": { "nodes": [{ "name": "wayfinder:task", "color": "1d76db" }] },
+              "assignees": { "nodes": [] },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 0,
+                "blocking": 0,
+                "totalBlocking": 0
+              },
+              "blockedBy": { "pageInfo": { "hasNextPage": false }, "nodes": [] }
+            },
+            {
+              "number": 82,
+              "title": "Renamed by somebody",
+              "state": "OPEN",
+              "stateReason": null,
+              "url": "https://github.com/o/r/issues/82",
+              "updatedAt": "2026-08-01T10:40:00Z",
+              "labels": { "nodes": [{ "name": "wayfinder:task", "color": "1d76db" }] },
+              "assignees": { "nodes": [] },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 0,
+                "blocking": 0,
+                "totalBlocking": 0
+              },
+              "blockedBy": { "pageInfo": { "hasNextPage": false }, "nodes": [] }
+            }
+          ]
+        }
+      }
+    },
+    "rateLimit": {
+      "cost": 1,
+      "nodeCount": 42,
+      "limit": 5000,
+      "remaining": 4903,
+      "resetAt": "2026-08-05T11:02:14Z"
+    }
+  }
+}

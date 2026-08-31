@@ -8,7 +8,8 @@ import {
   renderBoundRules,
 } from "../src/contract/rules";
 import { FIXTURE_NAMES, FIXTURES } from "../src/snapshot/fixtures";
-import type { NodeState } from "../src/snapshot/model.generated";
+import type { NodeState, Phase } from "../src/snapshot/model.generated";
+import { PHASE_NAMES } from "../src/snapshot/readout";
 import { STATE_NAMES } from "../src/views/route/route";
 import { VIEWS } from "../src/views/views";
 import {
@@ -222,6 +223,25 @@ describe("gate: adding a state ships one fixture", () => {
 
     expect(states).not.toHaveLength(0);
     expect(states.filter((state) => !exercised.has(state))).toEqual([]);
+  });
+
+  it("crosses the phase ladder with the fixtures, so a sixth rung lands red", () => {
+    // The same gate one axis over, and it is here because the state union was
+    // not the only closed set the screen spells. `PHASE_NAMES` is the readout's
+    // `Record<Phase, string>`, so a rung nobody can reach on any fixture is a
+    // word rule 5 asserts reaches the screen and no rendered state ever asks
+    // about — which is how `specReady` sat unexercised while the fixture set
+    // looked complete. A rung is a fact about the model, not about a view, so
+    // this is owed by the first registered view and not deferred to the fourth.
+    const phases = Object.keys(PHASE_NAMES) as Phase[];
+    const exercised = new Set(
+      Object.values(FIXTURES).flatMap((snapshot) =>
+        snapshot.model.map === null ? [] : [snapshot.model.map.phase],
+      ),
+    );
+
+    expect(phases).not.toHaveLength(0);
+    expect(phases.filter((phase) => !exercised.has(phase))).toEqual([]);
   });
 
   it("derives the fixture space rather than keeping a list beside it", () => {

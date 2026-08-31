@@ -294,9 +294,11 @@ content is not**: a missing or stubbed section is red, and no test grades the
 answer, because grading it would be the assertion the tier already said cannot
 exist. Checkboxes are banned in a declaration and the parser goes red on one — a
 box gets ticked, and by the third view a ticked box is a rubber stamp. Three
-gates key the check to what changed: adding a fixture (the fixture space is
-derived from `FIXTURE_NAMES`, and no second enumeration of fixture names may
-exist), adding a view (driven off `VIEWS`, so a new view is red until it has
+gates key the check to what changed: adding a value the model can take (each of
+`NodeState` and `Phase` is crossed with the checked-in fixtures, so a state or a
+rung no fixture reaches is red until the fixture reaching it lands — and the
+fixture is cheap because the fixture space is derived from `FIXTURE_NAMES`, with
+no second enumeration of fixture names allowed to exist), adding a view (driven off `VIEWS`, so a new view is red until it has
 declarations), and adding a rule (driven off the registry, so a rule landing in
 *judged* retro-fits a section onto every view). A declared deviation is a
 paragraph opening `Deviation:` — the only structure the format has, stated in
@@ -363,14 +365,14 @@ rows, its designated encoding — so the checks name no view's selectors.
 `tests/conformance-coverage.test.ts`. An entry existing is not an entry firing.
 A check that skips at *every* point of the space is green exactly the way one
 that holds everywhere is green, with the difference living only in a report
-nobody opens on a passing run — so deleting the single fixture that carries a
-cut ticket would leave rule 6 asserting nothing anywhere and the suite still all
+nobody opens on a passing run — so deleting the two fixtures that carry a cut
+ticket would leave rule 6 asserting nothing anywhere and the suite still all
 green. Each entry's precondition is therefore separable from its assertion
 (`RuleEntry.applies`) and answerable without a browser: it reads the fixture's
 own `Snapshot`, the point's theme and motion, and what the view declares about
 mounting. This gate walks `VIEWS` × `fixtureSpace(FIXTURE_NAMES)` with those
 preconditions and goes red on any entry with a check and nowhere left to apply
-— today rule 6 applies at 4 of 68 points and rule 12 at 10, which is a margin
+— today rule 6 applies at 8 of 76 points and rule 12 at 12, which is a margin
 worth knowing has not gone to zero. It is a vitest test rather than a
 browser one precisely so it runs inside `npm run verify` on a bare checkout, and
 like the other pure checks it is proved against known-bad input — a precondition

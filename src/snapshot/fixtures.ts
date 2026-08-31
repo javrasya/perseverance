@@ -26,15 +26,35 @@
  *
  * `while-you-were-away` is there for the same reason: reaching the cold-start
  * row needs a cached graph from a session that ended, and a `dev:web` tab has
- * no previous session to have ended. Its ledger is the only one on disk that is
- * not empty, so it is the only fixture where a real zero and *first open* are
- * distinguishable on screen.
+ * no previous session to have ended. It and `ledger-sweep` are the only two
+ * ledgers on disk that are not empty, which is what makes a real zero and
+ * *first open* distinguishable on screen.
+ *
+ * `ledger-sweep` is the second of those and divides the ledger with the first
+ * rather than duplicating it. `while-you-were-away` is what a real morning
+ * looks like, and is where the *precedence* between clause kinds is legible.
+ * `ledger-sweep` is deliberately not realistic: it is one map moved in every
+ * way the change vocabulary has a word for, so the *set* of clause kinds is
+ * something the screen has been asked about rather than a vocabulary only the
+ * model crate's unit tests have ever seen. Sixteen clauses in one entry is not
+ * a morning's polling, and an entry that looked like one would reach four of
+ * the sixteen words — which is why merging the two would lose both readings.
  *
  * The three fog fixtures are there because the fog is the one region whose
  * *absence* is the fact: a browser has no way to edit a map document, and
  * *nobody surveyed*, *surveyed and found nothing* and *surveyed and wrote four
  * lines* are three states that must be tellable apart on screen and not only in
  * the type.
+ *
+ * `spec-ready` is the phase ladder's bottom rung, and it is here because the
+ * ladder is a closed set the screen has to be able to spell all of: every
+ * ticket closed and no spec child at all. Reaching it in a browser would mean
+ * closing every ticket on a map and composing nothing, which is a sequence of
+ * clicks against a real GitHub rather than a state a tab can be put into — and
+ * without it the word `PHASE_NAMES` keeps for that rung is a string no rendered
+ * state ever asks about. It sits one child away from `spec-composed`, so *ready
+ * to compose* and *composed* are two readings on screen rather than one word an
+ * operator has to take on trust.
  *
  * `out-of-scope` is there for both halves of that reason at once. A browser
  * cannot edit a map document, and *closed as done* and *closed because it was
@@ -59,6 +79,7 @@ import emptyMap from "./fixtures/empty-map.json" with { type: "json" };
 import fogCharted from "./fixtures/fog-charted.json" with { type: "json" };
 import fogEmpty from "./fixtures/fog-empty.json" with { type: "json" };
 import fogUnsurveyed from "./fixtures/fog-unsurveyed.json" with { type: "json" };
+import ledgerSweep from "./fixtures/ledger-sweep.json" with { type: "json" };
 import mapClosed from "./fixtures/map-closed.json" with { type: "json" };
 import mapGone from "./fixtures/map-gone.json" with { type: "json" };
 import noMapOpen from "./fixtures/no-map-open.json" with { type: "json" };
@@ -67,6 +88,7 @@ import platformBoundMacos from "./fixtures/platform-bound-macos.json" with { typ
 import platformBoundWindows from "./fixtures/platform-bound-windows.json" with { type: "json" };
 import rateLimited from "./fixtures/rate-limited.json" with { type: "json" };
 import specComposed from "./fixtures/spec-composed.json" with { type: "json" };
+import specReady from "./fixtures/spec-ready.json" with { type: "json" };
 import twoMapsOneOpen from "./fixtures/two-maps-one-open.json" with { type: "json" };
 import unreachable from "./fixtures/unreachable.json" with { type: "json" };
 import whileYouWereAway from "./fixtures/while-you-were-away.json" with { type: "json" };
@@ -88,6 +110,7 @@ export const FIXTURES = {
   "fog-charted": AS_GENERATED(fogCharted),
   "fog-empty": AS_GENERATED(fogEmpty),
   "fog-unsurveyed": AS_GENERATED(fogUnsurveyed),
+  "ledger-sweep": AS_GENERATED(ledgerSweep),
   "map-closed": AS_GENERATED(mapClosed),
   "map-gone": AS_GENERATED(mapGone),
   "no-map-open": AS_GENERATED(noMapOpen),
@@ -96,6 +119,7 @@ export const FIXTURES = {
   "platform-bound-windows": AS_GENERATED(platformBoundWindows),
   "rate-limited": AS_GENERATED(rateLimited),
   "spec-composed": AS_GENERATED(specComposed),
+  "spec-ready": AS_GENERATED(specReady),
   "two-maps-one-open": AS_GENERATED(twoMapsOneOpen),
   unreachable: AS_GENERATED(unreachable),
   "while-you-were-away": AS_GENERATED(whileYouWereAway),

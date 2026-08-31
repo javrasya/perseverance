@@ -87,8 +87,12 @@ describe("the numeral counts what Rust stamped and decides nothing itself", () =
 
   it("says first open in place of the number, and never a zero", () => {
     for (const name of FIXTURE_NAMES) {
-      if (name === "while-you-were-away") continue;
-      // Every other fixture is a map nothing has been compared for. A map
+      // Derived and not listed: a ledger with no entries in it *is* a map
+      // nothing has been compared for, so the fixtures with a comparison
+      // behind them exclude themselves. A name written here would be the
+      // parallel list that goes one fixture stale.
+      if (FIXTURES[name].ledger.entries.length > 0) continue;
+      // Every remaining fixture is a map nothing has been compared for. A map
       // nobody has looked at twice has not failed to move, and the two states
       // are two different readings rather than one number.
       expect([name, describeUnread(FIXTURES[name].ledger, 0)]).toEqual([name, FIRST_OPEN]);

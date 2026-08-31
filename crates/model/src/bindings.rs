@@ -109,6 +109,20 @@ const CASES: &[Case] = &[
               left to start.",
     },
     Case {
+        slug: "spec-ready",
+        answer: Some("spec-ready.json"),
+        why: "The rung below `spec-composed`, and the only one that reaches \
+              the bottom of the phase ladder: every ticket closed and no spec \
+              child at all. It is the sole fixture whose phase is \
+              `spec-ready`, so without it the word `PHASE_NAMES` spells for \
+              that rung reaches no screen and the rule that the spelled \
+              figures are the model's own is never asked about it. Beside \
+              `spec-composed` it is also the only pair that differs in one \
+              child, which is what makes *ready to compose* and *composed* \
+              two readings an operator can tell apart rather than one word \
+              they have to trust.",
+    },
+    Case {
         slug: "map-closed",
         answer: Some("map-closed.json"),
         why: "A closed map with an open ticket still on it: done beats \
@@ -252,17 +266,43 @@ struct LedgerCase {
 
 /// The fixtures whose ledger is not empty.
 ///
-/// One, and it is the *while you were away* row rather than an ordinary tick:
-/// the cold-start comparison against `graph_cache` is the entry a browser has
-/// no way to conjure, because reaching it needs a cache row from a previous
+/// Two, and both are *while you were away* rows rather than ordinary ticks: the
+/// cold-start comparison against `graph_cache` is the entry a browser has no
+/// way to conjure, because reaching it needs a cache row from a previous
 /// session and there is no previous session in a `dev:web` tab. An ordinary
 /// tick is reachable by leaving the app open, and so does not need a fixture.
+///
+/// They divide the ledger between them on purpose. `while-you-were-away` is
+/// what a real morning looks like and is where the **precedence** between
+/// clause kinds is legible. `ledger-sweep` is not realistic and is not trying
+/// to be: it moves one map in every way the taxonomy has a word for, so that
+/// the **set** of clause kinds is a thing the screen has been asked about
+/// rather than a vocabulary only this crate's unit tests have seen. Merging
+/// them would lose both readings at once.
 fn ledger_cases() -> Vec<LedgerCase> {
-    vec![LedgerCase {
-        slug: "while-you-were-away",
-        baseline: "awkward-children.json",
-        later: "awkward-children-later.json",
-        why: "The cold start: a cached graph as the baseline, one landed poll \
+    vec![
+        LedgerCase {
+            slug: "ledger-sweep",
+            baseline: "ledger-sweep.json",
+            later: "ledger-sweep-later.json",
+            why: "The vocabulary, swept: one map moved in every way the change \
+              taxonomy has a word for, so no clause kind is a word only this \
+              crate's unit tests have ever seen. `while-you-were-away` shows \
+              the *precedence* between clause kinds on a realistic entry and \
+              this one shows the *set* — kept apart deliberately, because a \
+              fixture that tried to be both would be neither: sixteen clauses \
+              is not what a morning's polling looks like, and an entry that \
+              looks like a morning's polling reaches four of the sixteen \
+              words. Every one of them is out of a browser's reach for the \
+              reason the cold start is: an entry is the difference between two \
+              reads, and a `dev:web` tab has no second read to take one \
+              against.",
+        },
+        LedgerCase {
+            slug: "while-you-were-away",
+            baseline: "awkward-children.json",
+            later: "awkward-children-later.json",
+            why: "The cold start: a cached graph as the baseline, one landed poll \
               against it, and the single row that comes out of the comparison. \
               It carries one clause from each tier of the precedence at once — \
               a resolution, an edge that went away, the frontier \
@@ -275,7 +315,8 @@ fn ledger_cases() -> Vec<LedgerCase> {
               rather than inferred from four fixtures. It is also the only \
               fixture whose ledger reads `watching`, which is what makes a real \
               zero distinguishable on screen from a map nobody has opened.",
-    }]
+        },
+    ]
 }
 
 /// One `dev:web` fixture for a map read **for a particular machine**: what it
