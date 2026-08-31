@@ -33,6 +33,21 @@
 //!   removal is a cheap thing to offer: the commits of the run are still on a
 //!   branch afterwards, and the operator can make the working copy again.
 //!
+//! **A worktree whose directory the operator deleted by hand.** Listing one is
+//! ordinary: git keeps the registration, prints it with a `prunable` reason, and
+//! the entry comes back with [`Working::Gone`] in it and no error anywhere —
+//! that is the state, not a failure to read one. Clearing it is where the git on
+//! the machine can differ. On the git this was built against (2.50) `git
+//! worktree remove <path>` clears such a registration by itself, which is why
+//! `git worktree prune` is still never run: prune is repository-wide and would
+//! drop registrations this app never made, and ADR 0022 refuses it. Where
+//! `remove` will not do that — an older git that wants the directory to exist —
+//! the entry comes back as [`InventoryError::RemovalRefused`] carrying git's own
+//! words, which on that path are its `hint:` line naming `prune`. Nothing here
+//! escalates: the listing keeps showing the entry, the operator reads git's
+//! sentence, and running the repository-wide command is a decision that stays
+//! theirs.
+//!
 //! Filled in by:
 //! - #60 the worktree inventory, its classification and its removal
 
@@ -991,5 +1006,82 @@ locked in use
             "{lines:?}"
         );
         assert!(ours.removal.is_none());
+    }
+
+    /// The whole of the path an accepted offer takes, against a real git and a
+    /// real remote — the one shape every other test here approaches and none of
+    /// them reaches.
+    ///
+    /// `Pushed` is the state the rest of the suite can only assert about a
+    /// hand-written `Probed` or a parsed `rev-list` count: no repository in
+    /// these tests ever had a remote, so every end-to-end entry so far has been
+    /// `Unpushed` and the offer has been absent for a reason that would look
+    /// identical if the classifier were broken. A bare repository in a second
+    /// temporary directory costs one `git init --bare` and turns the offer, the
+    /// removal, the disappearance from the next listing and the survival of the
+    /// branch into four assertions about one run.
+    ///
+    /// The remote is a directory on this disk, so there is still no network in
+    /// this crate's tests: a push into a local bare repository writes
+    /// `refs/remotes/origin/<branch>`, which is precisely the ref
+    /// [`publication_of`] reads.
+    #[test]
+    fn a_pushed_worktree_is_offered_and_its_removal_keeps_the_branch() {
+        let Some(folder) = a_repository() else {
+            return;
+        };
+        let remote = TempDir::new().expect("a temporary directory");
+        let git = |at: &Path, arguments: &[&str]| -> bool {
+            Command::new("git")
+                .arg("-C")
+                .arg(at)
+                .args(arguments)
+                .stdin(Stdio::null())
+                .output()
+                .map(|finished| finished.status.success())
+                .unwrap_or(false)
+        };
+        assert!(git(remote.path(), &["init", "--bare"]), "no bare remote");
+
+        let made = crate::worktree_for(folder.path(), 60, "Worktree hygiene").expect("a worktree");
+        std::fs::write(made.path.join("finding.md"), "a finding\n").expect("writes a file");
+        assert!(git(&made.path, &["add", "finding.md"]));
+        assert!(git(&made.path, &["commit", "-m", "a finding"]));
+        assert!(git(
+            folder.path(),
+            &["remote", "add", "origin", &remote.path().to_string_lossy()]
+        ));
+        assert!(git(&made.path, &["push", "origin", &made.branch]));
+
+        let before = crate::tests::tip_of(folder.path(), &made.branch).expect("a branch tip");
+
+        let listed = inventory(folder.path(), &known(&[60])).expect("a listing");
+        let ours = listed
+            .iter()
+            .find(|entry| crate::same_directory(&entry.record.path, &made.path))
+            .expect("our worktree is listed");
+        assert_eq!(
+            ours.probed.as_ref().map(|probed| &probed.publication),
+            Some(&Publication::Pushed)
+        );
+        let removal = ours.removal.clone().expect("a pushed clean worktree");
+        assert_eq!(removal.ticket(), 60);
+        assert!(crate::same_directory(removal.path(), &made.path));
+
+        remove(folder.path(), &removal).expect("removes the worktree");
+        assert!(!made.path.exists(), "the directory is still there");
+
+        let after = inventory(folder.path(), &known(&[60])).expect("a listing");
+        assert!(
+            !after
+                .iter()
+                .any(|entry| matches!(entry.origin, Origin::Ours { .. })),
+            "the registration is still there"
+        );
+        assert_eq!(
+            crate::tests::tip_of(folder.path(), &made.branch).as_deref(),
+            Some(&*before),
+            "the branch moved or went"
+        );
     }
 }

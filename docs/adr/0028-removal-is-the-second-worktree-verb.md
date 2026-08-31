@@ -52,6 +52,18 @@ case. `scripts/check-repo-writes.mjs` now admits three `worktree` subcommands in
 literal so a verb assembled at runtime is not mistaken for a listing, and refuses
 `move`, `lock`, `unlock`, `repair` and `prune` exactly as before.
 
+**The slip does not cross the Tauri seam, and the press re-derives it.** The
+WebView is handed a boolean — *there was an offer when this listing was derived*
+— because a `Removal` sent to the frontend would be a value the frontend could
+keep, replay, or invent. The boolean decides what is drawn; it decides nothing
+else. `remove_worktree` takes a folder and a directory, lists the folder again,
+finds the entry whose record names that directory, and calls the crate only on a
+slip that this call minted. The re-derivation is the point rather than a second
+belt: a worktree that was clean when the list was drawn and has an unsaved edit
+in it now must refuse, and the only thing that can know is git, asked again. The
+set of known tickets is read on this side too, from the app's own snapshot of the
+map, so the frontend cannot decide what counts as an orphan by what it sends.
+
 **No branch is ever deleted, and that is what makes the offer cheap.** `git
 worktree remove` leaves `refs/heads/research/<ticket>-<slug>` pointing where it
 pointed, so accepting an offer costs a working copy and never a commit — and
@@ -132,6 +144,17 @@ The app crate gains a listing whose entries it may render freely and remove only
 by handing back a value this crate gave it. The set of known tickets is the app's
 to supply, which keeps the join between *a worktree on disk* and *a ticket on the
 map* in the one place that already holds both.
+
+A worktree whose directory the operator deleted by hand lists as an ordinary
+entry — git keeps the registration, prints its own `prunable` reason, and the
+probes answer *gone* rather than raising anything. Clearing it is where the git
+on the machine can differ: on the git this was built against (2.50) `git worktree
+remove <path>` clears such a registration by itself, which is what lets ADR
+0022's refusal of `prune` stand. Where `remove` will not do that, the entry comes
+back as a refusal carrying git's own words — on that path, its `hint:` line
+naming `prune` — the listing goes on showing the entry, and running the
+repository-wide command stays the operator's decision rather than becoming this
+app's escalation.
 
 A worktree with unpushed commits is never offered for removal, which means an
 operator who wants that disk space back has to push or delete it themselves. That

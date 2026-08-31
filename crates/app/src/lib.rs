@@ -15,7 +15,7 @@
 
 pub mod prompt;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, OnceLock};
@@ -1969,6 +1969,251 @@ fn clear_override(
         let _ = remember_override(&store, &[]);
     }
     read_folder(&harvests, remembered_override(&registry), &path, false)
+}
+
+/* ----------------------------------------------------------- worktrees --- */
+
+/// One worktree of the picked repository, as the WebView sees it.
+///
+/// A flattening of `perseverance_worktree`'s `Listed`, and nothing more: git's
+/// own strings for the lock and for the prunable reason travel verbatim, the
+/// porcelain lines travel as lines rather than as a count, and nothing here is
+/// composed out of two facts. The one thing this side adds is [`removable`],
+/// and it is not what it looks like.
+///
+/// [`removable`]: WorktreeEntry::removable
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorktreeEntry {
+    /// Absolute, and as git spelled it. It is also the string a press hands
+    /// back to [`remove_worktree`], so a removal names a **directory** rather
+    /// than a position in a list that may have moved since it was drawn.
+    path: String,
+    /// Absent on a detached or bare worktree, which is an absence the readout
+    /// shows rather than an empty string it invents.
+    branch: Option<String>,
+    /// `Some` when git holds it locked, carrying the operator's reason where
+    /// they gave one and empty where they did not — git's two states, kept
+    /// apart.
+    locked: Option<String>,
+    /// `Some` when git's registration points at a directory that is not there,
+    /// in git's own words.
+    prunable: Option<String>,
+    whose: WireWhose,
+    /// `None` on a foreign entry, because a foreign worktree is never asked.
+    /// The absence on the wire is the same absence the crate has: not *we did
+    /// not manage to probe it*, but *it is none of our business*.
+    probed: Option<WireProbed>,
+    /// Whether an offer existed **when this listing was derived**, and never a
+    /// permission.
+    ///
+    /// The permission is a `Removal`, whose fields are private and which only
+    /// the classifier mints, and it deliberately does not cross this seam: a
+    /// value the WebView could hold would be a value the WebView could keep,
+    /// send back late, or make up. So the boolean is a rendering fact — draw
+    /// the button or draw the reason — and [`remove_worktree`] re-derives the
+    /// listing and re-mints the slip when the button is pressed.
+    removable: bool,
+}
+
+/// Whose worktree it is, and which of ours the open map has forgotten.
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+enum WireWhose {
+    Ours { ticket: u64, orphan: bool },
+    Foreign,
+}
+
+/// What the probes said about a worktree of ours.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WireProbed {
+    working: WireWorking,
+    publication: WirePublication,
+}
+
+/// What is uncommitted, in full.
+///
+/// `lines` is every line `git status --porcelain` printed, verbatim: the
+/// operator is being told why there is no offer, and a count does not answer
+/// that.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+enum WireWorking {
+    Clean,
+    Uncommitted { lines: Vec<String> },
+    Gone,
+    Unreadable { detail: String },
+}
+
+/// How much of the branch this clone has already seen on a remote.
+///
+/// Read from remote-tracking refs on this disk and never from the network, so
+/// *unpushed* means *this clone has not seen it pushed* and the readout is
+/// entitled to say no more than that.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+enum WirePublication {
+    Pushed,
+    Unpushed { commits: usize },
+    Detached,
+    Unknown { detail: String },
+}
+
+impl From<&perseverance_worktree::Listed> for WorktreeEntry {
+    fn from(listed: &perseverance_worktree::Listed) -> WorktreeEntry {
+        WorktreeEntry {
+            path: listed.record.path.to_string_lossy().into_owned(),
+            branch: listed.record.branch.clone(),
+            locked: listed.record.locked.clone(),
+            prunable: listed.record.prunable.clone(),
+            whose: match listed.origin {
+                perseverance_worktree::Origin::Ours { ticket, orphan } => {
+                    WireWhose::Ours { ticket, orphan }
+                }
+                perseverance_worktree::Origin::Foreign => WireWhose::Foreign,
+            },
+            probed: listed.probed.as_ref().map(|probed| WireProbed {
+                working: match &probed.working {
+                    perseverance_worktree::Working::Clean => WireWorking::Clean,
+                    perseverance_worktree::Working::Uncommitted { lines } => {
+                        WireWorking::Uncommitted {
+                            lines: lines.clone(),
+                        }
+                    }
+                    perseverance_worktree::Working::Gone => WireWorking::Gone,
+                    perseverance_worktree::Working::Unreadable { detail } => {
+                        WireWorking::Unreadable {
+                            detail: detail.clone(),
+                        }
+                    }
+                },
+                publication: match &probed.publication {
+                    perseverance_worktree::Publication::Pushed => WirePublication::Pushed,
+                    perseverance_worktree::Publication::Unpushed { commits } => {
+                        WirePublication::Unpushed { commits: *commits }
+                    }
+                    perseverance_worktree::Publication::Detached => WirePublication::Detached,
+                    perseverance_worktree::Publication::Unknown { detail } => {
+                        WirePublication::Unknown {
+                            detail: detail.clone(),
+                        }
+                    }
+                },
+            }),
+            removable: listed.removal.is_some(),
+        }
+    }
+}
+
+/// Every worktree of the repository under `path`, derived from git on this call.
+///
+/// Nothing is cached and nothing is remembered: the list is about directories
+/// anybody can change between two presses, and a stale entry offering to remove
+/// something is worse than a listing that costs two processes.
+///
+/// `(async)` for the reason the folder readout has it — this runs `git` once for
+/// the listing and twice more per worktree of ours, and the main thread is where
+/// the window is drawn.
+#[tauri::command(async)]
+fn folder_worktrees(
+    ledgers: State<'_, Ledgers>,
+    path: String,
+) -> Result<Vec<WorktreeEntry>, String> {
+    listed_worktrees(Path::new(&path), &tickets_on(&ledgers.held().model))
+}
+
+/// Unregisters the worktree at `worktree`, if the rules still allow it.
+///
+/// The path is the argument and the permission is not: the WebView says *this
+/// directory*, and the answer to *may it go?* is derived here, now, from a
+/// listing taken at this instant. That re-derivation is the design and not a
+/// belt on top of a brace — a worktree that was clean when the list was drawn
+/// and has an unsaved edit in it now must refuse, and the only way to know that
+/// is to ask git again on the press.
+///
+/// It answers with the listing that comes after, because the frontend needs one
+/// either way and a second round trip could only disagree with this one.
+#[tauri::command(async)]
+fn remove_worktree(
+    ledgers: State<'_, Ledgers>,
+    path: String,
+    worktree: String,
+) -> Result<Vec<WorktreeEntry>, String> {
+    remove_listed(
+        Path::new(&path),
+        Path::new(&worktree),
+        &tickets_on(&ledgers.held().model),
+    )
+}
+
+/// The listing, with the crate's own sentence carried unedited on a refusal.
+fn listed_worktrees(folder: &Path, known: &BTreeSet<u64>) -> Result<Vec<WorktreeEntry>, String> {
+    perseverance_worktree::inventory(folder, known)
+        .map(|listed| listed.iter().map(WorktreeEntry::from).collect())
+        .map_err(|refusal| refusal.to_string())
+}
+
+/// The press: list, find the directory, and remove it only on a slip this call
+/// minted.
+///
+/// The entry is found by comparing canonicalised paths rather than the strings,
+/// because git prints the spelling the filesystem uses and the WebView hands
+/// back whatever it was given; on macOS one of those goes through `/private`
+/// and the other does not.
+fn remove_listed(
+    folder: &Path,
+    worktree: &Path,
+    known: &BTreeSet<u64>,
+) -> Result<Vec<WorktreeEntry>, String> {
+    let listed =
+        perseverance_worktree::inventory(folder, known).map_err(|refusal| refusal.to_string())?;
+
+    let removal = listed
+        .iter()
+        .find(|entry| same_directory(&entry.record.path, worktree))
+        .and_then(|entry| entry.removal.as_ref())
+        // Not a rewording of anything the crate said: no offer is the *absence*
+        // of an error, and the reasons are on the entry the caller is about to
+        // be handed back — dirty lines, a lock, commits on no remote.
+        .ok_or_else(|| {
+            format!(
+                "the worktree at {} is not on offer for removal",
+                worktree.display()
+            )
+        })?;
+
+    perseverance_worktree::remove(folder, removal).map_err(|refusal| refusal.to_string())?;
+
+    listed_worktrees(folder, known)
+}
+
+/// The tickets the open map holds, which is the whole of what *orphan* is
+/// measured against.
+///
+/// Derived here and never accepted from the WebView: a caller that could pass
+/// the set could pass an empty one and have every worktree of ours reported as
+/// forgotten, or a full one and have none of them reported at all. With no map
+/// open the set is empty and everything of ours lists as an orphan, which is
+/// honest — nothing on screen knows a ticket that would claim them — and an
+/// orphan is a label and never a licence, so the removal rules do not move an
+/// inch either way.
+fn tickets_on(model: &Model) -> BTreeSet<u64> {
+    model
+        .map
+        .as_ref()
+        .map(|map| map.nodes.iter().map(|node| node.number).collect())
+        .unwrap_or_default()
+}
+
+/// Two paths naming one directory, canonicalised where the filesystem will say
+/// so and compared as written where it will not — `perseverance_worktree`'s own
+/// rule, which is `pub(crate)` there and one line here rather than a widened
+/// surface on that crate.
+fn same_directory(left: &Path, right: &Path) -> bool {
+    let canonical =
+        |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    canonical(left) == canonical(right)
 }
 
 /* ------------------------------------------------------------- map view --- */
@@ -5176,6 +5421,8 @@ pub fn run() {
             environment,
             folder_environment,
             retry_folder_environment,
+            folder_worktrees,
+            remove_worktree,
             use_override,
             clear_override,
             map_position,
@@ -9884,6 +10131,124 @@ mod tests {
             PathBuf::from(&picked)
         );
         assert!(!folder.path().join(".perseverance").exists());
+    }
+
+    /* ------------------------------------------------------- worktrees --- */
+
+    /// The listing as the WebView will read it: the classification and the
+    /// probes come from the crate, and what is asserted here is the crossing —
+    /// the union tags, the porcelain lines arriving as lines, and the entry
+    /// that is not ours arriving with no probes on it at all.
+    #[test]
+    fn a_listing_crosses_with_its_tags_and_no_slip() {
+        let Some(folder) = a_repository() else {
+            return;
+        };
+        let made = perseverance_worktree::worktree_for(folder.path(), 60, "Worktree hygiene")
+            .expect("a worktree");
+        std::fs::write(made.path.join("notes.md"), "unsaved\n").expect("writes in the worktree");
+
+        let listed = listed_worktrees(folder.path(), &[60].into_iter().collect())
+            .expect("a listing crosses");
+        let wire = serde_json::to_value(&listed).expect("the entries serialise");
+        let ours = wire
+            .as_array()
+            .expect("an array")
+            .iter()
+            .find(|entry| entry["whose"]["kind"] == "ours")
+            .expect("our worktree is listed")
+            .clone();
+
+        assert_eq!(ours["whose"]["ticket"], 60);
+        assert_eq!(ours["whose"]["orphan"], false);
+        assert_eq!(ours["probed"]["working"]["kind"], "uncommitted");
+        assert!(
+            ours["probed"]["working"]["lines"]
+                .as_array()
+                .expect("the porcelain lines")
+                .iter()
+                .any(|line| line.as_str().unwrap_or_default().contains("notes.md")),
+            "{ours}"
+        );
+        assert_eq!(ours["probed"]["publication"]["kind"], "unpushed");
+        // Dirty, so no offer — and the boolean is the whole of what crosses.
+        assert_eq!(ours["removable"], false);
+
+        let main = wire
+            .as_array()
+            .expect("an array")
+            .iter()
+            .find(|entry| entry["whose"]["kind"] == "foreign")
+            .expect("the operator's own checkout is listed")
+            .clone();
+        assert!(main["probed"].is_null(), "{main}");
+    }
+
+    /// The press re-derives, and that is what makes the boolean safe to render:
+    /// a listing that said *removable* is not the thing consulted when the
+    /// button is pressed, and an entry that went dirty in between refuses.
+    #[test]
+    fn a_press_on_a_worktree_that_went_dirty_refuses() {
+        let Some(folder) = a_repository() else {
+            return;
+        };
+        let made = perseverance_worktree::worktree_for(folder.path(), 60, "Worktree hygiene")
+            .expect("a worktree");
+        std::fs::write(made.path.join("notes.md"), "unsaved\n").expect("writes in the worktree");
+
+        let refusal = remove_listed(
+            folder.path(),
+            &made.path,
+            &[60].into_iter().collect::<BTreeSet<u64>>(),
+        )
+        .expect_err("a dirty worktree is not removed");
+        assert!(refusal.contains("not on offer"), "{refusal}");
+        assert!(made.path.is_dir(), "the worktree went anyway");
+    }
+
+    /// A directory nothing in this repository registered is named at the seam:
+    /// no entry matches it, so there is no slip to mint and nothing is run.
+    #[test]
+    fn a_press_on_a_directory_that_is_no_worktree_refuses() {
+        let Some(folder) = a_repository() else {
+            return;
+        };
+        let elsewhere = tempfile::TempDir::new().expect("a temporary directory");
+
+        let refusal = remove_listed(folder.path(), elsewhere.path(), &BTreeSet::new())
+            .expect_err("an unlisted directory is not removed");
+        assert!(refusal.contains("not on offer"), "{refusal}");
+        assert!(elsewhere.path().is_dir(), "the directory went anyway");
+    }
+
+    /// A folder that is no repository fails in the crate's own sentence, which
+    /// crosses unedited.
+    #[test]
+    fn a_folder_with_no_repository_answers_in_the_crates_words() {
+        let folder = tempfile::TempDir::new().expect("a temporary directory");
+
+        assert_eq!(
+            listed_worktrees(folder.path(), &BTreeSet::new()).expect_err("no repository"),
+            perseverance_worktree::InventoryError::NotAGitRepo.to_string()
+        );
+    }
+
+    /// The set *orphan* is measured against is the app's own snapshot of the
+    /// map and nothing the WebView said. With no map open it is empty, which
+    /// makes every worktree of ours an orphan and changes no rule.
+    #[test]
+    fn the_known_tickets_are_the_open_maps_nodes() {
+        assert!(tickets_on(&Model { map: None }).is_empty());
+
+        assert_eq!(
+            tickets_on(&Model {
+                map: Some(a_map_reading(&[
+                    (58, NodeState::Takeable),
+                    (60, NodeState::Blocked)
+                ]))
+            }),
+            [58, 60].into_iter().collect::<BTreeSet<u64>>()
+        );
     }
 
     /* ------------------------------------------------- resuming a claim --- */
