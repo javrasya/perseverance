@@ -1,5 +1,6 @@
 import { useId, useRef, useState, useEffect } from "react";
 import type { FolderReadout } from "../environment/folder";
+import type { RunReadout } from "../terminal/runs";
 import { monitor } from "../stores/ui";
 import { recordPrompt } from "../terminal/prompts";
 import { startCharting } from "./charting";
@@ -25,6 +26,12 @@ interface IdeaBoxProps {
    * readout and not its adapters, for `Charting.environment`'s reason.
    */
   environment: FolderReadout | null;
+  /**
+   * Every run the harness is reporting, the same array the pane is given. The
+   * box reads exactly one bit out of it — whether the run its own press
+   * started is over — and `idea.ts` does that reading.
+   */
+  readouts: readonly RunReadout[];
 }
 
 /**
@@ -40,12 +47,18 @@ interface IdeaBoxProps {
  * the same two functions the rail uses, and nothing here is persisted: the pick
  * belongs to the press.
  *
+ * **The press retires itself.** A charting run that leaves no map behind never
+ * unmounts this box, so the readouts arrive for one purpose: once the run a
+ * press started is over, the box is pressable again and the *already running*
+ * sentence goes. Nothing here decides that — the box is handed the runs and
+ * `idea.ts` reads them.
+ *
  * **Nothing is registered afterwards.** A map the run creates carries the map
  * label and arrives on an ordinary poll, at the cadence the ladder decided, so
  * a successful press invokes `start_charting` and nothing else — no refresh, no
  * registration, and no row added to the list by this side.
  */
-export function IdeaBox({ folder, environment }: IdeaBoxProps) {
+export function IdeaBox({ folder, environment, readouts }: IdeaBoxProps) {
   const [idea, setIdea] = useState("");
   const [chosen, setChosen] = useState<string | null>(null);
   const [press, setPress] = useState<ChartPress>({ kind: "idle" });
@@ -60,7 +73,7 @@ export function IdeaBox({ folder, environment }: IdeaBoxProps) {
     };
   }, []);
 
-  const box = boxAt({ folder, environment, idea, press });
+  const box = boxAt({ folder, environment, readouts, idea, press });
   const adapter = adapterAtPress(box.adapters, chosen);
 
   const chart = async () => {

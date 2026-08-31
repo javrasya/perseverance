@@ -36,6 +36,7 @@ import {
   type MapsView,
 } from "../src/maps/maps";
 import { readUi } from "../src/stores/ui";
+import type { RunReadout } from "../src/terminal/runs";
 import { monitor } from "../src/stores/ui";
 import { forgetPrompts, promptFor } from "../src/terminal/prompts";
 
@@ -69,6 +70,27 @@ const readout = (adapters: readonly AdapterReading[]): FolderReadout =>
 const harvesting = (): FolderReadout =>
   readoutFrom({ adapters: [CLAUDE], harvest: { kind: "harvesting" } }, "/work/repo");
 
+/*
+ * A run as a poll reports it. The box reads two fields out of a readout — which
+ * run it is and whether it is over — and is handed the rest because the pane is
+ * handed the rest.
+ */
+const reading = (run: number, finished: boolean): RunReadout => ({
+  run,
+  held: 0,
+  dropped: 0,
+  through: 0,
+  end: 0,
+  truncated: false,
+  desynced: false,
+  over: finished,
+  code: finished ? 0 : null,
+  monitored: false,
+});
+
+const running = (run: number): RunReadout => reading(run, false);
+const finished = (run: number): RunReadout => reading(run, true);
+
 let mounted: { root: ReturnType<typeof createRoot>; host: HTMLElement } | null = null;
 
 function mount(node: React.ReactNode): HTMLElement {
@@ -83,7 +105,9 @@ function mount(node: React.ReactNode): HTMLElement {
 }
 
 function paint(props: Partial<Parameters<typeof IdeaBox>[0]> = {}): HTMLElement {
-  return mount(<IdeaBox folder="/work/repo" environment={readout([CLAUDE])} {...props} />);
+  return mount(
+    <IdeaBox folder="/work/repo" environment={readout([CLAUDE])} readouts={[]} {...props} />,
+  );
 }
 
 const field = (host: HTMLElement): HTMLTextAreaElement => {
@@ -137,29 +161,63 @@ afterEach(() => {
 describe("what recesses the box", () => {
   it("names the condition and only the first that is true", () => {
     const idea = "chart the ingest path";
-    expect(boxAt({ folder: null, environment: readout([CLAUDE]), idea, press: { kind: "idle" } }))
-      .toMatchObject({ fill: "recessed", condition: NO_FOLDER_OPEN });
+    const idle = { readouts: [], idea, press: { kind: "idle" } } as const;
     expect(
-      boxAt({ folder: "/work/repo", environment: null, idea, press: { kind: "idle" } }),
-    ).toMatchObject({ fill: "recessed", condition: STILL_READING });
-    expect(
-      boxAt({ folder: "/work/repo", environment: harvesting(), idea, press: { kind: "idle" } }),
-    ).toMatchObject({ fill: "recessed", condition: STILL_READING });
-    expect(
-      boxAt({ folder: "/work/repo", environment: readout([]), idea, press: { kind: "idle" } }),
-    ).toMatchObject({ fill: "recessed", condition: NO_ADAPTER });
+      boxAt({ folder: null, environment: readout([CLAUDE]), ...idle }),
+    ).toMatchObject({ fill: "recessed", condition: NO_FOLDER_OPEN });
+    expect(boxAt({ folder: "/work/repo", environment: null, ...idle })).toMatchObject({
+      fill: "recessed",
+      condition: STILL_READING,
+    });
+    expect(boxAt({ folder: "/work/repo", environment: harvesting(), ...idle })).toMatchObject({
+      fill: "recessed",
+      condition: STILL_READING,
+    });
+    expect(boxAt({ folder: "/work/repo", environment: readout([]), ...idle })).toMatchObject({
+      fill: "recessed",
+      condition: NO_ADAPTER,
+    });
     // Whitespace is not an idea.
     expect(
-      boxAt({
-        folder: "/work/repo",
-        environment: readout([CLAUDE]),
-        idea: "  \n ",
-        press: { kind: "idle" },
-      }),
+      boxAt({ ...idle, folder: "/work/repo", environment: readout([CLAUDE]), idea: "  \n " }),
     ).toMatchObject({ fill: "recessed", condition: NO_IDEA });
-    expect(
-      boxAt({ folder: "/work/repo", environment: readout([CLAUDE]), idea, press: { kind: "idle" } }),
-    ).toMatchObject({ fill: "filled", condition: null });
+    expect(boxAt({ folder: "/work/repo", environment: readout([CLAUDE]), ...idle })).toMatchObject({
+      fill: "filled",
+      condition: null,
+    });
+  });
+
+  it("holds the spawned press while its run is live, and lets it go once it is over", () => {
+    const started = {
+      folder: "/work/repo",
+      environment: readout([CLAUDE]),
+      idea: "chart the ingest path",
+      press: { kind: "spawned", run: 4 },
+    } as const;
+
+    /* Before the first poll that names it, a spawned run is live and not over:
+       reading the gap as *over* would re-arm the box in the seconds right after
+       the press, which is where a second session is likeliest. */
+    expect(boxAt({ ...started, readouts: [] })).toMatchObject({
+      fill: "recessed",
+      condition: ALREADY_CHARTING,
+    });
+    expect(boxAt({ ...started, readouts: [running(4)] })).toMatchObject({
+      fill: "recessed",
+      condition: ALREADY_CHARTING,
+    });
+    // Some other run ending says nothing about this one.
+    expect(boxAt({ ...started, readouts: [finished(9), running(4)] })).toMatchObject({
+      fill: "recessed",
+      condition: ALREADY_CHARTING,
+    });
+    /* And the run is over. Nothing else retires this press — a charting session
+       that left no map behind is never unmounted by a poll — so the sentence
+       would otherwise outlive the process it describes. */
+    expect(boxAt({ ...started, readouts: [finished(4)] })).toMatchObject({
+      fill: "filled",
+      condition: null,
+    });
   });
 
   it("stays in its box, printing the condition as text and never as a tooltip", () => {
@@ -292,6 +350,40 @@ describe("a press", () => {
     expect(invoke).toHaveBeenCalledTimes(1);
   });
 
+  it("re-arms once that session is over, so a run leaving no map is not a dead end", async () => {
+    invoke.mockResolvedValue({
+      kind: "spawned",
+      run: 4,
+      prompt: { text: "chart it", characters: 8, origin: "custom" },
+    } satisfies Started);
+    const host = paint();
+    type(host, "chart it");
+
+    await act(async () => {
+      button(host).click();
+    });
+
+    // A poll that reports the run still running changes nothing: one live
+    // session in a folder is the whole reason the sentence exists.
+    paint({ readouts: [running(4)] });
+    expect(host.textContent).toContain(ALREADY_CHARTING);
+    expect(button(host).getAttribute("aria-disabled")).toBe("true");
+
+    /* The headline outcome: the session judged the work small enough to just do
+       it and wrote no map, so no poll ever takes this box away. A box that
+       stayed recessed would leave the only route to charting dead, under a
+       sentence claiming a session is running after the process exited. */
+    paint({ readouts: [finished(4)] });
+    expect(host.textContent).not.toContain(ALREADY_CHARTING);
+    expect(button(host).getAttribute("aria-disabled")).toBe("false");
+
+    await act(async () => {
+      button(host).click();
+    });
+
+    expect(invoke).toHaveBeenCalledTimes(2);
+  });
+
   it("prints a refusal's detail verbatim beside the box", async () => {
     invoke.mockResolvedValue({
       kind: "refused",
@@ -331,7 +423,7 @@ describe("where the box lives", () => {
         view={read()}
         selected={null}
         onOpen={() => {}}
-        ideaBox={<IdeaBox folder="/work/repo" environment={readout([CLAUDE])} />}
+        ideaBox={<IdeaBox folder="/work/repo" environment={readout([CLAUDE])} readouts={[]} />}
       />,
     );
     const absence = host.querySelector<HTMLElement>('[data-state="none"]');
@@ -351,7 +443,7 @@ describe("where the box lives", () => {
         view={nothingReadYet(1)}
         selected={null}
         onOpen={() => {}}
-        ideaBox={<IdeaBox folder="/work/repo" environment={readout([CLAUDE])} />}
+        ideaBox={<IdeaBox folder="/work/repo" environment={readout([CLAUDE])} readouts={[]} />}
       />,
     );
 

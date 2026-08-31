@@ -232,6 +232,11 @@ mod tests {
         }
     }
 
+    /// The parser's own source, so a rename of a ticket-type string over there
+    /// fails here — those five are matched as literals in `derive.rs` and are
+    /// not constants a test can name.
+    const DERIVE: &str = include_str!("../../model/src/derive.rs");
+
     /// **The conformance check.**
     ///
     /// Prose drift is harmless and structural drift is the risk: reword any
@@ -245,11 +250,6 @@ mod tests {
     /// and it attempts no drift detection against upstream conventions: there
     /// is nothing in the tree to compare against, and a check that cannot be
     /// built honestly is worse than no check.
-    /// The parser's own source, so a rename of a ticket-type string over there
-    /// fails here — those five are matched as literals in `derive.rs` and are
-    /// not constants a test can name.
-    const DERIVE: &str = include_str!("../../model/src/derive.rs");
-
     #[test]
     fn the_template_still_instructs_every_structure_the_parser_reads() {
         for kind in ["research", "prototype", "grilling", "task", "spec"] {

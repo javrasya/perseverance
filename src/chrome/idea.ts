@@ -19,6 +19,7 @@
  */
 
 import type { FolderReadout } from "../environment/folder";
+import type { RunReadout } from "../terminal/runs";
 import {
   NO_ADAPTER,
   NO_FOLDER_OPEN,
@@ -49,6 +50,9 @@ export const NO_IDEA = "type what you want charted";
  * folder: a second run creating the `wayfinder:*` labels and opening a second
  * map issue. The rail has no equivalent hole because a claimed frontier
  * recesses its socket; nothing recesses this one but this.
+ *
+ * It says *is running*, so it is true only while one is: the sentence retires
+ * the moment the run it speaks for is over. See `boxAt`.
  */
 export const ALREADY_CHARTING = "a charting session is already running in this folder";
 
@@ -76,6 +80,12 @@ export interface Charting {
    * reason: *nobody has looked yet* is not *found nothing*.
    */
   environment: FolderReadout | null;
+  /**
+   * Every run the harness is reporting, exactly as the pane is handed them.
+   * One of them is ever read — the one a `spawned` press names — and read for
+   * a single bit: whether that process has exited.
+   */
+  readouts: readonly RunReadout[];
   /** Exactly what is in the box, untrimmed — trimming is this file's to do. */
   idea: string;
   press: ChartPress;
@@ -89,6 +99,19 @@ export interface Box {
   note: string | null;
   /** The adapter ids offerable at this press, in the order the folder read them. */
   adapters: readonly string[];
+}
+
+/**
+ * Whether the run a press started is still running.
+ *
+ * A run the readouts do not name yet is live and not over: the press lands
+ * before the first poll that mentions it, and reading that gap as *over* would
+ * re-arm the box in exactly the window where a second press is likeliest — the
+ * seconds right after the first one.
+ */
+function stillRunning(readouts: readonly RunReadout[], run: number): boolean {
+  const readout = readouts.find((candidate) => candidate.run === run);
+  return readout === undefined || !readout.over;
 }
 
 /** The idea as it would go out. Whitespace is not an idea. */
@@ -105,10 +128,25 @@ export function boxAt(charting: Charting): Box {
     return { fill: "checking", condition: null, note, adapters };
   }
 
-  // A press that landed is not a press again. Read before the chain below,
-  // because every one of its conditions is still perfectly satisfiable while
-  // the session it already started is running.
-  if (charting.press.kind === "spawned") {
+  // A press that landed is not a press again *while what it started is still
+  // running*. Read before the chain below, because every one of its conditions
+  // is still perfectly satisfiable during that run.
+  //
+  // And it retires, on the standard `Sockets.tsx` states for the rail: a
+  // control still printing the old sentence is a screen lying about what is
+  // startable. A charting session that judged the work small enough to just do
+  // and left no map behind is this box's own headline outcome — and it is the
+  // one outcome `MapList.tsx` never takes the box away for, because no map
+  // ever arrives on a poll to take it. Holding the press forever would end
+  // that run with the only route to charting dead, under a sentence claiming a
+  // session is running after the process exited. Arithmetic here rather than
+  // an effect in the component, so the single-press guarantee and the thing
+  // that lifts it sit one paragraph apart and neither can be read without the
+  // other.
+  if (
+    charting.press.kind === "spawned" &&
+    stillRunning(charting.readouts, charting.press.run)
+  ) {
     return { fill: "recessed", condition: ALREADY_CHARTING, note, adapters };
   }
 

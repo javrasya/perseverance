@@ -681,7 +681,14 @@ export function App() {
                 leaving no map behind is that session working correctly.
               */
               ideaBox={
-                <IdeaBox folder={selectedPath ?? null} environment={folderEnvironment} />
+                /* The same readouts the pane is given: the box recesses
+                   while the session it started is running and re-arms once
+                   that run is over, and these are how it learns which. */
+                <IdeaBox
+                  folder={selectedPath ?? null}
+                  environment={folderEnvironment}
+                  readouts={runs}
+                />
               }
             />
           )}
