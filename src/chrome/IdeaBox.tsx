@@ -4,6 +4,7 @@ import type { RunReadout } from "../terminal/runs";
 import { monitor } from "../stores/ui";
 import { recordPrompt } from "../terminal/prompts";
 import { startCharting } from "./charting";
+import { queuedNote } from "./started";
 import {
   CHART_LABEL,
   IDEA_LABEL,
@@ -101,7 +102,14 @@ export function IdeaBox({ folder, environment, readouts }: IdeaBoxProps) {
       setPress({ kind: "spawned", run: answer.run });
       return;
     }
-    setPress({ kind: "refused", detail: answer.detail });
+    /* A chart is never queued — only research occupies a slot under the app's
+       research ceiling, and a chart has no ticket to be research. The member is
+       here because one `Started` answers three commands, and the box prints
+       what it was told rather than asserting a shape it cannot check. */
+    setPress({
+      kind: "refused",
+      detail: answer.kind === "queued" ? queuedNote(answer) : answer.detail,
+    });
   };
 
   return (

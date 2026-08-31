@@ -22,6 +22,7 @@ import {
 import {
   ask,
   composeSpec,
+  queuedNote,
   resumeWorking,
   startWorking,
   type Asked,
@@ -262,6 +263,14 @@ export function Sockets({
          inside the command, so this is the declaration and not a second one. */
       monitor(answer.run);
       setPress({ kind: "idle" });
+      return;
+    }
+    /* Accepted, not refused: the ceiling was full and Rust took the press into
+       its queue. Nothing to record, nothing to monitor and no pane to bind —
+       there is no run yet — so this branch prints a sentence and stops. It sits
+       above the refusal below because it is the other acceptance. */
+    if (answer.kind === "queued") {
+      setPress({ kind: "queued", socket: id, detail: queuedNote(answer), node: about });
       return;
     }
     setPress({

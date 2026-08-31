@@ -44,7 +44,26 @@ export interface Rendered {
  */
 export type Started =
   | { kind: "spawned"; run: number; prompt: Rendered }
-  | { kind: "refused"; detail: string; frontier: Frontier | null };
+  | { kind: "refused"; detail: string; frontier: Frontier | null }
+  | { kind: "queued"; ticket: number; place: number };
+
+/**
+ * What a queued press says.
+ *
+ * **An acceptance and never a refusal**, which is the whole of why it is a third
+ * answer rather than a `detail` with softer wording: the press passed every
+ * guard, it met the app-global research ceiling, and the run is going to start
+ * without anybody pressing anything again. There is no run number in it because
+ * nothing was spawned — no worktree, no claim, no pane — so this sentence is all
+ * there is to print until the rack grows its pending rows.
+ *
+ * `place` counts from one, from Rust, because it is read by a person.
+ */
+export function queuedNote(answer: { ticket: number; place: number }): string {
+  const where =
+    answer.place === 1 ? "next in the research queue" : `number ${answer.place} in the research queue`;
+  return `#${answer.ticket} is ${where}, and starts on its own as soon as a slot frees`;
+}
 
 /**
  * What a press answers in a browser with no Rust behind it.

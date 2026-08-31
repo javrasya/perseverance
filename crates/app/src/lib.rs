@@ -2350,6 +2350,40 @@ impl Terminals {
                 .any(|telemetry| !telemetry.over && staked.contains(&telemetry.run))
     }
 
+    /// How many research runs are occupying a slot right now.
+    ///
+    /// **Occupancy is the child process and nothing else.** A run occupies a
+    /// slot while its readout's `over` is false, because the two budgets the
+    /// ceiling is guessing at — see [`RESEARCH_CEILING`] — are spent by a
+    /// *running* child and by nothing else. Two consequences, and both are
+    /// deliberate: a *spent* run, its ticket closed and its child still alive,
+    /// goes on holding its slot, because a closed issue does not stop an agent
+    /// consuming a usage limit; and a run whose process is over frees its slot
+    /// the moment the readout says so, even though its row stays in the rack
+    /// until [`end_run`] — an ended row is a rack fact and not a slot.
+    ///
+    /// Counted off the stakes rather than the telemetry alone, because
+    /// `crates/pty` carries no kind: [`RunKind::ceilinged`] is the line, and a
+    /// run this app was never told the stakes of counts as nothing, which is the
+    /// same reading [`Terminals::live_run_on`] gives one.
+    ///
+    /// The two locks are taken one after the other and never nested, as
+    /// everywhere else on this type.
+    fn live_research(&self) -> usize {
+        let staked: Vec<RunId> = self
+            .staked_here()
+            .iter()
+            .filter(|(_, stakes)| stakes.kind.ceilinged())
+            .map(|(run, _)| *run)
+            .collect();
+
+        self.held()
+            .telemetry()
+            .iter()
+            .filter(|telemetry| !telemetry.over && staked.contains(&telemetry.run))
+            .count()
+    }
+
     /// This run is live, as far as the poller's ladder is concerned, until the
     /// handle handed in here is dropped.
     pub fn counting(&self, run: RunId, handle: RunHandle) {
@@ -3231,10 +3265,426 @@ fn start_terminals(app: AppHandle) -> std::io::Result<()> {
                     poker.poke(Poke::Idle);
                 }
             }
+            // The falling edge is also what frees a research slot, so the queue
+            // is drained here and nowhere else — see [`start_what_is_waiting`].
+            // Before the emissions, so a run that just started is already gone
+            // from the pending rows the same tick it appears in the rack.
+            if let Some(pending) = app.try_state::<Pending>() {
+                start_what_is_waiting(&app, &terminals, &pending);
+                let _ = app.emit("pending-runs", pending.announced());
+            }
             let _ = app.emit("run-readouts", readouts);
         })?;
 
     Ok(())
+}
+
+/* -------------------------------------------- the research ceiling --- */
+
+/// Where the app-global ceiling is kept: one row of the same `app` key/value
+/// table [`OVERRIDE_KEY`] lives in.
+///
+/// App-global for the reason the number itself is (see [`RESEARCH_CEILING`]),
+/// and deliberately not per folder: both limits it is guessing at are held
+/// against an account, and a per-folder row would let two crossings agree to
+/// exceed a budget neither of them can see. No schema change and no migration —
+/// `STORE_SCHEMA_VERSION` is untouched.
+const CEILING_KEY: &str = "research_ceiling";
+
+/// How many research runs this app will have going at once, absent a stored
+/// answer.
+///
+/// **A labelled guess, not a measured limit.** Nothing here can read either of
+/// the two budgets a research run actually spends: the agent account's usage
+/// limits, and the GitHub account's rate budget. Both are held against an
+/// *account* rather than against a checkout, which is the whole reason this
+/// number is app-global rather than one per folder — four crossings each
+/// running four research runs would be sixteen against one budget, and no
+/// crossing would be able to see the other three.
+///
+/// Four because it is small enough that a machine sitting at it still has a
+/// keyboard, and large enough that a map's research phase is not serialised.
+/// **Revisit it the first time an operator reports a research run dying on a
+/// usage limit while slots were still free**, which is the only evidence that
+/// would say the guess is wrong in the direction that costs something; the
+/// stored row below exists so that operator has an answer before this constant
+/// is changed.
+const RESEARCH_CEILING: usize = 4;
+
+/// The stored ceiling, or nothing at all.
+///
+/// Parsed here rather than in the store, exactly as [`stored_override`] is:
+/// `perseverance-store` holds text and what a number means is the harness's
+/// business.
+///
+/// **A cell that is not a positive decimal reads as *no stored ceiling*, never
+/// as a failure** — the same rule the override row follows, and for a sharper
+/// reason: a ceiling that refused to parse would be a ceiling nothing could be
+/// compared against, and every research press in the app would sit in a queue
+/// nothing ever leaves. Zero is inside that reading rather than outside it: a
+/// stored `0` is a launcher held shut by a preference row, which is the one
+/// shape of answer a preference is never allowed to have.
+fn stored_ceiling(store: &Store) -> Option<usize> {
+    let written = store.get_app(CEILING_KEY).ok().flatten()?;
+    let ceiling: usize = written.trim().parse().ok()?;
+    (ceiling > 0).then_some(ceiling)
+}
+
+fn remember_ceiling(store: &Store, ceiling: usize) -> Result<(), String> {
+    store
+        .set_app(CEILING_KEY, &ceiling.to_string())
+        .map_err(|error| error.to_string())
+}
+
+/// The ceiling in force, including on a build that cannot read its own
+/// preferences — the precedent is [`remembered_override`], and the reason is the
+/// same one absence is spelled out for above.
+fn remembered_ceiling(registry: &Registry) -> usize {
+    registry
+        .store()
+        .ok()
+        .and_then(|store| stored_ceiling(&store))
+        .unwrap_or(RESEARCH_CEILING)
+}
+
+/// The whole of the admission policy, as a value.
+///
+/// Lifted out of the press so that *at the ceiling* is an ordinary test over two
+/// numbers rather than a thing only a live app with four children could be
+/// asked. At or above and never merely above: the ceiling is the count a further
+/// run would exceed.
+fn there_is_room(live: usize, ceiling: usize) -> bool {
+    live < ceiling
+}
+
+/// The effective ceiling, for an operator who wants to know what it is.
+#[tauri::command(async)]
+fn research_ceiling(registry: State<'_, Registry>) -> usize {
+    remembered_ceiling(&registry)
+}
+
+/// Sets the ceiling and answers with what is now in force.
+///
+/// Shaped like [`use_override`]: the answer is a fresh read rather than the
+/// argument echoed back, so a store that would not take the write says so by
+/// naming the ceiling that is still standing. A `0` is written and then read
+/// back as the default, which is [`stored_ceiling`]'s rule and not a second one
+/// here — there is no *stop all research* setting, and an operator who wants one
+/// has the press they can decline to make.
+#[tauri::command(async)]
+fn use_research_ceiling(registry: State<'_, Registry>, ceiling: usize) -> usize {
+    if let Ok(store) = registry.store() {
+        let _ = remember_ceiling(&store, ceiling);
+    }
+    remembered_ceiling(&registry)
+}
+
+/* ------------------------------------------------ the pending queue --- */
+
+/// One accepted press that has not been spawned yet.
+///
+/// **It carries the map the press was accepted against, cloned.** The
+/// alternative — re-reading `ledgers.held().model.map` at dequeue and dropping
+/// an entry the open map no longer lists — reads the wrong ledger: this queue is
+/// app-global and spans folders, while the ledger holds whichever single map the
+/// operator has open now, so a queued press on folder A would be silently thrown
+/// away the moment they looked at folder B. Nothing stale rides along with the
+/// clone either: [`spawn_at`] re-reads the ticket body from GitHub, so the map's
+/// only jobs here are naming the node and answering [`kind_of`], and the press
+/// was accepted against exactly this map's frontier.
+#[derive(Debug, Clone)]
+struct Waiting {
+    /// This entry's own identity, and never a run's: a pending entry has no run,
+    /// which is the point. Issued so the rack can key a row that will change
+    /// place in the queue underneath it.
+    id: u64,
+    ticket: u64,
+    folder: String,
+    adapter: String,
+    kind: RunKind,
+    map: Map,
+    /// Seconds since the epoch, from [`epoch_seconds`] — the one clock this
+    /// crate reads.
+    queued: i64,
+}
+
+/// Every accepted press that has not started, in press order.
+///
+/// **Nothing here reaches the model, the ledger or the claims.** A pending entry
+/// is not a run: no worktree was made for it, no assignment was taken, nothing
+/// was staked and nothing counts it on the poller's ladder. That is structural
+/// rather than a rule this type enforces — [`booked`] is what writes all four,
+/// and it is only ever reached from a successful [`spawn_at`] — and it is the
+/// whole of *nothing pending appears on the graph*.
+///
+/// Poisoned locks are recovered rather than fatal, as on [`Terminals`] and
+/// [`Ledgers`]: a panic somewhere else is not a reason for the queue to stop
+/// answering.
+pub struct Pending {
+    waiting: Mutex<Vec<Waiting>>,
+    /// The next entry id. Its own lock rather than a counter derived from the
+    /// queue, because ids must go on being unique across entries that have
+    /// already been popped.
+    issued: Mutex<u64>,
+    /// What a deferred spawn refused with, and the only thing on this type that
+    /// is an event rather than a state.
+    ///
+    /// A deferred spawn has no socket to refuse to — the press it belongs to was
+    /// answered minutes ago — so its sentence leaves on the next `pending-runs`
+    /// emission and is dropped as it goes. Carried once and never retried: the
+    /// harness surfaces its own failures, and a silent retry is neither
+    /// surfaced nor a failure.
+    refusals: Mutex<Vec<(Waiting, String)>>,
+}
+
+impl Pending {
+    pub fn new() -> Pending {
+        Pending {
+            waiting: Mutex::new(Vec::new()),
+            issued: Mutex::new(0),
+            refusals: Mutex::new(Vec::new()),
+        }
+    }
+
+    fn waiting_here(&self) -> MutexGuard<'_, Vec<Waiting>> {
+        self.waiting
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn refusals_here(&self) -> MutexGuard<'_, Vec<(Waiting, String)>> {
+        self.refusals
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// Where this ticket stands in the queue, counting from one, or nothing at
+    /// all.
+    ///
+    /// Matched on the folder as well as the number for the reason
+    /// [`Terminals::live_run_on`] is: an issue number is unique inside one
+    /// repository and means nothing across two, and this queue holds every
+    /// folder's presses at once.
+    fn place_of(&self, ticket: u64, folder: &str) -> Option<usize> {
+        self.waiting_here()
+            .iter()
+            .position(|waiting| waiting.ticket == ticket && waiting.folder == folder)
+            .map(|at| at + 1)
+    }
+
+    /// Takes this press into the queue, or finds the one already there.
+    ///
+    /// A second press on a ticket that is already waiting is answered with the
+    /// place it already holds rather than enqueued again — the mirror of what
+    /// [`Terminals::live_run_on`] does for a run that is already live, and an
+    /// acceptance for the reason the first press was one: the operator asked for
+    /// this ticket to run, and it is going to.
+    fn joined(&self, ticket: u64, folder: &str, adapter: &str, kind: RunKind, map: &Map) -> usize {
+        if let Some(place) = self.place_of(ticket, folder) {
+            return place;
+        }
+        let id = {
+            let mut issued = self
+                .issued
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            *issued += 1;
+            *issued
+        };
+        let mut waiting = self.waiting_here();
+        waiting.push(Waiting {
+            id,
+            ticket,
+            folder: folder.to_string(),
+            adapter: adapter.to_string(),
+            kind,
+            map: map.clone(),
+            queued: epoch_seconds(),
+        });
+        waiting.len()
+    }
+
+    /// The oldest entry, removed. FIFO in press order, because first come is the
+    /// only fair thing to be when the queue is one operator's own presses.
+    ///
+    /// It leaves the queue *before* the spawn is attempted, which is what makes
+    /// a refused deferred spawn a removal and never a retry.
+    fn next_in_line(&self) -> Option<Waiting> {
+        let mut waiting = self.waiting_here();
+        (!waiting.is_empty()).then(|| waiting.remove(0))
+    }
+
+    fn could_not_start(&self, waiting: Waiting, detail: String) {
+        self.refusals_here().push((waiting, detail));
+    }
+
+    /// The queue as the rack reads it.
+    fn waiting_now(&self) -> Vec<PendingRun> {
+        self.waiting_here().iter().map(PendingRun::of).collect()
+    }
+
+    /// The queue, plus every deferred refusal since the last emission — drained
+    /// as it is read, so a sentence crosses exactly once.
+    fn announced(&self) -> Vec<PendingRun> {
+        let mut rows = self.waiting_now();
+        for (waiting, detail) in self.refusals_here().drain(..) {
+            let mut row = PendingRun::of(&waiting);
+            row.refused = Some(detail);
+            rows.push(row);
+        }
+        rows
+    }
+}
+
+impl Default for Pending {
+    fn default() -> Pending {
+        Pending::new()
+    }
+}
+
+/// One waiting entry, as the WebView receives it.
+///
+/// Follows [`RunReadout`]'s conventions exactly — camelCase, every field a value
+/// the rack prints, nothing derived on this side the rack could disagree with.
+/// `run` is absent rather than optional, and that absence is the shape of the
+/// whole feature: there is no run.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PendingRun {
+    id: u64,
+    ticket: u64,
+    /// Always `"research"` today, and carried anyway for [`RunReadout`]'s
+    /// reason: the rack prints what a row *is* before it prints how it is going,
+    /// and a row that inferred its kind from the fact that it was queued would
+    /// be inferring a rule instead of reading one.
+    kind: RunKind,
+    folder: String,
+    queued: i64,
+    /// The sentence a deferred spawn refused with, on the one emission that
+    /// carries it out. `None` on every row that is still waiting.
+    refused: Option<String>,
+}
+
+impl PendingRun {
+    fn of(waiting: &Waiting) -> PendingRun {
+        PendingRun {
+            id: waiting.id,
+            ticket: waiting.ticket,
+            kind: waiting.kind,
+            folder: waiting.folder.clone(),
+            queued: waiting.queued,
+            refused: None,
+        }
+    }
+}
+
+/// What is waiting, for the WebView's first read.
+///
+/// The producer half of the house ordering: the frontend subscribes to
+/// `pending-runs` and then asks this, so nothing emitted between the two is
+/// lost. It carries no refusal — a refusal is an event, the emission is where
+/// events go, and a command that drained them would be a sentence that
+/// disappeared because the rack happened to ask.
+#[tauri::command(async)]
+fn pending_runs(pending: State<'_, Pending>) -> Vec<PendingRun> {
+    pending.waiting_now()
+}
+
+/// Whether this press is a queue entry instead of a spawn, and the answer if it
+/// is.
+///
+/// **Last of the guards and never in front of one.** Every refusal
+/// [`start_working`] and [`resume_working`] open with still runs first and in
+/// the same order: a queue is not a reason to skip the awaited revalidation, the
+/// frontier comparison, or the live-run check Resume asks. By the time this is
+/// reached the press would otherwise have been spawned.
+///
+/// `None` is *there is room, go and spawn* — not an absence of policy. Every
+/// kind but research answers `None` unconditionally, and it says so through
+/// [`RunKind::ceilinged`] rather than by naming research here, so the four kinds
+/// that are never queued are never queued for a reason written down once.
+fn admitted(
+    terminals: &Terminals,
+    registry: &Registry,
+    pending: &Pending,
+    map: &Map,
+    ticket: u64,
+    folder: &str,
+    adapter: &str,
+) -> Option<Started> {
+    let kind = kind_of(map, ticket);
+    if !kind.ceilinged() {
+        return None;
+    }
+    if there_is_room(terminals.live_research(), remembered_ceiling(registry)) {
+        return None;
+    }
+    Some(Started::Queued {
+        ticket,
+        place: pending.joined(ticket, folder, adapter, kind, map),
+    })
+}
+
+/// Starts whatever the freed slots will take, from the readout tick.
+///
+/// **No further press, and the same path a press uses.** [`spawn_at`] then
+/// [`booked`], with the stakes a press would have written, so a run that waited
+/// is indistinguishable from one that did not the moment it is going —
+/// including the pane, which [`booked`] binds to it exactly as it would for a
+/// press. That last part is a consequence and not an oversight: the operator's
+/// pane moves onto the run that just started, which is what the rack's pending
+/// rows are for and is that slice's to soften.
+///
+/// Hooked here rather than given a thread of its own for the reason
+/// [`Terminals::let_go_of`] is: this tick is the one thing in the process that
+/// already asks whether a child has ended, and a second watcher would be
+/// entitled to disagree with it about when a slot came free.
+///
+/// A deferred spawn that refuses — no token, an unreadable ticket, a worktree
+/// that could not be made — has already left the queue and carries its sentence
+/// out on the next emission. Nothing is retried: this loop would otherwise spin
+/// at three hertz against a folder whose credentials are simply not there.
+fn start_what_is_waiting(app: &AppHandle, terminals: &Terminals, pending: &Pending) {
+    let (Some(harvests), Some(registry), Some(ambient), Some(claims), Some(poker)) = (
+        app.try_state::<Harvests>(),
+        app.try_state::<Registry>(),
+        app.try_state::<Ambient>(),
+        app.try_state::<Claims>(),
+        app.try_state::<Poker>(),
+    ) else {
+        return;
+    };
+
+    let ceiling = remembered_ceiling(&registry);
+    while there_is_room(terminals.live_research(), ceiling) {
+        let Some(waiting) = pending.next_in_line() else {
+            break;
+        };
+        match spawn_at(
+            app,
+            terminals,
+            &harvests,
+            &registry,
+            &ambient,
+            &waiting.map,
+            waiting.ticket,
+            &waiting.folder,
+            &waiting.adapter,
+        ) {
+            Ok((run, _)) => booked(
+                terminals,
+                &claims,
+                &poker,
+                run,
+                Stakes {
+                    ticket: Some(waiting.ticket),
+                    folder: waiting.folder.clone(),
+                    kind: waiting.kind,
+                },
+            ),
+            Err(refusal) => pending.could_not_start(waiting, refusal),
+        }
+    }
 }
 
 /* ----------------------------------------------------- starting working --- */
@@ -3355,6 +3805,17 @@ enum Started {
         detail: String,
         frontier: Option<Frontier>,
     },
+    /// **An acceptance, and the third answer rather than a softer refusal.** The
+    /// press passed every guard; what it met was the ceiling, and the run is
+    /// going to start — see [`admitted`]. Nothing was spawned, so there is no
+    /// run number to carry, and that absence is the whole difference from
+    /// `Spawned`: no worktree was made, no claim taken, nothing staked, nothing
+    /// counted, and the pane was left where it was.
+    ///
+    /// The ticket and the place are what the crossing needs to say a true
+    /// sentence about it, and the place is counted from one because it is read
+    /// by a person.
+    Queued { ticket: u64, place: usize },
 }
 
 impl Started {
@@ -3389,8 +3850,8 @@ impl Started {
 /// sentence returned to the socket. None of them is a `Degraded` on the graph,
 /// and nothing the child prints is one either — agent stderr is the terminal's
 /// to show.
-// Eleven, and every one of them is either managed state this command needs or a
-// fact about the press. Tauri resolves the first eight by type from the
+// Twelve, and every one of them is either managed state this command needs or a
+// fact about the press. Tauri resolves the first nine by type from the
 // container; splitting them into a struct would be a struct assembled here for
 // the sake of a lint.
 #[allow(clippy::too_many_arguments)]
@@ -3404,6 +3865,7 @@ fn start_working(
     ledgers: State<'_, Ledgers>,
     claims: State<'_, Claims>,
     poker: State<'_, Poker>,
+    pending: State<'_, Pending>,
     folder: String,
     ticket: u64,
     adapter: String,
@@ -3436,6 +3898,14 @@ fn start_working(
     }
 
     let standing = Some(map.frontier);
+    // Last, after every guard above and before anything is made: a research
+    // press that meets the ceiling becomes a queue entry, and this is the only
+    // way out of this command that starts nothing and writes nothing.
+    if let Some(queued) = admitted(
+        &terminals, &registry, &pending, &map, ticket, &folder, &adapter,
+    ) {
+        return queued;
+    }
     match spawn_at(
         &app, &terminals, &harvests, &registry, &ambient, &map, ticket, &folder, &adapter,
     ) {
@@ -3648,6 +4118,7 @@ fn resume_working(
     ledgers: State<'_, Ledgers>,
     claims: State<'_, Claims>,
     poker: State<'_, Poker>,
+    pending: State<'_, Pending>,
     folder: String,
     ticket: u64,
     adapter: String,
@@ -3675,6 +4146,16 @@ fn resume_working(
             format!("#{ticket} already has a run in this window and it is still live"),
             standing,
         );
+    }
+    // **Resume reaches research, so it goes through the same admission.**
+    // [`why_the_claim_cannot_be_resumed`] refuses on state and on kind of
+    // *node*, never on [`RunKind`], so a stranded research claim — assigned,
+    // unblocked, its child gone — is exactly the thing Resume exists for. A
+    // second gate here would be a second copy of the policy; this is the one.
+    if let Some(queued) = admitted(
+        &terminals, &registry, &pending, &map, ticket, &folder, &adapter,
+    ) {
+        return queued;
     }
 
     match spawn_at(
@@ -4643,6 +5124,29 @@ impl RunKind {
             RunKind::Chart | RunKind::Compose | RunKind::Ask => false,
         }
     }
+
+    /// Whether a run of this kind occupies one of the [`RESEARCH_CEILING`]
+    /// slots — and so whether a press for one can be queued instead of spawned.
+    ///
+    /// **Research alone, and the four `false`s are not a policy choice about
+    /// them.** A ceiling is a rationing of an account budget between runs
+    /// nobody is sitting in front of; the other four are a person waiting for an
+    /// answer, and a queued Ask is a question that appears to have been ignored.
+    /// Work is the one that looks arguable and is not: a work run is the
+    /// operator's own hands, one crossing at a time, and the pane is already its
+    /// limit.
+    ///
+    /// The third predicate over this enum rather than a flag on [`Stakes`], for
+    /// [`RunKind::claiming`]'s reason: this is a fact about a kind and not about
+    /// a particular run. Two things read it — [`admitted`], which is the gate,
+    /// and [`Terminals::live_research`], which is the count — so what is queued
+    /// and what is counted cannot drift apart.
+    pub fn ceilinged(self) -> bool {
+        match self {
+            RunKind::Research => true,
+            RunKind::Work | RunKind::Chart | RunKind::Compose | RunKind::Ask => false,
+        }
+    }
 }
 
 /// What one live run would lose if the app quit now.
@@ -5086,6 +5590,11 @@ pub fn run() {
             // than a missed row.
             app.manage(Ledgers::new());
             app.manage(Claims::new());
+            // Before the readout thread that drains it, for the reason the
+            // ledger is managed before the poller: a tick that found no queue
+            // would be a panic rather than a slot left unfilled for a third of
+            // a second.
+            app.manage(Pending::new());
             // Before the harvest, because the harvest's thread pokes the poller
             // the moment it settles and a poke into a state nobody manages yet
             // would be the first read of a launch, dropped.
@@ -5188,6 +5697,9 @@ pub fn run() {
             typed_at_run,
             settled_geometry,
             run_readouts,
+            pending_runs,
+            research_ceiling,
+            use_research_ceiling,
             end_run,
             start_working,
             resume_working,
@@ -5352,6 +5864,177 @@ mod tests {
             serde_json::to_value(Started::refused("nothing landed", None)).expect("serialises");
 
         assert_eq!(unchecked["frontier"], serde_json::Value::Null);
+
+        // The third answer, and an acceptance: no run number, because nothing
+        // was spawned, and a place counted from one because a person reads it.
+        let queued = serde_json::to_value(Started::Queued {
+            ticket: 59,
+            place: 2,
+        })
+        .expect("serialises");
+
+        assert_eq!(queued["kind"], "queued");
+        assert_eq!(queued["ticket"], 59);
+        assert_eq!(queued["place"], 2);
+        assert_eq!(queued.as_object().expect("an object").len(), 3);
+    }
+
+    /* ------------------------------------- the ceiling and the queue --- */
+
+    /// The ceiling, from all three directions a preference row can be read
+    /// from: never written, written well, and written badly.
+    #[test]
+    fn the_ceiling_is_four_and_a_row_that_is_nonsense_reads_as_four() {
+        let store = Store::open_in_memory().expect("opens");
+
+        assert_eq!(stored_ceiling(&store), None);
+        assert_eq!(RESEARCH_CEILING, 4);
+
+        remember_ceiling(&store, 7).expect("writes");
+        assert_eq!(stored_ceiling(&store), Some(7));
+
+        // A ceiling nothing can be compared against would hold every research
+        // press in the app in a queue nothing leaves, so a bad cell reads as
+        // the built-in number rather than as a failure. Zero is in that reading
+        // for the same reason: it is a preference that shuts the app.
+        for written in ["", "   ", "four", "-1", "2.5", "0", "18446744073709551616"] {
+            store.set_app(CEILING_KEY, written).expect("writes");
+            assert_eq!(stored_ceiling(&store), None, "{written}");
+        }
+    }
+
+    /// At or above, never merely above — and the boundary is where the whole
+    /// policy lives.
+    #[test]
+    fn the_fifth_research_run_is_the_one_with_no_room() {
+        assert!(there_is_room(0, RESEARCH_CEILING));
+        assert!(there_is_room(3, RESEARCH_CEILING));
+        assert!(!there_is_room(4, RESEARCH_CEILING));
+        assert!(!there_is_room(5, RESEARCH_CEILING));
+        // A stored ceiling moves the boundary and nothing else about the rule.
+        assert!(there_is_room(4, 7));
+        assert!(!there_is_room(7, 7));
+    }
+
+    /// Research alone occupies a slot, so research alone can be queued — and
+    /// the four that are not are not a list anybody has to remember.
+    #[test]
+    fn nothing_but_research_is_counted_or_queued() {
+        assert!(RunKind::Research.ceilinged());
+        assert!(!RunKind::Work.ceilinged());
+        assert!(!RunKind::Chart.ceilinged());
+        assert!(!RunKind::Compose.ceilinged());
+        assert!(!RunKind::Ask.ceilinged());
+    }
+
+    fn a_research_map() -> Map {
+        a_map_of(
+            Phase::Wayfinding,
+            vec![Node {
+                number: 59,
+                title: "the ceiling and the queue".to_string(),
+                url: "https://github.com/javrasya/perseverance/issues/59".to_string(),
+                kind: ChildKind::Ticket(TicketType::Research),
+                state: NodeState::Takeable,
+                waits_on: Vec::new(),
+                bound_elsewhere: false,
+                cut: Cut::InScope,
+            }],
+        )
+    }
+
+    /// FIFO in press order, a second press on the same ticket answered with the
+    /// place it already holds, and a folder in the join — because an issue
+    /// number means nothing across two repositories.
+    #[test]
+    fn the_queue_is_press_order_and_a_ticket_joins_it_once() {
+        let map = a_research_map();
+        let pending = Pending::new();
+
+        assert_eq!(
+            pending.joined(59, "/work/one", "claude", RunKind::Research, &map),
+            1
+        );
+        assert_eq!(
+            pending.joined(60, "/work/one", "claude", RunKind::Research, &map),
+            2
+        );
+        // The same number in another checkout is another ticket entirely.
+        assert_eq!(
+            pending.joined(59, "/work/two", "claude", RunKind::Research, &map),
+            3
+        );
+        // And a second press on one already waiting is answered with where it
+        // already stands, rather than enqueued behind itself.
+        assert_eq!(
+            pending.joined(59, "/work/one", "claude", RunKind::Research, &map),
+            1
+        );
+        assert_eq!(pending.waiting_now().len(), 3);
+
+        // A freed slot takes the oldest, and what is left closes up behind it.
+        let first = pending.next_in_line().expect("an entry");
+        assert_eq!(first.ticket, 59);
+        assert_eq!(first.folder, "/work/one");
+        assert_eq!(pending.place_of(60, "/work/one"), Some(1));
+        assert_eq!(pending.place_of(59, "/work/one"), None);
+
+        pending.next_in_line().expect("an entry");
+        pending.next_in_line().expect("an entry");
+        assert!(pending.next_in_line().is_none());
+    }
+
+    /// A press that meets the ceiling is accepted, and the acceptance is the
+    /// whole of what it does: nothing is claimed and nothing crosses onto the
+    /// graph.
+    #[test]
+    fn a_press_at_the_ceiling_is_queued_rather_than_refused() {
+        let map = a_research_map();
+        let pending = Pending::new();
+        let claims = Claims::new();
+
+        // Standing in for `admitted` with the two values it reduces to, because
+        // the live count is the only part of it that needs four children.
+        assert!(!there_is_room(RESEARCH_CEILING, RESEARCH_CEILING));
+        let place = pending.joined(59, "/work/one", "claude", RunKind::Research, &map);
+
+        let answer =
+            serde_json::to_value(Started::Queued { ticket: 59, place }).expect("serialises");
+        assert_eq!(answer["kind"], "queued");
+        assert_ne!(answer["kind"], "refused");
+        assert_eq!(answer["place"], 1);
+
+        // The claim is taken in `booked` and `booked` is only reached from a
+        // successful spawn, so a queued press holds none — this asserts the
+        // consequence of that ordering rather than a second rule.
+        assert!(claims.originated().is_empty());
+
+        // And what crosses for the rack names no run, because there is none.
+        let waiting = serde_json::to_value(pending.waiting_now()).expect("serialises");
+        assert_eq!(waiting[0]["ticket"], 59);
+        assert_eq!(waiting[0]["kind"], "research");
+        assert_eq!(waiting[0]["folder"], "/work/one");
+        assert_eq!(waiting[0]["refused"], serde_json::Value::Null);
+        assert_eq!(waiting[0].as_object().expect("an object").len(), 6);
+    }
+
+    /// A deferred spawn that refuses leaves the queue and says so once.
+    #[test]
+    fn a_deferred_refusal_crosses_once_and_is_never_retried() {
+        let map = a_research_map();
+        let pending = Pending::new();
+
+        pending.joined(59, "/work/one", "claude", RunKind::Research, &map);
+        let waiting = pending.next_in_line().expect("an entry");
+        pending.could_not_start(waiting, NO_TOKEN.to_string());
+
+        let announced = pending.announced();
+        assert_eq!(announced.len(), 1);
+        assert_eq!(announced[0].refused.as_deref(), Some(NO_TOKEN));
+        // Drained as it was read: the entry is gone from the queue and the
+        // sentence is gone with it, so nothing retries and nothing repeats.
+        assert!(pending.announced().is_empty());
+        assert!(pending.waiting_now().is_empty());
     }
 
     use perseverance_model::{Counts, Cut, Fog, Node, NodeState};

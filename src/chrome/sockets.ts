@@ -91,7 +91,14 @@ export type Press =
       detail: string;
       frontier: Frontier | null;
       node: number | null;
-    };
+    }
+  /* An accepted press that has not started yet: the app-global research ceiling
+     was full, and the run is queued behind it. Its own member rather than a
+     `refused` with kinder wording, because the two are opposite facts about the
+     same press — nothing here re-arms a socket and nothing retires this on a
+     fresh read, since there is no target that could have moved. It carries no
+     `frontier` for exactly that reason. */
+  | { kind: "queued"; socket: SocketId; detail: string; node: number | null };
 
 export interface Crossing {
   /** `model.map.frontier`, or `null` when no map is open. */
@@ -546,7 +553,12 @@ function checkingOn(press: Press, socket: SocketId): boolean {
  */
 function sentenceOn(crossing: Crossing, socket: SocketId): string | null {
   const { press, selection } = crossing;
-  if (press.kind !== "refused" || press.socket !== socket) return null;
+  /* A queued press prints here too, under the same two conditions and for the
+     same reason: it is a sentence about a press, aimed at the socket that made
+     it. What it is *not* is a refusal — nothing above reads `queued`, so it
+     re-arms nothing and disables nothing. */
+  if (press.kind !== "refused" && press.kind !== "queued") return null;
+  if (press.socket !== socket) return null;
   return press.node === null || press.node === selection ? press.detail : null;
 }
 
