@@ -33,8 +33,8 @@ use perseverance_github::{
     TokenOutcome, Watched,
 };
 use perseverance_model::{
-    read_response, ChangeLog, ChildKind, Degraded, Frontier, Machine, Map, MapRead, Model, Phase,
-    Provenance, ReadOutcome, Snapshot, Source, TicketType,
+    read_response, ChangeLog, ChildKind, Degraded, Frontier, Machine, Map, MapRead, Model,
+    NodeState, Phase, Provenance, ReadOutcome, Snapshot, Source, TicketType,
 };
 use perseverance_pty::{Delivery, Geometry, RunId, Runs, GRACE};
 use perseverance_store::{CachedBody, CachedGraph, Folder, RepoBindingError, Store, StoreError};
@@ -891,14 +891,19 @@ fn poll_once<R: Runtime>(app: &AppHandle<R>, watched: &Watched, ahead: &Ahead<'_
     // session and nothing about what is on screen: the graph came from GitHub
     // either way, and the stamp beside the map list is where that refusal is
     // already reported.
-    emit_snapshot(
-        app,
-        ledgers.observed(
-            Model::of(fresh.read(), Machine::host()),
-            fresh.fetched_at(),
-            &claims.originated(),
-        ),
+    let snapshot = ledgers.observed(
+        Model::of(fresh.read(), Machine::host()),
+        fresh.fetched_at(),
+        &claims.originated(),
     );
+    // The ledger's lock is already released and the registry's is never taken:
+    // this is a write to one small table, and the half of an ending the poller
+    // owns. `Terminals::noticed` is where the latch is argued and where the
+    // promise that a close touches no terminal is kept.
+    if let Some(terminals) = app.try_state::<Terminals>() {
+        terminals.noticed(&path, &snapshot.model);
+    }
+    emit_snapshot(app, snapshot);
     // What this answer said about the budget, anchored to when it landed. The
     // loop ages it against its own last tick; nothing here interprets it.
     Tick::Read(fresh.budget())
@@ -1996,6 +2001,18 @@ pub struct Terminals {
     /// property of the type. This table is that something, and dropping a row
     /// is the only thing that sends `Poke::RunExited`.
     live: Mutex<BTreeMap<RunId, RunHandle>>,
+    /// The last state each run's ticket was seen in, which is the poller's half
+    /// of [`Ending`] — and the half that has to be *remembered*, because the
+    /// readout that renders it runs three times a second and a poll lands every
+    /// ten seconds at best.
+    ///
+    /// Written only by [`Terminals::noticed`], which is where the latch and the
+    /// absences are argued. Its own table rather than a field beside the stakes,
+    /// for the reason the handles are: these are written by the poller's thread
+    /// and read by the readouts', and the stakes are written once by a press and
+    /// read by a quit. Four small mutexes taken one after another cost less than
+    /// one that every one of those has to queue on.
+    resolution: Mutex<BTreeMap<RunId, NodeState>>,
 }
 
 impl Terminals {
@@ -2005,6 +2022,7 @@ impl Terminals {
             bytes: Mutex::new(None),
             stakes: Mutex::new(BTreeMap::new()),
             live: Mutex::new(BTreeMap::new()),
+            resolution: Mutex::new(BTreeMap::new()),
         }
     }
 
@@ -2068,6 +2086,98 @@ impl Terminals {
         self.live
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn resolved_here(&self) -> MutexGuard<'_, BTreeMap<RunId, NodeState>> {
+        self.resolution
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// What the poll that just landed says about the tickets these runs are
+    /// working on.
+    ///
+    /// **Nothing here touches [`perseverance_pty::Runs`].** A ticket closing is
+    /// a fact about GitHub, and the terminal beside it is not part of it: no
+    /// session is closed, the monitored run stays monitored, no child is
+    /// signalled and no geometry is disturbed. The two facts meet nowhere but
+    /// in [`ending`], where a readout is written from both and neither is
+    /// allowed to act on the other.
+    ///
+    /// **`Resolved` is a latch.** Once a run's ticket has been seen closed the
+    /// run is spent for the rest of its life. The operator then opens another
+    /// map, or this map stops listing the ticket, or GitHub is unreachable for
+    /// an hour — none of that is the ticket re-opening, and a readout that
+    /// flipped back to *live* because nobody was looking would be the app
+    /// forgetting the one thing it is here to notice.
+    ///
+    /// **A ticket this model does not list writes nothing.** Absence is not a
+    /// state: a run keeps whatever it was last seen as, which is why the loop
+    /// below writes only on a hit.
+    ///
+    /// Matched on the folder as well as the number, because an issue number is
+    /// unique inside one repository and means nothing across two — without it a
+    /// run against `#77` here would be resolved by somebody else's `#77` in
+    /// whichever folder happens to be on screen. Both spellings of the folder
+    /// come from the same registry row (the press is handed it, and
+    /// [`poll_once`] reads it back), and a run whose folder somehow does not
+    /// match is left with the ending it had, which errs towards *live* rather
+    /// than towards a close that never happened.
+    pub fn noticed(&self, folder: &str, model: &Model) {
+        let Some(map) = model.map.as_ref() else {
+            return;
+        };
+
+        let seen: Vec<(RunId, u64)> = self
+            .staked_here()
+            .iter()
+            .filter(|(_, stakes)| stakes.folder == folder)
+            .map(|(run, stakes)| (*run, stakes.ticket))
+            .collect();
+
+        let mut resolution = self.resolved_here();
+        for (run, ticket) in seen {
+            if resolution.get(&run) == Some(&NodeState::Resolved) {
+                continue;
+            }
+            if let Some(node) = map.nodes.iter().find(|node| node.number == ticket) {
+                resolution.insert(run, node.state);
+            }
+        }
+    }
+
+    /// Every run's readout, with the ending this app has derived for it.
+    ///
+    /// The two locks are taken one after the other and never nested, for the
+    /// reason [`Terminals::losses`] gives and with one more: this runs at three
+    /// hertz against a table the poller writes, and neither thread may be made
+    /// to wait on the other's work.
+    fn readouts(&self) -> Vec<RunReadout> {
+        let telemetry = self.held().telemetry();
+
+        let resolution = self.resolved_here();
+        telemetry
+            .iter()
+            .map(|telemetry| {
+                let ending = ending(telemetry.over, resolution.get(&telemetry.run).copied());
+                RunReadout::of(telemetry, ending)
+            })
+            .collect()
+    }
+
+    /// One run, ended — the session closed, and every row this side kept about
+    /// it dropped with it.
+    ///
+    /// Reached from [`end_run`] and from nothing else; that command is where the
+    /// rule about who may call it is argued. The handle goes last and outside
+    /// the lock, because dropping it wakes the poller and a table three threads
+    /// read is not a thing to be holding while that happens.
+    pub fn ended(&self, run: RunId) {
+        self.held().close(run);
+        self.staked_here().remove(&run);
+        self.resolved_here().remove(&run);
+        let counted = self.counted_here().remove(&run);
+        drop(counted);
     }
 
     /// One sentence per live run, in the order they were opened — and the count
@@ -2212,10 +2322,19 @@ struct RunReadout {
     over: bool,
     code: Option<u32>,
     monitored: bool,
+    /// Which ending this run has, or that it has none yet. Derived here and
+    /// never in `crates/pty`: `over` above is the process, and this is the
+    /// product's reading of it — see [`Ending`].
+    ending: Ending,
 }
 
-impl From<&perseverance_pty::Telemetry> for RunReadout {
-    fn from(telemetry: &perseverance_pty::Telemetry) -> RunReadout {
+impl RunReadout {
+    /// A readout is the telemetry plus the one thing the telemetry cannot know.
+    ///
+    /// Constructed rather than `From`, because a `From<&Telemetry>` would have
+    /// to invent an ending out of a process fact alone — which is exactly the
+    /// single state machine over the child that `docs/adr/0022` refuses.
+    fn of(telemetry: &perseverance_pty::Telemetry, ending: Ending) -> RunReadout {
         RunReadout {
             run: telemetry.run.as_u64(),
             held: telemetry.held,
@@ -2227,7 +2346,69 @@ impl From<&perseverance_pty::Telemetry> for RunReadout {
             over: telemetry.over,
             code: telemetry.code,
             monitored: telemetry.monitored,
+            ending,
         }
+    }
+}
+
+/// How a run ended, or that it has not.
+///
+/// **Two independent facts, and never one state machine over the process.** The
+/// ticket's resolution is seen by the poller and the child's exit is seen by
+/// the PTY; neither causes the other, they arrive in either order, and a run can
+/// sit in any pairing of them for hours. `docs/adr/0022` is the argument; what
+/// it buys here is that no path in this app has to ask *what state is this run
+/// in* — there is no such state, there are two facts and this table over them.
+///
+/// It is derived in this crate because it is product knowledge. `crates/pty`
+/// carries `over` and an exit code and must not learn what a ticket is; the byte
+/// scan at the bottom of this file is what keeps that true.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+enum Ending {
+    /// No ending yet: the child is running and the ticket is not closed.
+    Live,
+
+    /// The ticket closed. **The one ending that is good news**, and the one that
+    /// says nothing at all about the child — which may still be printing. The
+    /// run holds its slot in the rack until somebody presses to end it: see
+    /// [`end_run`].
+    Spent,
+
+    /// The child exited with the ticket still open and still somebody's. The
+    /// agent stopped without finishing, the claim is still on GitHub, and the
+    /// terminal beside this is the only record of why.
+    ExitedUnresolved,
+
+    /// The child exited and nothing is claimed of it: the ticket is open and
+    /// unassigned, or blocked, or on a map this app has never read.
+    ///
+    /// **An exit over an open-but-unassigned ticket reads as this and not as
+    /// [`Ending::ExitedUnresolved`].** [`NodeState::Claimed`] is the only state
+    /// that means the work is still held by somebody; `Takeable` says the
+    /// assignment is gone — unassigned by hand, or never made — and `Blocked`
+    /// says the same with something in the way. Calling either of those
+    /// *unresolved* would have the readout assert a claim that is not there,
+    /// which is the one lie this enum can tell that an operator would act on. A
+    /// run whose ticket this app has never seen in a model is the same case for
+    /// the same reason: nothing has been observed, so nothing is asserted.
+    Exited,
+}
+
+/// The whole derivation, over the two facts and nothing else.
+///
+/// A free function over plain values, so the table can be read and tested
+/// without a registry, a poller or a child process — the posture
+/// [`what_it_loses`] takes next door.
+fn ending(over: bool, seen: Option<NodeState>) -> Ending {
+    match (seen, over) {
+        // Resolution first, and in both columns: a ticket that closed is spent
+        // whether or not the child is still running, and an exit afterwards does
+        // not turn a finished piece of work into an abandoned one.
+        (Some(NodeState::Resolved), _) => Ending::Spent,
+        (_, false) => Ending::Live,
+        (Some(NodeState::Claimed), true) => Ending::ExitedUnresolved,
+        (_, true) => Ending::Exited,
     }
 }
 
@@ -2289,12 +2470,26 @@ fn settled_geometry(terminals: State<'_, Terminals>, rows: u16, cols: u16) -> us
 /// having a listener — the ordering every other surface in this file uses.
 #[tauri::command]
 fn run_readouts(terminals: State<'_, Terminals>) -> Vec<RunReadout> {
-    terminals
-        .held()
-        .telemetry()
-        .iter()
-        .map(RunReadout::from)
-        .collect()
+    terminals.readouts()
+}
+
+/// One run, ended by a press.
+///
+/// **The only way a run leaves the rack**, and reachable from nowhere but the
+/// WebView. A *spent* run — its ticket closed, its child possibly still
+/// printing — holds its slot until this is called, because this app noticing a
+/// close is not an operator being finished with what is on screen. If the poller
+/// or a readout thread could reach this, the app would be closing terminals on
+/// the strength of a GitHub read, and the last thing an agent printed is exactly
+/// what a person goes looking for afterwards.
+///
+/// The child is ended with the session, which is what dropping it through
+/// [`perseverance_pty::Runs::close`] means: a press is a decision to stop, and a
+/// run left alive with nothing holding its bytes would be an orphan this app
+/// could not name at the next quit.
+#[tauri::command]
+fn end_run(terminals: State<'_, Terminals>, run: u64) {
+    terminals.ended(RunId::from_u64(run));
 }
 
 /// The frame pump and the readout tick, on one thread each.
@@ -2343,12 +2538,7 @@ fn start_terminals(app: AppHandle) -> std::io::Result<()> {
             let Some(terminals) = app.try_state::<Terminals>() else {
                 continue;
             };
-            let readouts: Vec<RunReadout> = terminals
-                .held()
-                .telemetry()
-                .iter()
-                .map(RunReadout::from)
-                .collect();
+            let readouts = terminals.readouts();
             // The falling edge of a run, taken from the same readout the screen
             // is drawn from. Dropping the handle is what tells the poller the
             // ladder has come down a rung.
@@ -3798,6 +3988,7 @@ pub fn run() {
             typed_at_run,
             settled_geometry,
             run_readouts,
+            end_run,
             start_working,
             start_charting,
             compose_spec
@@ -4348,6 +4539,7 @@ mod tests {
             over: true,
             code: Some(0),
             monitored: true,
+            ending: Ending::ExitedUnresolved,
         };
 
         let json = serde_json::to_value(readout).expect("serialises");
@@ -4362,7 +4554,23 @@ mod tests {
         assert_eq!(json["over"], true);
         assert_eq!(json["code"], 0);
         assert_eq!(json["monitored"], true);
-        assert_eq!(json.as_object().expect("an object").len(), 10);
+        // A tagged string and not a pair of booleans: `over` is the process and
+        // `ending` is what this app makes of it, and a WebView handed both
+        // halves would be a second place the crossing is derived.
+        assert_eq!(json["ending"], "exitedUnresolved");
+        assert_eq!(json.as_object().expect("an object").len(), 11);
+
+        for (ending, spelt) in [
+            (Ending::Live, "live"),
+            (Ending::Spent, "spent"),
+            (Ending::ExitedUnresolved, "exitedUnresolved"),
+            (Ending::Exited, "exited"),
+        ] {
+            let crossed = serde_json::to_value(RunReadout { ending, ..readout })
+                .expect("serialises")["ending"]
+                .clone();
+            assert_eq!(crossed, spelt);
+        }
 
         // A run still going says so by having no code rather than by a zero,
         // which is a real exit status and the commonest one there is.
@@ -7150,6 +7358,160 @@ mod tests {
         // rather than the table's.
         terminals.held().shut_down();
         assert!(!terminals.composing(28));
+    }
+
+    /// The whole of [`ending`], as a table over the two facts.
+    ///
+    /// Written out rather than derived from anything, because the value of the
+    /// table is exactly that it can be read: every pairing an operator can
+    /// arrive at is one line here, and the two rows worth arguing are the last
+    /// ones — an exit over a ticket nobody holds is `Exited`, not
+    /// `ExitedUnresolved`, and so is an exit over a ticket this app has never
+    /// seen. Neither may assert a claim that is not there.
+    #[test]
+    fn an_ending_is_the_two_facts_crossed_and_nothing_else() {
+        assert_eq!(ending(false, None), Ending::Live);
+        assert_eq!(ending(false, Some(NodeState::Claimed)), Ending::Live);
+        assert_eq!(ending(false, Some(NodeState::Takeable)), Ending::Live);
+
+        // Resolution outranks the process in both columns, which is what makes
+        // *spent* independent of the child rather than a state after it.
+        assert_eq!(ending(false, Some(NodeState::Resolved)), Ending::Spent);
+        assert_eq!(ending(true, Some(NodeState::Resolved)), Ending::Spent);
+
+        assert_eq!(
+            ending(true, Some(NodeState::Claimed)),
+            Ending::ExitedUnresolved
+        );
+        assert_eq!(ending(true, Some(NodeState::Takeable)), Ending::Exited);
+        assert_eq!(ending(true, Some(NodeState::Blocked)), Ending::Exited);
+        assert_eq!(ending(true, None), Ending::Exited);
+    }
+
+    /// A closed ticket is the end of the story, and no later tick reopens it.
+    ///
+    /// The two reads are the same map before and after #77 closed, so the
+    /// *earlier* one is fed back last: that is a map the operator re-opened, a
+    /// cache replayed, a poll that landed out of order — and none of them is a
+    /// ticket being re-opened. A run staked on a number this map has never
+    /// listed is here for the other absence: nothing observed, nothing written,
+    /// and the run keeps the ending it had.
+    #[test]
+    fn a_ticket_seen_closed_leaves_its_run_spent_for_the_rest_of_its_life() {
+        let terminals = Terminals::new();
+        let (open, elsewhere) = (RunId::from_u64(1), RunId::from_u64(2));
+        terminals.staked(open, a_stake(77, "/repos/perseverance", RunKind::Work));
+        terminals.staked(elsewhere, a_stake(77, "/repos/controlayer", RunKind::Work));
+
+        terminals.noticed("/repos/perseverance", &model_of(AWKWARD));
+        assert_ne!(
+            terminals.resolved_here().get(&open),
+            Some(&NodeState::Resolved)
+        );
+
+        terminals.noticed("/repos/perseverance", &model_of(AWKWARD_LATER));
+        assert_eq!(
+            terminals.resolved_here().get(&open),
+            Some(&NodeState::Resolved)
+        );
+
+        // The earlier read again, and the latch holds.
+        terminals.noticed("/repos/perseverance", &model_of(AWKWARD));
+        assert_eq!(
+            terminals.resolved_here().get(&open),
+            Some(&NodeState::Resolved)
+        );
+
+        // #77 in another folder is another ticket entirely, and the poll that
+        // closed this one says nothing about it.
+        assert_eq!(terminals.resolved_here().get(&elsewhere), None);
+
+        // A ticket no read has ever listed writes nothing at all, which is what
+        // keeps *absent* from being read as *open*.
+        let unlisted = RunId::from_u64(3);
+        terminals.staked(unlisted, a_stake(9_999, "/repos/perseverance", RunKind::Work));
+        terminals.noticed("/repos/perseverance", &model_of(AWKWARD_LATER));
+        assert_eq!(terminals.resolved_here().get(&unlisted), None);
+    }
+
+    /// The first criterion's other half: the node flips and **the terminal is
+    /// untouched**.
+    ///
+    /// A real run, a real registry and the real derivation, because the promise
+    /// is about what a resolution does *not* do and a pure function cannot be
+    /// asked. Everything the pane depends on is compared across the tick: the
+    /// run is still open, still monitored, still not over, and still holds the
+    /// bytes it held.
+    #[test]
+    fn a_ticket_closing_makes_a_run_spent_and_leaves_its_terminal_exactly_as_it_was() {
+        let directory = TempDir::new().expect("temp dir");
+        let terminals = Terminals::new();
+
+        let run = a_live_run_in(&terminals, directory.path());
+        terminals.staked(run, a_stake(77, "/repos/perseverance", RunKind::Work));
+        terminals.held().monitor(Some(run));
+
+        let registry = |terminals: &Terminals| -> Vec<(u64, bool, bool, u64)> {
+            terminals
+                .held()
+                .telemetry()
+                .iter()
+                .map(|readout| {
+                    (
+                        readout.run.as_u64(),
+                        readout.monitored,
+                        readout.over,
+                        readout.end,
+                    )
+                })
+                .collect()
+        };
+        let before = registry(&terminals);
+        assert_eq!(before.len(), 1);
+
+        terminals.noticed("/repos/perseverance", &model_of(AWKWARD_LATER));
+
+        assert_eq!(registry(&terminals), before);
+        let readouts = terminals.readouts();
+        assert_eq!(readouts.len(), 1);
+        assert_eq!(readouts[0].ending, Ending::Spent);
+        // Spent while the child is still running, which is the pairing the two
+        // facts are independent *for*.
+        assert!(!readouts[0].over);
+        assert_eq!(terminals.losses().len(), 1);
+    }
+
+    /// Spent holds its slot, and only a press takes it.
+    ///
+    /// Every tick this app takes by itself is exercised first — a resolution and
+    /// a readout, twice over — and the run is still there afterwards. Then the
+    /// press, which is the one thing that closes the session, drops the stakes,
+    /// forgets the resolution and lets go of the handle the ladder counts.
+    #[test]
+    fn a_spent_run_holds_its_slot_until_a_press_ends_it() {
+        let directory = TempDir::new().expect("temp dir");
+        let terminals = Terminals::new();
+        let poker =
+            perseverance_github::start(Timings::shipped(), |_watched, _ahead| Tick::NotAttempted)
+                .expect("a poller thread");
+
+        let run = a_live_run_in(&terminals, directory.path());
+        terminals.staked(run, a_stake(77, "/repos/perseverance", RunKind::Work));
+        terminals.counting(run, poker.run_started());
+
+        terminals.noticed("/repos/perseverance", &model_of(AWKWARD_LATER));
+        assert_eq!(terminals.readouts()[0].ending, Ending::Spent);
+        terminals.noticed("/repos/perseverance", &model_of(AWKWARD_LATER));
+        assert_eq!(terminals.readouts().len(), 1);
+        assert_eq!(poker.runs_live(), 1);
+
+        terminals.ended(run);
+
+        assert!(terminals.readouts().is_empty());
+        assert!(terminals.losses().is_empty());
+        assert!(terminals.staked_here().is_empty());
+        assert!(terminals.resolved_here().is_empty());
+        assert_eq!(poker.runs_live(), 0);
     }
 
     /// The mapping is written once. `route.ts` draws the same line for

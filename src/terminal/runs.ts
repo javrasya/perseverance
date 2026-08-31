@@ -64,6 +64,26 @@ export function readDelivery(frame: ArrayBuffer): Delivery | null {
   };
 }
 
+/**
+ * How a run ended, or that it has not — as Rust derives it.
+ *
+ * **Two facts and never one state machine over the process.** A ticket closing
+ * is the poller's fact and a child exiting is the terminal's; neither causes the
+ * other and they arrive in either order.
+ *
+ * - `live` — the child is running and the ticket is not closed.
+ * - `spent` — the ticket closed. The one good ending, and it says nothing about
+ *   the child, which may still be printing. The run keeps its slot until
+ *   somebody presses to end it.
+ * - `exitedUnresolved` — the child stopped with the ticket still open and still
+ *   assigned. The claim is still on GitHub and this pane is the only record of
+ *   why it stopped.
+ * - `exited` — the child stopped and nothing is claimed of it. An exit over an
+ *   open *unassigned* ticket is this and not `exitedUnresolved`, because a
+ *   readout must not assert a claim that is not there.
+ */
+export type RunEnding = "live" | "spent" | "exitedUnresolved" | "exited";
+
 /** One run's readout, as Rust writes it. Counts and flags, never bytes. */
 export interface RunReadout {
   run: number;
@@ -76,6 +96,7 @@ export interface RunReadout {
   over: boolean;
   code: number | null;
   monitored: boolean;
+  ending: RunEnding;
 }
 
 /**
@@ -143,6 +164,20 @@ export async function settledGeometry(geometry: Geometry): Promise<number> {
     rows: geometry.rows,
     cols: geometry.cols,
   });
+}
+
+/**
+ * One run, ended by this press.
+ *
+ * The **only** way a run leaves the rack. A spent run holds its slot until this
+ * is called: the app noticing that a ticket closed is not a person being
+ * finished with what is on screen, and nothing on the Rust side — no poll, no
+ * readout tick — is allowed to call what this calls.
+ */
+export async function endRun(run: number): Promise<void> {
+  if (!hasRustBehindIt()) return;
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("end_run", { run });
 }
 
 export async function loadRunReadouts(): Promise<RunReadout[]> {
