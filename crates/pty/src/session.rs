@@ -1,8 +1,9 @@
 use std::ffi::OsString;
 use std::io::{Read, Write};
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use perseverance_agent::{Signal, Watch};
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
@@ -151,7 +152,47 @@ pub struct Session {
     /// only place bytes are read, so it is the only place any of this can be
     /// known without a second reader inventing a second answer.
     pulse: Arc<Mutex<Pulse>>,
+    /// When this session was opened, as seconds since the epoch.
+    ///
+    /// **Seconds and not a `Duration` since some start**, because the only thing
+    /// that ever reads it is a chrome that prints *4 minutes ago* — a coarse
+    /// word off a stable stamp. A length recomputed here would change on every
+    /// one of the three readouts a second, so every message would differ and the
+    /// rack would repaint for a word that did not move.
+    ///
+    /// Wall clock and not [`Instant`], for the same reason: this crosses to a
+    /// WebView that has `Date.now()` and no way to be told what a monotonic
+    /// origin on this machine meant. A clock the operator winds backwards is
+    /// handled where it is printed, not here.
+    ///
+    /// [`Instant`]: std::time::Instant
+    opened: u64,
+    /// When this session last had output appended to its ring, as seconds since
+    /// the epoch.
+    ///
+    /// Shared with the drain thread, which is the one place bytes arrive, and an
+    /// atomic rather than a lock so that stamping costs the drain nothing it
+    /// could be made to wait for — an unread PTY fills its pipe and stops the
+    /// child.
+    ///
+    /// **Started at [`Session::opened`] rather than at zero**, so a run that has
+    /// printed nothing since it opened has been silent for exactly as long as it
+    /// has existed. That is the true reading, and it saves every caller from a
+    /// *never spoke* case that means the same thing.
+    spoke: Arc<AtomicU64>,
     guard: Guard,
+}
+
+/// The wall clock, in whole seconds since the epoch.
+///
+/// A clock before the epoch reads as the epoch rather than failing: nothing here
+/// is worth refusing a session over, and the chrome floors an age at *just now*
+/// anyway.
+fn stamped() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
 }
 
 impl Session {
@@ -255,6 +296,8 @@ impl Session {
         // printed nothing at all is the case the readiness deadline is most
         // there for.
         let pulse = Arc::new(Mutex::new(Pulse::opening(rule, Instant::now())));
+        let opened = stamped();
+        let spoke = Arc::new(AtomicU64::new(opened));
 
         let session = Session {
             master: pair.master,
@@ -263,6 +306,8 @@ impl Session {
             ring: Arc::clone(&ring),
             ended: Arc::clone(&ended),
             pulse: Arc::clone(&pulse),
+            opened,
+            spoke: Arc::clone(&spoke),
             guard,
         };
 
@@ -272,7 +317,7 @@ impl Session {
         // is what leaves the child reachable for the kill that escalates.
         std::thread::Builder::new()
             .name("perseverance-pty-drain".to_string())
-            .spawn(move || drain(reader, &ring, &writer, &pulse, watching))
+            .spawn(move || drain(reader, &ring, &writer, &pulse, watching, &spoke))
             .map_err(|error| SessionFailure::Unreadable {
                 detail: error.to_string(),
             })?;
@@ -429,6 +474,17 @@ impl Session {
         *self.ended.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
+    /// When this run was opened, as seconds since the epoch.
+    pub fn opened(&self) -> u64 {
+        self.opened
+    }
+
+    /// When this run last printed, as seconds since the epoch — which is when it
+    /// opened, for a run that has printed nothing at all.
+    pub fn spoke(&self) -> u64 {
+        self.spoke.load(Ordering::Relaxed)
+    }
+
     /// Whether this run is over. What *kind* of over is #49's.
     pub fn over(&self) -> bool {
         self.ended().is_some()
@@ -507,12 +563,17 @@ fn sized(geometry: Geometry) -> PtySize {
 /// alternate screen was among them, and what the run's own [`Watch`] made of
 /// them. It is written here because this is the only loop that reads the child
 /// at all: a second reader would be a second answer about the same silence.
+/// `spoke` is stamped here and nowhere else, because this is the only place
+/// bytes are appended to the ring. A stamp taken anywhere further out would be
+/// *when somebody looked*, and a run nobody was looking at would read as silent
+/// while it printed.
 pub(crate) fn drain<R: Read, W: Write>(
     mut reader: R,
     ring: &Mutex<Ring>,
     replies: &Mutex<Option<W>>,
     pulse: &Mutex<Pulse>,
     mut watching: Box<dyn Watch>,
+    spoke: &AtomicU64,
 ) {
     let mut buffer = vec![0u8; READ];
     let mut queries = Queries::default();
@@ -535,6 +596,9 @@ pub(crate) fn drain<R: Read, W: Write>(
         ring.lock()
             .unwrap_or_else(PoisonError::into_inner)
             .push(bytes);
+        // After the push and never before: what the stamp claims is that these
+        // bytes are readable, not that a read returned.
+        spoke.store(stamped(), Ordering::Relaxed);
 
         // Classified outside the lock, because a watch is somebody else's code
         // and this loop may not hold a lock the readout tick wants across it.
@@ -908,6 +972,7 @@ mod tests {
             &replies,
             &a_pulse(),
             Box::new(NoWatch),
+            &AtomicU64::new(0),
         );
 
         assert_eq!(
@@ -938,6 +1003,7 @@ mod tests {
             &replies,
             &a_pulse(),
             Box::new(NoWatch),
+            &AtomicU64::new(0),
         );
 
         let ring = ring.into_inner().expect("not poisoned");
@@ -962,6 +1028,7 @@ mod tests {
             &replies,
             &a_pulse(),
             Box::new(NoWatch),
+            &AtomicU64::new(0),
         );
 
         assert!(replies.into_inner().expect("not poisoned").is_none());
@@ -988,6 +1055,7 @@ mod tests {
             &replies,
             &pulse,
             Box::new(NoWatch),
+            &AtomicU64::new(0),
         );
 
         let printed = pulse
@@ -1020,6 +1088,7 @@ mod tests {
             Box::new(AWatch {
                 says: vec![Some(Signal::Idle)],
             }),
+            &AtomicU64::new(0),
         );
 
         assert_eq!(
@@ -1042,6 +1111,7 @@ mod tests {
             &replies,
             &pulse,
             Box::new(NoWatch),
+            &AtomicU64::new(0),
         );
 
         assert_eq!(pulse.lock().expect("not poisoned").signal(), None);
@@ -1089,8 +1159,116 @@ mod tests {
 
     /// A line that outlives the test that starts it, so there is a live child to
     /// hang up on.
+    /// The stamp is *when bytes were appended*, and the only way to tell that
+    /// from *when a reader returned* is to plant an impossible one and watch it
+    /// move. Zero is before the epoch's first second, so nothing but this
+    /// drain's own store can produce the reading asserted here.
+    #[test]
+    fn a_drain_stamps_the_moment_it_appends_and_not_the_moment_it_was_asked() {
+        let ring = Mutex::new(Ring::new(SCROLLBACK));
+        let replies = Mutex::new(Some(Vec::new()));
+        let spoke = AtomicU64::new(0);
+        let before = stamped();
+
+        drain(
+            Cursor::new(b"said something\r\n".to_vec()),
+            &ring,
+            &replies,
+            &a_pulse(),
+            Box::new(NoWatch),
+            &spoke,
+        );
+
+        let spoke = spoke.load(Ordering::Relaxed);
+        assert!(spoke >= before, "output did not reset the silence at all");
+        assert!(
+            spoke <= stamped(),
+            "the stamp is in the future, so it was not read off this clock"
+        );
+    }
+
+    /// A run that has printed nothing has been silent for exactly as long as it
+    /// has existed — so its silence grows with its age rather than starting over
+    /// at a *never spoke* the chrome would have to spell a second way.
+    ///
+    /// The clock the silence is read off differs by platform, and that is the
+    /// console's doing rather than the run's. On unix nothing is in the ring
+    /// until the child writes, so *as long as it has lived* is measured from
+    /// the spawn and the ring is empty. On Windows ConPTY's console host opens
+    /// by writing sixty-one bytes of its own — `ESC[6n`, win32-input and
+    /// focus-event modes, an SGR reset, the window title and a show-cursor —
+    /// before the child has run at all. `runs.rs` already names those bytes
+    /// ("without it the only bytes in the ring are the console host's
+    /// repaint") and works around them there by putting an `echo` in front.
+    ///
+    /// So the Windows half waits for that handshake and then measures. The
+    /// claim it makes is the same one: from the console being open, a run that
+    /// prints nothing adds nothing to the ring and never moves `spoke`. What it
+    /// cannot claim there is `spoke == opened`, because the console spoke
+    /// before the child could — a real difference in what the chrome will show
+    /// for a Windows run, not a weaker test.
+    ///
+    /// Asserting `end() == 0` on Windows passed for two rounds by racing that
+    /// handshake: the assertion ran 300ms after the spawn and won whenever the
+    /// runner was quiet enough. Growing the workspace made `cargo test` busier,
+    /// the handshake started landing first, and it went red every time.
+    #[test]
+    fn a_run_that_has_printed_nothing_has_been_silent_for_as_long_as_it_has_lived() {
+        let directory = TempDir::new().expect("temp dir");
+        let session = Session::spawn(
+            a_run_of(A_WAIT),
+            directory.path(),
+            &[],
+            Geometry::new(40, 120),
+            SCROLLBACK,
+            Box::new(NoWatch),
+        )
+        .expect("a shell starts");
+
+        // The console host's handshake, on the platform that sends one. It
+        // always arrives, so this waits rather than races.
+        #[cfg(windows)]
+        wait_until("the console finished opening", || session.held().end() > 0);
+
+        let opened_with = session.held().end();
+        let quiet_since = session.spoke();
+
+        // Long enough that a drain with anything to append would have appended
+        // it, and this shell has nothing.
+        std::thread::sleep(Duration::from_millis(300));
+
+        let whole = session.held().whole();
+        assert_eq!(
+            session.held().end(),
+            opened_with,
+            "the shell printed after all: {:?}",
+            String::from_utf8_lossy(&whole)
+        );
+        assert_eq!(session.spoke(), quiet_since, "the run spoke after all");
+
+        // Nothing but the console has ever spoken here, so the silence really
+        // does reach back to the spawn.
+        #[cfg(not(windows))]
+        {
+            assert_eq!(opened_with, 0, "the shell printed before the wait");
+            assert_eq!(session.spoke(), session.opened());
+        }
+    }
+
+    /// A wait that is genuinely silent, which `timeout` is not.
+    ///
+    /// `timeout /t N /nobreak` writes its countdown to the *console*, so `>nul`
+    /// — which only redirects standard output — does not stop it reaching the
+    /// ring. Every other use of `timeout` in this crate is prefixed by an `echo`
+    /// and is reading output on purpose, so the banner is invisible there; the
+    /// one test that asserts a shell printed *nothing* is the one place it is
+    /// not, and it went red on Windows with the banner's sixty-one bytes.
+    ///
+    /// `ping` writes to standard output like an ordinary program, so `>nul`
+    /// really does swallow it. `hanging_up_ends_a_windows_run_by_itself` in
+    /// `runs.rs` already waits this way, and for the neighbouring reason.
     #[cfg(windows)]
-    const A_WAIT: &str = "timeout /t 30 /nobreak >nul";
+    const A_WAIT: &str = "ping -n 31 127.0.0.1 >nul";
     #[cfg(not(windows))]
     const A_WAIT: &str = "sleep 30";
 }

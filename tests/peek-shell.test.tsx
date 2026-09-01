@@ -107,7 +107,7 @@ const theTerminal = () => document.querySelector('[aria-label="Terminal"]');
 const theStud = () => document.querySelector('[aria-label^="Peek at the map"]');
 /** The stud's own box — the one carrying the chord, the rebind and the refusal. */
 const theStudBox = () => theStud()?.parentElement ?? null;
-/** The terminal's share of the body: the box the `map` detent collapses away. */
+/** The terminal's share of the body: the box the `map` detent narrows to the rack. */
 const theTerminalBox = () => document.querySelector(`.${appStyles.terminal}`);
 const theBody = () => document.querySelector(`.${appStyles.body}`);
 
@@ -254,9 +254,10 @@ describe("inert at map width, and it says so", () => {
   /*
    * The defect this pins: the refusal was in the DOM and off the screen. The
    * stud used to hang off the terminal's box — `flex: 1 1 0`, `overflow:
-   * hidden` — which the `map` detent collapses to its own padding, so the
-   * chord, the rebind and the refusal were clipped to nothing at exactly the
-   * position where the refusal is the only feedback there is. The assertion
+   * hidden` — which the `map` detent narrows to the rack's floor and its own
+   * padding, so the chord, the rebind and the refusal were clipped into a strip
+   * the rack already fills, at exactly the position where the refusal is the
+   * only feedback there is. The assertion
    * above passed anyway, because jsdom answers `textContent` without laying
    * anything out.
    *

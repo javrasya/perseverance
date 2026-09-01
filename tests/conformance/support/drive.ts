@@ -5,6 +5,11 @@ import {
   isFixtureName,
 } from "../../../src/snapshot/fixtures";
 import type { Snapshot } from "../../../src/snapshot/model.generated";
+import {
+  DEFAULT_RUN_FIXTURE,
+  RUNS_PARAMETER,
+  type RunFixtureName,
+} from "../../../src/terminal/fixtures";
 import { DEFAULT_VIEW, STORAGE_KEY, type ViewName } from "../../../src/views/views";
 import type { FixtureState } from "../../support/contract";
 import { surfaceOf, type ViewSurface } from "./views";
@@ -87,11 +92,24 @@ export function prospect(view: ViewName, state: FixtureState): Prospect {
  * resolved either way: a metric a rule reads — a size, a spacing, a line count
  * — is measured against a fallback face until `document.fonts` is done, and
  * that is a flake nobody can reproduce.
+ *
+ * `runs` is the second fixture this window boots from, and it is a parameter
+ * rather than part of `FixtureState` because the two axes are not the same
+ * axis: `FixtureState` is fixtures × themes × motion, the space every
+ * render-bound *rule* is fanned out over, and a set of runs is not a snapshot —
+ * nothing in `Snapshot` says what is running. It defaults to
+ * `DEFAULT_RUN_FIXTURE`, which is empty, so a caller that says nothing gets the
+ * window it always got: `src/terminal/fixtures.ts` argues that a `dev:web` tab
+ * opened without asking for runs is a tab with nothing bound, and a driver that
+ * seeded runs behind every spec's back would be the harness deciding that for
+ * it. A spec whose subject *is* the run chrome asks — `rack-width.spec.ts` does,
+ * because a rack with no rows in it can be measured and proves nothing.
  */
 export async function load(
   page: Page,
   view: ViewName,
   state: FixtureState,
+  runs: RunFixtureName = DEFAULT_RUN_FIXTURE,
 ): Promise<Rendering> {
   const at = prospect(view, state);
   const { surface, snapshot } = at;
@@ -120,7 +138,15 @@ export async function load(
     [STORAGE_KEY, view] as const,
   );
 
-  await page.goto(`/?${FIXTURE_PARAMETER}=${encodeURIComponent(state.fixture)}`);
+  /* Both fixtures in one URL, spelled from the parameters their own modules
+     export rather than from two literals here — a query string is the whole of
+     how `dev:web` is told what to stand in for, and a second spelling of either
+     name is a spelling that drifts. */
+  const asked = new URLSearchParams({
+    [FIXTURE_PARAMETER]: state.fixture,
+    [RUNS_PARAMETER]: runs,
+  });
+  await page.goto(`/?${asked.toString()}`);
 
   /* The chrome is what is on screen in every state, including the one where no
      view is: waiting on it is what makes *the app booted* separable from *this

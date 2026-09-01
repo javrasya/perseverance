@@ -15,7 +15,7 @@ A Cargo workspace of seven crates plus a React 19 + TypeScript frontend.
 | `perseverance-model` | Deriving the model from a GitHub graph | Tauri, the network, a browser |
 | `perseverance-github` | Every network call, and the poller | Writing to GitHub |
 | `perseverance-agent` | The agent trait and its adapters; planning | Spawning anything |
-| `perseverance-pty` | PTY and child-process ownership, the per-run ring, the byte channel's contiguity, the deadline a quit gives every run, and refusing a launch whose program is not a native image | Deciding what to run, knowing what a run is working on, or handing over a non-contiguous byte range |
+| `perseverance-pty` | PTY and child-process ownership, the per-run ring, when a run opened and when it last printed, the byte channel's contiguity, the deadline a quit gives every run, and refusing a launch whose program is not a native image | Deciding what to run, knowing what a run is working on, or handing over a non-contiguous byte range |
 | `perseverance-store` | The launcher registry: one SQLite file, its schema, and binding a folder to its repo | The network, Tauri, a child process |
 | `perseverance-env` | The environment harvest: the operator's login shell asked once, in memory, and running one program inside the answer | Owning a terminal |
 | `perseverance-app` | The Tauri window and command surface | Any decision at all |
@@ -190,6 +190,29 @@ call. That is what makes *never resize on bind* an invariant rather than an
 assertion — a resize that landed mid-grilling would rewrap what the operator was
 typing. The cost is accepted and named: a background research PTY is reflowed by
 a dial it has nothing to do with.
+
+**The rack is every run as one row each, and its tier is width and never N.**
+Reading N transcripts in parallel is refused, so what the rack carries instead is
+the four facts that say whether a run is alive, progressing or wedged: its kind,
+its age, the bytes its terminal has not been handed yet, and how long it has been
+quiet. It draws at one of three widths — bays, boards, studs — chosen by
+measuring its own region and by nothing else, and each narrow tier prints in
+visible text what it dropped. Nothing the world does moves the window: the region
+is a fixed basis over an exported floor — the same floor the dial reserves out
+of the map end at every position, so the region never closes to zero even at the
+`map` detent, where what gives way is the pane — rows
+are a fixed height in the order the runs were opened, and a landed run keeps its
+row until a press takes it away. There is exactly one animated element in it
+however many runs are live — one lamp for the whole rack — so a landing is
+announced by that ping *ceasing*, never by an onset, and live-versus-landed is
+still readable in words and ink when `prefers-reduced-motion` kills every
+animation in the app. `src/rack/runs.fixture.json` is what stands behind it in
+`dev:web`, carrying a noisy run, one silent for minutes, one whose terminal is a
+megabyte behind, one that has landed and one nobody recorded stakes for — as
+durations rather than stamps, because *silent for six minutes* is the state and a
+checked-in stamp would age into a year.
+[ADR 0025](docs/adr/0025-the-racks-tier-is-a-function-of-width-not-of-n.md)
+records the decision, the reading it turned down, and what falsifies it.
 
 **A quit is one confirmation and one deadline.** One dialog however many runs
 are live, naming per run what that run loses — a work run's claim is a GitHub

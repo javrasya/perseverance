@@ -20,6 +20,7 @@ import {
 import {
   DESTINATION_HEADING,
   NOBODY_SURVEYED,
+  pingOf,
   routeOf,
   type Mark,
   type RouteRow,
@@ -109,12 +110,20 @@ export function Route({ model, selected, onSelect }: ViewProps) {
     );
   }
 
+  /* Read once for the pane: the halo is the screen's one moving element and
+     not each claimed row's, so the row that draws it is chosen here. */
+  const ping = pingOf(route);
+
   return (
     <section className={styles.route} aria-label="The Route">
+      {/* The one row that moves, decided over the whole pane rather than per
+          row: #56 rations motion by the screen, so *which* claimed row draws
+          the halo is an answer this view gives once. See `pingOf`. */}
       {route.sections.map((section) => (
         <Section
           key={section.name}
           section={section}
+          ping={ping}
           selected={selected}
           onSelect={onSelect}
         />
@@ -147,10 +156,13 @@ export function Route({ model, selected, onSelect }: ViewProps) {
  */
 function Section({
   section,
+  ping,
   selected,
   onSelect,
 }: {
   section: RouteSection;
+  /** The number of the one row drawing the halo, from [`pingOf`]. */
+  ping: number | null;
   selected: number | null;
   onSelect: (number: number | null) => void;
 }) {
@@ -168,6 +180,7 @@ function Section({
           <Row
             key={row.node.number}
             row={row}
+            pings={row.node.number === ping}
             selected={selected === row.node.number}
             onSelect={onSelect}
           />
@@ -225,10 +238,14 @@ function Destination({
         <span className={styles.rule} aria-hidden="true" />
       </h2>
       <ul className={styles.rows} aria-labelledby={DESTINATION_ID}>
+        {/* Never the halo. `markOf` answers `destination` above the state, so
+            a spec child with a session against it is not marked `claimed` here
+            and nothing in this region is what `pingOf` looked for. */}
         {rows.map((row) => (
           <Row
             key={row.node.number}
             row={row}
+            pings={false}
             selected={selected === row.node.number}
             onSelect={onSelect}
           />
@@ -328,10 +345,19 @@ function FogRegion({ fog }: { fog: Fog }) {
  */
 function Row({
   row,
+  pings,
   selected,
   onSelect,
 }: {
   row: RouteRow;
+  /**
+   * This row is the one drawing the screen's halo.
+   *
+   * Decided above rather than from `row.mark`, because *is this claimed* and
+   * *is this the one element the screen's ration is spent on* are different
+   * questions the moment two rows are claimed at once.
+   */
+  pings: boolean;
   selected: boolean;
   onSelect: (number: number | null) => void;
 }) {
@@ -404,10 +430,26 @@ function Row({
         {/* The cut's own shape, composed onto the one the mark already chose
             rather than replacing it: C5's `g-oos` decorating a resolved disc,
             which is what a cut is — not a sixth mark. */}
+        {/* `data-animated` on the one mark that moves, and `markPing` is what
+            moves it: the halo's still ring is `.markClaimed::after` and every
+            claimed row keeps it, while the animation is drawn on this row
+            alone. #56 rations motion by the screen rather than by a subtree —
+            so the licensed animations have to be countable in one query, or
+            *at most one moving element* is a claim nothing can check, and a
+            map staking two claims would have animated two things. The
+            attribute says the stylesheet is running an animation here; it does
+            not choose one. Licensed in `tests/motion-ration.test.ts`. */}
         <span
           className={
-            row.cut === null ? GLYPHS[row.mark] : `${GLYPHS[row.mark]} ${styles.markCut}`
+            [
+              GLYPHS[row.mark],
+              row.cut === null ? null : styles.markCut,
+              pings ? styles.markPing : null,
+            ]
+              .filter((name) => name !== null)
+              .join(" ")
           }
+          data-animated={pings ? "true" : undefined}
         />
       </span>
       <span className={styles.id}>#{node.number}</span>

@@ -49,6 +49,34 @@ export function relativeAge(since: number, now: number = nowSeconds()): string {
   return counted(Math.floor(seconds / (365 * DAY)), "year");
 }
 
+/**
+ * The same duration, in the fewest characters that still say it.
+ *
+ * A second spelling of a thing this module exists to spell once — and it is the
+ * same rule rather than an exception to it. The rack's two narrow tiers cannot
+ * draw `6 minutes ago` at all: at their floors the phrase is shrunk to an
+ * ellipsis or pushed past the bottom of a fixed-height row, and a field that
+ * comes out as an ellipsis is a field the tier claims to show and does not. A
+ * rack draws one tier at a time, so no screen ever carries both spellings — the
+ * wide row says `6 minutes ago`, the narrow one says `6m`, and nobody has to
+ * read them side by side and wonder whether they mean different things.
+ *
+ * The unit boundaries are [`relativeAge`]'s, deliberately: two ladders would be
+ * two answers to *what is the coarsest unit that is still true*.
+ */
+export function terseAge(since: number, now: number = nowSeconds()): string {
+  const seconds = Math.max(0, Math.floor(now - since));
+  if (seconds < MINUTE) return "<1m";
+  if (seconds < HOUR) return `${Math.floor(seconds / MINUTE)}m`;
+  if (seconds < DAY) return `${Math.floor(seconds / HOUR)}h`;
+  if (seconds < WEEK) return `${Math.floor(seconds / DAY)}d`;
+  if (seconds < 5 * WEEK) return `${Math.floor(seconds / WEEK)}w`;
+  if (seconds < 365 * DAY) {
+    return `${Math.min(11, Math.floor(seconds / (30 * DAY)))}mo`;
+  }
+  return `${Math.floor(seconds / (365 * DAY))}y`;
+}
+
 function counted(amount: number, unit: string): string {
   return `${amount} ${unit}${amount === 1 ? "" : "s"} ago`;
 }

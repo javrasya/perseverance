@@ -1,0 +1,307 @@
+/*
+ * The rack's geometry, and the one animation this app spends outside the Route.
+ *
+ * Two things are load-bearing here and neither is decoration:
+ *
+ * - **The region's width is not content-driven.** A fixed basis, an explicit
+ *   `min-width` floor, and `min-width` on every box inside it. The explicit
+ *   floor is what switches off flexbox's automatic minimum size, which is a
+ *   *content* measurement — leave it at `auto` and a long enough run kind or a
+ *   fat unseen count would widen the region, and the width would have become a
+ *   function of what arrived rather than of what was pressed.
+ * - **One moving thing, and it is the rack's, not a row's.** Four live runs may
+ *   not accumulate into four pings; the ration in rule 9 is one. So liveness is
+ *   spent once, on the lamp in the head, and every row carries the same bit in
+ *   still form — the word, the ink and the border on `.rowLanded`. What that
+ *   means for a landing is the point of the whole arrangement: nothing here ever
+ *   *starts* moving because a run ended. A landing takes the row's live ink away
+ *   and, when it was the last live run, stops the lamp. Cessation is the
+ *   announcement; there is no flash, no toast and no arrival animation to
+ *   interrupt a sentence somebody is typing.
+ */
+
+.rack {
+  /*
+   * Tier 3 — component tokens, lengths and one colour taken from a semantic
+   * token, defined in the file that reads them.
+   *
+   * The floor is authored in pixels and is the same number `rack.ts` exports as
+   * `RACK_FLOOR`: the tier is chosen from a measurement in pixels, and a floor
+   * in `rem` would agree with that measurement at the default root size and
+   * nowhere else. The basis sits above the `bays` floor on purpose — a rack
+   * whose preferred width fell below its own widest tier would have a tier that
+   * only ever appeared by accident.
+   */
+  --c-rack-floor: 152px;
+  --c-rack-basis: 25rem;
+  --c-rack-row: 1.75rem;
+  --c-rack-row-narrow: 3rem;
+  --c-rack-leading: 1.2;
+  --c-rack-lamp: 0.5rem;
+  --c-rack-live: var(--s-live);
+
+  /*
+   * The strip the peek's stud hangs in, kept clear at the top of this region.
+   *
+   * The stud is absolutely positioned against the body at its top right corner
+   * — it may take no width in any flow, or a held key would narrow the pane and
+   * reflow a live agent — and the body's right edge is *this* region at the
+   * `map` detent, where the terminal side is worth the rack's floor and its
+   * gutter and nothing else. Without a reserve the stud paints over the head
+   * band: the lamp and `N of M still running`, which are the whole of what the
+   * rack says about liveness, under an opaque box.
+   *
+   * An inset on the stud cannot fix it, because there is no inset that clears
+   * this region at every detent: the region's *right* edge moves with the dial
+   * — the body's edge at `map`, four hundred pixels short of it at `split` —
+   * while its top edge does not move at all. So the clearance is horizontal
+   * rather than vertical, it is the rack's to give, and it is spent once here
+   * instead of being re-derived from the dial's position.
+   *
+   * One line of stud plus slack. The stud is a flex row that does not wrap at
+   * any window this app is usable in, and
+   * `tests/conformance/rack-width.spec.ts` measures the two boxes against each
+   * other at every detent, so a stud that grew is a red spec rather than a
+   * covered lamp.
+   */
+  --c-rack-strip: 3rem;
+
+  display: flex;
+  flex: 0 1 var(--c-rack-basis);
+  flex-direction: column;
+  min-width: var(--c-rack-floor);
+  min-height: 0;
+  padding-top: var(--c-rack-strip);
+  padding-right: var(--s-space-base);
+  overflow: hidden;
+  border-right: var(--s-border-hairline) solid var(--s-line-quiet);
+  font-family: var(--s-font-ui);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-space-snug);
+  min-width: 0;
+  padding: var(--s-space-tight) 0;
+  color: var(--s-ink-secondary);
+  font-size: var(--s-text-micro);
+  letter-spacing: var(--s-tracking-label);
+  text-transform: uppercase;
+}
+
+/*
+ * The still form of the whole rack's liveness: a ring, always drawn, filled
+ * while anything in the rack is going. The `prefers-reduced-motion` guard in
+ * `src/styles/global.css` kills `animation` outright, so what survives there is
+ * this ring and the count beside it rather than nothing — rule 12's obligation,
+ * discharged the way `Route.module.css` discharges it for a claimed node.
+ */
+.lamp {
+  position: relative;
+  flex: 0 0 auto;
+  width: var(--c-rack-lamp);
+  height: var(--c-rack-lamp);
+  border: var(--s-border-hairline) solid var(--s-line-strong);
+  border-radius: 50%;
+}
+
+.lampLive {
+  border-color: var(--c-rack-live);
+  background: var(--c-rack-live);
+}
+
+/*
+ * The ping, added on top of a ring that is already there. CSS keyframes and
+ * never SMIL — `prefers-reduced-motion` cannot reach SMIL, and a liveness pulse
+ * that survived the guard would break the still-state rule in the one state the
+ * rule is about. `tests/no-smil.test.ts` is the check; this comment is not.
+ *
+ * A class of its own rather than more declarations on `.lampLive`, because the
+ * filled ring and the ping are two different claims: the ring says *something
+ * in this rack is running* and is on whenever that is true, while the ping is
+ * the window's one animation and is spent only when nothing else licensed is
+ * on screen — `lampPings` in `src/rack/rack.ts` is that rule, and the shell
+ * hands it what the Route is drawing. A rack whose ring and ping were one class
+ * would have to choose between saying nothing and moving twice.
+ */
+.lampPing::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border: 1.5px solid var(--c-rack-live);
+  border-radius: 50%;
+  opacity: 0.5;
+  animation: rackPing 2.1s var(--s-motion-ease) infinite;
+}
+
+@keyframes rackPing {
+  0% {
+    opacity: 0.7;
+    transform: scale(0.7);
+  }
+
+  70%,
+  100% {
+    opacity: 0;
+    transform: scale(1.3);
+  }
+}
+
+.count {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+ * What this width dropped, as text in the flow. Not a `title`, not a tooltip:
+ * rule 10 keeps load-bearing information off hover, and *the rack is not showing
+ * you the ticket* is exactly the kind of thing an operator has to be able to
+ * read without knowing to go looking for it.
+ */
+.dropped {
+  margin: 0;
+  padding: 0 0 var(--s-space-tight);
+  color: var(--s-ink-faint);
+  font-size: var(--s-text-micro);
+}
+
+.rows {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  list-style: none;
+}
+
+/*
+ * Fixed height, and the same height for every row at a tier. A row that grew to
+ * fit what it had to say would move every row under it whenever a run printed,
+ * which is the world rearranging the window — the thing this surface exists to
+ * stop.
+ */
+.row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-space-snug);
+  flex: 0 0 var(--c-rack-row);
+  height: var(--c-rack-row);
+  min-width: 0;
+  padding: 0 var(--s-space-hair);
+  overflow: hidden;
+  border-bottom: var(--s-border-hairline) solid var(--s-line-quiet);
+  color: var(--s-ink-primary);
+  font-size: var(--s-text-micro);
+  white-space: nowrap;
+}
+
+/* A landed run keeps its row — nothing but a press takes one away — and says
+   so in ink and in a word, neither of which needs anything to move. */
+.rowLanded {
+  color: var(--s-ink-faint);
+  border-left: var(--s-border-hairline) solid var(--s-line-absent);
+}
+
+.rowLive {
+  border-left: var(--s-border-emphasis) solid var(--c-rack-live);
+}
+
+.kind {
+  flex: 0 0 auto;
+  font-weight: var(--s-weight-emphasis);
+}
+
+.ticket {
+  flex: 0 0 auto;
+  font-family: var(--s-font-mono);
+}
+
+.age,
+.silence {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.unseen {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--s-font-mono);
+}
+
+/* The word, at every width and in every motion setting: what the lamp says
+   about the rack, a row has to be able to say about itself. */
+.liveness {
+  flex: 0 0 auto;
+  margin-left: auto;
+  letter-spacing: var(--s-tracking-label);
+  text-transform: uppercase;
+}
+
+/*
+ * Both narrow tiers wrap a row onto as many lines as the fields they kept need,
+ * rather than shrinking those fields until they are ellipses.
+ *
+ * The alternative is what this rule replaced, and it was a lie the stylesheet
+ * told on `SHOWN`'s behalf. At the `boards` floor the row has 215px of content
+ * width; `kind`, `ticket` and `liveness` do not shrink, and the four gaps are
+ * not free, so `unseen` and `silence` were left about fifty pixels between them
+ * on one `nowrap` line — an ellipsis each. At the `studs` floor there is less
+ * still, and a fourth flex line put `liveness` under the row's `overflow:
+ * hidden`. Either way the tier drew a field it says it drew and the operator
+ * could read none of it, which is ADR 0025's falsifier — *a sentence naming a
+ * field the tier is in fact drawing* — reached from the other end. The wordings
+ * got shorter too (`phraseAt` in `rack.ts`); this is the half that guarantees
+ * whatever they say lands on a line rather than in an ellipsis.
+ *
+ * Still a fixed height, and still the same height for every row at the tier,
+ * which is all the no-relayout rule asks: the box does not grow when a row has
+ * more to say, the words inside it use another line of a box that was already
+ * that tall. `line-height` is pinned rather than left at `normal` because the
+ * number of lines that fit is then arithmetic — three, at `--s-text-micro` in a
+ * `3rem` row — instead of a property of whichever font the platform resolved.
+ * The row gap is zero for the same reason: it is height the lines need.
+ *
+ * Which fields are on the row at all is `SHOWN`'s answer, in the component,
+ * never a `display: none` here: a field hidden in CSS would still be in the
+ * accessibility tree, and the rack would be claiming to show what it dropped.
+ */
+.narrow .row {
+  flex-wrap: wrap;
+  flex-basis: var(--c-rack-row-narrow);
+  height: var(--c-rack-row-narrow);
+  align-items: flex-start;
+  align-content: flex-start;
+  gap: 0 var(--s-space-snug);
+  line-height: var(--c-rack-leading);
+  white-space: normal;
+}
+
+/* Nothing on a narrow row is allowed to be wider than the row. `kind` and
+   `liveness` do not shrink — on purpose, so that a word is never traded for an
+   ellipsis — which without this would let a long kind on an unusually wide font
+   hang past the row's `overflow: hidden` and be cut. Capped, it takes a second
+   line of a box that already had the height for one. */
+.narrow .row > * {
+  max-width: 100%;
+}
+
+/* On a wrapped row the auto margin would push the word to the far end of
+   whichever line it landed on, which is not the right edge of anything. */
+.narrow .liveness {
+  margin-left: 0;
+}
+
+.empty {
+  margin: 0;
+  padding: var(--s-space-snug) var(--s-space-hair);
+  color: var(--s-ink-faint);
+  font-size: var(--s-text-micro);
+}

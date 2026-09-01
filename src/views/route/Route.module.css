@@ -324,6 +324,18 @@
   border: 1.5px solid var(--c-node-glyph);
   border-radius: 50%;
   opacity: 0.5;
+}
+
+/*
+ * And the movement, on one row and not on each of them. #56 rations motion by
+ * the *screen* — at most one animated element however many runs are live and
+ * however many claims the map stakes — so the halo above is drawn on every
+ * claimed mark and this class is added to exactly one of them, by `pingOf` in
+ * `route.ts`. What a claimed row without it loses is the animation and never
+ * the fact: the filled disc, the ring, `data-mark` and the *Now* heading all
+ * still say it, which is precisely what the reduced-motion window reads.
+ */
+.markPing::after {
   animation: ping 2.1s var(--s-motion-ease) infinite;
 }
 
