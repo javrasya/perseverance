@@ -304,7 +304,38 @@ describe("the four detents are drawn on the dial, and none of them is a fill", (
     // The detent is announced on the separator itself; the drawing is for the
     // eye, and a tick that were focusable would be a control nobody asked for.
     expect(seam()?.querySelectorAll("[tabindex], button, a")).toHaveLength(0);
-    expect(seam()?.getAttribute("aria-valuetext")).toBe("71% to the map");
+    expect(seam()?.getAttribute("aria-label")).toBe(
+      "Dial: how much of the window the map has — 71% to the map",
+    );
+  });
+
+  /*
+   * Rule 5 refuses a value widget anywhere in the rendering, and the family is
+   * refused rather than the word *bar*: a dial announcing 71 of 100 is a
+   * proportion in the accessibility tree whether or not the proportion is the
+   * map's. The conformance suite settles this over the whole fixture space; this
+   * holds it at the seam that would grow the attribute back, where the failure
+   * names the control instead of naming the page.
+   */
+  it("is a seam and not a value widget, at a detent and between two", async () => {
+    await boot();
+
+    for (const at of [...DETENTS, 0.71] as (Detent | number)[]) {
+      await put(at);
+      const seamed = seam();
+      expect(seamed?.getAttribute("aria-valuenow"), `a value at ${at}`).toBeNull();
+      expect(seamed?.getAttribute("aria-valuemin"), `a minimum at ${at}`).toBeNull();
+      expect(seamed?.getAttribute("aria-valuemax"), `a maximum at ${at}`).toBeNull();
+      expect(seamed?.getAttribute("aria-valuetext"), `a value text at ${at}`).toBeNull();
+      expect(
+        document.querySelectorAll("progress, meter, [role=progressbar], [aria-valuenow]"),
+        `a value widget at ${at}`,
+      ).toHaveLength(0);
+      // What replaced them still says where the dial stands.
+      expect(seamed?.getAttribute("aria-label")).toContain(
+        typeof at === "number" ? "71% to the map" : at,
+      );
+    }
   });
 });
 

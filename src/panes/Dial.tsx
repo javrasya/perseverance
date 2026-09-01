@@ -17,10 +17,27 @@ import styles from "./Dial.module.css";
  * state beyond *is a pointer down on me*. Where the dial **is** lives in the UI
  * store, so a poll landing mid-drag cannot move it.
  *
- * It is a `separator` with a value rather than a slider, and that is not a
- * detail: a slider is a control over a quantity that something else consumes,
- * and this is the seam itself. The value is announced as the detent it is at,
- * so a screen reader hears *split* rather than *fifty*.
+ * It is a `separator` rather than a slider, and that is not a detail: a slider
+ * is a control over a quantity that something else consumes, and this is the
+ * seam itself.
+ *
+ * It carries **no `aria-valuenow`**, and no `aria-valuemin`, `aria-valuemax` or
+ * `aria-valuetext` either — the four of them travel together, and the last
+ * three are meaningless without the first. Contract rule 5 refuses a value
+ * widget anywhere in the rendering, not merely one wrapped around the three
+ * integers: the rule as written names one widget and there are a hundred ways
+ * to build the same claim, so what the conformance suite refuses is the whole
+ * family — `progress`, `meter`, a progressbar role, an `aria-valuenow`. That
+ * this dial's proportion is the window's rather than the map's is a distinction
+ * a locator cannot draw and an operator glancing at a percentage will not draw
+ * either, and the app already accounts for its work in exactly three numerals.
+ *
+ * Nothing is lost by it, because a percentage was never what this control had
+ * to say. Where the dial is is a *place* — one of four named detents, or the
+ * stretch between two of them — and a place belongs in the accessible name.
+ * So the name carries both what the control is and where it stands, and it is
+ * rewritten on every move: a screen reader hears *split* rather than *fifty*,
+ * which is what this dial wanted to say before rule 5 asked it to.
  *
  * The four detents are drawn on it as ticks, because a place a sighted operator
  * cannot see is a place only the screen reader knows about. The ladder runs down
@@ -65,6 +82,10 @@ export function Dial({
   const at = detentAt(shown);
   const percent = Math.round(clamp(shown) * 100);
   const named = namesFit(width);
+  // Where it stands, in the accessible name, because there is no value to put
+  // it in. A detent is a place and says its own name; between two of them there
+  // is nothing to name but the share, and a share in words is not a widget.
+  const said = at ?? `${percent}% to the map`;
 
   const move = (event: PointerEvent<HTMLDivElement>) => {
     const box = event.currentTarget.parentElement?.getBoundingClientRect();
@@ -79,12 +100,8 @@ export function Dial({
       data-named={named ? "true" : "false"}
       role="separator"
       tabIndex={0}
-      aria-label="Dial: how much of the window the map has"
+      aria-label={`Dial: how much of the window the map has — ${said}`}
       aria-orientation="vertical"
-      aria-valuemin={0}
-      aria-valuemax={100}
-      aria-valuenow={percent}
-      aria-valuetext={at === null ? `${percent}% to the map` : at}
       data-detent={at ?? "free"}
       /*
        * The hook the one key router resolves this widget by.
@@ -132,9 +149,9 @@ export function Dial({
       <span className={styles.grip} aria-hidden="true" />
       {/*
         The four places, and where the hand is among them. For the eye only: the
-        detent is already announced on the separator itself by `aria-valuetext`,
-        and a tick that were focusable would put four more stops in the tab order
-        of a control that already reaches every one of them from the keyboard.
+        detent is already announced on the separator itself, in its name, and a
+        tick that were focusable would put four more stops in the tab order of a
+        control that already reaches every one of them from the keyboard.
       */}
       <span className={styles.ladder} aria-hidden="true">
         {DETENTS.map((detent) => (

@@ -188,7 +188,9 @@ describe("a peek borrows the dial and never moves it", () => {
 
     await hold();
     expect(dial?.getAttribute("data-detent")).toBe("map");
-    expect(dial?.getAttribute("aria-valuetext")).toBe("map");
+    expect(dial?.getAttribute("aria-label")).toBe(
+      "Dial: how much of the window the map has — map",
+    );
 
     await release();
     expect(dial?.getAttribute("data-detent")).toBe("glance");
