@@ -168,6 +168,452 @@ export function findTierViolations(
   return violations;
 }
 
+/* -------------------------------------------------------------- Motion --- */
+
+/**
+ * A CSS block, with the preludes of the blocks enclosing it.
+ *
+ * Rule 9's ration is enumerable only because SMIL is banned
+ * (`tests/no-smil.test.ts`): every animation in this app is CSS text, so
+ * reading the text is reading the whole motion surface. This is the smallest
+ * parser that can say *what a declaration is written on* — which selector, and
+ * inside which at-rule — and both halves of the motion policy turn on that: an
+ * animation is licensed by the selector it lands on, and a declaration inside
+ * a `prefers-reduced-motion` guard means the opposite of the same declaration
+ * outside one.
+ */
+interface CssDeclaration {
+  readonly property: string;
+  readonly value: string;
+  readonly important: boolean;
+  readonly line: number;
+}
+
+interface CssBlock {
+  readonly prelude: string;
+  readonly line: number;
+  /** Preludes of the enclosing blocks, outermost first. */
+  readonly ancestors: readonly string[];
+  readonly declarations: readonly CssDeclaration[];
+}
+
+function collapse(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+function parseBlocks(text: string): CssBlock[] {
+  /* Comments are blanked rather than deleted so every line number reported
+     below is the line number a person will read in the file. */
+  const source = text.replace(/\/\*[\s\S]*?\*\//g, (comment) =>
+    comment.replace(/[^\n]/g, " "),
+  );
+  const blocks: CssBlock[] = [];
+  const open: { prelude: string; line: number; declarations: CssDeclaration[] }[] = [];
+  let buffer = "";
+  let bufferLine = 1;
+  let line = 1;
+
+  const flush = () => {
+    const declaration = collapse(buffer);
+    buffer = "";
+    const enclosing = open[open.length - 1];
+    if (declaration.length === 0 || enclosing === undefined) return;
+    const colon = declaration.indexOf(":");
+    if (colon === -1) return;
+    const raw = declaration.slice(colon + 1).trim();
+    enclosing.declarations.push({
+      property: declaration.slice(0, colon).trim().toLowerCase(),
+      value: raw.replace(/!\s*important$/i, "").trim(),
+      important: /!\s*important$/i.test(raw),
+      line: bufferLine,
+    });
+  };
+
+  for (const char of source) {
+    if (char === "{") {
+      open.push({ prelude: collapse(buffer), line: bufferLine, declarations: [] });
+      buffer = "";
+    } else if (char === "}") {
+      flush();
+      const closed = open.pop();
+      if (closed !== undefined) {
+        blocks.push({ ...closed, ancestors: open.map((block) => block.prelude) });
+      }
+      buffer = "";
+    } else if (char === ";") {
+      flush();
+    } else {
+      if (buffer.trim().length === 0 && !/\s/.test(char)) bufferLine = line;
+      buffer += char;
+    }
+    if (char === "\n") line += 1;
+  }
+  return blocks;
+}
+
+/** A declaration that spends motion: `animation`, shorthand or longhand. */
+export interface MotionDeclaration {
+  readonly line: number;
+  /** The selector as authored, e.g. `.markClaimed::after`. */
+  readonly selector: string;
+  readonly property: string;
+  readonly value: string;
+  /** Keyframes names the declaration references, where it names any. */
+  readonly names: readonly string[];
+}
+
+export interface KeyframesBlock {
+  readonly line: number;
+  readonly name: string;
+}
+
+export interface ReducedMotionBlock {
+  readonly line: number;
+  readonly selector: string;
+  readonly declarations: readonly CssDeclaration[];
+}
+
+/**
+ * The motion one stylesheet spends, and what it says under reduced motion.
+ *
+ * `transition` is absent by construction: a crossfade on colour, border or
+ * opacity is not motion spent and is not rationed. What is counted is
+ * `animation`, the only way a rendering moves on its own.
+ */
+export interface MotionSurface {
+  readonly animations: readonly MotionDeclaration[];
+  readonly keyframes: readonly KeyframesBlock[];
+  readonly reducedMotion: readonly ReducedMotionBlock[];
+}
+
+const SUPPRESSION = /^(none|initial|unset|revert|revert-layer|inherit)$/i;
+
+const ANIMATION_KEYWORDS = new Set([
+  "normal",
+  "reverse",
+  "alternate",
+  "alternate-reverse",
+  "none",
+  "forwards",
+  "backwards",
+  "both",
+  "running",
+  "paused",
+  "infinite",
+  "linear",
+  "ease",
+  "ease-in",
+  "ease-out",
+  "ease-in-out",
+  "step-start",
+  "step-end",
+  "initial",
+  "inherit",
+  "unset",
+  "revert",
+]);
+
+/* Functional values — `var(--s-motion-ease)`, `cubic-bezier(…)`, `steps(…)` —
+   are dropped whole: a token inside one is never a keyframes name, and a
+   custom property's own name looks exactly like one. */
+function keyframeNames(value: string): string[] {
+  return value
+    .replace(/[\w-]+\([^()]*\)/g, " ")
+    .split(/[\s,]+/)
+    .filter(
+      (token) =>
+        /^-?[a-zA-Z_][\w-]*$/.test(token) && !ANIMATION_KEYWORDS.has(token.toLowerCase()),
+    );
+}
+
+function isReducedMotionGuard(prelude: string): boolean {
+  return /@media[^{]*prefers-reduced-motion/i.test(prelude);
+}
+
+export function readMotion(text: string): MotionSurface {
+  const animations: MotionDeclaration[] = [];
+  const keyframes: KeyframesBlock[] = [];
+  const reducedMotion: ReducedMotionBlock[] = [];
+
+  for (const block of parseBlocks(text)) {
+    const named = /^@(?:-[a-z]+-)?keyframes\s+("?)([\w-]+)\1/i.exec(block.prelude);
+    if (named?.[2] !== undefined) keyframes.push({ line: block.line, name: named[2] });
+
+    if (block.ancestors.some(isReducedMotionGuard)) {
+      reducedMotion.push({
+        line: block.line,
+        selector: block.prelude,
+        declarations: block.declarations,
+      });
+    }
+
+    for (const declaration of block.declarations) {
+      if (!declaration.property.startsWith("animation")) continue;
+      if (SUPPRESSION.test(declaration.value)) continue;
+      animations.push({
+        line: declaration.line,
+        selector: block.prelude,
+        property: declaration.property,
+        value: declaration.value,
+        names: keyframeNames(declaration.value),
+      });
+    }
+  }
+  return { animations, keyframes, reducedMotion };
+}
+
+/**
+ * One animation this app is allowed to run, and the claim it carries.
+ *
+ * The reason is a field rather than a comment because rule 9's tier is
+ * asserted: there is no deviation route, so an animation is either licensed
+ * with its claim written down or it comes out of the stylesheet.
+ */
+export interface LicensedMotion {
+  readonly path: string;
+  readonly selector: string;
+  readonly keyframes: string;
+  /** The liveness claim the motion is spent on. */
+  readonly carries: string;
+}
+
+/**
+ * Motion spent anywhere the ration does not reach.
+ *
+ * Three ways past the ration, and the licence is per selector *and* per
+ * keyframes name so none of them is a rename away: a second `@keyframes`
+ * block, an `animation` declaration on any other selector, and the licensed
+ * selector quietly driving different keyframes.
+ */
+export function findMotionViolations(
+  file: { path: string; text: string },
+  licensed: readonly LicensedMotion[],
+): Violation[] {
+  const violations: Violation[] = [];
+  const here = licensed.filter((entry) => entry.path === file.path);
+  const surface = readMotion(file.text);
+
+  for (const animation of surface.animations) {
+    const entry = here.find((candidate) => candidate.selector === animation.selector);
+    if (entry === undefined) {
+      violations.push({
+        line: animation.line,
+        detail: `\`${animation.property}\` on \`${animation.selector}\` — motion is rationed to the running-vs-stale claim, and this selector carries none`,
+      });
+      continue;
+    }
+    for (const name of animation.names) {
+      if (name !== entry.keyframes) {
+        violations.push({
+          line: animation.line,
+          detail: `\`${animation.selector}\` runs \`${name}\`; its licence is for \`${entry.keyframes}\` — ${entry.carries}`,
+        });
+      }
+    }
+  }
+
+  for (const block of surface.keyframes) {
+    if (!here.some((entry) => entry.keyframes === block.name)) {
+      violations.push({
+        line: block.line,
+        detail: `\`@keyframes ${block.name}\` is motion no view is licensed to spend`,
+      });
+    }
+  }
+
+  return violations;
+}
+
+/* ------------------------------------------ motion outside the ration --- */
+
+/**
+ * Motion spent where the ration's enumeration cannot see it.
+ *
+ * `findMotionViolations` reads CSS text, and the ration is only ever as wide
+ * as the walk that feeds it: the `.css` files under `src/`. Nothing in this
+ * repo forbids an inline style, a `<style>` block inside an `.svg`, a
+ * `@keyframes` in the root `index.html`, or an animation started from script
+ * through the Web Animations API — which writes no CSS text at all — so motion
+ * authored any of those ways would be licensed by nobody and caught by nothing
+ * — and rule 12's still-form obligation, which is derived from the same walk,
+ * would not reach it either.
+ *
+ * This is the companion guard that closes the gap, over the same wider net
+ * `tests/no-smil.test.ts` already establishes as this repo's motion surface
+ * (`collectMarkupAndStyles`). Outside a rationed stylesheet an animation is not
+ * licensable at all, so this is a flat prohibition rather than a list: the fix
+ * for a red is to move the motion into a stylesheet and argue for its licence
+ * there, which is where an argument about spending the ration belongs.
+ */
+const RATIONED_STYLESHEET = /^src\/.*\.css$/;
+
+const STRAY_MOTION: readonly { readonly pattern: RegExp; readonly detail: string }[] = [
+  {
+    /* The name is required, not decoration: `@keyframes` with nothing after it
+       is not a keyframes block, and demanding the name is what keeps the check
+       off the registry's own prose, which names the construct in backticks. */
+    pattern: /@(?:-[a-z]+-)?keyframes\s+[A-Za-z_-][\w-]*/gi,
+    detail: "a keyframes block outside a rationed stylesheet — motion the ration cannot enumerate",
+  },
+  {
+    pattern: /\banimation(?:-name|Name)?\s*:/g,
+    detail: "an `animation` declaration outside a rationed stylesheet — motion no licence covers",
+  },
+  {
+    pattern: /\.style\s*\.\s*animation(?:Name)?\b|setProperty\(\s*["']animation(?:-name)?["']/g,
+    detail: "an `animation` assigned from script — motion written past the stylesheets entirely",
+  },
+  {
+    /* The Web Animations API, which spends motion with no CSS text anywhere:
+       `element.animate([...], {...})`, an `Animation` constructed by hand, or a
+       handle taken with `getAnimations()` and played. The three patterns above
+       all read as CSS in the end — a keyframes block, a declaration, a property
+       written onto a style attribute — and none of them sees this one. It is
+       the most idiomatic way to move something from script, so leaving it out
+       would be the widest hole in the net: motion unlicensed by rule 9, and
+       owing no still form under rule 12, whose obligation is derived from the
+       same stylesheet walk. */
+    pattern: /\.animate\s*\(|new\s+Animation\s*\(|getAnimations\s*\(/g,
+    detail:
+      "the Web Animations API driven from script — motion written past the stylesheets entirely",
+  },
+];
+
+export function findStrayMotion(file: { path: string; text: string }): Violation[] {
+  if (RATIONED_STYLESHEET.test(file.path)) return [];
+
+  const violations: Violation[] = [];
+  for (const [index, line] of file.text.split("\n").entries()) {
+    for (const { pattern, detail } of STRAY_MOTION) {
+      pattern.lastIndex = 0;
+      if (pattern.test(line)) violations.push({ line: index + 1, detail });
+    }
+  }
+  return violations;
+}
+
+/*
+ * Travel is displacement and size, never colour. The roots are matched as
+ * prefixes so `margin-top` and `inset-inline-start` need no listing, and
+ * `border-right-color` — a colour, and one that survives — matches none of
+ * them.
+ */
+const TRAVEL_ROOTS = [
+  "transform",
+  "translate",
+  "rotate",
+  "scale",
+  "perspective",
+  "offset",
+  "top",
+  "right",
+  "bottom",
+  "left",
+  "inset",
+  "margin",
+  "padding",
+  "width",
+  "height",
+  "min-width",
+  "min-height",
+  "max-width",
+  "max-height",
+  "gap",
+  "row-gap",
+  "column-gap",
+  "flex-basis",
+];
+
+function isTravel(property: string): boolean {
+  return TRAVEL_ROOTS.some((root) => property === root || property.startsWith(`${root}-`));
+}
+
+/** The first token of each comma-separated part: `opacity 200ms ease` → `opacity`. */
+export function transitionedProperties(value: string): string[] {
+  return value
+    .split(",")
+    .map((part) => collapse(part).split(" ")[0]?.toLowerCase() ?? "")
+    .filter((property) => property.length > 0 && !/^[\d.]/.test(property));
+}
+
+/**
+ * A reduced-motion block that says the wrong thing.
+ *
+ * The default this app owes is *travel suppressed, colour kept*: the trigger
+ * is movement, so looping animation and transform-driven travel go, and
+ * opacity, colour and stroke crossfades stay. Both failures are here — travel
+ * let back in, and the blanket `transition: none` that takes the crossfades
+ * with it — plus the structural one: a second guard elsewhere under `src/`,
+ * which is how either failure arrives without anyone touching the global
+ * block.
+ *
+ * This walks CSS text. It settles what the stylesheets declare under the media
+ * query, not what a browser computes with the query on; that reading is rule
+ * 12's, over a rendering.
+ */
+export function findReducedMotionViolations(
+  file: { path: string; text: string },
+  guardPath: string,
+): Violation[] {
+  const violations: Violation[] = [];
+
+  for (const block of readMotion(file.text).reducedMotion) {
+    if (file.path !== guardPath) {
+      violations.push({
+        line: block.line,
+        detail: `opens its own \`prefers-reduced-motion\` block on \`${block.selector}\`; the default is global (${guardPath}) and a second one either lets travel back in or blankets the crossfades`,
+      });
+    }
+
+    for (const { property, value, line } of block.declarations) {
+      if (property === "transition" || property === "transition-property") {
+        for (const transitioned of transitionedProperties(value)) {
+          if (transitioned === "none") {
+            violations.push({
+              line,
+              detail:
+                "turns transitions off wholesale; a crossfade on opacity, colour or stroke is not travel and is not what reduced motion asks to lose",
+            });
+          } else if (transitioned === "all") {
+            violations.push({
+              line,
+              detail: "`all` under reduced motion lets transform and geometry keep travelling",
+            });
+          } else if (isTravel(transitioned)) {
+            violations.push({
+              line,
+              detail: `keeps \`${transitioned}\` transitioning under reduced motion; the trigger is travel, not colour`,
+            });
+          }
+        }
+      }
+
+      if (property === "transition-duration" && /^0m?s$/i.test(value)) {
+        violations.push({
+          line,
+          detail: "zeroes every transition; the crossfades are meant to survive",
+        });
+      }
+
+      if (property.startsWith("animation") && !SUPPRESSION.test(value)) {
+        violations.push({
+          line,
+          detail: `\`${property}: ${value}\` runs under reduced motion; looping animation is what the guard exists to kill`,
+        });
+      }
+
+      if (isTravel(property) && !/^(none|auto|0|0px|initial|unset|revert)$/i.test(value)) {
+        violations.push({
+          line,
+          detail: `\`${property}: ${value}\` puts travel back under reduced motion`,
+        });
+      }
+    }
+  }
+
+  return violations;
+}
+
 /* ------------------------------------------------------- View prop type --- */
 
 /**

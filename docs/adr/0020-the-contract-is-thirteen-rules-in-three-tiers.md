@@ -153,7 +153,7 @@ mistaken for a ceiling because it is green.
 Rule 9 was the other candidate and was rejected as a residue on purpose — see
 below.
 
-### Rule 9: killing SMIL is what made the ration enumerable, and the tension is recorded rather than fixed
+### Rule 9: killing SMIL is what made the ration enumerable, and the tension was settled rather than fixed
 
 *Motion is rationed* is a claim about a set nobody could previously enumerate.
 SMIL animation lives in markup, ignores `prefers-reduced-motion`, and can be
@@ -173,13 +173,24 @@ on running-vs-stale — and `NodeState` is `resolved | blocked | claimed |
 takeable`, so rule 9's actual subject is not representable on this side of the
 seam at all.
 
-That is registered as a `tension` on the entry: an **open obligation**, whose
-settling belongs to whoever writes the assertion in #43. It is deliberately not
-three other things. It is not a weakening of the rule. It is not a fix applied
-here — changing what the one animation means is a view decision, not a
+That was registered as a `tension` on the entry: an **open obligation**, whose
+settling belonged to whoever wrote the assertion in [#43]. It was deliberately
+not three other things. It is not a weakening of the rule. It is not a fix
+applied here — changing what the one animation means is a view decision, not a
 classification one. And it is not a declared deviation: rule 9 is asserted, an
 asserted rule has no deviation route, and filing this under one would invent an
 appeal the ladder does not grant.
+
+**[#43] settled it, and the settlement moved fields.** The assertion decided
+that `claimed` is the liveness this half of the app can carry — of the four
+`NodeState` values it is the only one in progress rather than a settled fact
+about the graph — and the ration is spent telling that apart from the three
+that are not moving. So the entry no longer carries a `tension`; it carries a
+`settlement`, the same fact with the reasoning that closed it, and
+`docs/contract/matrix.md` files the two under separate headings. An obligation
+that stayed listed as open after the assertion that closed it would be the
+matrix going quietly stale about work that is done — which is the exact failure
+this ADR asks the registry to go red about.
 
 ### The meta-rule
 
@@ -249,12 +260,75 @@ pinned at thirteen so a fourteenth is a deliberate edit.
 **The matrix is the instrument and gates nothing.** `docs/contract/matrix.md`,
 regenerated from the registry and the declarations by `npm run contract:matrix`,
 carries one row per rule — tier, subject, where it is enforced, each view's
-declaration status — plus the worklist and the open obligations that have no
-deviation route. **Rows are rules, never rule × rendered state**: the unit of
+declaration status — plus the worklist, the open obligations that have no
+deviation route, and the ones an assertion has since settled, under a heading of
+their own so *open* and *settled* are never told apart by silence. **Rows are rules, never rule × rendered state**: the unit of
 conformance is the rule, and a grid of cells is an artifact that goes stale in a
 way nothing fails. The only thing any test asserts about it is that it is
 current. A test that read a cell for conformance would make the file the
 contract, and a rule would then be kept by whoever last regenerated it.
+
+### The spec's forty-four encodings, and what the fixture set owes
+
+What [#28] actually says is worth quoting before anything is concluded from it.
+It sizes the fixture space as *the forty-four encodings × two themes ×
+reduced-motion*, and it computes *thirteen rules × forty-four encodings yields
+572*. **Neither product has a view axis in it.** Forty-four multiplies against
+themes and against rules and never against views, which reads as forty-four
+encodings *of the model* — and encodings of one model do not multiply by the
+number of views that render it. An earlier draft of this section closed the
+acceptance criterion by declaring forty-four a four-view total and the branch
+therefore owing a quarter of it. That reading is not in #28, and closing a
+criterion by reinterpreting it is not the same act as meeting it, so it is
+withdrawn.
+
+**What the branch counts instead is what the model can express.** A fixture
+earns its place by holding a value some closed set in `crates/model` can take
+and no other fixture holds, and the set is argued from those sets rather than
+from a target. Every value of `Phase`, `NodeState`, `Frontier`, `Fog`,
+`ChildKind`, `TicketType`, `Cut`, `Since`, `Degraded`, `ReadOutcome` and
+`ClauseKind` — including all sixteen clause kinds, which before this branch
+were a vocabulary only the model crate's unit tests had ever seen — is now
+reached by some checked-in fixture. That is the count's argument, and the
+fixture space the floors run over falls out of it: `FIXTURE_NAMES` × two themes
+× two motion settings, 19 × 2 × 2 = 76 states today. The arithmetic is written
+here and nowhere in code — every enumeration in the suite is derived from
+`FIXTURE_NAMES`, `VIEWS` and `renderBoundRules()`, so a hardcoded 44, 68 or 76
+would be the parallel list that goes one fixture stale.
+
+**Two gates keep the argument from rotting, and a third is owed.** Every
+`NodeState` value must appear on a node of some fixture, and every `Phase` value
+on the map of some fixture; both enumerate from the one `Record<…, string>` in
+`src/` that a new variant cannot be added without, so the commit that names a
+sixth rung is red until the fixture reaching it lands. The phase gate is here
+because `specReady` had no fixture at all while the set looked complete — rule 5
+asserts the spelled figures reach the screen, and the word `PHASE_NAMES` keeps
+for that rung reached no screen to be asserted about. The third gate, unwritten,
+would do the same for `ClauseKind`: the sixteen words are all exercised today by
+`ledger-sweep`, but nothing goes red if a seventeenth arrives with no entry
+carrying it. It is not written because the enumeration a gate needs does not
+exist yet in `src/` — `chrome/ledger.ts` holds the words, and turning it into an
+exhaustive witness is a change to the file that owns the change vocabulary
+rather than to this suite.
+
+**Three states remain out of reach, and the reason is the boot mode rather than
+the work.** `Occasion::Tick` has no fixture because an ordinary tick is
+reachable by leaving the app open — it is not a state a browser cannot get into.
+`Source::Github` cannot be reached: a `dev:web` fixture is derived with
+`Source::Fixture`, and a file claiming to be a live GitHub read would be exactly
+the fiction the generated fixtures exist to prevent. And a `RateLimited` reset
+that is `None` is a fixture nobody has needed; it is a variant of a variant, not
+a rung of a ladder.
+
+**What is not covered is the other three views, and that is a scope fact rather
+than a gap in this one.** Every render-bound rule has an entry in
+`tests/conformance/support/rules.ts`, the fan-out gate goes red on a rule that
+has none, and rule 11's `check: null` is a decision with its reason written down
+rather than an omission. The Plate [#63], Deep Field [#64] and the map [#65]
+each land their own encodings: registering a view in `VIEWS` turns the existing
+fan-out onto it and demands a declaration file for every judged rule, with no
+new test code. So the remainder is tracked by the view tickets, not by a count
+kept in a doc.
 
 ## Alternatives rejected
 
@@ -305,10 +379,26 @@ pointer nobody re-reads is a claim about the day it was written, and the day rul
 8's mechanism learns Deep Field's exception is exactly the day rule 8's entry
 needs re-reading — so that line goes red rather than staying quietly true.
 
-**Nine rules are registered with no check that runs.** Rules 2, 3, 4, 5, 6, 10,
-11, 12 and 13 have no automated check in this repo today; the registry says what
-the check *is*, and #43 makes it run. That is the honest state and it is now
-visible in one file rather than absent from thirteen sentences.
+**Eight of the nine render-bound rules have a check that runs, and the ninth says
+why it never will.** `tests/conformance/support/rules.ts` holds one entry per
+render-bound rule: rules 2, 3, 4, 5, 6, 10, 12 and 13 assert against a rendering,
+and rule 11 is registered with `check: null` and the reason written out, because
+the only checkable form of *reserved space* is a clearance figure and the figure
+belongs to one view's layout. A gate in `tests/conformance/rules.spec.ts` fails
+if a render-bound rule has no entry at all, and refuses `check: null` to any rule
+the registry gave an `assertedFloor` — an entry that asserts nothing is
+legitimate, an entry that is *absent* never is. How a rule reaches a view is
+declared once per view in `tests/conformance/support/views.ts` rather than inside
+the checks, so a second view is a compile error until somebody says how the
+contract reads in it.
+
+**A check that cannot apply skips on a precondition read off the fixture's own
+snapshot.** Much of the fixture space has no cut ticket, no claimed node, or no
+map open at all — and a check that found nothing and said nothing would be green
+for the same reason a broken one would be. The precondition is never a list of
+fixture names, which drifts the day a fixture is added; it is derived from the
+`Snapshot` the rendering was built from, and it is annotated onto the report, so
+*not applicable here* is on the record rather than inferred from silence.
 
 **Two rules can move tier without their text changing**, and that is the design
 working. Widen `ViewProps` and rule 7 falls from structural to asserted. Land
@@ -316,5 +406,10 @@ working. Widen `ViewProps` and rule 7 falls from structural to asserted. Land
 are code changes that go red first.
 
 [#10]: https://github.com/javrasya/perseverance/issues/10
+[#28]: https://github.com/javrasya/perseverance/issues/28
+[#34]: https://github.com/javrasya/perseverance/issues/34
+[#63]: https://github.com/javrasya/perseverance/issues/63
+[#64]: https://github.com/javrasya/perseverance/issues/64
+[#65]: https://github.com/javrasya/perseverance/issues/65
 [#23]: https://github.com/javrasya/perseverance/issues/23
 [#43]: https://github.com/javrasya/perseverance/issues/43

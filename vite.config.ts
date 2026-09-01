@@ -1,6 +1,8 @@
 import react from "@vitejs/plugin-react";
 import browserslistToEsbuild from "browserslist-to-esbuild";
-import { defineConfig } from "vite";
+/* `vitest/config` rather than `vite`, so the `test` block below type-checks;
+   the Vite half of the config is unchanged by it. */
+import { defineConfig } from "vitest/config";
 
 /**
  * macOS is the CSS floor, not Windows.
@@ -25,6 +27,20 @@ export default defineConfig({
     watch: {
       ignored: ["**/target/**", "**/crates/**"],
     },
+  },
+
+  /*
+   * The conformance suite is Playwright's, not vitest's.
+   *
+   * vitest's default include swallows every `*.spec.ts` in the tree, so the
+   * browser specs under `tests/conformance/` would be collected by `npm test`
+   * and fail on fixtures vitest does not provide. `npm test` and `npm run
+   * verify` have to stay runnable with no browser installed — they are what a
+   * branch's greenness is judged by — so the fence is explicit here and
+   * mirrored by `testDir` in `playwright.config.ts`.
+   */
+  test: {
+    exclude: ["**/node_modules/**", "**/dist/**", "tests/conformance/**"],
   },
 
   build: {

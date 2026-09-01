@@ -57,6 +57,16 @@ An asserted rule has no deviation route, so a fact about the tree that its
 assertion has yet to settle is registered on the rule instead. It appears
 here because leaving it off this page would make the page read as complete.
 
+Nothing is open today.
+
+## Settled, where an obligation was open
+
+The same facts, once the assertion that had to settle them was written.
+They stay on the page rather than dissolving into a commit message: a
+reader asking why a check is drawn where it is should find the answer here
+rather than reconstruct it. An entry sits under exactly one of these two
+headings, so *settled* is never read off silence in the section above.
+
 ### Rule 9, Motion is rationed (asserted)
 
-Today `src/` holds exactly one animation — `ping`, on `.markClaimed::after` in `src/views/route/Route.module.css` — and it rides on *someone holds this ticket*, not on running-vs-stale. `NodeState` is `resolved | blocked | claimed | takeable`, so the rule's actual subject is not representable on this side of the seam at all. The enumeration is registerable now; what the one enumerated animation is allowed to mean is an open obligation for whoever writes the assertion (#43). It is not a deviation — an asserted rule has no deviation route.
+The one animation in `src/` — `ping`, on `.markClaimed::after` in `src/views/route/Route.module.css` — rides on *someone holds this ticket*, and `NodeState` is `resolved | blocked | claimed | takeable`, so running-vs-stale is not representable on this side of the seam at all. Asserted has no deviation route, so #43 settled it rather than filing it: `claimed` is the liveness this half of the app can carry — of the four states it is the only one in progress rather than a settled fact about the graph — and the ration is spent telling that apart from the three that are not moving. The licensed list is one entry, and growing it costs an argument, not a line.

@@ -18,16 +18,26 @@
  * — the same rule `chrome/stamp.ts` holds the staleness vocabulary to.
  */
 
-import type { Frontier, Model } from "./model.generated";
+import type { Frontier, Model, Phase } from "./model.generated";
 
-/** What each rung of the ladder is called on screen. */
+/**
+ * What each rung of the ladder is called on screen.
+ *
+ * `satisfies Record<Phase, string>` and not a bare `as const`, for the reason
+ * `STATE_NAMES` carries the same annotation: the union is erased before
+ * runtime, so this object is the only exhaustive witness to the ladder that
+ * survives into a test. A sixth rung cannot be added in Rust without this
+ * failing to compile, and the fixture gate that crosses these keys with the
+ * checked-in snapshots is then red until the fixture reaching that rung lands.
+ * The `as const` stays in front of it so the values keep their literal types.
+ */
 export const PHASE_NAMES = {
   done: "done",
   unstarted: "unstarted",
   wayfinding: "wayfinding",
   specced: "specced",
   specReady: "spec-ready",
-} as const;
+} as const satisfies Record<Phase, string>;
 
 export const NO_MAP_OPEN = "no map open";
 

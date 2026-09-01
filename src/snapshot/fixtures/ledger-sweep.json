@@ -1,0 +1,336 @@
+{
+  "schemaVersion": 4,
+  "model": {
+    "map": {
+      "number": 70,
+      "title": "Sweeping the ledger",
+      "closed": true,
+      "phase": "done",
+      "counts": {
+        "tickets": 8,
+        "open": 7,
+        "specs": 1
+      },
+      "nodes": [
+        {
+          "number": 71,
+          "title": "Read the socket",
+          "url": "https://github.com/o/r/issues/71",
+          "kind": {
+            "kind": "ticket",
+            "type": "research"
+          },
+          "state": "resolved",
+          "waitsOn": [],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
+        },
+        {
+          "number": 72,
+          "title": "Split the terminal",
+          "url": "https://github.com/o/r/issues/72",
+          "kind": {
+            "kind": "ticket",
+            "type": "task"
+          },
+          "state": "blocked",
+          "waitsOn": [
+            79
+          ],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
+        },
+        {
+          "number": 73,
+          "title": "Rank the frontier",
+          "url": "https://github.com/o/r/issues/73",
+          "kind": {
+            "kind": "ticket",
+            "type": "task"
+          },
+          "state": "claimed",
+          "waitsOn": [],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
+        },
+        {
+          "number": 74,
+          "title": "Hold the claim",
+          "url": "https://github.com/o/r/issues/74",
+          "kind": {
+            "kind": "ticket",
+            "type": "task"
+          },
+          "state": "takeable",
+          "waitsOn": [],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
+        },
+        {
+          "number": 75,
+          "title": "Retire the poller",
+          "url": "https://github.com/o/r/issues/75",
+          "kind": {
+            "kind": "ticket",
+            "type": "task"
+          },
+          "state": "takeable",
+          "waitsOn": [],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
+        },
+        {
+          "number": 76,
+          "title": "Wait on the socket",
+          "url": "https://github.com/o/r/issues/76",
+          "kind": {
+            "kind": "ticket",
+            "type": "task"
+          },
+          "state": "takeable",
+          "waitsOn": [
+            71
+          ],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
+        },
+        {
+          "number": 77,
+          "title": "Chart the fog",
+          "url": "https://github.com/o/r/issues/77",
+          "kind": {
+            "kind": "ticket",
+            "type": "task"
+          },
+          "state": "resolved",
+          "waitsOn": [],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "fromScope",
+            "reason": "#77 - the fog answered the question before anybody charted it"
+          }
+        },
+        {
+          "number": 79,
+          "title": "Blocks the split",
+          "url": "https://github.com/o/r/issues/79",
+          "kind": {
+            "kind": "ticket",
+            "type": "task"
+          },
+          "state": "takeable",
+          "waitsOn": [],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
+        },
+        {
+          "number": 80,
+          "title": "Spec: swept",
+          "url": "https://github.com/o/r/issues/80",
+          "kind": {
+            "kind": "spec"
+          },
+          "state": "takeable",
+          "waitsOn": [],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
+        },
+        {
+          "number": 81,
+          "title": "Nobody labelled this",
+          "url": "https://github.com/o/r/issues/81",
+          "kind": {
+            "kind": "unclassified"
+          },
+          "state": "takeable",
+          "waitsOn": [],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
+        },
+        {
+          "number": 82,
+          "title": "Renamed by somebody, later",
+          "url": "https://github.com/o/r/issues/82",
+          "kind": {
+            "kind": "ticket",
+            "type": "task"
+          },
+          "state": "takeable",
+          "waitsOn": [],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
+        }
+      ],
+      "frontier": {
+        "frontier": "designated",
+        "number": 74
+      },
+      "fog": {
+        "fog": "surveyed",
+        "region": {
+          "count": 1,
+          "text": "- Whether the ledger survives a restart"
+        }
+      }
+    }
+  },
+  "provenance": {
+    "source": "fixture",
+    "outcome": {
+      "kind": "ok"
+    },
+    "fetchedAt": "2026-08-05T08:00:00Z"
+  },
+  "ledger": {
+    "since": "watching",
+    "entries": [
+      {
+        "seq": 1,
+        "occasion": "whileYouWereAway",
+        "clauses": [
+          {
+            "kind": "created",
+            "numbers": [
+              79
+            ],
+            "count": 1,
+            "announce": true
+          },
+          {
+            "kind": "removed",
+            "numbers": [
+              78
+            ],
+            "count": 1,
+            "announce": true
+          },
+          {
+            "kind": "resolved",
+            "numbers": [
+              71
+            ],
+            "count": 1,
+            "announce": true
+          },
+          {
+            "kind": "cutFromScope",
+            "numbers": [
+              77
+            ],
+            "count": 1,
+            "announce": true
+          },
+          {
+            "kind": "reopened",
+            "numbers": [
+              75
+            ],
+            "count": 1,
+            "announce": true
+          },
+          {
+            "kind": "unclassified",
+            "numbers": [
+              81
+            ],
+            "count": 1,
+            "announce": true
+          },
+          {
+            "kind": "specAppeared",
+            "numbers": [
+              80
+            ],
+            "count": 1,
+            "announce": true
+          },
+          {
+            "kind": "unblocked",
+            "numbers": [
+              76
+            ],
+            "count": 1,
+            "announce": true
+          },
+          {
+            "kind": "blocked",
+            "numbers": [
+              72
+            ],
+            "count": 1,
+            "announce": true
+          },
+          {
+            "kind": "claimed",
+            "numbers": [
+              73
+            ],
+            "count": 1,
+            "announce": true
+          },
+          {
+            "kind": "released",
+            "numbers": [
+              74
+            ],
+            "count": 1,
+            "announce": true
+          },
+          {
+            "kind": "frontierMoved",
+            "numbers": [],
+            "count": 1,
+            "announce": true
+          },
+          {
+            "kind": "fogChanged",
+            "numbers": [],
+            "count": 1,
+            "announce": true
+          },
+          {
+            "kind": "phaseChanged",
+            "numbers": [],
+            "count": 1,
+            "announce": true
+          },
+          {
+            "kind": "mapClosed",
+            "numbers": [],
+            "count": 1,
+            "announce": true
+          },
+          {
+            "kind": "unnamed",
+            "numbers": [
+              72,
+              82
+            ],
+            "count": 2,
+            "announce": false
+          }
+        ]
+      }
+    ]
+  }
+}

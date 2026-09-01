@@ -1,0 +1,84 @@
+{
+  "schemaVersion": 4,
+  "model": {
+    "map": {
+      "number": 80,
+      "title": "Ready to compose",
+      "closed": false,
+      "phase": "specReady",
+      "counts": {
+        "tickets": 3,
+        "open": 0,
+        "specs": 0
+      },
+      "nodes": [
+        {
+          "number": 81,
+          "title": "What the terminal already knows",
+          "url": "https://github.com/o/r/issues/81",
+          "kind": {
+            "kind": "ticket",
+            "type": "research"
+          },
+          "state": "resolved",
+          "waitsOn": [],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
+        },
+        {
+          "number": 82,
+          "title": "Does the shape hold",
+          "url": "https://github.com/o/r/issues/82",
+          "kind": {
+            "kind": "ticket",
+            "type": "prototype"
+          },
+          "state": "resolved",
+          "waitsOn": [
+            81
+          ],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
+        },
+        {
+          "number": 83,
+          "title": "Grill the shape that held",
+          "url": "https://github.com/o/r/issues/83",
+          "kind": {
+            "kind": "ticket",
+            "type": "grilling"
+          },
+          "state": "resolved",
+          "waitsOn": [
+            82
+          ],
+          "boundElsewhere": false,
+          "cut": {
+            "cut": "inScope"
+          }
+        }
+      ],
+      "frontier": {
+        "frontier": "nothingToStart"
+      },
+      "fog": {
+        "fog": "unsurveyed"
+      }
+    }
+  },
+  "provenance": {
+    "source": "fixture",
+    "outcome": {
+      "kind": "ok"
+    },
+    "fetchedAt": "2026-08-05T08:00:00Z"
+  },
+  "ledger": {
+    "since": "firstOpen",
+    "entries": []
+  }
+}

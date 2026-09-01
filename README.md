@@ -213,6 +213,39 @@ silently and breaks the still-state rule in the one state that matters. CSS
 animation and transitions only. The prohibition is stack-level precisely
 because it is invisible in review.
 
+**Motion is rationed, and reduced motion takes travel rather than colour** —
+`tests/motion-ration.test.ts`. Because SMIL is banned, every animation in this
+app is CSS text, so the ration is a set that can be *collected*: every
+`animation` declaration and every keyframes block under `src/`, held against a
+list that names, per selector and per keyframes name, the liveness claim the
+motion is spent on. Rule 9 rations motion to running-vs-stale and this side of
+the seam has no running bit, so the list settles what the one animation is
+allowed to mean: `claimed` is the only node state that is in progress rather
+than a settled fact about the graph, and that is the liveness this half of the
+app can carry. The list is one entry — the claimed mark's halo — and
+growing it costs an argument in the test rather than a line in an allow-list: a
+second animation anywhere, or that one moving to a selector carrying no claim,
+is red. *Anywhere* is checked rather than assumed: a companion guard in the same
+file walks the wider net `tests/no-smil.test.ts` uses — every `.ts`, `.tsx`,
+`.svg` and `.html` under `src/` plus the root `index.html` — and goes red on an
+`@keyframes`, an `animation` declaration, an `animation` assigned onto a style
+attribute from script, or a call into the Web Animations API (an `animate` on an
+element, an `Animation` constructed by hand, a handle taken from
+`getAnimations`) written anywhere but a rationed stylesheet, so an inline style,
+a `<style>` block in an `.svg`, a keyframes block in `index.html` or motion
+started from JavaScript with no CSS text anywhere cannot spend motion the ration
+never sees. The fix for
+that red is to move the motion into a stylesheet and argue for its licence
+there. The same walk reads the `prefers-reduced-motion` guard, which is global
+and is the only one allowed to exist: what it kills is looping animation and
+travel — transform, translate, rotate, scale, any geometric length — and what
+it keeps is opacity, colour and stroke, because the trigger is movement and a
+crossfade is not movement. A blanket `transition: none` is the wrong default and
+fails the same check. Rule 12 then reads the *rendering* against the same walk
+([the conformance suite](#the-conformance-suite)): whatever the stylesheets
+animate owes a still form, so an animation added with none turns rule 12 red in
+the browser suite instead of going uncovered.
+
 **Views consume semantic tokens only** — `tests/token-tiers.test.ts`. Three
 tiers: `--p-*` primitives defined in one file, `--s-*` semantics that name a
 job rather than a value, `--c-*` component tokens local to a module. Only the
@@ -261,9 +294,11 @@ content is not**: a missing or stubbed section is red, and no test grades the
 answer, because grading it would be the assertion the tier already said cannot
 exist. Checkboxes are banned in a declaration and the parser goes red on one — a
 box gets ticked, and by the third view a ticked box is a rubber stamp. Three
-gates key the check to what changed: adding a fixture (the fixture space is
-derived from `FIXTURE_NAMES`, and no second enumeration of fixture names may
-exist), adding a view (driven off `VIEWS`, so a new view is red until it has
+gates key the check to what changed: adding a value the model can take (each of
+`NodeState` and `Phase` is crossed with the checked-in fixtures, so a state or a
+rung no fixture reaches is red until the fixture reaching it lands — and the
+fixture is cheap because the fixture space is derived from `FIXTURE_NAMES`, with
+no second enumeration of fixture names allowed to exist), adding a view (driven off `VIEWS`, so a new view is red until it has
 declarations), and adding a rule (driven off the registry, so a rule landing in
 *judged* retro-fits a section onto every view). A declared deviation is a
 paragraph opening `Deviation:` — the only structure the format has, stated in
@@ -288,6 +323,60 @@ ships an evergreen WebView; macOS ships one pinned to the OS version. macOS 13
 / Safari 16.4 is declared once in `package.json`'s `browserslist` and read from
 there by both stylelint and the Vite build target, so a violation is a build
 error rather than someone else's rendering surprise.
+
+**The rendered rules are settled in a real browser, and the required one is
+WebKit** — `npm run test:conformance`, `playwright.config.ts`,
+`tests/conformance/`. A theme is a `prefers-color-scheme` reassignment and
+motion is a `prefers-reduced-motion` guard; jsdom computes neither, so a rule
+about what is on screen cannot be settled by `npm test`. The suite drives an
+engine against the `dev:web` boot — no Rust, no PTY, no GitHub, only the
+checked-in fixtures — and `tests/conformance/support/drive.ts` turns one point
+of the fixture space (fixtures × two themes × reduced motion, crossed once in
+`tests/support/contract.ts`) into a loaded page. **WebKit is required and
+Chromium is opt-in**: Windows ships an evergreen WebView, macOS ships one
+pinned to the OS version and exposes no WebDriver, so this is the only
+automated thing that will ever exercise the tighter floor in a browser, and a
+Chromium-only run would be systematically blind to the platform most likely to
+break first. CI installs and runs WebKit and depends on it; Chromium
+(`npm run test:conformance:chromium`) is the second reading a developer can
+ask for, and is never what a build depends on. The suite needs a downloaded
+browser, so it is kept out of `npm test` and `npm run verify` — those stay
+runnable on a bare checkout.
+
+**The suite writes its own assertions** — `tests/conformance/rules.spec.ts`.
+Nothing in it enumerates anything: the rules are `renderBoundRules()`, the views
+are `VIEWS`, the fixtures are `FIXTURE_NAMES` and the crossing is `fixtureSpace`,
+so adding a fixture — or a view — produces assertions across every render-bound
+rule with no test code written anywhere. One page load per view × state, and
+every applicable rule reads that one rendering; a rule that loaded its own page
+would turn seventy tests into six hundred navigations and a suite nobody runs.
+`tests/conformance/support/rules.ts` holds one entry per render-bound rule and a
+gate goes red if one is missing: an entry may legitimately assert nothing, but
+only for a wholly judged rule — one whose tier says a machine settles nothing
+and which declares no asserted floor — and it has to say so in prose, because a
+rule the suite quietly stopped covering is worse than no suite. A check that cannot apply to a
+point of the space (no map is open; this fixture has no cut ticket) skips on a
+precondition read off the fixture's own snapshot and annotates the report with
+it. `tests/conformance/support/views.ts` is where a view declares how the
+contract reads in it — its root, whether a given fixture puts it on screen, its
+rows, its designated encoding — so the checks name no view's selectors.
+
+**The skips are counted, not just annotated** —
+`tests/conformance-coverage.test.ts`. An entry existing is not an entry firing.
+A check that skips at *every* point of the space is green exactly the way one
+that holds everywhere is green, with the difference living only in a report
+nobody opens on a passing run — so deleting the two fixtures that carry a cut
+ticket would leave rule 6 asserting nothing anywhere and the suite still all
+green. Each entry's precondition is therefore separable from its assertion
+(`RuleEntry.applies`) and answerable without a browser: it reads the fixture's
+own `Snapshot`, the point's theme and motion, and what the view declares about
+mounting. This gate walks `VIEWS` × `fixtureSpace(FIXTURE_NAMES)` with those
+preconditions and goes red on any entry with a check and nowhere left to apply
+— today rule 6 applies at 8 of 76 points and rule 12 at 12, which is a margin
+worth knowing has not gone to zero. It is a vitest test rather than a
+browser one precisely so it runs inside `npm run verify` on a bare checkout, and
+like the other pure checks it is proved against known-bad input — a precondition
+met nowhere, and one met everywhere — before it is run over the table.
 
 Both stack-level checks test themselves against known-bad input as well as
 against the tree. A check nobody has ever seen fail is indistinguishable from a

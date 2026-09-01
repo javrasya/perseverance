@@ -1,0 +1,111 @@
+{
+  "_why": "One rung below `spec-composed.json`: every ticket closed and **no spec child at all**, so the map has arrived at the point where composing the spec is the next act. It is the only recorded answer that falls all the way through `Phase::of` — not closed, tickets charted, none open, no spec — and so the only one that reaches `Phase::SpecReady`. Dropping the spec child from a composed map is the whole of what separates the two, which is what makes *ready to compose* and *composed* comparable on screen rather than only in the enum.",
+  "data": {
+    "repository": {
+      "nameWithOwner": "o/r",
+      "maps": {
+        "pageInfo": { "hasNextPage": false },
+        "nodes": [
+          {
+            "number": 80,
+            "title": "Ready to compose",
+            "state": "OPEN",
+            "url": "https://github.com/o/r/issues/80",
+            "updatedAt": "2026-08-05T09:12:44Z"
+          }
+        ]
+      },
+      "issue": {
+        "number": 80,
+        "title": "Ready to compose",
+        "state": "OPEN",
+        "url": "https://github.com/o/r/issues/80",
+        "updatedAt": "2026-08-05T09:12:44Z",
+        "labels": { "nodes": [{ "name": "wayfinder:map" }] },
+        "subIssues": {
+          "pageInfo": { "hasNextPage": false },
+          "nodes": [
+            {
+              "number": 81,
+              "title": "What the terminal already knows",
+              "state": "CLOSED",
+              "stateReason": "COMPLETED",
+              "url": "https://github.com/o/r/issues/81",
+              "updatedAt": "2026-08-01T10:00:00Z",
+              "labels": { "nodes": [{ "name": "wayfinder:research", "color": "0e8a16" }] },
+              "assignees": { "nodes": [{ "login": "javrasya" }] },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 0,
+                "blocking": 1,
+                "totalBlocking": 1
+              },
+              "blockedBy": { "pageInfo": { "hasNextPage": false }, "nodes": [] }
+            },
+            {
+              "number": 82,
+              "title": "Does the shape hold",
+              "state": "CLOSED",
+              "stateReason": "COMPLETED",
+              "url": "https://github.com/o/r/issues/82",
+              "updatedAt": "2026-08-02T10:00:00Z",
+              "labels": { "nodes": [{ "name": "wayfinder:prototype", "color": "fbca04" }] },
+              "assignees": { "nodes": [{ "login": "javrasya" }] },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 1,
+                "blocking": 0,
+                "totalBlocking": 0
+              },
+              "blockedBy": {
+                "pageInfo": { "hasNextPage": false },
+                "nodes": [
+                  {
+                    "number": 81,
+                    "title": "What the terminal already knows",
+                    "state": "CLOSED",
+                    "repository": { "nameWithOwner": "o/r" }
+                  }
+                ]
+              }
+            },
+            {
+              "number": 83,
+              "title": "Grill the shape that held",
+              "state": "CLOSED",
+              "stateReason": "COMPLETED",
+              "url": "https://github.com/o/r/issues/83",
+              "updatedAt": "2026-08-03T10:00:00Z",
+              "labels": { "nodes": [{ "name": "wayfinder:grilling", "color": "d93f0b" }] },
+              "assignees": { "nodes": [] },
+              "issueDependenciesSummary": {
+                "blockedBy": 0,
+                "totalBlockedBy": 1,
+                "blocking": 0,
+                "totalBlocking": 0
+              },
+              "blockedBy": {
+                "pageInfo": { "hasNextPage": false },
+                "nodes": [
+                  {
+                    "number": 82,
+                    "title": "Does the shape hold",
+                    "state": "CLOSED",
+                    "repository": { "nameWithOwner": "o/r" }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    "rateLimit": {
+      "cost": 1,
+      "nodeCount": 42,
+      "limit": 5000,
+      "remaining": 4901,
+      "resetAt": "2026-08-05T11:02:14Z"
+    }
+  }
+}
