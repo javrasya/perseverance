@@ -5,7 +5,7 @@
 //! called twice with the same [`Cadence`] answers the same, which is what lets
 //! every rung, every poke and every tie between the three floors be exercised
 //! from a table on a runner that has never signed in to anything. Elapsed time
-//! enters as an *argument*, exactly as [`crate::interpret_read`] takes the clock
+//! enters as an *argument*, exactly as `interpret_read` takes the clock
 //! its impure caller read. No clock type is so much as named in this file, and
 //! `poller.rs` has a test that reads these bytes and says so.
 //!
