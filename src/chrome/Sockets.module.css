@@ -121,11 +121,25 @@
 /* Which agent this press starts. A choice at the crossing, not a setting. */
 .adapter {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   gap: var(--s-space-hair);
   margin: 0;
   color: var(--s-ink-faint);
   font-family: var(--s-font-mono);
+  font-size: var(--s-text-micro);
+}
+
+/* The printed name, when the agent is not a choice. */
+.adapterName {
+  margin: 0;
+}
+
+/* And why it is not one, under it. Ink, not a tooltip. */
+.fixed {
+  margin: 0;
+  color: var(--s-ink-faint);
+  font-family: var(--s-font-ui);
   font-size: var(--s-text-micro);
 }
 

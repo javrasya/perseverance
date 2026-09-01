@@ -344,6 +344,14 @@ function Row({
     <li
       className={styles.node}
       data-node={node.number}
+      /* The keyable hook, and the reason it is not `data-node` above: that one
+         means *this is about node N*, which chrome elsewhere says too — some of
+         it on controls of its own, with activation of their own — while this
+         one means *a row of the route, openable from the keyboard*.
+         `src/keys/router.ts` resolves the focused row by this attribute alone,
+         so the chord it claims cannot land on something that merely names a
+         node. */
+      data-node-row={node.number}
       data-state={node.state}
       data-kind={node.kind.kind}
       data-mark={row.mark}
@@ -379,14 +387,17 @@ function Row({
       /* The same word `FolderRow` uses for the row you picked, so the fill is
          not the only place the choice is said. */
       aria-current={selected ? "true" : undefined}
+      /*
+       * Reachable by keyboard, and bound by nobody here. `Enter` and `Space`
+       * are a row of the one key table in `src/keys/router.ts`, which resolves
+       * the row from `data-node-row` above and toggles the same selection this
+       * click does — including `preventDefault`, so `Space` does not scroll the
+       * pane out from under what is being picked. A second handler here would
+       * be a key this app binds outside the router, which
+       * `tests/no-loose-keys.test.ts` refuses.
+       */
       tabIndex={0}
       onClick={choose}
-      onKeyDown={(event) => {
-        if (event.key !== "Enter" && event.key !== " ") return;
-        // Space scrolls the pane otherwise, which moves the thing being picked.
-        event.preventDefault();
-        choose();
-      }}
     >
       <span className={styles.glyph} aria-hidden="true">
         {/* The cut's own shape, composed onto the one the mark already chose

@@ -2,6 +2,7 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
+import { install } from "../src/keys/router";
 import { FIXTURES, FIXTURE_NAMES } from "../src/snapshot/fixtures";
 import type { Map, Model } from "../src/snapshot/model.generated";
 import { NO_MAP_OPEN } from "../src/snapshot/readout";
@@ -52,6 +53,8 @@ async function paint(
   }
   const { root, host } = mounted;
 
+  routeKeys(selected, onSelect);
+
   await act(async () => {
     root.render(<Route model={model} selected={selected} onSelect={onSelect} />);
   });
@@ -59,7 +62,32 @@ async function paint(
   return host;
 }
 
+/*
+ * The row's keys, where they live now.
+ *
+ * `Enter` and `Space` used to be a handler on the row; #53 made them a row of
+ * the one chord→action table, so the view binds nothing and a test that
+ * synthesises them has to stand up the same router the app installs. What is
+ * spelled below is the app's own dispatch for `open` and nothing more — the
+ * toggle, and the `preventDefault` that keeps `Space` from scrolling the pane,
+ * are the router's.
+ */
+let routing: (() => void) | null = null;
+
+function routeKeys(selected: number | null, onSelect: (number: number | null) => void): void {
+  routing?.();
+  routing = install({
+    press: (id, state) => {
+      if (id !== "open" || state.focusedNode === null) return;
+      onSelect(state.focusedNode === selected ? null : state.focusedNode);
+    },
+    release: () => {},
+  });
+}
+
 function teardown() {
+  routing?.();
+  routing = null;
   if (mounted === null) return;
   const { root, host } = mounted;
   act(() => root.unmount());

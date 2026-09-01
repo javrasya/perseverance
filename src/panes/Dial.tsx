@@ -1,14 +1,11 @@
-import { useRef, type KeyboardEvent, type PointerEvent, type RefObject } from "react";
+import { useRef, type PointerEvent, type RefObject } from "react";
 import {
   DETENTS,
-  STEP,
   clamp,
   detentAt,
   fractionOf,
   namesFit,
-  nextDetent,
   snap,
-  type Detent,
   type Move,
 } from "./dial";
 import styles from "./Dial.module.css";
@@ -96,38 +93,6 @@ export function Dial({
     onMove(clamp((event.clientX - box.left) / box.width), "drag");
   };
 
-  // A key is a whole gesture: one press, one place, one thing to remember.
-  const go = (detent: Detent) => onMove(fractionOf(detent), "settled");
-
-  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    // Arrows travel freely and detents are reachable without a pointer, which
-    // is the whole of *keyboard operation*: a dial only a mouse can put on a
-    // detent is a dial half the operators cannot use.
-    switch (event.key) {
-      case "ArrowRight":
-        onMove(clamp(position + STEP), "settled");
-        break;
-      case "ArrowLeft":
-        onMove(clamp(position - STEP), "settled");
-        break;
-      case "PageUp":
-        go(nextDetent(position, 1));
-        break;
-      case "PageDown":
-        go(nextDetent(position, -1));
-        break;
-      case "Home":
-        go("terminal");
-        break;
-      case "End":
-        go("map");
-        break;
-      default:
-        return;
-    }
-    event.preventDefault();
-  };
-
   return (
     <div
       ref={elementRef}
@@ -138,7 +103,17 @@ export function Dial({
       aria-label={`Dial: how much of the window the map has — ${said}`}
       aria-orientation="vertical"
       data-detent={at ?? "free"}
-      onKeyDown={onKeyDown}
+      /*
+       * The hook the one key router resolves this widget by.
+       *
+       * Arrows travel freely and detents are reachable without a pointer —
+       * *keyboard operation*, unchanged; a dial only a mouse can put on a detent
+       * is a dial half the operators cannot use. What moved is where those keys
+       * are declared: they are rows of the single chord→action table in
+       * `src/keys/router.ts`, live only while this element has the key, because
+       * nothing outside that table binds a key in this app.
+       */
+      data-dial
       onPointerDown={(event) => {
         held.current = true;
         event.currentTarget.setPointerCapture?.(event.pointerId);

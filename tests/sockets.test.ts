@@ -13,8 +13,10 @@ import {
   NOTHING_SELECTED,
   NOT_A_CLAIM,
   NOT_A_TICKET,
+  ONLY_ADAPTER,
   RESUME_IS_OUT,
   RESUME_LABEL,
+  RUN_IS_UP,
   STILL_READING,
   START_IS_OUT,
   START_LABEL,
@@ -23,8 +25,10 @@ import {
   alreadyComposing,
   liveRunOn,
   offerable,
+  picking,
   pressable,
   railAt,
+  runningIn,
   sameFrontier,
   type Crossing,
   type Press,
@@ -643,5 +647,48 @@ describe("Compose Spec", () => {
       expect(rail.sockets[0]?.label).not.toBe(COMPOSE_LABEL);
       expect(rail.start?.kind).not.toBe("compose");
     }
+  });
+});
+
+describe("which agent, and when it is no longer a choice", () => {
+  const two = ["claude", "codex"];
+
+  it("offers a control while nothing is going", () => {
+    expect(picking(two, null, false)).toEqual({ mode: "choice", chosen: "claude", fixed: null });
+    expect(picking(two, "codex", false).chosen).toBe("codex");
+  });
+
+  it("prints the one adapter a folder resolved, and says why it is not a choice", () => {
+    const one = picking(["claude"], null, false);
+    expect(one.mode).toBe("printed");
+    expect(one.chosen).toBe("claude");
+    expect(one.fixed).toBe(ONLY_ADAPTER);
+  });
+
+  it("prints it unchangeable during a run, with the reason", () => {
+    /* The acceptance criterion, in the derivation: an agent cannot be swapped
+       under a run that is already talking, and the screen says so rather than
+       silently ignoring the change. */
+    const running = picking(two, "codex", true);
+    expect(running.mode).toBe("printed");
+    expect(running.chosen).toBe("codex");
+    expect(running.fixed).toBe(RUN_IS_UP);
+  });
+
+  it("is nothing at all when the folder resolved no agent", () => {
+    // The recessed Start Working already prints `NO_ADAPTER`; a second copy of
+    // that sentence under an empty control is the rail saying it twice.
+    expect(picking([], null, false)).toEqual({ mode: "none", chosen: null, fixed: null });
+    expect(picking([], null, true).fixed).toBeNull();
+  });
+
+  it("counts a run as going only in the folder it is going in", () => {
+    const here = staked(3, 41, false);
+    const elsewhere = staked(4, 41, false, "/work/other");
+    expect(runningIn([here], [3], "/work/repo")).toBe(true);
+    expect(runningIn([elsewhere], [4], "/work/repo")).toBe(false);
+    // Over is over: the ids this window still shows as going are the reading.
+    expect(runningIn([here], [], "/work/repo")).toBe(false);
+    expect(runningIn([here], [3], null)).toBe(false);
   });
 });

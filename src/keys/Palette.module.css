@@ -1,0 +1,155 @@
+/*
+ * The command palette.
+ *
+ * It stands in front of the terminal, which is the one thing its look has to
+ * get right: the pane underneath is still there and still bound, so the panel
+ * is opaque where it prints and everything around it is left clear — a screen
+ * that blacked the terminal out would hide the run whose keys this is a list of.
+ *
+ * Nothing here moves. The motion budget for this stack is one animation and it
+ * is spent (`tests/motion-ration.test.ts`); a surface that faded in would also
+ * be a surface an operator is waiting on before they can read it.
+ */
+
+.scrim {
+  --c-palette-line: var(--s-line-quiet);
+
+  /* Fixed to the window, not to a box inside it: the palette is the *window's*
+     keyboard written down, and every box below the shell is one the dial can
+     collapse to nothing. */
+  position: fixed;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  justify-content: center;
+  padding: var(--s-space-section);
+  overflow: auto;
+}
+
+.palette {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-space-snug);
+  align-self: flex-start;
+  width: 100%;
+  max-width: 36rem;
+  padding: var(--s-space-base);
+  border: var(--s-border-hairline) solid var(--c-palette-line);
+  border-radius: var(--s-radius-panel);
+  background: var(--s-surface-raised);
+}
+
+.filter {
+  width: 100%;
+  padding: var(--s-space-tight);
+  border: var(--s-border-hairline) solid var(--c-palette-line);
+  border-radius: var(--s-radius-control);
+  background: var(--s-surface-app);
+  color: var(--s-ink-primary);
+  font-family: var(--s-font-ui);
+  font-size: var(--s-text-body);
+}
+
+.esc,
+.held {
+  display: flex;
+  gap: var(--s-space-snug);
+  align-items: baseline;
+  margin: 0;
+}
+
+.esc {
+  padding-bottom: var(--s-space-tight);
+  border-bottom: var(--s-border-hairline) solid var(--c-palette-line);
+}
+
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-space-hair);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  margin: 0;
+}
+
+.press {
+  display: flex;
+  gap: var(--s-space-snug);
+  align-items: baseline;
+  width: 100%;
+  padding: var(--s-space-tight);
+  border: var(--s-border-hairline) solid transparent;
+  border-radius: var(--s-radius-control);
+  background: none;
+  color: var(--s-ink-primary);
+  font-family: var(--s-font-ui);
+  font-size: var(--s-text-small);
+  text-align: left;
+  transition:
+    background-color var(--s-motion-fast) var(--s-motion-ease),
+    border-color var(--s-motion-fast) var(--s-motion-ease);
+}
+
+.press:hover {
+  background: var(--s-surface-hover);
+  border-color: var(--c-palette-line);
+}
+
+/*
+ * A row the table would not claim right now stays in the tab order and stays
+ * readable: it is the sentence saying *this key does this, when the dial has it*
+ * that the operator came here for. `aria-disabled` and never `disabled`, for the
+ * same reason the rail's recessed sockets are.
+ */
+.press[aria-disabled="true"] {
+  color: var(--s-ink-faint);
+}
+
+.press[aria-disabled="true"]:hover {
+  background: none;
+  border-color: transparent;
+}
+
+.key {
+  flex: 0 0 auto;
+  min-width: 5rem;
+  padding: 0 var(--s-space-hair);
+  border: var(--s-border-hairline) solid var(--c-palette-line);
+  border-radius: var(--s-radius-chip);
+  color: var(--s-ink-primary);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-micro);
+  text-align: center;
+}
+
+.verb {
+  flex: 1 1 auto;
+  color: inherit;
+  font-family: var(--s-font-ui);
+  font-size: var(--s-text-small);
+}
+
+.aside {
+  flex: 0 0 auto;
+  color: var(--s-ink-faint);
+  font-family: var(--s-font-ui);
+  font-size: var(--s-text-micro);
+  letter-spacing: var(--s-tracking-label);
+}
+
+.held {
+  padding: var(--s-space-tight);
+  color: var(--s-ink-secondary);
+}
+
+/* Why a press gave nothing. Ink on the surface, never behind a hover. */
+.refused {
+  margin: 0;
+  color: var(--s-ink-secondary);
+  font-family: var(--s-font-ui);
+  font-size: var(--s-text-micro);
+}

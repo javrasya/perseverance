@@ -1008,6 +1008,52 @@ describe("the ledger announces by changing a numeral, and this side only marks w
     expect(theRow(number).getAttribute("aria-current")).toBe("true");
   });
 
+  it("leaves Enter on a reference to the button, so the keyboard sets like the mouse", async () => {
+    await boot("/?map=while-you-were-away");
+    const record = await reveal();
+
+    const reference = record.querySelector("li[data-kind] button[data-node]");
+    if (!(reference instanceof HTMLButtonElement)) {
+      throw new Error("the record carries no reference");
+    }
+    const number = Number(reference.getAttribute("data-node"));
+    reference.focus();
+
+    /*
+     * The router sits at the window in the capture phase, so a chord it claims
+     * here would be `preventDefault`ed out from under the button's own
+     * activation — and the row's `open` row *toggles*, which is not what this
+     * button does. It resolves a route row by `data-node-row`, which only the
+     * route's rows carry, so `Enter` on a reference is the button's.
+     */
+    const picked = () =>
+      [...theRoute().querySelectorAll('[data-node][aria-current="true"]')].map((el) =>
+        el.getAttribute("data-node"),
+      );
+    const before = picked();
+
+    const press = new KeyboardEvent("keydown", {
+      key: "Enter",
+      bubbles: true,
+      cancelable: true,
+    });
+    await act(async () => {
+      reference.dispatchEvent(press);
+    });
+    expect(press.defaultPrevented).toBe(false);
+    expect(picked()).toEqual(before);
+
+    // And the activation the key stands for still sets rather than toggles,
+    // twice over — the mouse and the keyboard agreeing on the one control.
+    await act(async () => {
+      reference.click();
+    });
+    await act(async () => {
+      reference.click();
+    });
+    expect(theRow(number).getAttribute("aria-current")).toBe("true");
+  });
+
   it("changes a numeral and never takes focus or puts a live region on the chrome", async () => {
     // The whole of the announcement is a number changing on chrome that was
     // already there. Nothing interrupts a screen reader and nothing steals the

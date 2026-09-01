@@ -7,9 +7,13 @@ import { monitorRun, type RunReadout } from "../terminal/runs";
 import {
   adapterAtPress,
   liveRunOn,
+  NO_PICKER,
+  picking,
   pressable,
   railAt,
+  runningIn,
   sameFrontier,
+  type Picking,
   type Press,
   type Socket,
   type SocketId,
@@ -183,6 +187,11 @@ export function Sockets({
     press,
   });
   const adapter = adapterAtPress(rail.adapters, chosen);
+  /* Which agent a press goes out with is settled while nothing is going, and
+     printed once something is: swapping the adapter under a live run would name
+     an agent that is not the one on the pane. The reading is the derivation's;
+     this hands it the two facts only the window has. */
+  const pick = picking(rail.adapters, chosen, runningIn(runs, liveRuns, folder));
 
   /* The tail every spawning verb shares, factored so they cannot drift: a spawn
      is a spawn whichever button bought it, and a second copy of these lines is
@@ -305,7 +314,7 @@ export function Sockets({
           )}
           {socket.note === null ? null : <p className={styles.note}>{socket.note}</p>}
           {socket.id === "start" ? (
-            <Picker offered={rail.adapters} chosen={adapter} onChoose={setChosen} />
+            <Picker offered={rail.adapters} picking={pick} onChoose={setChosen} />
           ) : null}
         </div>
       ))}
@@ -326,23 +335,35 @@ export function Sockets({
  */
 export function Picker({
   offered,
-  chosen,
+  picking: pick,
   onChoose,
 }: {
   offered: readonly string[];
-  chosen: string | null;
+  picking: Picking;
   onChoose: (id: string) => void;
 }) {
-  if (chosen === null) return null;
-  if (offered.length === 1) {
-    return <p className={styles.adapter}>{chosen}</p>;
+  if (pick.mode === "none") return null;
+  if (pick.mode === "printed") {
+    return (
+      <div className={styles.adapter} data-picker data-picker-fixed={pick.fixed ?? undefined}>
+        <p className={styles.adapterName}>{pick.chosen}</p>
+        {/*
+          Why it cannot be changed, as visible text under the name and never a
+          `title`: a run is up, or this folder resolved only the one CLI. A
+          hover is not something a screen reader or a keyboard can have, and the
+          palette sends a keyboard here.
+        */}
+        {pick.fixed === null ? null : <p className={styles.fixed}>{pick.fixed}</p>}
+      </div>
+    );
   }
   return (
     <label className={styles.adapter}>
       <span className={styles.adapterLabel}>agent</span>
       <select
         className={styles.picker}
-        value={chosen}
+        data-picker
+        value={pick.chosen ?? ""}
         onChange={(event) => onChoose(event.target.value)}
       >
         {offered.map((id) => (
@@ -353,4 +374,37 @@ export function Picker({
       </select>
     </label>
   );
+}
+
+/**
+ * Put the keyboard on the picker, or say why it cannot go there.
+ *
+ * The palette's answer to *which agent* is **this** control and never a menu of
+ * its own: two pickers on one screen would be two answers to one question, and
+ * the one the press actually reads is this one. The hook is a `data-picker`
+ * attribute rather than a store field because the picker is rendered wherever
+ * the rail is, and the palette is chrome that outlives every one of its
+ * positions — a ref threaded through the shell would be a second wiring for the
+ * same seam.
+ *
+ * A picker that has been printed rather than offered carries its reason on the
+ * element, so the sentence the palette prints and the sentence on screen are the
+ * one sentence. The first *changeable* one wins: the idea box picks an adapter
+ * in the same shape and for the same reason, and a keyboard sent to a control
+ * that cannot be changed has been sent nowhere.
+ *
+ * It does *not* clear an `inert` standing over the picker, and it cannot see
+ * one: `querySelector` reaches into an inert subtree and `focus()` on a node in
+ * one moves nothing while still returning. Whoever put the mark on takes it off
+ * before calling this — the shell does, in `reachPicker` — because the element
+ * carrying it is the caller's and never this function's to find.
+ */
+export function focusPicker(): string | null {
+  const changeable = document.querySelector<HTMLElement>("[data-picker]:not([data-picker-fixed])");
+  if (changeable !== null) {
+    changeable.focus();
+    return null;
+  }
+  const printed = document.querySelector<HTMLElement>("[data-picker]");
+  return printed?.getAttribute("data-picker-fixed") ?? NO_PICKER;
 }

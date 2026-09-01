@@ -68,6 +68,64 @@ export function findMarkupSinks(text: string): Violation[] {
   return violations;
 }
 
+/* ------------------------------------------------------------ Key binds --- */
+
+/**
+ * Every way this stack has of binding a key.
+ *
+ * A React key prop — bubble or capture, since `onKeyDownCapture` and its two
+ * siblings are ordinary props and fire *before* the target sees the key, which
+ * makes them the loose binding most able to take a chord out from under the
+ * router — a key listener on any target, a handler assigned straight onto an
+ * element's `onkeydown` property, xterm's own custom key hook, and xterm's
+ * `onKey` stream. There is one router (`src/keys/router.ts`) and
+ * one seam into the emulator (`src/terminal/xterm.ts`); a fifth binding
+ * anywhere else is a key the router's table does not know about, which is a
+ * chord the command palette and the keys page would print the wrong answer for
+ * — or worse, one taken out from under an agent CLI without anything on screen
+ * saying so.
+ */
+const KEY_BINDINGS: readonly { pattern: RegExp; what: string }[] = [
+  { pattern: /\bon(?:KeyDown|KeyUp|KeyPress)(?:Capture)?\b/g, what: "a React key prop" },
+  {
+    pattern: /addEventListener\s*\(\s*["'`]key(?:down|up|press)["'`]/g,
+    what: "a key listener",
+  },
+  {
+    pattern: /\.on(?:keydown|keyup|keypress)\s*=/g,
+    what: "a key handler assigned onto an element",
+  },
+  { pattern: /\battachCustomKeyEventHandler\b/g, what: "xterm's custom key handler" },
+  { pattern: /\.onKey\s*\(/g, what: "xterm's key stream" },
+];
+
+/**
+ * The two files allowed to name any of them, and why — the same shape
+ * `scripts/check-agent-solitude.mjs` uses, where one package in the tree is the
+ * whole rule. The exception is one line long and visible from the check.
+ */
+export const KEY_BINDING_EXCEPTIONS: Readonly<Record<string, string>> = {
+  "src/keys/router.ts": "the one router: the window listener itself",
+  "src/terminal/xterm.ts": "the one seam into xterm, which asks that same router",
+};
+
+export function findKeyBindings(text: string): Violation[] {
+  const violations: Violation[] = [];
+  for (const [index, line] of text.split("\n").entries()) {
+    for (const { pattern, what } of KEY_BINDINGS) {
+      pattern.lastIndex = 0;
+      let match: RegExpExecArray | null;
+      while ((match = pattern.exec(line)) !== null) {
+        violations.push({
+          line: index + 1,
+          detail: `${what} (${match[0].trim()}) — put the chord in src/keys/router.ts instead`,
+        });
+      }
+    }
+  }
+  return violations;
+}
+
 /* ---------------------------------------------------------------- SMIL --- */
 
 /**

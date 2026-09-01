@@ -78,7 +78,28 @@ export interface Ui {
    * Rust, and it is the falling edge that sends exactly one geometry.
    */
   dragging: boolean;
+  /**
+   * What stands in front of the terminal, or nothing.
+   *
+   * **One field and one value**, not a flag per surface: *what is in front* is
+   * a single fact, and two booleans would let the window claim two answers to
+   * it — two surfaces holding the keys, and an `Esc` with two destinations. The
+   * router's own state carries this field verbatim, so a surface's dismiss row
+   * and the `Esc` readout are reading the same one fact.
+   */
+  inFront: Surface | null;
 }
+
+/**
+ * The surfaces that can stand in front of the terminal.
+ *
+ * A union rather than the literal, because the keys page stands beside the
+ * palette in exactly the same place: in front of the terminal, holding the
+ * keys, dismissed by `Esc`. Both are here and neither is a flag of its own —
+ * *what is in front* stays one fact with one value, so `Esc` never has two
+ * destinations at once.
+ */
+export type Surface = "palette" | "keys";
 
 /**
  * What a peek is on screen, and the whole of what this store keeps about one.
@@ -122,6 +143,7 @@ const [store, replace] = readable<Ui>({
   dock: DEFAULT_DOCK,
   geometry: OPENING,
   dragging: false,
+  inFront: null,
 });
 
 /**
@@ -235,6 +257,29 @@ export function select(selection: number | null): void {
  */
 export function monitor(run: number | null): void {
   change((current) => (current.monitored === run ? current : { ...current, monitored: run }));
+}
+
+/**
+ * Put a surface in front of the terminal.
+ *
+ * Raising a second surface replaces the first rather than stacking on it: the
+ * field holds one value, and a stack would be a second answer to *what does
+ * `Esc` take away* — the exact ambiguity the single field exists to rule out.
+ */
+export function raise(surface: Surface): void {
+  change((current) => (current.inFront === surface ? current : { ...current, inFront: surface }));
+}
+
+/**
+ * Take whatever is in front away.
+ *
+ * Whatever, and not a named one: the caller that dismisses is the router's
+ * dismiss row, which already knows the row it matched applied. Giving the
+ * keyboard back is the shell's business and not this store's — the same
+ * division `monitor` and `moveDial` draw.
+ */
+export function dismiss(): void {
+  change((current) => (current.inFront === null ? current : { ...current, inFront: null }));
 }
 
 export function startGesture(): void {

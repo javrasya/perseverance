@@ -1,0 +1,114 @@
+/*
+ * The keys page.
+ *
+ * Opaque and at full window, which is the one way its look differs from the
+ * palette's: the palette is a panel over a run whose output is still worth
+ * seeing, while this is the surface an operator opened *instead of* looking at
+ * the run. Text laid over a live pane would be the crammed corner in a larger
+ * font — the complaint this page answers — so the window is taken outright and
+ * the rows get the room to be read.
+ *
+ * Nothing here moves. The motion budget for this stack is one animation and it
+ * is spent (`tests/motion-ration.test.ts`); a page that faded in would also be a
+ * page an operator is waiting on before they can read it.
+ */
+
+.page {
+  --c-keys-line: var(--s-line-quiet);
+
+  /* Fixed to the window, not to a box inside it: this is the *window's*
+     keyboard written down, and every box below the shell is one the dial can
+     collapse to nothing. */
+  position: fixed;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-space-base);
+  padding: var(--s-space-section);
+  overflow: auto;
+  background: var(--s-surface-app);
+}
+
+.title {
+  margin: 0;
+  color: var(--s-ink-primary);
+  font-family: var(--s-font-ui);
+  font-size: var(--s-text-title);
+  font-weight: var(--s-weight-emphasis);
+}
+
+.esc,
+.row {
+  display: flex;
+  gap: var(--s-space-snug);
+  align-items: baseline;
+  margin: 0;
+}
+
+.esc {
+  padding-bottom: var(--s-space-tight);
+  border-bottom: var(--s-border-hairline) solid var(--c-keys-line);
+}
+
+/*
+ * Columns rather than one long list, and only where the window is wide enough
+ * to hold two: a page that made the operator scroll to reach the dial's keys
+ * would be hiding half the keyboard behind a gesture, which is the corner all
+ * over again. `column-count` and not a grid because the rows are a reading
+ * order — they fill down one column and continue in the next, so the table's
+ * own order survives the layout.
+ */
+.rows {
+  margin: 0;
+  padding: 0;
+  column-gap: var(--s-space-room);
+  column-width: 26rem;
+  list-style: none;
+}
+
+.row {
+  padding: var(--s-space-tight) 0;
+  color: var(--s-ink-primary);
+  /* A row must not be split across the column break: half a chord at the foot
+     of one column and its sentence at the head of the next is unreadable. */
+  break-inside: avoid;
+}
+
+.key {
+  flex: 0 0 auto;
+  min-width: 5rem;
+  padding: 0 var(--s-space-hair);
+  border: var(--s-border-hairline) solid var(--c-keys-line);
+  border-radius: var(--s-radius-chip);
+  color: var(--s-ink-primary);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-micro);
+  text-align: center;
+}
+
+.verb {
+  flex: 1 1 auto;
+  color: inherit;
+  font-family: var(--s-font-ui);
+  font-size: var(--s-text-small);
+}
+
+.aside {
+  flex: 0 0 auto;
+  color: var(--s-ink-faint);
+  font-family: var(--s-font-ui);
+  font-size: var(--s-text-micro);
+  letter-spacing: var(--s-tracking-label);
+}
+
+/* The page holds the keyboard from the moment it opens, and says so rather than
+   drawing the ring the browser would put on a container nobody aimed at. */
+.page:focus {
+  outline: none;
+}
+
+.page:focus-visible {
+  outline: var(--s-border-hairline) solid var(--s-focus-ring);
+  outline-offset: calc(-1 * var(--s-space-hair));
+}

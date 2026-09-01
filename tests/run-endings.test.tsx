@@ -53,6 +53,7 @@ function aTerminal(): Terminal {
     resize: () => journal.push("resize"),
     measure: () => null,
     onData: () => () => {},
+    focus: () => {},
     dispose: () => journal.push("dispose"),
   };
 }

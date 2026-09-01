@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * case-insensitive, so an extensionless `../src/chrome/Sockets` resolves to
  * `sockets.ts` — the derivation — and the component is never found.
  */
-import { Sockets } from "../src/chrome/Sockets.jsx";
+import { Sockets, focusPicker } from "../src/chrome/Sockets.jsx";
 import {
   ASK_ARRIVES,
   CHECKING_LABEL,
@@ -19,6 +19,7 @@ import {
   NOT_A_TICKET,
   RESUME_IS_OUT,
   RESUME_LABEL,
+  RUN_IS_UP,
   START_LABEL,
   TO_FRONTIER_LABEL,
   alreadyComposing,
@@ -587,5 +588,47 @@ describe("a compose press", () => {
     // A compose refusal names no frontier, so nothing was re-armed and the box
     // is back to the offer it made.
     expect(button(host, "start").textContent).toContain(COMPOSE_LABEL);
+  });
+});
+
+describe("the picker at the crossing", () => {
+  const CODEX: AdapterReading = {
+    id: "codex",
+    resolution: { kind: "resolved", name: "codex", program: "/usr/bin/codex", from: "candidate" },
+    probes: [],
+  };
+
+  it("is a control the palette can reach while nothing is going", () => {
+    const host = paint({ environment: readout([CLAUDE, CODEX]) });
+    const picker = host.querySelector("[data-picker]");
+    expect(picker?.tagName).toBe("SELECT");
+    expect(picker?.hasAttribute("data-picker-fixed")).toBe(false);
+  });
+
+  it("is printed and unchangeable during a run, with the reason on screen", () => {
+    const host = paint({
+      environment: readout([CLAUDE, CODEX]),
+      runs: [staked(3, 41, false)],
+      liveRuns: [3],
+    });
+    const picker = host.querySelector("[data-picker]");
+    expect(picker?.querySelector("select")).toBeNull();
+    expect(picker?.textContent).toContain("claude");
+    /* Visible text and never a `title`: the reason has to be readable by the
+       screen reader and the keyboard the palette sends here. */
+    expect(picker?.textContent).toContain(RUN_IS_UP);
+    expect(picker?.getAttribute("data-picker-fixed")).toBe(RUN_IS_UP);
+    expect(host.querySelectorAll("[title]")).toHaveLength(0);
+  });
+
+  it("hands the palette the sentence when it cannot be focused", () => {
+    paint({ environment: readout([CLAUDE, CODEX]), runs: [staked(3, 41, false)], liveRuns: [3] });
+    expect(focusPicker()).toBe(RUN_IS_UP);
+  });
+
+  it("takes the keyboard when it is a choice, and the palette sends it there", () => {
+    const host = paint({ environment: readout([CLAUDE, CODEX]) });
+    expect(focusPicker()).toBeNull();
+    expect(document.activeElement).toBe(host.querySelector("[data-picker]"));
   });
 });

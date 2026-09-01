@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { rebound } from "../keys/router";
 import { readUi, showPeek } from "../stores/ui";
 import {
   REPEAT_GAP,
   RESTING,
   advance,
   labelOf,
-  matches,
   platformName,
   readChord,
   writeChord,
@@ -15,15 +15,18 @@ import {
 } from "./peek";
 
 /**
- * The one place a key is bound in this app, and it is bound for the peek only.
+ * The peek's wiring, and it binds no key.
  *
- * #53 builds the single global key router — one chord→action table at the
- * window, in the capture phase, with nothing else in the app binding a key —
- * and **this module is what it absorbs**: the listener below is already at the
- * window and already in the capture phase, so the move is deleting this
- * `useEffect` and handing the same chord and the same two dispatches to the
- * table. Nothing else here has to change, and nothing else here may grow a
- * second binding in the meantime.
+ * It used to: the summon chord was claimed here, at the window, in the capture
+ * phase. #53 took that over — there is one chord→action table now, in
+ * `src/keys/router.ts`, and the peek is a row of it like everything else. What
+ * arrives here is [`PeekHandles.summoned`] and [`PeekHandles.letGoOfChord`],
+ * already decided.
+ *
+ * The two window listeners that are left are not key listeners and are not the
+ * router's business: a blur and a `visibilitychange` are the named defect's
+ * paths — a hold whose keyup is never sent because the window stopped being in
+ * front — and they belong to whoever is holding the spring.
  *
  * `Esc` is never claimed, here or anywhere: it is the interrupt key of every
  * agent CLI, and an app that swallows it takes away the only way to stop a run.
@@ -46,6 +49,10 @@ export interface PeekHandles {
   hold: () => void;
   /** The stud's pointer went up, was cancelled, or left. */
   letGo: (why: "stud-up" | "pointercancel" | "pointerleave") => void;
+  /** The router claimed the summon chord. */
+  summoned: () => void;
+  /** The router saw the summon chord come back up. */
+  letGoOfChord: () => void;
 }
 
 export function usePeek(): PeekHandles {
@@ -93,31 +100,25 @@ export function usePeek(): PeekHandles {
     beat.current = null;
   }, []);
 
+  /*
+   * The chord arrived, from the router and from nowhere else.
+   *
+   * The claim itself — `preventDefault`, `stopPropagation`, and the decision
+   * that this keystroke is the app's — is the router's, made from the one
+   * table. What is left here is the spring: one step, and the beat rearmed by
+   * every repeat.
+   */
+  const summoned = useCallback(() => {
+    step({ kind: "chord", at: Date.now(), position: readUi().position });
+    watchBeat();
+  }, [step, watchBeat]);
+
+  const letGoOfChord = useCallback(() => {
+    stopWatching();
+    step({ kind: "chord-up" });
+  }, [step, stopWatching]);
+
   useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (!matches(chord, event)) return;
-      // Claimed: the run underneath does not see it. The swallow is marked on
-      // screen by the stud, because a key that vanishes without a mark is a key
-      // the operator will assume their agent received.
-      event.preventDefault();
-      event.stopPropagation();
-      step({ kind: "chord", at: Date.now(), position: readUi().position });
-      watchBeat();
-    };
-
-    const onKeyUp = (event: KeyboardEvent) => {
-      // Any part of the chord coming up ends the hold. Releasing the modifier
-      // first is the common case, and its keyup carries `Meta` rather than the
-      // chord's own key — a listener that waited for the letter would wait
-      // forever.
-      const part =
-        event.key.toLowerCase() === chord.key.toLowerCase() ||
-        ["Meta", "Alt", "Control", "Shift"].includes(event.key);
-      if (!part) return;
-      stopWatching();
-      step({ kind: "chord-up" });
-    };
-
     const onBlur = () => {
       stopWatching();
       step({ kind: "blur" });
@@ -129,18 +130,14 @@ export function usePeek(): PeekHandles {
       step({ kind: "hidden" });
     };
 
-    window.addEventListener("keydown", onKeyDown, true);
-    window.addEventListener("keyup", onKeyUp, true);
     window.addEventListener("blur", onBlur);
     document.addEventListener("visibilitychange", onHidden);
     return () => {
-      window.removeEventListener("keydown", onKeyDown, true);
-      window.removeEventListener("keyup", onKeyUp, true);
       window.removeEventListener("blur", onBlur);
       document.removeEventListener("visibilitychange", onHidden);
       stopWatching();
     };
-  }, [chord, step, watchBeat, stopWatching]);
+  }, [step, stopWatching]);
 
   const hold = useCallback(() => {
     step({ kind: "stud", position: readUi().position });
@@ -154,10 +151,13 @@ export function usePeek(): PeekHandles {
   const rebind = useCallback(
     (wanted: Chord | null) => {
       writeChord(wanted);
+      // The router remembers the bound chord rather than reading storage on
+      // every keystroke, so the rebind has to say it changed.
+      rebound();
       setChord(readChord(os));
     },
     [os],
   );
 
-  return { chord, label: labelOf(chord, os), os, rebind, hold, letGo };
+  return { chord, label: labelOf(chord, os), os, rebind, hold, letGo, summoned, letGoOfChord };
 }

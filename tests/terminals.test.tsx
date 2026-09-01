@@ -58,6 +58,7 @@ function aTerminal(): Recorded {
     resize: (geometry) => void resizes.push(geometry),
     measure: () => ({ rows: 24, cols: 80 }),
     onData: () => () => {},
+    focus: () => {},
     dispose: () => void (disposed = true),
   };
 }
