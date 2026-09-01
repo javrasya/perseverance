@@ -11,6 +11,7 @@ import { CONDITIONS } from "../src/chrome/stamp";
 import { MapList } from "../src/maps/MapList";
 import {
   LABELS_TRUNCATED_NOTE,
+  MAPS_TRUNCATED_NOTE,
   STOPPED_COPY,
   TRUNCATED_NOTE,
   loadFixture,
@@ -1351,14 +1352,25 @@ describe("the map list is disabled in place when the poller has stopped reading"
     expect(ranLong.textContent).not.toContain(TRUNCATED_NOTE);
     expect(ranLong.querySelectorAll("[data-labels-truncated]")).toHaveLength(1);
 
-    // And the two are independent conditions rather than two readings of one,
-    // so an answer with both cut off draws both.
+    // The map list is the same shape of fact and gets the same treatment: a
+    // page this query asked for rather than one GitHub forbids, so it draws its
+    // own sentence and never the impossibility.
+    const manyMaps = renderMaps("awkward-map", () => {}, { mapsTruncated: true });
+
+    expect(manyMaps.textContent).toContain(MAPS_TRUNCATED_NOTE);
+    expect(manyMaps.textContent).not.toContain(TRUNCATED_NOTE);
+    expect(manyMaps.querySelectorAll("[data-maps-truncated]")).toHaveLength(1);
+
+    // And the three are independent conditions rather than readings of one, so
+    // an answer with all of them cut off draws all of them.
     const both = renderMaps("awkward-map", () => {}, {
       truncated: true,
+      mapsTruncated: true,
       labelsTruncated: true,
     });
 
     expect(both.textContent).toContain(TRUNCATED_NOTE);
+    expect(both.textContent).toContain(MAPS_TRUNCATED_NOTE);
     expect(both.textContent).toContain(LABELS_TRUNCATED_NOTE);
   });
 
