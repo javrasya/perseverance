@@ -1,0 +1,129 @@
+/*
+ * The seam, made grabbable.
+ *
+ * A hit area wider than the line it draws, because a two-pixel target is a
+ * target nobody hits; the line itself stays hairline so the seam reads as a
+ * seam rather than as a third column.
+ */
+.dial {
+  --c-dial-reach: 0.75rem;
+  --c-dial-line: var(--s-line-quiet);
+  --c-dial-line-live: var(--s-accent);
+  --c-dial-grip-width: var(--s-border-hairline);
+  --c-dial-tick: var(--s-line-strong);
+  --c-dial-tick-here: var(--s-accent);
+  --c-dial-tick-thickness: var(--s-border-hairline);
+  --c-dial-tick-thickness-here: var(--s-border-emphasis);
+  --c-dial-hand: var(--s-accent);
+  --c-dial-hand-size: 0.375rem;
+  --c-dial-name: var(--s-ink-faint);
+
+  position: relative;
+  display: flex;
+  flex: 0 0 var(--c-dial-reach);
+  align-items: center;
+  justify-content: center;
+  /* No `touch-action` here: the CSS floor this repository builds against does
+     not have it, and the drag is held by pointer capture and a prevented
+     default rather than by a property the target WebView would ignore. */
+  cursor: col-resize;
+}
+
+.dial:focus-visible {
+  outline: var(--s-focus-ring);
+  outline-offset: calc(-1 * var(--s-space-hair));
+}
+
+.grip {
+  width: var(--c-dial-grip-width);
+  height: 100%;
+  background: var(--c-dial-line);
+  transition: background-color var(--s-motion-fast) var(--s-motion-ease);
+}
+
+/*
+ * Hover and focus are the only motion here, and both are carried by a colour
+ * the reduced-motion guard still allows to transition. The dial's *position* is
+ * carried by where it is, which is a still state and needs no motion at all.
+ */
+.dial:hover .grip,
+.dial:focus-visible .grip {
+  background: var(--c-dial-line-live);
+}
+
+/*
+ * The four detents, drawn as notches down the seam, with the hand among them.
+ *
+ * A ladder and never a track: nothing here is bounded at one end and filled to
+ * the position, because a fill would be a fourth account of progress in an app
+ * whose progress is three integers. Each notch is a place; the hand is a dot
+ * that is at one of them or between two of them, and it moves without any
+ * motion at all, the position being a still state rather than a journey.
+ */
+.ladder {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.tick {
+  position: absolute;
+  right: 0;
+  left: 0;
+  height: 0;
+}
+
+.tick::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 100%;
+  height: var(--c-dial-tick-thickness);
+  background: var(--c-dial-tick);
+  transform: translate(-50%, -50%);
+}
+
+.tick[data-here="true"]::before {
+  height: var(--c-dial-tick-thickness-here);
+  background: var(--c-dial-tick-here);
+}
+
+/* Set down the seam because the seam is what there is room in: the dial is a
+   column a few pixels wide and a window tall. */
+.name {
+  position: absolute;
+  left: 50%;
+  writing-mode: vertical-rl;
+  color: var(--c-dial-name);
+  font-size: var(--s-text-micro);
+  letter-spacing: var(--s-tracking-label);
+  white-space: nowrap;
+  transform: translate(-50%, -50%);
+}
+
+.tick:first-child .name {
+  transform: translate(-50%, var(--s-space-tight));
+}
+
+.tick:last-child .name {
+  transform: translate(-50%, -100%) translateY(calc(-1 * var(--s-space-tight)));
+}
+
+.tick[data-here="true"] .name {
+  color: var(--c-dial-tick-here);
+}
+
+.hand {
+  position: absolute;
+  left: 50%;
+  width: var(--c-dial-hand-size);
+  height: var(--c-dial-hand-size);
+  border-radius: 50%;
+  background: var(--c-dial-hand);
+  transform: translate(-50%, -50%);
+}
+
+.dial[data-named="true"] {
+  --c-dial-reach: 1.25rem;
+}

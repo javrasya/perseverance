@@ -106,7 +106,7 @@ fails.
 | 5 No progress bar | rendering | asserted | The positive restatement, over every fixture: three numerals and nothing continuous between them. |
 | 6 Out-of-scope is never progress | rendering | asserted | The model already subtracts a cut ticket from both counts (ADR 0017), so no view can add it back. Asserted half: the reason is text in the document, with no hover and no `title`. |
 | 7 The ledger is chrome | codebase | **structural** | `ViewProps` names `model` and stops, so the record — which rides on the `Snapshot` beside `model` — is unwritable by a view. |
-| 8 No stored positions | codebase | **structural** | The store's migrations have no position column and no `map_view` table at all: a position has nowhere to be written. |
+| 8 No stored positions | codebase | **structural** | `map_view` ships (#52) with three columns — `folder_id`, `map_number`, `layout_json` — and none of them is a position. The envelope means the schema no longer holds this alone; the narrowing sits at the only seam that writes the column. See below. |
 | 9 Motion is rationed | rendering | asserted | Every animation is a CSS animation, so the ration is enumerable over the stylesheets. See the open obligation below. |
 | 10 Hover discloses nothing | reading | judged | Floor: nothing hover-revealed that is not present elsewhere or is not a native `title` recovering clipped text. *Load-bearing* is the judgement. |
 | 11 The field is not the label surface | reading | judged | Wholly judged: the claim is about misreading, and misreading has no DOM signature. |
@@ -130,6 +130,31 @@ sits outside the view prop type. One narrowing covers every view there will ever
 be and every object delivered that way. Per-view assertions would cover today's
 views and today's objects — and the difference shows up on the fifth view, which
 nobody would notice was uncovered.
+
+**Rule 8's mechanism moved when `map_view` landed, and the tier did not.** The
+row above used to read *there is no table*, and #52 gave the dial a durable home
+— `map_view(folder_id, map_number, layout_json)` — which retires that sentence.
+The obvious reading is that rule 8 falls to asserted: `layout_json` is an opaque
+`TEXT` envelope, and `{"nodes":{"12":{"x":1}}}` is a string SQLite will take
+without a migration. It does not fall, and the reason is the same one that makes
+rule 7 structural. A tier is **what would have to change for the rule to be
+violated**, not which file the guarantee happens to live in. Nothing in this app
+writes that column except one command: `remember_map_position` in
+`crates/app/src/lib.rs`, whose whole payload is `(folder_id, map, position: f64)`
+— one number, no key, no node. The struct it serialises, `MapLayout`, names
+`dial` and a flattened `rest` that exists only to carry back what a *newer* build
+wrote. So a node position has no field to arrive through, exactly as the change
+ledger has no prop to arrive through, and writing one is a code change and not a
+row. What moved is the mechanism's address: `mechanismPath` for rule 8 is
+`crates/app/src/lib.rs` rather than `crates/store/src/schema.rs`, and the check
+that keeps it honest is the command's parameter list and the envelope's field
+names, not a grep of a schema for the word `node`. That grep was the weaker
+claim even before #52 — it read a file that had stopped being the narrowing.
+
+**The day Deep Field's plate lands, rule 8 does fall to asserted**, because the
+exception adds a field to `MapLayout` and the narrowing stops being *no field for
+a node* and becomes *one field, used only by the one view allowed it*. That is an
+assertion, and it goes red at the registry first.
 
 ### The three judged residues, and which one was ours to find
 
@@ -373,8 +398,9 @@ The registry names a `mechanismPath` for each and the test reads it: `ViewProps`
 still names `model` and mentions neither the snapshot nor the record (via
 `viewPropsFields` in `tests/support/checks.ts`, proved against a widened
 declaration as known-bad input, and the same shape `tests/views.test.ts` asserts
-from the rule's own side); the store's migrations still declare no position
-column and no `map_view` table; the model still arrives as ts-rs output. A
+from the rule's own side); `map_view` still ships exactly three columns and the
+one command that writes it still takes exactly one number; the model still
+arrives as ts-rs output. A
 pointer nobody re-reads is a claim about the day it was written, and the day rule
 8's mechanism learns Deep Field's exception is exactly the day rule 8's entry
 needs re-reading — so that line goes red rather than staying quietly true.
@@ -402,8 +428,9 @@ fixture names, which drifts the day a fixture is added; it is derived from the
 
 **Two rules can move tier without their text changing**, and that is the design
 working. Widen `ViewProps` and rule 7 falls from structural to asserted. Land
-`map_view` with Deep Field's key and rule 8's entry has to say which key. Both
-are code changes that go red first.
+`map_view` with Deep Field's key and rule 8 falls the same way — the envelope
+gains a field, and *no field for a node* becomes an assertion about who may use
+the one there is. Both are code changes that go red first.
 
 [#10]: https://github.com/javrasya/perseverance/issues/10
 [#28]: https://github.com/javrasya/perseverance/issues/28

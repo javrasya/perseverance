@@ -186,14 +186,43 @@ describe("the structural mechanisms are still where the registry points", () => 
   });
 
   it("stores no node position anywhere (rule 8)", () => {
-    const schema = readFileSync(join(REPO_ROOT, ruleById(8).mechanismPath!), "utf8");
+    const schema = readFileSync(join(REPO_ROOT, "crates/store/src/schema.rs"), "utf8");
+    // Down to the test module and no further, the way `crates/app` reads this
+    // same file: that crate's own tests write tables nobody ships.
+    const shipped = schema.split("#[cfg(test)]")[0] ?? "";
 
-    // No `map_view` table at all today, so there is nowhere for a position to
-    // go. When Deep Field's plate lands, this line is what has to learn the
-    // exception — and that is the moment rule 8's entry needs re-reading, which
-    // is why the assertion is here rather than in a comment.
-    expect(schema).not.toMatch(/CREATE TABLE\s+map_view/i);
-    expect(schema).not.toMatch(/\bposition/i);
+    /*
+     * `map_view` exists now — #52 gave the dial a durable home — so the check
+     * is the table's columns rather than its absence. What it holds is where
+     * the *dial* was: one seam per map, a fact about a window.
+     */
+    expect(shipped).toMatch(/CREATE TABLE map_view/);
+    const body = (shipped.split("CREATE TABLE map_view (")[1] ?? "").split("PRIMARY KEY")[0] ?? "";
+    const columns = body
+      .split("\n")
+      .map((line) => line.trim().split(/\s+/)[0])
+      .filter((name) => name !== "");
+    expect(columns).toEqual(["folder_id", "map_number", "layout_json"]);
+
+    /*
+     * And the column itself proves nothing: `layout_json` is `TEXT`, and
+     * `{"nodes":…}` is a string SQLite would take without a migration. So the
+     * narrowing that actually holds rule 8 is one level up — the only writer of
+     * that column, whose whole payload is one number, and the envelope struct
+     * whose only named field is the dial. Deep Field's plate arrives as a field
+     * here, and that is the moment rule 8's entry stops being structural.
+     */
+    const seam = readFileSync(join(REPO_ROOT, ruleById(8).mechanismPath!), "utf8");
+    const writer = /fn remember_map_position\(([^)]*)\)/.exec(seam);
+    if (writer === null) throw new Error("crates/app/src/lib.rs writes no map position");
+    expect(writer[1]!.replace(/\s+/g, " ").trim()).toBe(
+      "registry: State<'_, Registry>, folder_id: i64, map: u64, position: f64",
+    );
+
+    const envelope = /struct MapLayout \{([\s\S]*?)\n\}/.exec(seam);
+    if (envelope === null) throw new Error("crates/app/src/lib.rs declares no MapLayout");
+    const fields = [...envelope[1]!.matchAll(/^\s{4}(\w+):/gm)].map((match) => match[1]);
+    expect(fields).toEqual(["dial", "rest"]);
   });
 
   it("receives the model generated rather than deriving it here (rule 1)", () => {

@@ -1,0 +1,66 @@
+/*
+ * The stand-down reads as a note pinned in the column, not as an error: nothing
+ * has failed, the window is simply narrower than the view asked for.
+ */
+.standDown {
+  --c-stand-down-ink: var(--s-ink-primary);
+  --c-stand-down-quiet: var(--s-ink-secondary);
+  --c-stand-down-line: var(--s-line-quiet);
+  --c-stand-down-surface: var(--s-surface-sunken);
+  --c-stand-down-exit-line: var(--s-line-strong);
+  --c-stand-down-exit-hover: var(--s-surface-hover);
+
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-space-snug);
+  min-width: 0;
+  padding: var(--s-space-base);
+  border: var(--s-border-hairline) solid var(--c-stand-down-line);
+  border-radius: var(--s-radius-panel);
+  background: var(--c-stand-down-surface);
+  color: var(--c-stand-down-ink);
+  font-size: var(--s-text-small);
+}
+
+.what {
+  margin: 0;
+  font-weight: var(--s-weight-emphasis);
+}
+
+.why {
+  margin: 0;
+  color: var(--c-stand-down-quiet);
+}
+
+.model {
+  margin: 0;
+  color: var(--c-stand-down-quiet);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-micro);
+}
+
+.exits {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-space-snug);
+}
+
+.exit {
+  padding: var(--s-space-tight) var(--s-space-snug);
+  border: var(--s-border-hairline) solid var(--c-stand-down-exit-line);
+  border-radius: var(--s-radius-control);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: var(--s-text-micro);
+  cursor: pointer;
+}
+
+.exit:hover {
+  background: var(--c-stand-down-exit-hover);
+}
+
+.exit:focus-visible {
+  outline: var(--s-focus-ring);
+  outline-offset: var(--s-space-hair);
+}

@@ -44,6 +44,37 @@ export function resizes(occasion: Occasion): boolean {
 export const SETTLES_AFTER = 200;
 
 /**
+ * Whether a geometry is one a terminal could actually live at.
+ *
+ * The dial has a detent that gives the terminal side the whole of nothing, and
+ * a box with no width still measures — as zero, or as `NaN` once a font metric
+ * is divided by it. A settled zero-column resize would reflow every live agent
+ * session to a column count nothing can render, so a degenerate geometry is
+ * refused *here*, at the one choke point every size passes through, rather than
+ * at each call site that might produce one.
+ */
+export function habitable(geometry: Geometry): boolean {
+  return (
+    Number.isFinite(geometry.rows) &&
+    Number.isFinite(geometry.cols) &&
+    geometry.rows >= 1 &&
+    geometry.cols >= 1
+  );
+}
+
+/**
+ * Whether a box has been collapsed out of the layout rather than resized.
+ *
+ * The pane at the `map` detent is still mounted, still holds every byte and is
+ * still the same node — it is simply worth no pixels. Measuring it is not a
+ * smaller size; it is no size at all, and the terminal keeps the geometry it
+ * had until the dial gives it room again.
+ */
+export function collapsed(box: { width: number; height: number }): boolean {
+  return !(box.width >= 1) || !(box.height >= 1);
+}
+
+/**
  * One pane's gesture, debounced into at most one resize.
  *
  * Holds no React state and re-renders nothing, which is deliberate: a drag that
@@ -76,6 +107,11 @@ export function gesture(
 
   return {
     measured(occasion, geometry) {
+      // A size no terminal could live at is not a size. It reaches neither the
+      // store nor a PTY, on any occasion, so the dial's collapsing detent
+      // cannot become a resize by any route at all.
+      if (!habitable(geometry)) return;
+
       if (!resizes(occasion)) {
         // Bind, peek and arrival are not gestures and start no clock: a run
         // arriving on the pane must not become a resize by waiting.

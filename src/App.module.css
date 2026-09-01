@@ -1,12 +1,13 @@
 .app {
   /*
-   * Tier 3 — one component token, and it is a length rather than a colour, so
-   * it is defined from a number rather than from a semantic token. The fixed
-   * split #52's dial will replace lives here, at the top of the file that owns
-   * the layout, so that ticket has one declaration to find.
+   * Tier 3 — component tokens, and lengths rather than colours, so they are
+   * defined from numbers rather than from semantic tokens.
+   *
+   * There is no terminal width here any more. The split is the dial's, it is a
+   * *share* rather than a length, and it is applied as a flex basis from the
+   * position the UI store holds — a number that changes between frames of a
+   * drag has no business being a stylesheet's constant.
    */
-  --c-app-terminal-width: 34rem;
-  /* The crossing's own strip, and the same story: a width #52's dial replaces. */
   --c-app-rail-width: 13rem;
 
   display: flex;
@@ -45,7 +46,24 @@
  * the list carries on past it. Owning the scrollport is what keeps the frame a
  * frame: the content moves inside the border rather than across it.
  */
+/*
+ * `position: relative` is the peek's whole geometry, and it is here rather than
+ * on the map side on purpose: the promoted map side is positioned against *the
+ * body*, so `left: 0` and a right offset of the dial's own column give it the
+ * full map width — the width the `map` detent gives — without a pixel of
+ * arithmetic in the shell, and without the map side's own box moving.
+ *
+ * It also means the map side's `overflow: hidden` does not clip the promoted
+ * layer: an absolutely positioned box is only clipped by an ancestor in its own
+ * containing-block chain, and an unpositioned map side is not in it.
+ *
+ * The peek's stud is positioned against this box for the same reason and one
+ * more: this is the box the dial cannot collapse. The terminal can be worth no
+ * pixels at all, and a stud hung there would be clipped away at exactly the
+ * detent where the refusal it prints is the only feedback the operator gets.
+ */
 .body {
+  position: relative;
   display: flex;
   flex: 1;
   min-height: 0;
@@ -55,8 +73,8 @@
 /*
  * The view stands beside the launcher rather than in place of it, because a
  * surface that cannot be got back to is a surface that has been deleted. How
- * the two share the window once the dial exists is #52's, not this file's, so
- * they share it evenly and nothing here claims that is the answer.
+ * much of the map side each gets is the dial's, and which of them is drawn at
+ * all is the map side's measured width — never which map is open.
  *
  * The scrollport is here rather than inside the view, for the same reason the
  * drop region owns its own: a map is routinely taller than the window, and a
@@ -69,9 +87,98 @@
 .view {
   display: flex;
   flex: 1;
+  flex-direction: column;
+  gap: var(--s-space-snug);
+  min-width: 0;
   min-height: 0;
   padding: var(--s-space-base);
   overflow: auto;
+}
+
+/*
+ * The same box below the view column's floor, where the only thing in it is the
+ * stand-down saying so. The padding is trimmed rather than the words: at a
+ * hundred-odd pixels of map side, a gutter is the difference between a sentence
+ * that wraps and a sentence that cannot be read at all.
+ */
+.narrow {
+  padding: var(--s-space-snug);
+}
+
+/*
+ * The map side: the share of the window the dial has given the map, and the box
+ * whose measured width sheds the columns inside it.
+ *
+ * The basis is inline, from the store, because it moves between frames of a
+ * drag, and so is the cap on it — `max-width: calc(100% - reach)`, from the
+ * measured dial. Both belong to the same sentence: the map side is worth
+ * `position × body`, less the seam, which is exactly what `sides()` prints. Left
+ * uncapped, the `map` detent asks for a whole body plus a dial and this box is
+ * `overflow: hidden`, so the dial's column — the one control that undoes every
+ * position — would be laid out past the clip edge and there would be no pointer
+ * way back from the detent the switcher and the stand-down both send you to.
+ *
+ * No grow and no shrink: a side that grew as its neighbours came and went would
+ * move the seam without a hand on it, and a side that shrank would drift from
+ * the pixels the shell prints about it. The cap does the whole job — a flex item
+ * whose basis exceeds its own max-width is frozen there before any free space is
+ * shared out — so the seam stays put and the only thing clipped at the far
+ * detent is the terminal's own padding, around a terminal worth no pixels.
+ */
+.mapSide {
+  display: flex;
+  flex-grow: 0;
+  flex-shrink: 0;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/*
+ * The columns of the map side, in the box that is promoted for a peek.
+ *
+ * It exists so that *the same subtree* can be drawn somewhere else without the
+ * map side's own box moving: in rest it is the map side, filled; while the
+ * spring is held it is lifted out of flow and spans the body at map width, and
+ * the flex line underneath — map side, dial, terminal — is untouched, so the
+ * terminal's box keeps its geometry, the pane's `ResizeObserver` has nothing to
+ * report, and no PTY is resized. Zero pixels reflow.
+ */
+.inside {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/*
+ * The peek: an occlusion, never a displacement.
+ *
+ * The right offset (the dial's measured column) and the bottom offset (the
+ * cleared rows, from `src/panes/peek.ts`) are inline, because both are measured
+ * numbers rather than constants — and the bottom one is the reason the operator
+ * can still see the row they are typing into.
+ */
+.peeking {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 3;
+  border-right: var(--s-border-emphasis) solid var(--s-accent);
+  border-bottom: var(--s-border-hairline) solid var(--s-line-quiet);
+  /* Opaque: a glance you can read the terminal through is two screens at once
+     and neither of them legible. */
+  background: var(--s-surface-app);
+}
+
+/* Which run is on the pane, said on the map side. Quiet: it is a fact about
+   the window, not a fifth number about the map. */
+.run {
+  margin: 0;
+  color: var(--s-ink-faint);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-micro);
 }
 
 /*
@@ -95,22 +202,27 @@
 }
 
 /*
- * The terminal's share of the window: a fixed split, and the whole of what this
- * slice decides about layout.
+ * The terminal's share: whatever the dial has not given the map.
  *
- * A basis with no grow and no shrink rather than a fraction, because a pane that
- * resized itself as its neighbours came and went would be resizing every live
- * PTY as a side effect of a folder being opened — which is precisely the
- * arrival-time reflow the never-resize-on-bind rule exists to prevent. #52's
- * dial is what makes this movable, deliberately.
+ * It takes the remainder rather than a basis of its own, so the two sides always
+ * add up to the window and the seam is one number. At the `map` detent that
+ * remainder is zero — the pane is collapsed, still mounted, and `Pane` refuses
+ * to measure a box with no width, so a collapse reflows no live agent.
  */
 .terminal {
+  /* Nothing of the peek's chrome hangs here, and this box is deliberately not a
+     containing block. It is `flex: 1 1 0` and clips its overflow, so at the
+     `map` detent it is worth its padding alone and anything positioned against
+     it is clipped to nothing — while a strip put in its flow to avoid that
+     would narrow the pane and reflow a live agent. The stud is positioned
+     against the body instead. */
   display: flex;
-  flex: 0 0 var(--c-app-terminal-width);
+  flex: 1 1 0;
   min-width: 0;
   min-height: 0;
   padding: var(--s-space-base);
   padding-left: 0;
+  overflow: hidden;
 }
 
 /*
