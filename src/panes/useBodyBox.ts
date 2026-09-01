@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useLayoutEffect, useState, type RefObject } from "react";
+import { useMemo, type RefObject } from "react";
+import { NOTHING, THE_WINDOW, useMeasuredWidth } from "./useMeasuredWidth";
 
 /**
  * The box the dial divides, measured, and the width of the dial's own column.
@@ -11,11 +12,13 @@ import { useCallback, useEffect, useLayoutEffect, useState, type RefObject } fro
  * arithmetic rather than measurement, and would be wrong by the dial's reach and
  * by whatever chrome the body grows later.
  *
- * Nothing here observes a box. The app's one `ResizeObserver` is `Pane`'s and it
- * stays the only one, because that observer is the single path to a PTY resize
- * (`src/panes/geometry.ts` is why that path has to stay singular). This measures
- * on a window resize and after every render, which is every layout change the
- * shell itself can cause: the dial moving, a column shed, a view opened.
+ * Two boxes, one measurement: [`useMeasuredWidth`] holds the reading and the
+ * rule for a box nobody has laid out yet, and this composes it twice. The two
+ * pass different stand-ins on purpose, and the difference is the point of the
+ * seam being separate — the body is about to be worth the window, and an
+ * unmeasured seam is worth nothing, because a dial that has not been laid out
+ * has divided nothing yet and a guess there would be reach the shell then
+ * subtracts from a side.
  */
 export interface BodyBox {
   /** The body, in pixels. */
@@ -28,33 +31,7 @@ export function useBodyBox(
   body: RefObject<HTMLElement | null>,
   dial: RefObject<HTMLElement | null>,
 ): BodyBox {
-  const [box, setBox] = useState<BodyBox>(() => ({
-    width: typeof window === "undefined" ? 0 : window.innerWidth,
-    reach: 0,
-  }));
-
-  const measure = useCallback(() => {
-    const measured = body.current?.getBoundingClientRect().width ?? 0;
-    const seam = dial.current?.getBoundingClientRect().width ?? 0;
-    /*
-     * A box below a pixel is not a narrow box, it is a box nobody has laid out
-     * yet — the first paint, and every jsdom test, where `getBoundingClientRect`
-     * answers zero for everything. The window is the honest fallback there: it
-     * is what the body is about to be worth, give or take the seam.
-     */
-    const next: BodyBox = { width: measured >= 1 ? measured : window.innerWidth, reach: seam };
-    setBox((was) => (was.width === next.width && was.reach === next.reach ? was : next));
-  }, [body, dial]);
-
-  // No dependency list: after every render, because every layout change the
-  // shell makes is a render. An unchanged measurement sets no state, so this
-  // settles in one pass rather than looping.
-  useLayoutEffect(measure);
-
-  useEffect(() => {
-    window.addEventListener("resize", measure);
-    return () => window.removeEventListener("resize", measure);
-  }, [measure]);
-
-  return box;
+  const width = useMeasuredWidth(body, THE_WINDOW);
+  const reach = useMeasuredWidth(dial, NOTHING);
+  return useMemo(() => ({ width, reach }), [width, reach]);
 }

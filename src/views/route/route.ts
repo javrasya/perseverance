@@ -33,78 +33,18 @@
  * authority nobody granted.
  */
 
-import type { Fog, Map, Node, NodeState } from "../../snapshot/model.generated";
+import type { Fog, Map, Node } from "../../snapshot/model.generated";
 
 /*
- * `Map` above is the derived model's map, which shadows the built-in one for
- * the whole of this file. The alias is how the lookup tables here are built —
- * the model's vocabulary is the one worth keeping, and the collection is the
- * incidental thing that gets renamed.
+ * The blocker tally moved to `../graph` when Deep Field started ranking the
+ * same adjacency: one walk, two views. It is re-exported under its old name
+ * because it is still the number this pane's rows are built from, and every
+ * caller that had it here should go on having it here.
  */
-const Lookup = globalThis.Map;
+import { NOTHING_IN_THE_WAY, blockersOf, type BlockerTally } from "../graph";
 
-/* ------------------------------------------------------------ blockers --- */
-
-/**
- * What a node waits on, split by whether this map is in a position to judge it.
- */
-export type BlockerTally = {
-  /** Named blockers with a row on this map that this map does not show as resolved. */
-  readonly unresolved: number;
-  /** Named blockers with no row here, which this map cannot judge either way. */
-  readonly beyondTheMap: number;
-};
-
-const NOTHING_IN_THE_WAY: BlockerTally = { unresolved: 0, beyondTheMap: 0 };
-
-/**
- * Every node's blockers, counted once against the states this map is showing.
- *
- * **This is why `waitsOn` crosses the seam at all.** The derived model carries
- * no per-node blocker count — [`Counts`] is tickets, open and specs, and
- * [`Node`] deliberately withholds the count GitHub decided the state from — so
- * these numbers are the only source for `blocked by N`, which is the whole of
- * what a blocked row says about what holds it up. They are also the only source
- * for the second fact, which is rarer and worse to lose: that a blocker names
- * an issue with no row here, so this map cannot say whether it is done.
- *
- * The two are counted apart rather than summed. A blocker this map can see and
- * a blocker it cannot are different claims, and adding them would print a
- * number the rows on screen cannot account for — the failure this whole file is
- * arranged around. A blocker this map shows as resolved is counted into
- * neither: it is out of the way, which is a fact rather than an absence.
- *
- * **A node this map shows as resolved waits on nothing**, whatever it still
- * names, and that is the same rule read from the other end. GitHub closes an
- * issue without clearing what it was blocked by, so a finished ticket arrives
- * carrying open blockers — the awkward fixture's *finished before the thing it
- * waited on* is exactly that — and tallying them would put `blocked by 1` on a
- * row under the heading *Resolved*. Nothing holds up work that is already done,
- * so the emptying happens here, where the arithmetic is, rather than in the
- * view: a row that reads its own tally can then say all of it.
- */
-export function blockersOf(nodes: readonly Node[]): ReadonlyMap<number, BlockerTally> {
-  const resolved = new Lookup<number, boolean>();
-  for (const node of nodes) resolved.set(node.number, node.state === "resolved");
-
-  const tallies = new Lookup<number, BlockerTally>();
-  for (const node of nodes) {
-    if (node.state === "resolved") {
-      tallies.set(node.number, NOTHING_IN_THE_WAY);
-      continue;
-    }
-
-    let unresolved = 0;
-    let beyondTheMap = 0;
-    for (const before of node.waitsOn) {
-      const settled = resolved.get(before);
-      if (settled === undefined) beyondTheMap += 1;
-      else if (!settled) unresolved += 1;
-    }
-    tallies.set(node.number, { unresolved, beyondTheMap });
-  }
-  return tallies;
-}
+export { blockersOf };
+export type { BlockerTally } from "../graph";
 
 /* --------------------------------------------------------------- marks --- */
 
@@ -496,42 +436,16 @@ export function routeOf(map: Map): Route {
 
 /* ---------------------------------------------------------------- copy --- */
 
-/** What holds a row up, as a number and never as a spray of edges. */
-export function blockedByLabel(count: number): string {
-  return `blocked by ${count}`;
-}
-
-/**
- * Said on the row that waits, when one of the numbers it waits on has no row
- * here. The blocker is real and this map cannot judge it either way, so it is
- * said in words rather than counted into `blocked by N` — which would be this
- * map asserting something it has nothing on screen to back.
- */
-export function beyondTheMapNote(count: number): string {
-  return count === 1
-    ? "1 blocker, not a child of this map, has no row here"
-    : `${count} blockers, each not a child of this map, have no row here`;
-}
-
-/** The word on the cold tag, and the only place the designation is named. */
-export const DESIGNATED_TAG = "designated";
-
-/**
- * Names the ticket's binding — a fact about the reader's machine — and says
- * nothing about why the row is where it is.
+/*
+ * This view's own voice, and only that.
  *
- * The verdict is decided per node from the labels alone, so the tag travels
- * with it onto every row that carries it, including rows the frontier would
- * not offer anyway because they are blocked, resolved or not tickets. On those
- * the machine is not the reason; it is only the reason on a row that is
- * otherwise startable.
- *
- * A tag beside the others rather than a section of its own: the row keeps the
- * section its state puts it in and is counted there. Moving it would be this
- * side re-grouping the map by a fact that is about the reader, and a group is a
- * claim about the work.
+ * The words that *name* something in the model — the four state names, the two
+ * kind tags, the designation, the binding, the fog's name — are one vocabulary
+ * in `../vocabulary`, and the two sentences that report the blocker tally live
+ * with the tally in `../graph`. `Route.tsx` reads both from there directly.
+ * What is left here is the copy only The Route says: its headings, and the
+ * words it uses for its own shape.
  */
-export const BOUND_ELSEWHERE_TAG = "not on this machine";
 
 export const NOW_HEADING = "Now";
 export const NEXT_HEADING = "Next";
@@ -560,40 +474,12 @@ export const SECTION_HEADINGS: Record<SectionName, string> = {
  * *Destination* rather than *Spec*, because the word has to say what the row is
  * for and not only what its label reads: the spec is where the map is going,
  * which is exactly the thing that is never a step along the way. The model's
- * own word for it is on the row itself, as [`SPEC_TAG`].
+ * own word for it is on the row itself, as [`SPEC_TAG`] in `../vocabulary`.
  *
  * Sentence case like the section headings, and uppercased by the stylesheet for
  * the same reason.
  */
 export const DESTINATION_HEADING = "Destination";
-
-/**
- * The two kinds of child that are not tickets, said on the row in the model's
- * own words.
- *
- * The screen and the type read one vocabulary, exactly as `STATE_NAMES` keeps
- * them: an operator reading *unclassified* and a developer reading
- * `ChildKind::Unclassified` are reading the same thing. And the word is the
- * whole of why a stray issue fails safe rather than fails silently — the row is
- * in a group of its own, wearing a shape of its own, and it also *says* what it
- * is, so nothing about it depends on the reader knowing the shapes.
- */
-export const SPEC_TAG = "spec";
-export const UNCLASSIFIED_TAG = "unclassified";
-
-/**
- * The fog names itself.
- *
- * Everything else on this map has an identity — a number, a title, a URL — and
- * the fog has none of the three, because it is the work nobody has cut a ticket
- * for yet. That is exactly why it is named rather than left as a figure in the
- * margin: a region with a name is somewhere an operator can go, and an
- * unlabelled number is a smudge.
- *
- * Sentence case like the section headings, and uppercased by the stylesheet for
- * the same reason.
- */
-export const FOG_HEADING = "Fog";
 
 /**
  * What stands where the count would be when the map's body never named the fog
@@ -607,29 +493,3 @@ export const FOG_HEADING = "Fog";
  * `folder.ts` each declare their own.
  */
 export const NOBODY_SURVEYED = "—";
-
-/**
- * Said under the heading when the survey happened and turned up nothing.
- *
- * A real claim, and the reason the surveyed branch always draws something under
- * its heading: an empty region and an unsurveyed one would otherwise look
- * identical below the count, and the count is not the only place the difference
- * is meant to be legible.
- */
-export const FOG_ALL_CHARTED = "nothing left unspecified";
-
-/**
- * The on-screen word for each of the four states.
- *
- * The model's own words, deliberately unchanged, in the shape `PHASE_NAMES`
- * already established: the screen and the type say the same thing, so an
- * operator reading *blocked* and a developer reading `NodeState::Blocked` are
- * reading one vocabulary. The palette is neutrals and one indigo, so the word
- * is doing most of the work and cannot be a synonym.
- */
-export const STATE_NAMES: Record<NodeState, string> = {
-  resolved: "resolved",
-  blocked: "blocked",
-  claimed: "claimed",
-  takeable: "takeable",
-};

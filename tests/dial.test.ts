@@ -178,8 +178,9 @@ describe("a view below its floor stands down, and nothing switches by itself", (
     // The narrowest detent that honours the floor, not the widest: an exit that
     // took the whole window would be answering a question nobody asked.
     expect(standing?.exits[0]).toEqual({ kind: "widen", detent: "split", honoured: true });
-    // One view registered, so nothing else fits here and the second exit is the
-    // other side of the dial rather than a view that does not exist.
+    // The `glance` map side is under every registered view's floor, so there is
+    // no view to offer here and the second exit is the other side of the dial
+    // rather than a view that would stand down the moment it opened.
     expect(standing?.exits[1]).toEqual({ kind: "terminal" });
   });
 

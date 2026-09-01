@@ -2,7 +2,7 @@
  * How a view declares itself to the conformance suite.
  *
  * The fan-out is *rules × views × the fixture space*, and the view axis is
- * `VIEWS` — one entry today, four eventually. A check written against The
+ * `VIEWS` — two entries today, four eventually. A check written against The
  * Route's own selectors would be a check that silently stops covering anything
  * the day a second view arrives, so the selectors are not in the checks: they
  * are here, once per view, in a table `satisfies Record<ViewName, ViewSurface>`
@@ -23,7 +23,14 @@ import type {
   NodeState,
   Snapshot,
 } from "../../../src/snapshot/model.generated";
-import { UNCLASSIFIED_TAG } from "../../../src/views/route/route";
+/*
+ * One import for both surfaces, and it used to be two: each view declared the
+ * word and this file imported both spellings so the checks would notice if they
+ * ever disagreed. They cannot disagree now — the word a node is told apart by
+ * is the model's, and `src/views/vocabulary.ts` is where it is said once — so
+ * the second import would only be this file asserting a table against itself.
+ */
+import { UNCLASSIFIED_TAG } from "../../../src/views/vocabulary";
 import type { ViewName } from "../../../src/views/views";
 
 /**
@@ -90,7 +97,53 @@ const ROUTE: ViewSurface = {
   fog: { region: "[data-fog]", unsurveyed: "[data-unsurveyed]", count: "[data-count]" },
 };
 
-export const VIEW_SURFACES = { route: ROUTE } satisfies Record<ViewName, ViewSurface>;
+/**
+ * Deep Field, whose two lanes are the whole reason its selectors are not The
+ * Route's spelled a second time.
+ *
+ * **One element per node, and it is the plate.** The lane is real DOM and the
+ * field is one `aria-hidden` `<svg>` of bare marks, so a node reaches the
+ * document twice — as `li[data-node]` on the left and as
+ * `circle[data-mark-node]` on the right. Only the first answers `rows`, which
+ * is what keeps a count of rows a count of nodes; the mark carries a different
+ * attribute for exactly that reason, and nothing here reaches for it.
+ *
+ * `designated` is `[data-frontier]` rather than the mark's `data-designated`:
+ * the plate carries `map.frontier` verbatim while the drawn ring yields to
+ * *claimed*, so the attribute is where the designation is always readable and
+ * the shape is not.
+ *
+ * Nothing here names the plate lane, the boundary, the clearance or a
+ * coordinate. Those are this view's layout, the meta-rule keeps them out of the
+ * contract's reach, and a surface field naming one would be a rule reading a
+ * number that only one view has.
+ */
+const DEEP_FIELD: ViewSurface = {
+  root: 'section[aria-label="Deep Field"]',
+  /* The Route's precondition and for the same reason: `App` mounts no view with
+     no map open. The view's own width stand-down is a different question, and
+     it is the driver's rather than this table's: `load` opens the dial at the
+     `map` detent before anything is read, where every map in this fixture space
+     is drawn as a picture. A surface that tried to answer it here would be
+     answering from a width nothing here can measure. */
+  mounts: (snapshot) => snapshot.model.map !== null,
+  rows: "li[data-node]",
+  row: (number) => `li[data-node="${number}"]`,
+  rowsInState: (state) => `li[data-state="${state}"]`,
+  rowsOfKind: (kind) => `li[data-kind="${kind}"]`,
+  designated: "[data-frontier]",
+  /* The plate's one `aria-hidden` child holds the shape the node wears, and the
+     span inside it is the form itself — a cut composes onto that rather than
+     replacing it. The field's `<svg>` is `aria-hidden` too and is not in a row. */
+  glyph: 'span[aria-hidden="true"] > span',
+  unclassifiedWord: UNCLASSIFIED_TAG,
+  fog: { region: "[data-fog]", unsurveyed: "[data-unsurveyed]", count: "[data-count]" },
+};
+
+export const VIEW_SURFACES = {
+  route: ROUTE,
+  "deep-field": DEEP_FIELD,
+} satisfies Record<ViewName, ViewSurface>;
 
 export function surfaceOf(view: ViewName): ViewSurface {
   return VIEW_SURFACES[view];

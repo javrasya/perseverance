@@ -3,15 +3,14 @@ import { NO_MAP_OPEN } from "../snapshot/readout";
 /*
  * The map's vocabulary, imported rather than respelled.
  *
- * These constants live under `src/views/route/` because that is where the first
- * surface to need them was built, but none of them is a fact about the Route:
- * `STATE_NAMES` is the model's four words, `SPEC_TAG` and `UNCLASSIFIED_TAG`
- * are `ChildKind`'s own, and `beyondTheMapNote` is the sentence this app says
- * about a blocker that has no row. A second spelling of any of them is a panel
- * and a picture disagreeing about the same node in the same window, which is
- * the one thing a single derived model exists to make impossible. If the Route
- * is ever retired the words move to a module of their own; until then the
- * import is the cheaper direction of the dependency.
+ * None of these is a fact about any one surface: `STATE_NAMES` is the model's
+ * four words, `SPEC_TAG` and `UNCLASSIFIED_TAG` are `ChildKind`'s own, and
+ * `beyondTheMapNote` is the sentence this app says about a blocker that has no
+ * row. A second spelling of any of them is a panel and a picture disagreeing
+ * about the same node in the same window, which is the one thing a single
+ * derived model exists to make impossible. So they live in the shared modules
+ * every view reads — `views/vocabulary.ts` for the words, `views/graph.ts` for
+ * the blocker sentence — and the panel reads them from there.
  */
 import {
   BOUND_ELSEWHERE_TAG,
@@ -19,8 +18,8 @@ import {
   SPEC_TAG,
   STATE_NAMES,
   UNCLASSIFIED_TAG,
-  beyondTheMapNote,
-} from "../views/route/route";
+} from "../views/vocabulary";
+import { beyondTheMapNote } from "../views/graph";
 
 /**
  * What the detail panel says, as a value.

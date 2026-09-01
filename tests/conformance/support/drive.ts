@@ -5,7 +5,7 @@ import {
   isFixtureName,
 } from "../../../src/snapshot/fixtures";
 import type { Snapshot } from "../../../src/snapshot/model.generated";
-import { DEFAULT_VIEW, type ViewName } from "../../../src/views/views";
+import { DEFAULT_VIEW, STORAGE_KEY, type ViewName } from "../../../src/views/views";
 import type { FixtureState } from "../../support/contract";
 import { surfaceOf, type ViewSurface } from "./views";
 
@@ -101,12 +101,33 @@ export async function load(
     reducedMotion: state.motion === "reduced" ? "reduce" : "no-preference",
   });
 
+  /*
+   * Which view is open is the remembered one, so the way to open a view here is
+   * the way an operator's last session opens it: the key `views.ts` reads at
+   * boot, written before any of the app's own script runs. Pressing the
+   * switcher instead would make every rule check depend on the switcher being
+   * reachable at this width, which is a different claim from the rule's.
+   */
+  await page.addInitScript(
+    ([key, name]: readonly [string, ViewName]) => {
+      try {
+        window.localStorage.setItem(key, name);
+      } catch {
+        // Storage denied: the app opens on its default, and the root wait below
+        // is what reports that rather than a check quietly reading another view.
+      }
+    },
+    [STORAGE_KEY, view] as const,
+  );
+
   await page.goto(`/?${FIXTURE_PARAMETER}=${encodeURIComponent(state.fixture)}`);
 
   /* The chrome is what is on screen in every state, including the one where no
      view is: waiting on it is what makes *the app booted* separable from *this
      view mounted*, which is the difference the null root reports. */
   await page.locator("header").first().waitFor({ state: "visible" });
+
+  await openTheDial(page);
 
   let root: Locator | null = null;
   if (surface.mounts(snapshot)) {
@@ -117,6 +138,44 @@ export async function load(
   await page.evaluate(() => document.fonts.ready);
 
   return { ...at, page, root };
+}
+
+/**
+ * The dial, put where the view is drawn, before anything is read off it.
+ *
+ * Setup, exactly like seeding the remembered view above, and for the same
+ * reason: how much window the map side is worth is the operator's, the shell
+ * remembers it per map, and a suite that never touched it would be asserting
+ * about whichever share the default detent happens to leave. That share is not
+ * generous — the map side is split with the terminal and then split again with
+ * the launcher and the rail — and a view wide enough to want the room says so
+ * by standing itself down, at which point every rule below reads a notice
+ * instead of a picture and reports green for the half of itself the notice
+ * happens to satisfy. That is what the first WebKit run against Deep Field
+ * found, and it is a hole in the reading rather than a finding about the view.
+ *
+ * `map` and not *the narrowest detent that fits*: which detent fits is a number
+ * the shell computes from floors, and a driver that asked the shell where to
+ * stand would be the rendering choosing the conditions it is judged under. The
+ * far detent is the one position that is the same claim for every view — *this
+ * window, all of it, to the map* — so a view that will not draw there is a view
+ * that will not draw at all, which is a finding and not a hole.
+ *
+ * Driven through the keyboard rather than through the store: the dial's
+ * remembered position is keyed on a folder and a map, and `dev:web` has opened
+ * neither, so there is no cell to seed. `End` is the binding the one key router
+ * declares for *give the whole window to the map* (`src/keys/router.ts`), and
+ * `data-dial` is the hook that router resolves the widget by — the same two
+ * hooks an operator's own hand goes through.
+ */
+async function openTheDial(page: Page): Promise<void> {
+  const dial = page.locator("[data-dial]");
+  await dial.waitFor({ state: "visible" });
+  await dial.focus();
+  await page.keyboard.press("End");
+  /* The attribute the dial writes its own detent into, so the wait is on the
+     move having landed rather than on a duration. */
+  await page.locator('[data-dial][data-detent="map"]').waitFor({ state: "visible" });
 }
 
 /** The Route, on screen, for a state that has a map open. */

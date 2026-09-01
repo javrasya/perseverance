@@ -10,7 +10,7 @@ import {
 import { FIXTURE_NAMES, FIXTURES } from "../src/snapshot/fixtures";
 import type { NodeState, Phase } from "../src/snapshot/model.generated";
 import { PHASE_NAMES } from "../src/snapshot/readout";
-import { STATE_NAMES } from "../src/views/route/route";
+import { STATE_NAMES } from "../src/views/vocabulary";
 import { VIEWS } from "../src/views/views";
 import {
   DECLARATIONS_DIR,
@@ -287,12 +287,16 @@ describe("gate: adding a view brings the fixture space and the declarations with
     expect(missing).toEqual([]);
   });
 
-  it("counts a second view as a hole the moment it is registered", () => {
+  it("counts a further view as a hole the moment it is registered", () => {
     // The gate is driven off `VIEWS`, so this is what the assertion above does
     // on the commit that adds one: a name with no file is a missing
     // declaration for every judged rule, immediately and without an edit here.
-    const unregistered = readDeclaration("deep-field");
+    // The name is a view nobody has built, and it has to stay one — the two
+    // registered views have their files, so a registered name here would be
+    // asserting that a written declaration is missing.
+    const unregistered = readDeclaration("constellation");
 
+    expect(VIEWS).not.toContain("constellation");
     expect(unregistered.parsed).toBeNull();
     expect(sectionFor(unregistered, 13)).toBeUndefined();
   });

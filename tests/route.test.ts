@@ -1,11 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { FIXTURES, FIXTURE_NAMES } from "../src/snapshot/fixtures";
 import type { Map, Node } from "../src/snapshot/model.generated";
+import { beyondTheMapNote, blockedByLabel } from "../src/views/graph";
 import {
   NEXT_HEADING,
   NOW_HEADING,
-  beyondTheMapNote,
-  blockedByLabel,
   blockersOf,
   routeOf,
   type Route,

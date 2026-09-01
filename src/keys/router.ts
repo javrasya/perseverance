@@ -433,8 +433,8 @@ function typingInto(element: Element | null): boolean {
  * listener is at the window in the capture phase, so claiming `Enter` there
  * would suppress that button's own activation and run the `open` row's
  * *toggle* instead, leaving the keyboard and the mouse disagreeing about one
- * control. Only the route's rows carry `data-node-row`, so only they are
- * openable from here.
+ * control. Only a view's pickable rows — The Route's rows and Deep Field's
+ * plates — carry `data-node-row`, so only they are openable from here.
  */
 function nodeUnder(element: Element | null): number | null {
   const row = element?.closest("[data-node-row]") ?? null;
