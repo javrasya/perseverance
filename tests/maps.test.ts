@@ -3,6 +3,7 @@ import {
   COMPLETED_GROUP,
   LABELS_TRUNCATED_NOTE,
   MAPS_PREAMBLE,
+  MAPS_TRUNCATED_NOTE,
   MAP_LABEL,
   NO_MAP_COPY,
   NO_MAP_HEADLINE,
@@ -274,13 +275,15 @@ describe("the cache age is on screen in every state", () => {
   });
 });
 
-describe("a page that cannot exist and a label list that ran long are two caveats", () => {
-  it("carries the two truncation flags apart, both false until something says otherwise", () => {
-    // Two fields because there are two sentences. The Rust side reads them off
-    // disjoint halves of one `Truncation`, so a rename on either is silent here
-    // and this is the half that notices.
+describe("a page that cannot exist and two that ordinarily can are three caveats", () => {
+  it("carries the three truncation flags apart, all false until something says otherwise", () => {
+    // Three fields because there are three sentences. The Rust side reads them
+    // off one `Truncation`, so a rename on any of them is silent here and this
+    // is the half that notices.
     expect(nothingReadYet(1).truncated).toBe(false);
+    expect(nothingReadYet(1).mapsTruncated).toBe(false);
     expect(nothingReadYet(1).labelsTruncated).toBe(false);
+    expect(loadFixture(1).mapsTruncated).toBe(false);
     expect(loadFixture(1).labelsTruncated).toBe(false);
   });
 
@@ -295,6 +298,27 @@ describe("a page that cannot exist and a label list that ran long are two caveat
      */
     expect(TRUNCATED_NOTE).toContain("cannot happen");
     expect(LABELS_TRUNCATED_NOTE).not.toContain("cannot");
+    // And the same again for the map list, which is the leg `capped()` used to
+    // carry. `issues(first: 100, labels: [...])` is a page this query chose, so
+    // a repository that has charted a hundred and one maps has watched GitHub
+    // keep every promise it makes — and would have been told it broke one.
+    expect(MAPS_TRUNCATED_NOTE).not.toContain("cannot");
+  });
+
+  it("tells an operator a map past the end of the page is not a map that is gone", () => {
+    /*
+     * The consequence worth naming, because it is the one a missing map looks
+     * like from the outside: an operator who charted something and cannot find
+     * it in the launcher would otherwise conclude it was deleted. The sentence
+     * says where it actually is, and the act it points at — closing what is
+     * finished — is what brings the list back inside one page.
+     */
+    expect(MAPS_TRUNCATED_NOTE).toContain("maps");
+    expect(MAPS_TRUNCATED_NOTE).toContain("rather than gone");
+    // Three sentences, and none of them is a reading of another.
+    expect(MAPS_TRUNCATED_NOTE).not.toContain(TRUNCATED_NOTE);
+    expect(MAPS_TRUNCATED_NOTE).not.toContain(LABELS_TRUNCATED_NOTE);
+    expect(TRUNCATED_NOTE).not.toContain(MAPS_TRUNCATED_NOTE);
   });
 
   it("names what a cut-off label list costs rather than how much was cut", () => {
@@ -323,6 +347,12 @@ describe("a page that cannot exist and a label list that ran long are two caveat
      */
     expect(LABELS_TRUNCATED_NOTE).toContain("may not have been read");
     expect(LABELS_TRUNCATED_NOTE).not.toContain("were not read");
+    // The map list is raised by the same second producer — `MapsView::unvouched`
+    // caveats both flags, so *nothing derived from a body whose identity is not
+    // this build's may be believed* holds with no exception — so it hedges in
+    // the same word.
+    expect(MAPS_TRUNCATED_NOTE).toContain("may not have been read");
+    expect(MAPS_TRUNCATED_NOTE).not.toContain("were not read");
     // What an operator does about it is unhedged, because the act is the same
     // under either producer: a second look at a designated ticket.
     expect(LABELS_TRUNCATED_NOTE).toContain("bound to another");
