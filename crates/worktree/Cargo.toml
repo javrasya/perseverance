@@ -1,0 +1,25 @@
+[package]
+name = "perseverance-worktree"
+description = "The research run's working copy. The one place `git` is run, and the one place this harness writes inside the operator's repository."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# Two dependencies, and both are load-bearing. `perseverance-store` answers
+# where the shared git directory is — the one derivation this crate refuses to
+# own a second copy of — and `thiserror` keeps a refusal a sentence. No socket,
+# no Tauri, no PTY: the only child this crate ever starts is `git`, once, and it
+# waits for it.
+[dependencies]
+perseverance-store = { workspace = true }
+thiserror = { workspace = true }
+
+# The tests build a real repository with a real `git` and skip cleanly where
+# there is none, so a runner without git still passes.
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints.rust]
+unsafe_code = "forbid"

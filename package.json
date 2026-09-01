@@ -25,8 +25,9 @@
     "check:model-purity": "node scripts/check-model-purity.mjs",
     "check:agent-solitude": "node scripts/check-agent-solitude.mjs",
     "check:no-install-probing": "node scripts/check-no-install-probing.mjs",
+    "check:repo-writes": "node scripts/check-repo-writes.mjs",
     "contract:matrix": "vite-node scripts/render-contract-matrix.ts",
-    "verify": "npm run typecheck && npm run check:css-floor && npm run check:model-purity && npm run check:agent-solitude && npm run check:no-install-probing && npm run test && npm run build"
+    "verify": "npm run typecheck && npm run check:css-floor && npm run check:model-purity && npm run check:agent-solitude && npm run check:no-install-probing && npm run check:repo-writes && npm run test && npm run build"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

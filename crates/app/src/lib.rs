@@ -2275,6 +2275,73 @@ impl Terminals {
         self.staked_here().insert(run, stakes);
     }
 
+    /// Whether this run may hold the keys.
+    ///
+    /// **A research run never may**, and it is refused here rather than left to
+    /// the chrome to remember. The keyboard invariant is *at most one keyed
+    /// run*, and a research run is not one of the runs that can be it: it is
+    /// spawned unattended and its brief forbids waiting for input, so keys sent
+    /// to one would be typed at a session that was never going to read them —
+    /// and the keystroke that did land would derail the one run in this app
+    /// nobody is watching. A convention in the UI would hold only until the
+    /// second surface that sends a key; a refusal in the process holds for
+    /// every one of them.
+    ///
+    /// This is about the keyboard and not about the pane. Watching a research
+    /// run is allowed and [`Terminals::monitoring`] says why.
+    ///
+    /// A run this app was never told the stakes of is keyed, which is
+    /// [`what_it_loses`]'s posture: not knowing what a run is errs towards the
+    /// ordinary case, rather than locking an operator out of their own terminal.
+    fn keyed(&self, run: RunId) -> bool {
+        self.staked_here()
+            .get(&run)
+            .is_none_or(|stakes| stakes.kind != RunKind::Research)
+    }
+
+    /// Which run the pane is bound to — **every kind of run, a research run
+    /// included**.
+    ///
+    /// Watching and typing are two permissions and only the second one is
+    /// refused. A research run is the one run in this window nobody is
+    /// attending, which makes seeing it worth more here than anywhere else, not
+    /// less; and refusing the binding would not be a smaller behaviour but a
+    /// larger one. [`Runs::frame`] writes bytes for the monitored run and for no
+    /// other, so a declaration this side quietly dropped would leave the chrome
+    /// bound to a run nothing is written to — a terminal that stays blank
+    /// forever while the ring behind it fills unacknowledged until `truncated`
+    /// flips and promises a replay that can never come. That is the failure
+    /// `src/chrome/Sockets.tsx`'s resume comment exists to prevent, and it is
+    /// not worth spending to say something the keyboard already says.
+    ///
+    /// The rule lands on the keys instead, in [`Terminals::typed`], because the
+    /// keys are the thing a research run cannot survive. The two locks are taken
+    /// one after the other and never nested, as everywhere else on this type.
+    pub fn monitoring(&self, run: Option<RunId>) {
+        self.held().monitor(run);
+    }
+
+    /// Keystrokes, or the sentence saying why they went nowhere.
+    ///
+    /// The refusal is a sentence and not a silent drop, because the socket the
+    /// keys came from is a surface that can print it — an operator whose typing
+    /// vanishes learns nothing, and this is exactly the case where the answer
+    /// *nobody is meant to be typing here* is the whole explanation. The one
+    /// caller does print it: `src/App.tsx` catches this rejection and hands the
+    /// text, with this sentence, to the run's own spill register, which the pane
+    /// reads back beside the run it was aimed at. A research run binds the pane
+    /// like any other, so an operator can type at one and this is what they are
+    /// told when they do.
+    pub fn typed(&self, run: RunId, bytes: &[u8]) -> Result<(), String> {
+        if !self.keyed(run) {
+            return Err(UNKEYED.to_string());
+        }
+
+        self.held()
+            .typed(run, bytes)
+            .map_err(|error| error.to_string())
+    }
+
     /// Whether this window already holds a *claiming* run staked on that ticket
     /// in that folder whose child has not exited.
     ///
@@ -3059,7 +3126,7 @@ fn terminal_channel(terminals: State<'_, Terminals>, bytes: Channel<InvokeRespon
 /// disagree with the first.
 #[tauri::command]
 fn monitor_run(terminals: State<'_, Terminals>, run: Option<u64>) {
-    terminals.held().monitor(run.map(RunId::from_u64));
+    terminals.monitoring(run.map(RunId::from_u64));
 }
 
 /// The WebView confirming it has written this run's bytes up to `through`.
@@ -3074,12 +3141,13 @@ fn run_took(terminals: State<'_, Terminals>, run: u64, through: u64) {
 
 /// Keystrokes. xterm.js hands them over as a string and this crate turns it into
 /// bytes; nothing here reads them.
+///
+/// Which run may be typed at is [`Terminals::typed`]'s answer and not this
+/// command's, because the pane is not the only surface that will ever send a
+/// key.
 #[tauri::command]
 fn typed_at_run(terminals: State<'_, Terminals>, run: u64, text: String) -> Result<(), String> {
-    terminals
-        .held()
-        .typed(RunId::from_u64(run), text.as_bytes())
-        .map_err(|error| error.to_string())
+    terminals.typed(RunId::from_u64(run), text.as_bytes())
 }
 
 /// A completed gesture settled on a pane size.
@@ -3468,7 +3536,7 @@ fn start_charting(
             );
             terminals.counting(run, poker.run_started());
             // The operator watches what they started.
-            terminals.held().monitor(Some(run));
+            terminals.monitoring(Some(run));
 
             Started::Spawned {
                 run: run.as_u64(),
@@ -3525,7 +3593,13 @@ fn chart_in(
     };
 
     let rendered = charting(app, &operator, &repo, idea);
-    let (spawn, launch, watching) = plan_in(harvests, registry, folder, adapter, &rendered.text)?;
+    let (spawn, launch, watching) = plan_in(
+        harvests,
+        registry,
+        Path::new(folder),
+        adapter,
+        &rendered.text,
+    )?;
     let accepted = perseverance_pty::accept(launch).map_err(|refusal| refusal.to_string())?;
 
     let run = terminals
@@ -3733,8 +3807,11 @@ fn booked(terminals: &Terminals, claims: &Claims, poker: &Poker, run: RunId, sta
         claims.claimed(ticket);
     }
     terminals.counting(run, poker.run_started());
-    // The operator watches what they started.
-    terminals.held().monitor(Some(run));
+    // The operator watches what they started, whatever kind it is — a research
+    // run included, because being unattended is a reason to be visible rather
+    // than a reason to be hidden. What that run refuses is the keyboard, in
+    // [`Terminals::typed`], and no caller here carries a copy of that rule.
+    terminals.monitoring(Some(run));
 }
 
 /// What kind of run this ticket is, from the node the frontier named.
@@ -3815,7 +3892,45 @@ fn spawn_at(
 
     let rendered = render(app, &operator, &repo, map, node, question);
 
-    start_child(terminals, harvests, registry, folder, adapter, rendered)
+    let directory = where_it_runs(map, node, folder)?;
+
+    start_child(terminals, harvests, registry, &directory, adapter, rendered)
+}
+
+/// The directory this press's child is started in.
+///
+/// **A research run gets a worktree of its own and every other run gets the
+/// folder the operator picked**, because a research run is the only one nobody
+/// is sitting in front of: its edits must not appear under the checkout somebody
+/// else is reading, and its branch is the only thing it leaves behind.
+///
+/// Called before the spawn and after every refusal that costs nothing — no
+/// token, no operator, an unreadable ticket — so the ordinary way a press fails
+/// leaves the operator's repository exactly as it found it. A worktree that
+/// cannot be made is a refusal from this same chain, and [`start_working`]'s
+/// order means nothing has been staked, claimed or counted by the time it
+/// travels.
+///
+/// The path it returns is the one that reaches [`plan_in`], so the environment
+/// harvest, the program resolution and the PTY's working directory are three
+/// answers about one directory. `perseverance_env`'s cache is keyed on exactly
+/// that path, which is why nothing here has a worktree rule in it: a worktree is
+/// simply another canonical directory, and it gets its own harvest for free.
+fn where_it_runs(
+    map: &Map,
+    node: &perseverance_model::Node,
+    folder: &str,
+) -> Result<PathBuf, String> {
+    match kind_of(map, node.number) {
+        RunKind::Research => {
+            perseverance_worktree::worktree_for(Path::new(folder), node.number, &node.title)
+                .map(|worktree| worktree.path)
+                // The crate's own sentence, unedited, exactly as the store's is
+                // carried above.
+                .map_err(|refusal| refusal.to_string())
+        }
+        _ => Ok(PathBuf::from(folder)),
+    }
 }
 
 /// The login this process learned, asked once more if it has not learned it yet.
@@ -3859,13 +3974,24 @@ fn render(
     node: &perseverance_model::Node,
     question: String,
 ) -> prompt::Rendered {
-    let overriding = app
-        .path()
-        .app_data_dir()
-        .ok()
-        .and_then(|directory| prompt::work_ticket_override(&directory));
+    // The kind picks the template, mechanically, off the label the map already
+    // carries — the harness never guesses which brief a ticket wants, and the
+    // two briefs disagree about the one thing no substitution could carry:
+    // whether anybody is at the keyboard.
+    let research = kind_of(map, node.number) == RunKind::Research;
 
-    prompt::work_ticket(
+    let directory = app.path().app_data_dir().ok();
+    let overriding = directory.and_then(|directory| match research {
+        true => prompt::work_ticket_research_override(&directory),
+        false => prompt::work_ticket_override(&directory),
+    });
+
+    let brief = match research {
+        true => prompt::work_ticket_research,
+        false => prompt::work_ticket,
+    };
+
+    brief(
         overriding.as_deref(),
         &prompt::Coordinates {
             repo: format!("{}/{}", repo.owner, repo.name),
@@ -3897,12 +4023,17 @@ fn render(
 fn plan_in(
     harvests: &Harvests,
     registry: &Registry,
-    folder: &str,
+    run_in: &Path,
     adapter: &str,
     prompt: &str,
 ) -> Result<(SpawnIn, perseverance_agent::Launch, Box<dyn Watch>), String> {
     let agent = agent_named(adapter).ok_or_else(|| format!("no adapter is named {adapter}"))?;
-    let settled = harvests.in_folder(Path::new(folder));
+    // A path rather than the picked folder's string, because a research run's
+    // directory is its worktree and the harvest is keyed on the directory a
+    // child is actually started in. That key rule is the whole of the worktree
+    // question here: a new canonical directory gets its own harvest, and this
+    // side has no worktree to reason about.
+    let settled = harvests.in_folder(run_in);
     let chosen = remembered_override(registry);
 
     // The same two-tier resolution the folder readout already draws, and not a
@@ -3974,15 +4105,20 @@ struct SpawnIn {
 /// press differs from a work press only in what it renders and in what it is
 /// allowed to render *from*. A second copy of this tail is where the two would
 /// quietly stop being the same foreground, monitored session.
+///
+/// **Where it runs is an argument and never the picked folder**, because a
+/// research run's directory is the worktree made for it a moment ago. One path
+/// travels from here to the harvest, to the program resolution and to the PTY,
+/// so all three answer about the same directory.
 fn start_child(
     terminals: &Terminals,
     harvests: &Harvests,
     registry: &Registry,
-    folder: &str,
+    run_in: &Path,
     adapter: &str,
     rendered: prompt::Rendered,
 ) -> Result<(RunId, prompt::Rendered), String> {
-    let (spawn, launch, watching) = plan_in(harvests, registry, folder, adapter, &rendered.text)?;
+    let (spawn, launch, watching) = plan_in(harvests, registry, run_in, adapter, &rendered.text)?;
     let accepted = perseverance_pty::accept(launch).map_err(|refusal| refusal.to_string())?;
 
     let run = terminals
@@ -4174,7 +4310,7 @@ fn compose_spec(
             );
             terminals.counting(run, poker.run_started());
             // The operator watches what they started.
-            terminals.held().monitor(Some(run));
+            terminals.monitoring(Some(run));
 
             Composed::Spawned {
                 run: run.as_u64(),
@@ -4239,7 +4375,14 @@ fn compose_at(
         },
     );
 
-    start_child(terminals, harvests, registry, folder, adapter, rendered)
+    start_child(
+        terminals,
+        harvests,
+        registry,
+        Path::new(folder),
+        adapter,
+        rendered,
+    )
 }
 
 /* ------------------------------------------------- asking about a node --- */
@@ -4424,7 +4567,14 @@ fn ask_at(
         },
     );
 
-    start_child(terminals, harvests, registry, folder, adapter, rendered)
+    start_child(
+        terminals,
+        harvests,
+        registry,
+        Path::new(folder),
+        adapter,
+        rendered,
+    )
 }
 
 /* --------------------------------------------------- what a quit costs --- */
@@ -4540,6 +4690,13 @@ pub struct Stakes {
     pub kind: RunKind,
 }
 
+/// What a keystroke aimed at a run nobody is watching is answered with.
+///
+/// Phrased as what the run *is* rather than as a permission that could be
+/// granted: there is no setting behind this, and an operator who reads it as a
+/// lock would go looking for the key.
+const UNKEYED: &str = "a research run runs unattended, so nothing can be typed at it";
+
 /// A work run's loss, which is not the work.
 ///
 /// The claim is a GitHub assignment and nothing this process holds, so quitting
@@ -4551,9 +4708,12 @@ const WORK_LOSS: &str = "the claim stays yours and Resume picks it up on the nex
 
 /// A research run's loss, which is everything.
 ///
-/// There is no worktree, no queue row and no transcript kept on this side, so
-/// what the agent has not already posted to the ticket goes with the process.
-/// The mitigation is upstream in the prompt and never here.
+/// There is no queue row and no transcript kept on this side, so what the agent
+/// has not already posted to the ticket goes with the process. A worktree it was
+/// given is not a survival either: the branch in it reaches nobody until the
+/// session pushes it, which is why the research brief instructs the commit, the
+/// push and the link before it instructs the close. The mitigation is upstream
+/// in that prompt and never here.
 const RESEARCH_LOSS: &str =
     "a research run keeps nothing, so whatever it has not already posted goes with it";
 
@@ -8923,6 +9083,77 @@ mod tests {
         );
     }
 
+    /// **The keyboard invariant, as a fact of this process rather than a habit
+    /// of the chrome.**
+    ///
+    /// Two real runs through the registry, because the property is about the
+    /// join between the stakes and the keyboard: every kind binds the pane and
+    /// only a research run is refused the keys, and a run nobody staked is
+    /// treated as the ordinary case. Asserted as what an operator can do rather
+    /// than on the predicate behind it — the predicate is private and the
+    /// refusal is not.
+    #[test]
+    fn a_research_run_never_holds_the_keys_and_every_other_run_does() {
+        let directory = TempDir::new().expect("temp dir");
+        let terminals = Terminals::new();
+
+        let work = a_live_run_in(&terminals, directory.path());
+        let research = a_live_run_in(&terminals, directory.path());
+        let unstaked = a_live_run_in(&terminals, directory.path());
+
+        terminals.staked(work, a_stake(51, "perseverance", RunKind::Work));
+        terminals.staked(research, a_stake(58, "perseverance", RunKind::Research));
+
+        terminals.monitoring(Some(work));
+        assert_eq!(terminals.held().monitored(), Some(work));
+        assert!(terminals.typed(work, b"y\r").is_ok());
+
+        // Watched like any other run: a pane the harness is not writing to is
+        // the failure this crate is most careful about, and being unattended is
+        // a reason to be visible rather than a reason to be hidden.
+        terminals.monitoring(Some(research));
+        assert_eq!(
+            terminals.held().monitored(),
+            Some(research),
+            "a research run could not be watched"
+        );
+
+        let refused = terminals
+            .typed(research, b"y\r")
+            .expect_err("a research run takes no keys");
+        assert_eq!(refused, UNKEYED);
+
+        // A run this app was never told the stakes of is keyed, which is the
+        // same direction every other unknown in this file errs in.
+        terminals.monitoring(Some(unstaked));
+        assert_eq!(terminals.held().monitored(), Some(unstaked));
+        assert!(terminals.typed(unstaked, b"y\r").is_ok());
+    }
+
+    /// Which kinds are got on with unattended, per kind.
+    ///
+    /// The property the later wedged predicate reads: a work or compose run
+    /// sitting idle is a person thinking, and a research run sitting idle with
+    /// its ticket still open is stuck — because its own brief forbids it to be
+    /// waiting for anything.
+    #[test]
+    fn research_is_the_only_kind_nobody_is_waiting_on() {
+        assert!(RunKind::of(TicketType::Research).unattended());
+
+        for attended in [
+            RunKind::of(TicketType::Prototype),
+            RunKind::of(TicketType::Grilling),
+            RunKind::of(TicketType::Task),
+            RunKind::Chart,
+            RunKind::Compose,
+        ] {
+            assert!(
+                !attended.unattended(),
+                "{attended:?} is a press somebody is sitting in front of"
+            );
+        }
+    }
+
     /// The count the poller's ten-second rung is a function of, and the only
     /// thing that ever brings it back down.
     ///
@@ -9571,6 +9802,97 @@ mod tests {
         }
     }
 
+    /* ------------------------------------- where a press's child runs --- */
+
+    /// A repository with one commit, or `None` where this machine has no git.
+    ///
+    /// The other half of this is `perseverance_worktree`'s own tests; what is
+    /// asserted here is only the wiring — that a research press is the press
+    /// that gets a worktree, and that nothing else is.
+    fn a_repository() -> Option<tempfile::TempDir> {
+        let folder = tempfile::TempDir::new().expect("a temporary directory");
+        let run = |arguments: &[&str]| -> Option<bool> {
+            std::process::Command::new("git")
+                .arg("-C")
+                .arg(folder.path())
+                .args(arguments)
+                .stdin(std::process::Stdio::null())
+                .output()
+                .ok()
+                .map(|finished| finished.status.success())
+        };
+
+        run(&["init", "--initial-branch=main"])?.then_some(())?;
+        run(&["config", "user.email", "harness@example.invalid"])?;
+        run(&["config", "user.name", "Harness"])?;
+        std::fs::write(folder.path().join("README.md"), "a repository\n").expect("writes a file");
+        run(&["add", "README.md"])?;
+        run(&["commit", "-m", "first"])?;
+
+        Some(folder)
+    }
+
+    /// The research press's child is started in a worktree of the picked
+    /// repository, on the branch derived from the ticket — and it is that path,
+    /// not the folder, that goes on to be harvested and spawned in.
+    #[test]
+    fn a_research_press_runs_in_the_worktree_made_for_its_ticket() {
+        let Some(folder) = a_repository() else {
+            return;
+        };
+        let picked = folder.path().to_string_lossy().into_owned();
+
+        let mut map = a_map_reading(&[(58, NodeState::Takeable)]);
+        map.nodes[0].kind = ChildKind::Ticket(TicketType::Research);
+        map.nodes[0].title = "The worktree before the spawn".to_string();
+        let node = map.nodes[0].clone();
+
+        let running_in = where_it_runs(&map, &node, &picked).expect("makes a worktree");
+
+        assert_eq!(
+            running_in,
+            std::fs::canonicalize(
+                folder
+                    .path()
+                    .join(".perseverance")
+                    .join("worktrees")
+                    .join("58")
+            )
+            .expect("the worktree is there")
+        );
+
+        let on = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&running_in)
+            .args(["branch", "--show-current"])
+            .output()
+            .expect("runs git branch");
+        assert_eq!(
+            String::from_utf8_lossy(&on.stdout).trim(),
+            "research/58-the-worktree-before-the-spawn"
+        );
+    }
+
+    /// Every other press runs where the operator is looking. A work run's edits
+    /// are the point of the checkout they picked, and a worktree would hide them
+    /// from it.
+    #[test]
+    fn a_work_press_runs_in_the_folder_and_writes_nothing_into_it() {
+        let Some(folder) = a_repository() else {
+            return;
+        };
+        let picked = folder.path().to_string_lossy().into_owned();
+
+        let map = a_map_reading(&[(58, NodeState::Takeable)]);
+        let node = map.nodes[0].clone();
+
+        assert_eq!(
+            where_it_runs(&map, &node, &picked).expect("needs no worktree"),
+            PathBuf::from(&picked)
+        );
+        assert!(!folder.path().join(".perseverance").exists());
+    }
+
     /* ------------------------------------------------- resuming a claim --- */
 
     /// A map whose nodes are exactly the states a resume has to tell apart.
@@ -9609,20 +9931,27 @@ mod tests {
     /// Asserted against this file's own source, because the property is an
     /// absence: there is no second rendering whose output could be compared —
     /// there is one, and the ways it could stop being one are a second call site
-    /// or a verb added to a signature. Both are pinned here, and a sixth
-    /// template would have to introduce one of them.
+    /// or a verb added to a signature. Both are pinned here. The brief the one
+    /// rendering picks is chosen off the ticket's own kind and never off the
+    /// press, which is why adding the research template did not add a call site.
     #[test]
     fn a_resume_renders_what_start_working_renders_and_neither_press_names_the_verb() {
         const SOURCE: &str = include_str!("lib.rs");
 
         // Built rather than written out, so this assertion is not counting
-        // itself.
-        let rendering = format!("{}::work_ticket(", "prompt");
-        assert_eq!(
-            SOURCE.matches(&rendering).count(),
-            1,
-            "a second call site is where a second prompt starts"
-        );
+        // itself. Two briefs and one selection between them: each is named
+        // exactly once, in the one `match` the kind decides, so a press that
+        // rendered its own would show up here as a second mention.
+        for brief in [
+            format!("{}::work_ticket,", "prompt"),
+            format!("{}::work_ticket_research,", "prompt"),
+        ] {
+            assert_eq!(
+                SOURCE.matches(&brief).count(),
+                1,
+                "a second call site is where a second prompt starts"
+            );
+        }
 
         let press = |command: &str| -> String {
             let signature = format!("fn {command}(");

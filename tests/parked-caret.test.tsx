@@ -74,10 +74,14 @@ vi.mock("../src/terminal/xterm", () => ({
 
 const sent = vi.hoisted(() => [] as { run: number; text: string }[]);
 const emitters = vi.hoisted(() => [] as ((next: RunReadout[]) => void)[]);
+/* What the harness answers a keystroke with, when it answers with a refusal —
+   the shape `typed_at_run` rejects in, which is a string and not an `Error`. */
+const refuses = vi.hoisted(() => ({ with: null as string | null }));
 
 vi.mock("../src/terminal/runs", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/terminal/runs")>()),
   typedAtRun: vi.fn(async (run: number, text: string) => {
+    if (refuses.with !== null) throw refuses.with;
     sent.push({ run, text });
   }),
   loadRunReadouts: vi.fn(async () => [] as RunReadout[]),
@@ -161,6 +165,7 @@ afterEach(() => {
     mounted = null;
   }
   monitor(null);
+  refuses.with = null;
   forgetSpills();
   made.length = 0;
   sent.length = 0;
@@ -169,6 +174,29 @@ afterEach(() => {
 });
 
 describe("the caret, parked", () => {
+  /* The other way a keystroke reaches no child. A research run runs unattended
+     and the harness refuses its keys with a sentence — the pane binds one like
+     every other run, so it is a run somebody can type at, and a rejection nobody
+     caught would be that sentence going into an unhandled promise instead of in
+     front of the person who typed. */
+  it("keeps what was typed at a run the harness refused, under the harness's own words", async () => {
+    const refusal = "a research run runs unattended, so nothing can be typed at it";
+    await boot();
+    await readouts([a(7, false)]);
+    act(() => monitor(7));
+    refuses.with = refusal;
+
+    await types("are you stuck");
+
+    expect(sent).toEqual([]);
+    expect(spilledAtRun(7)?.text).toBe("are you stuck");
+    // The harness's reason, and not the ended-child reading, which is untrue of
+    // a research run that is still going.
+    expect(chrome()).toContain(refusal);
+    expect(chrome()).not.toContain(SPILL_READING);
+    expect(chrome()).toContain("are you stuck");
+  });
+
   it("types at the child while the run is live", async () => {
     await boot();
     await readouts([a(7, false)]);
@@ -291,7 +319,12 @@ describe("the spill register", () => {
     spillAtRun(7, "git ");
     spillAtRun(7, "status");
 
-    expect(spilledAtRun(7)).toEqual({ text: "git status", characters: 10, elided: false });
+    expect(spilledAtRun(7)).toEqual({
+      text: "git status",
+      characters: 10,
+      elided: false,
+      reason: null,
+    });
   });
 
   it("keeps the most recent characters and no more, however long the typing runs", () => {
