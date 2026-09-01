@@ -474,10 +474,10 @@ fn remember_read(
         query_id: fresh.query_id(),
     };
 
-    store.cache_graph(folder_id, None, &body)?;
+    store.cache_graph(folder_id, None, body)?;
 
     if let Some(number) = map {
-        store.cache_graph(folder_id, Some(number), &body)?;
+        store.cache_graph(folder_id, Some(number), body)?;
     }
 
     let still_listed: Vec<u64> = fresh
@@ -2951,6 +2951,21 @@ mod tests {
         .expect("reads")
     }
 
+    /// A body to cache, stamped with the document this build actually sends.
+    fn body(json: &str, at: i64) -> CachedBody<'_> {
+        body_stamped(json, at, map_read_query_id())
+    }
+
+    /// The same, for the tests where a body left by some other document is the
+    /// point.
+    fn body_stamped<'a>(json: &'a str, at: i64, query_id: &'a str) -> CachedBody<'a> {
+        CachedBody {
+            graph_json: json,
+            fetched_at: at,
+            query_id,
+        }
+    }
+
     fn registry_with_a_folder() -> (Store, i64) {
         let store = Store::open_in_memory().expect("opens");
         let folder = store
@@ -3487,15 +3502,7 @@ mod tests {
         let (store, folder_id) = registry_with_a_folder();
         // A map that was cached under its own number by an earlier read.
         store
-            .cache_graph(
-                folder_id,
-                Some(99),
-                &CachedBody {
-                    graph_json: "a map that has since gone",
-                    fetched_at: 10,
-                    query_id: map_read_query_id(),
-                },
-            )
+            .cache_graph(folder_id, Some(99), body("a map that has since gone", 10))
             .expect("caches");
 
         remember_read(&store, folder_id, None, &a_fresh_read(TWO_MAPS, 100)).expect("caches");
@@ -3511,15 +3518,7 @@ mod tests {
         let (store, folder_id) = registry_with_a_folder();
         remember_read(&store, folder_id, None, &a_fresh_read(TWO_MAPS, 100)).expect("caches");
         store
-            .cache_graph(
-                folder_id,
-                None,
-                &CachedBody {
-                    graph_json: "<html>a proxy got at it</html>",
-                    fetched_at: 100,
-                    query_id: map_read_query_id(),
-                },
-            )
+            .cache_graph(folder_id, None, body("<html>a proxy got at it</html>", 100))
             .expect("overwrites with something unreadable");
 
         let json = serde_json::to_value(from_cache(&store, folder_id)).expect("serialises");
@@ -3634,15 +3633,7 @@ mod tests {
     fn a_cached_graph_is_the_baseline_the_while_you_were_away_row_is_drawn_from() {
         let (store, folder_id) = registry_with_a_folder();
         store
-            .cache_graph(
-                folder_id,
-                Some(AWKWARD_MAP),
-                &CachedBody {
-                    graph_json: AWKWARD,
-                    fetched_at: 100,
-                    query_id: map_read_query_id(),
-                },
-            )
+            .cache_graph(folder_id, Some(AWKWARD_MAP), body(AWKWARD, 100))
             .expect("caches");
 
         let ledgers = Ledgers::new();
@@ -3696,11 +3687,11 @@ mod tests {
             .cache_graph(
                 folder_id,
                 Some(AWKWARD_MAP),
-                &CachedBody {
-                    graph_json: AWKWARD,
-                    fetched_at: 100,
-                    query_id: "the narrower document that shipped before #61",
-                },
+                body_stamped(
+                    AWKWARD,
+                    100,
+                    "the narrower document that shipped before #61",
+                ),
             )
             .expect("caches");
 
@@ -3736,11 +3727,7 @@ mod tests {
             .cache_graph(
                 folder_id,
                 None,
-                &CachedBody {
-                    graph_json: TWO_MAPS,
-                    fetched_at: 1_785_888_000,
-                    query_id: "some older shape",
-                },
+                body_stamped(TWO_MAPS, 1_785_888_000, "some older shape"),
             )
             .expect("caches");
 
@@ -3827,11 +3814,7 @@ mod tests {
             .cache_graph(
                 folder_id,
                 None,
-                &CachedBody {
-                    graph_json: TWO_MAPS,
-                    fetched_at: 1_785_888_000,
-                    query_id: "some older shape",
-                },
+                body_stamped(TWO_MAPS, 1_785_888_000, "some older shape"),
             )
             .expect("caches");
 
@@ -3842,15 +3825,7 @@ mod tests {
         assert_eq!(json["truncated"], false, "a stamp is not a broken cap");
 
         store
-            .cache_graph(
-                folder_id,
-                None,
-                &CachedBody {
-                    graph_json: TWO_MAPS,
-                    fetched_at: 1_785_888_000,
-                    query_id: map_read_query_id(),
-                },
-            )
+            .cache_graph(folder_id, None, body(TWO_MAPS, 1_785_888_000))
             .expect("re-caches under the document this build sends");
 
         let json = serde_json::to_value(from_cache(&store, folder_id)).expect("serialises");
@@ -3870,15 +3845,7 @@ mod tests {
     fn a_failed_poll_ages_the_held_snapshot_and_draws_no_row() {
         let (store, folder_id) = registry_with_a_folder();
         store
-            .cache_graph(
-                folder_id,
-                Some(AWKWARD_MAP),
-                &CachedBody {
-                    graph_json: AWKWARD,
-                    fetched_at: 100,
-                    query_id: map_read_query_id(),
-                },
-            )
+            .cache_graph(folder_id, Some(AWKWARD_MAP), body(AWKWARD, 100))
             .expect("caches");
 
         let ledgers = Ledgers::new();
@@ -3931,11 +3898,7 @@ mod tests {
             .cache_graph(
                 folder_id,
                 Some(AWKWARD_MAP),
-                &CachedBody {
-                    graph_json: "<html>a proxy got at it</html>",
-                    fetched_at: 100,
-                    query_id: map_read_query_id(),
-                },
+                body("<html>a proxy got at it</html>", 100),
             )
             .expect("caches");
 
@@ -3963,15 +3926,7 @@ mod tests {
     fn watching_a_different_map_starts_a_new_ledger() {
         let (store, folder_id) = registry_with_a_folder();
         store
-            .cache_graph(
-                folder_id,
-                Some(AWKWARD_MAP),
-                &CachedBody {
-                    graph_json: AWKWARD,
-                    fetched_at: 100,
-                    query_id: map_read_query_id(),
-                },
-            )
+            .cache_graph(folder_id, Some(AWKWARD_MAP), body(AWKWARD, 100))
             .expect("caches");
 
         let ledgers = Ledgers::new();
@@ -4010,15 +3965,7 @@ mod tests {
     fn a_claim_this_harness_originated_and_the_move_after_it_leave_the_numeral_alone() {
         let (store, folder_id) = registry_with_a_folder();
         store
-            .cache_graph(
-                folder_id,
-                Some(AWKWARD_MAP),
-                &CachedBody {
-                    graph_json: AWKWARD_LATER,
-                    fetched_at: 100,
-                    query_id: map_read_query_id(),
-                },
-            )
+            .cache_graph(folder_id, Some(AWKWARD_MAP), body(AWKWARD_LATER, 100))
             .expect("caches");
 
         // Somebody else took #72, which was the frontier.
