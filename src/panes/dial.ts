@@ -258,6 +258,13 @@ export type Column = (typeof COLUMNS)[number];
  * dial, the launcher is how you get to a different map, and the view is the
  * reason the map side exists at all.
  *
+ * That priority is about which column is *drawn*, and it was contradicted for a
+ * while by how the drawn ones divide: the launcher grew on equal terms with the
+ * view, so the column shed last was also the column handed half of every pixel
+ * the dial gave over — enough to keep a wide view standing itself down at every
+ * detent of an ordinary window. It no longer does; the argument and the basis
+ * are in `src/chrome/DropRegion.module.css`, beside the region that takes them.
+ *
  * The launcher's floor is the contested one, and it stands. #48 argues that the
  * folder launcher may never disappear, and that is true of every reason a shell
  * could have for hiding it — a map being open, a run being live, a view being

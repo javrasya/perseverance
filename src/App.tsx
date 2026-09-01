@@ -1320,8 +1320,16 @@ export function App() {
                   }
             }
           >
+          {/*
+            `beside` is the launcher being told it has company. The view box is
+            drawn on this same flex line, and a region that has one asks for a
+            column rather than for half the side: the view is what the map side
+            exists for, so the pixels the dial hands over are the view's and the
+            launcher's basis is furniture. With no map open there is no view box
+            on the line and the region takes the whole side, as it always has.
+          */}
           {columns.includes("launcher") ? (
-          <DropRegion onFoldersDropped={onFoldersDropped}>
+          <DropRegion onFoldersDropped={onFoldersDropped} beside={mapSideDraws}>
             <FolderList
               outcome={outcome}
               now={now}

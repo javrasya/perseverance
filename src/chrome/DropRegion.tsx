@@ -20,6 +20,24 @@ export const DROP_REGION_HINT =
 interface DropRegionProps {
   /** Every folder dropped on the window, in the order the shell reports them. */
   onFoldersDropped: (paths: readonly string[]) => void;
+  /**
+   * Whether anything else is drawn on the same line as this region.
+   *
+   * The shell draws the launcher beside the view rather than in place of it,
+   * and the two used to grow on equal terms — both `flex: 1` on one line, so
+   * the pixels split down the middle however much the view needed and however
+   * little the list did. That contradicts `COLUMN_FLOORS`'s own stated
+   * priority, where the view is shed *last* because it is the reason the map
+   * side exists at all, and it is what left Deep Field standing itself down at
+   * every dial position on a 1280px window.
+   *
+   * So the region asks for a column when it has company and for the whole side
+   * when it is alone: with no map open there is nothing beside it and a launcher
+   * hemmed into a column would be dead space where the only thing on screen is
+   * the list. A column with a basis is not a column that disappeared, which is
+   * the whole of what #48 asks of this region.
+   */
+  beside?: boolean;
   children: ReactNode;
 }
 
@@ -38,7 +56,7 @@ interface DropRegionProps {
  * `dev:web`, where they stop the browser navigating away to whatever was
  * dropped on it.
  */
-export function DropRegion({ onFoldersDropped, children }: DropRegionProps) {
+export function DropRegion({ onFoldersDropped, beside = false, children }: DropRegionProps) {
   const [armed, setArmed] = useState(false);
 
   useEffect(() => {
@@ -77,6 +95,7 @@ export function DropRegion({ onFoldersDropped, children }: DropRegionProps) {
     <div
       className={styles.region}
       data-armed={armed ? "true" : "false"}
+      data-beside={beside ? "true" : "false"}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
