@@ -139,15 +139,19 @@ pub struct RateLimit {
 
 /// Tripwires for pages that were cut off.
 ///
-/// Three of these are for pages that cannot exist: GitHub caps sub-issues at 100
+/// Two of these are for pages that cannot exist: GitHub caps sub-issues at 100
 /// per parent and linked issues at 50 per relationship, and both fit in one page
 /// — so a paging loop here would be code nobody has ever run, which is worse than
 /// no code at all. They are parsed and asserted on instead: if one ever fires,
 /// the fact is in the read rather than silently missing from the graph.
 ///
-/// [`Truncation::labels`] is the fourth and is a different animal. Nothing caps
-/// how many labels an issue may carry, so its page *can* exist — and it is the
-/// one truncation that fails **unsafe** rather than merely incomplete. A
+/// [`Truncation::maps`] and [`Truncation::labels`] are a different animal, and
+/// what makes them one is that their pages *can* exist. The map list is
+/// `issues(first: 100, labels: [...])` — a page this query chose rather than one
+/// a product limit imposed — and nothing caps how many issues carry a label, so
+/// a hundred-and-first map is a well-used repository and not a broken promise.
+/// Nothing caps how many labels an issue may carry either, and that one is also
+/// the truncation that fails **unsafe** rather than merely incomplete. A
 /// `platform:` label cut off the end of the list is indistinguishable from a
 /// ticket that said nothing about machines, and a ticket that said nothing about
 /// machines is offered on all of them. The query asks for 100, which is the most
@@ -155,21 +159,30 @@ pub struct RateLimit {
 /// standing between a truncated answer and an agent launched on a machine the
 /// operator ruled out.
 ///
-/// Which is why the two are asked about separately —
-/// [`Truncation::capped`] for the three and [`Truncation::labels`] for the
-/// fourth. They reach an operator as two sentences because they are two facts:
-/// *something that cannot happen has, and some of this is not on screen* is
-/// the whole of the first, and it names no action because there is none; the
-/// second has a named consequence and something to do about it.
+/// Which is why the three are asked about separately — [`Truncation::capped`]
+/// for the two pages GitHub forbids, and [`Truncation::maps`] and
+/// [`Truncation::labels`] each for itself. They reach an operator as three
+/// sentences because they are three facts: *something that cannot happen has,
+/// and some of this is not on screen* is the whole of the first, and it names no
+/// action because there is none; the other two are about pages an ordinary
+/// repository grows, and each has a named consequence and something to do about
+/// it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Truncation {
+    /// More issues carry the map label than one page of the query holds.
+    ///
+    /// Not part of [`Truncation::capped`], for the same reason
+    /// [`Truncation::labels`] is not: `issues(first: 100, labels: [...])` is a
+    /// page this query asked for and not one GitHub's limits forbid, so a
+    /// repository whose hundred-and-first issue carries the label has broken no
+    /// promise and must not be told that it has.
     pub maps: bool,
     pub children: bool,
     pub blocked_by: bool,
     /// A child (or the map itself) carried more labels than one page holds.
     ///
-    /// Not part of [`Truncation::capped`], and the one flag here that is about
-    /// a page which can ordinarily exist.
+    /// Not part of [`Truncation::capped`], and the other flag here about a page
+    /// which can ordinarily exist — the unsafe one of the two.
     pub labels: bool,
 }
 
@@ -177,26 +190,29 @@ impl Truncation {
     /// Whether anything at all was cut off. One question, so a caller does not
     /// have to remember which four fields to ask about.
     ///
-    /// This is `capped() || labels`, and it is the right question for a test or
-    /// an assertion — *was this answer whole*. It is the **wrong** question for
-    /// copy, because the two halves are two different facts with two different
-    /// consequences, and one sentence over both would have to be either false
-    /// about one of them or too vague to act on. What the chrome prints is
-    /// [`Truncation::capped`] and [`Truncation::labels`], separately.
+    /// This is `capped() || maps || labels`, and it is the right question for a
+    /// test or an assertion — *was this answer whole*. It is the **wrong**
+    /// question for copy, because the three are three different facts with three
+    /// different consequences, and one sentence over them all would have to be
+    /// either false about some of them or too vague to act on. What the chrome
+    /// prints is [`Truncation::capped`], [`Truncation::maps`] and
+    /// [`Truncation::labels`], separately.
     pub fn any(&self) -> bool {
-        self.capped() || self.labels
+        self.capped() || self.maps || self.labels
     }
 
     /// Whether a page GitHub's own limits forbid was answered anyway.
     ///
-    /// The three capped connections and deliberately not [`Truncation::labels`].
-    /// These three are one sentence on screen because they are one fact — a page
-    /// that cannot exist has — and that sentence stays true only while the flag
-    /// behind it is fed by the three connections that really are capped. Labels
-    /// have no product cap, so folding them in here is what would turn *which
-    /// its own limits say cannot happen* into a lie.
+    /// The two capped connections, and deliberately neither [`Truncation::maps`]
+    /// nor [`Truncation::labels`]. Sub-issues at 100 per parent and linked issues
+    /// at 50 per relationship are one sentence on screen because they are one
+    /// fact — a page that cannot exist has — and that sentence stays true only
+    /// while the flag behind it is fed by the connections that really are capped.
+    /// Neither a label list nor the map list has a product cap behind it, so
+    /// folding either in here is what would turn *which its own limits say cannot
+    /// happen* into a lie.
     pub fn capped(&self) -> bool {
-        self.maps || self.children || self.blocked_by
+        self.children || self.blocked_by
     }
 }
 
@@ -1036,24 +1052,34 @@ mod tests {
 
     #[test]
     fn a_page_that_cannot_exist_and_a_label_list_that_ran_long_are_two_readings() {
-        // `any()` is the question a test asks; `capped()` and `labels` are the
-        // two an operator is answered with. The three capped connections are one
-        // fact with no action attached to it — GitHub broke its own promise, and
-        // some of the graph is missing. A label list that ran long is a fact
-        // about an ordinary issue with a consequence that can be acted on. One
-        // sentence over both would have to be false about one of them.
+        // `any()` is the question a test asks; `capped()`, `maps` and `labels` are
+        // the three an operator is answered with. The two capped connections are
+        // one fact with no action attached to it — GitHub broke its own promise,
+        // and some of the graph is missing. A label list that ran long, and a map
+        // list that did, are facts about an ordinary repository with consequences
+        // that can be acted on. One sentence over all three would have to be
+        // false about some of them.
         let capped = Truncation {
-            maps: true,
+            children: true,
             ..Truncation::default()
         };
         let ran_long = Truncation {
             labels: true,
             ..Truncation::default()
         };
+        let more_maps = Truncation {
+            maps: true,
+            ..Truncation::default()
+        };
 
-        assert!(capped.any() && ran_long.any());
+        assert!(capped.any() && ran_long.any() && more_maps.any());
         assert!(capped.capped() && !capped.labels);
         assert!(!ran_long.capped() && ran_long.labels);
+        // The leg this test used to spell as `capped`. `issues(first: 100,
+        // labels: [...])` is a page this query chose, so a second one of it is
+        // ordinary and the impossibility sentence would be a false statement
+        // about GitHub.
+        assert!(!more_maps.capped() && more_maps.maps);
     }
 
     #[test]
