@@ -43,10 +43,11 @@ pub const MAP_READ_QUERY: &str = include_str!("map-read.graphql");
 /// is ever asked is *could this body be narrower than what I would get now*,
 /// and a comment cannot move that answer — GitHub never sees one. So a
 /// `#`-comment is dropped and a run of whitespace collapses to one space before
-/// a byte reaches the hash. Twenty-three of `map-read.graphql`'s sixty-two
-/// lines are prose, and in this repo prose gets edited more often than fields
-/// do; charging every operator a *first open* baseline plus a `labelsTruncated`
-/// caveat for a reworded rationale would be spending the cold start on nothing.
+/// a byte reaches the hash. Twenty-six of `map-read.graphql`'s sixty-one lines
+/// are comment rather than query, and in this repo prose gets edited more often
+/// than fields do; charging every operator a *first open* baseline plus a
+/// `labelsTruncated` caveat for a reworded rationale would be spending the cold
+/// start on nothing.
 ///
 /// Inside a string literal both rules are off, because there whitespace and `#`
 /// are data rather than layout. `labels: ["wayfinder:map"]` is the document's
@@ -168,11 +169,16 @@ const DEADLINE: Duration = Duration::from_secs(20);
 
 /// A read that GitHub answered, successfully, once.
 ///
-/// **It has no public constructor.** That is the whole mechanism behind
-/// *`graph_cache` is written only on a successful GitHub read*: the write takes
-/// one of these, and the only way to hold one is to have been handed it by
-/// [`interpret_read`] after an answer that parsed. A cache write from a cached
-/// value cannot be spelled, rather than being a rule someone has to remember.
+/// **It has no constructor outside this crate.** That is the whole mechanism
+/// behind *`graph_cache` is written only on a successful GitHub read*: its
+/// fields are private, the write takes one of these, and the only thing that
+/// hands one out is [`interpret_read`] after an answer that parsed. A cache
+/// write from a cached value cannot be spelled, rather than being a rule
+/// someone has to remember.
+///
+/// The wall has exactly one door and only a test can open it: `interpret_read`
+/// leaves this crate under the `fixtures` feature, which is named nowhere but
+/// `perseverance-app`'s `[dev-dependencies]`. Nothing that ships can see it.
 ///
 /// It carries the response **verbatim** beside the parse, because the verbatim
 /// bytes are what gets cached: #33 derives its model from exactly what GitHub
@@ -199,10 +205,12 @@ impl FreshRead {
 
     /// The identity of the document that asked for this body.
     ///
-    /// It rides on the value that already proves a read was live — the same
-    /// value, written at the same moment — so the stamp and the body cannot be
-    /// written from two different places and disagree. See
-    /// [`map_read_query_id`] for why the identity is the document itself.
+    /// It rides on the value that already proves a read was live, and both are
+    /// filled in by one expression at the end of [`interpret_read`] — the only
+    /// place in the workspace that mints one — so the stamp and the body are
+    /// written by the same caller at the same moment rather than looked up
+    /// separately and left to disagree. See [`map_read_query_id`] for why the
+    /// identity is the document itself.
     pub fn query_id(&self) -> &'static str {
         self.query_id
     }
@@ -635,6 +643,12 @@ fn when_it_resets(answer: &Answer, fetched_at: i64) -> Option<String> {
 /// `query_id` is the identity of the document the request was built from, and
 /// it is a parameter rather than a constant read here so that the stamp on a
 /// [`FreshRead`] is always the document that actually produced it.
+///
+/// It is the only thing in the workspace that mints a [`FreshRead`], and it
+/// leaves this crate only under the `fixtures` feature. Inside the crate
+/// [`read_maps`] is its one caller, which is what makes *the stamp is the
+/// document that produced the body* a pairing nothing else is in a position to
+/// get wrong — a caller-supplied stamp is safe because there is one caller.
 pub fn interpret_read(
     sent: Result<Answer, ReadFailure>,
     fetched_at: i64,
@@ -1315,9 +1329,10 @@ mod tests {
     #[test]
     fn prose_and_layout_are_not_part_of_what_the_document_asks_for() {
         // The stamp answers *could this body be narrower than what I would get
-        // now*, and GitHub is never shown a comment. Twenty-three of this
-        // file's sixty-two lines are prose; a reworded paragraph that cost
-        // every operator a cold start would be spending it on nothing.
+        // now*, and GitHub is never shown a comment. Twenty-six of this
+        // file's sixty-one lines are comment rather than query; a reworded
+        // paragraph that cost every operator a cold start would be spending it
+        // on nothing.
         let without_prose: String = MAP_READ_QUERY
             .lines()
             .filter(|line| !line.trim_start().starts_with('#'))
