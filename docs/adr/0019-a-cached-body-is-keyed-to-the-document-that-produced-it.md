@@ -67,8 +67,9 @@ asks for cannot be edited without the stamp changing.
 **What is hashed is the question, not the file.** A `#`-comment is dropped and a
 run of whitespace collapses to one space before a byte reaches the hash, because
 the only thing the stamp is ever asked is *could this body be narrower than what
-I would get now* and GitHub is never shown a comment. Twenty-three of
-`map-read.graphql`'s sixty-two lines are prose, and in this repo prose gets
+I would get now* and GitHub is never shown a comment. Twenty-six of
+`map-read.graphql`'s sixty-one lines are comment rather than query, and in this
+repo prose gets
 edited more often than fields do; a reworded rationale that cost every operator
 a *first open* baseline plus a `labelsTruncated` caveat would be spending the
 cold start on nothing. Inside a string literal both rules are off — there a
@@ -84,15 +85,20 @@ included, is a `const fn`; only the hex rendering is not, because
 once into a `OnceLock` rather than formatted afresh on every cache read.
 
 **The stamp travels on `FreshRead`.** `FreshRead::query_id` sits beside `body`
-and `fetched_at` on the value that has no public constructor outside
+and `fetched_at` on the value that has no constructor outside
 `perseverance-github` — the same mechanism that already makes *the cache is
 written only on a successful GitHub read* unspellable to break rather than a
-rule to remember. It is a **field**, not a lookup: `read_maps` hands the stamp
+rule to remember. That mechanism was a convention until this ticket and is now a
+wall: `read` is a private module, `interpret_read` is the only thing that mints
+one, and it leaves the crate under a `fixtures` feature named nowhere but
+`perseverance-app`'s `[dev-dependencies]`. A test can hold one; nothing that
+ships can spell one. It is a **field**, not a lookup: `read_maps` hands the stamp
 to `interpret_read` because `read_maps` is where the document was chosen, so a
 second query added to that crate cannot quietly produce bodies wearing the map
 read's id. It stays one value on the way out too — the writer takes a single
 `CachedBody { graph_json, fetched_at, query_id }` rather than three positions.
-The stamp and the body therefore cannot be written from two places and
+The stamp and the body are therefore filled in by one expression in the one
+function that mints the value, and cannot be written from two places and
 disagree. `map_read_query_id()` is free-standing beside it so the reader can ask
 what this build sends without holding a read.
 

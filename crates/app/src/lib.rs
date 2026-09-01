@@ -431,9 +431,11 @@ fn from_cache(store: &Store, folder_id: i64) -> MapsView {
 /// The whole of *written only on a successful GitHub read*, as a signature.
 ///
 /// [`FreshRead`] has no constructor outside `perseverance-github`, and the only
-/// thing that hands one out is an answer from GitHub that parsed. So a cache
-/// write from a cached value is not a rule someone has to remember — it is a
-/// call nobody can spell.
+/// thing that hands one out is an answer from GitHub that parsed. The single
+/// door through that wall is a `fixtures` feature named nowhere but this
+/// crate's `[dev-dependencies]`, so a cache write from a cached value is not a
+/// rule someone has to remember — outside a test it is a call nobody can
+/// spell.
 ///
 /// The prune rides along for the same reason: the live list is the evidence
 /// that entitles a deletion, and it arrives in the same value.
@@ -2935,7 +2937,9 @@ mod tests {
 
     /// The only way to hold one, here as anywhere: an answer from GitHub that
     /// parsed. There is no constructor, which is the whole mechanism this slice
-    /// rests on — so a test that wants one has to produce an answer too.
+    /// rests on — so a test that wants one has to produce an answer too, and
+    /// has to switch on `perseverance-github`'s `fixtures` feature to reach the
+    /// function that reads it. Nothing outside a `[dev-dependencies]` line can.
     fn a_fresh_read(body: &str, fetched_at: i64) -> FreshRead {
         perseverance_github::interpret_read(
             Ok(perseverance_github::Answer {

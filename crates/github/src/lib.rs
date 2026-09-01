@@ -49,7 +49,16 @@ pub use cadence::{
 pub use perseverance_model::Snapshot;
 pub use poller::{start, Ahead, Poke, Poker, RunHandle, Tick, Timings, Watched};
 pub use read::{
-    interpret_read, map_read_query_id, read_maps, request_body, Answer, FreshRead, ReadFailure,
-    GRAPHQL_ENDPOINT, MAP_READ_QUERY,
+    map_read_query_id, read_maps, request_body, Answer, FreshRead, ReadFailure, GRAPHQL_ENDPOINT,
+    MAP_READ_QUERY,
 };
+/// The one seam a test can cross to hold a [`FreshRead`] without a socket.
+///
+/// `interpret_read` is the only thing in the workspace that mints one, and
+/// `read` is a private module — so this line is the whole of its reach outside
+/// the crate, and it is behind a feature that nothing but a `[dev-dependencies]`
+/// line names. That is what makes *no constructor outside this crate* a wall
+/// with one named door rather than a habit.
+#[cfg(feature = "fixtures")]
+pub use read::interpret_read;
 pub use token::{acquire_token, interpret, Token, TokenOutcome, TokenRefusal};
