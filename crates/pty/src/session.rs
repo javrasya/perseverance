@@ -1207,7 +1207,13 @@ mod tests {
         // it, and this shell has nothing.
         std::thread::sleep(Duration::from_millis(300));
 
-        assert_eq!(session.held().end(), 0, "the shell printed after all");
+        let whole = session.held().whole();
+        assert_eq!(
+            session.held().end(),
+            0,
+            "the shell printed after all: {:?}",
+            String::from_utf8_lossy(&whole)
+        );
         assert_eq!(session.spoke(), session.opened());
     }
 
