@@ -1,3 +1,4 @@
+import { widthNeededFor } from "../views/deep-field/deepField";
 import type { ViewName } from "../views/views";
 
 /**
@@ -190,6 +191,13 @@ export type Column = (typeof COLUMNS)[number];
  * dial, the launcher is how you get to a different map, and the view is the
  * reason the map side exists at all.
  *
+ * That priority is about which column is *drawn*, and it was contradicted for a
+ * while by how the drawn ones divide: the launcher grew on equal terms with the
+ * view, so the column shed last was also the column handed half of every pixel
+ * the dial gave over — enough to keep a wide view standing itself down at every
+ * detent of an ordinary window. It no longer does; the argument and the basis
+ * are in `src/chrome/DropRegion.module.css`, beside the region that takes them.
+ *
  * The launcher's floor is the contested one, and it stands. #48 argues that the
  * folder launcher may never disappear, and that is true of every reason a shell
  * could have for hiding it — a map being open, a run being live, a view being
@@ -234,6 +242,16 @@ export function namesFit(width: number): boolean {
  */
 export const VIEW_FLOORS: Record<ViewName, number> = {
   route: 420,
+  /*
+   * Two rank columns' worth: the narrowest picture in which one ticket is drawn
+   * releasing another, which is the whole of what this view is for. Asked of
+   * the layout rather than written down, so the plate lane, the clearance and
+   * the column pitch cannot drift away from the number the dial promises. One
+   * column would fit in less and would be a field with no fan-out in it, and a
+   * map deeper than two stands the view down from inside — that answer moves
+   * with the map and no constant here can say it.
+   */
+  "deep-field": widthNeededFor(2),
 };
 
 /**

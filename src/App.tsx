@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
 import { createPortal } from "react-dom";
 import { CacheStamp } from "./chrome/CacheStamp";
 import { DropRegion } from "./chrome/DropRegion";
@@ -90,7 +90,7 @@ import { readPosition, writePosition } from "./panes/position";
 import { useBodyBox } from "./panes/useBodyBox";
 import { usePeek } from "./panes/usePeek";
 import { ViewSwitcher } from "./views/ViewSwitcher.jsx";
-import { DEFAULT_VIEW, VIEWS, type ViewName } from "./views/views";
+import { DEFAULT_VIEW, VIEWS, type ViewName, type ViewProps } from "./views/views";
 import { Pane } from "./terminal/Pane.jsx";
 import { promptFor } from "./terminal/prompts";
 import {
@@ -112,6 +112,9 @@ import { useTheme } from "./theme/useTheme";
    case-insensitive filesystem the extensionless specifier resolves to the
    arithmetic module instead of the component. */
 import { Route } from "./views/route/Route.jsx";
+/* `DeepField.jsx` for the same reason, and it is the harder case: the module
+   beside it differs from the component only in its first letter. */
+import { DeepField } from "./views/deep-field/DeepField.jsx";
 /* `Ledger.jsx` for the same reason: `chrome/ledger.ts` is the words and the
    arithmetic, `chrome/Ledger.tsx` is the component, and an extensionless
    specifier finds the first of the two. */
@@ -131,6 +134,22 @@ import { KeysPage } from "./keys/KeysPage.jsx";
 import { Palette } from "./keys/Palette.jsx";
 import { useDefaultView } from "./views/useDefaultView";
 import styles from "./App.module.css";
+
+/**
+ * Which component draws which view, and the only place that is decided.
+ *
+ * A `Record` over `ViewName` rather than a chain of ternaries, for the reason
+ * `src/views/views.ts` gives for the registry it belongs to: a view is added by
+ * naming it in `VIEWS` and then answering for it everywhere a `Record` over
+ * `ViewName` refuses to compile without it. The mount used to be the one place
+ * that did not refuse — a third name compiled and rendered an empty pane — and
+ * an empty pane is the failure this repo spends its exhaustive switches
+ * avoiding everywhere else.
+ */
+const SURFACES: Record<ViewName, (props: ViewProps) => ReactElement> = {
+  route: Route,
+  "deep-field": DeepField,
+};
 
 /**
  * The app opens on the folder list.
@@ -1020,6 +1039,9 @@ export function App() {
    * view itself is gated on the column being there.
    */
   const viewColumn = columns.includes("view");
+  /* The component that draws whichever view is open, looked up rather than
+     branched to — see `SURFACES` at the top of this file. */
+  const Surface = SURFACES[view];
   const mapSideDraws =
     snapshot.model.map !== null && mapWidth > 0 && (viewColumn || standing !== null);
   /* The run whose bytes are on the pane, as the map side knows it — so a map
@@ -1248,8 +1270,16 @@ export function App() {
                 : { right: `${dialReach}px`, bottom: `${clearance(promptShown)}px` }
             }
           >
+          {/*
+            `beside` is the launcher being told it has company. The view box is
+            drawn on this same flex line, and a region that has one asks for a
+            column rather than for half the side: the view is what the map side
+            exists for, so the pixels the dial hands over are the view's and the
+            launcher's basis is furniture. With no map open there is no view box
+            on the line and the region takes the whole side, as it always has.
+          */}
           {columns.includes("launcher") ? (
-          <DropRegion onFoldersDropped={onFoldersDropped}>
+          <DropRegion onFoldersDropped={onFoldersDropped} beside={mapSideDraws}>
             <FolderList
               outcome={outcome}
               now={now}
@@ -1340,13 +1370,13 @@ export function App() {
                   onOpen={onChooseView}
                   onTerminal={() => moveTo(fractionOf("terminal"))}
                 />
-              ) : view === "route" ? (
-                <Route
+              ) : (
+                <Surface
                   model={snapshot.model}
                   selected={selectedNode}
                   onSelect={select}
                 />
-              ) : null}
+              )}
             </div>
           )}
 

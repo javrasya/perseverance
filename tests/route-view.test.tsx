@@ -15,7 +15,7 @@ import { NO_MAP_OPEN } from "../src/snapshot/readout";
  * importing this component has to spell it the same way.
  */
 import { Route } from "../src/views/route/Route.jsx";
-import { DESIGNATED_TAG } from "../src/views/route/route";
+import { DESIGNATED_TAG } from "../src/views/vocabulary";
 import { collect } from "./support/sources";
 
 /**

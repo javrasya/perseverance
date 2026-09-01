@@ -1,0 +1,635 @@
+/*
+ * Tier 3 — component tokens, defined from semantic tokens only.
+ *
+ * Every difference between the five forms is a `--c-field-*` reassignment, so
+ * the whole of *what a mark looks like* is the blocks below and a retheme
+ * reaches all of it. No colour is named here and none is written into the
+ * markup either — a literal in the `.tsx` is a colour the retheme cannot see
+ * and the stylesheet check cannot scan.
+ *
+ * The geometry here is the shape of a glyph and the dressing of a lane. The
+ * numbers that place a thing — the boundary, the clearance, every coordinate in
+ * the field — are `deepField.ts`'s and arrive on the elements as attributes, so
+ * there is no x written twice and free to disagree with itself. What this file
+ * decides is what a shape looks like, never where it is.
+ */
+
+/*
+ * The view, and its own scrollport.
+ *
+ * A map wider or taller than the pane is scrolled to rather than shrunk: the
+ * layout already refused to draw at a width it does not have, so a picture that
+ * got here fits at its own size and nothing is scaled down under the operator.
+ *
+ * Paper and not the app's own ground, as The Route is, and for the same load
+ * bearing reason: `--s-surface-hover` is one step off a *raised* surface, and it
+ * is the whole of what marks the plate you picked.
+ */
+.deepField {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  padding-bottom: var(--s-space-loose);
+  overflow: auto;
+  background: var(--s-surface-raised);
+  text-align: left;
+}
+
+.absence {
+  margin: 0;
+  padding: var(--s-space-base);
+  color: var(--s-ink-secondary);
+  font-size: var(--s-text-small);
+}
+
+/* ------------------------------------------------------------- readout --- */
+
+/*
+ * The three integers and the frontier, above the picture and never inside it.
+ * They are words, so they are on this side of the boundary like every other
+ * word on the pane.
+ */
+.readout {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: baseline;
+  gap: var(--s-space-base);
+  padding: var(--s-space-base) var(--s-space-base) var(--s-space-tight);
+  color: var(--s-ink-faint);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-micro);
+  letter-spacing: var(--s-tracking-label);
+  text-transform: uppercase;
+}
+
+/*
+ * Rule 5, in the stylesheet as well as in the markup: three numerals with
+ * nothing continuous between them. There is no track here, no fill, no rule and
+ * no width that varies with a count — a bar drawn from these three would be the
+ * view asserting a rate of progress off a count of tickets, and no such rate is
+ * on the model.
+ */
+.progress {
+  display: flex;
+  margin: 0;
+  padding: 0;
+  gap: var(--s-space-base);
+  list-style: none;
+}
+
+.progressEntry {
+  display: flex;
+  gap: var(--s-space-hair);
+}
+
+.progressName {
+  color: var(--s-ink-faint);
+}
+
+.progressCount {
+  color: var(--s-ink-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.frontier {
+  margin: 0;
+  color: var(--s-designated);
+}
+
+/*
+ * Where the map stands against the band, and it reads as a note rather than as
+ * a warning at every one of its three values. A map outside 12–25 is drawn; the
+ * view says where it stands and draws, so nothing here is loud.
+ */
+.standing {
+  margin: 0;
+  margin-left: auto;
+  color: var(--s-ink-faint);
+}
+
+/* ------------------------------------------------------------- picture --- */
+
+/*
+ * The two zones, side by side, and the blank between them.
+ *
+ * `flex-start` so the lane and the field share a top edge: correspondence
+ * between the two is by node number and never by row, because the lane is in
+ * map order and the field is in rank columns.
+ */
+.picture {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: flex-start;
+}
+
+/*
+ * The plate lane. Its width is `split.plates.width`, set on the element from
+ * the layout, so its right edge *is* `split.boundary` — the boundary is a
+ * consequence of the lane rather than a second number.
+ */
+.lane {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  gap: var(--s-space-hair);
+  list-style: none;
+}
+
+/*
+ * The boundary and the clearance, as one element: the line is this span's left
+ * edge and the blank is its width, which is `split.clearance` from the layout.
+ * `border-box` so the line does not push the blank wider than the layout said
+ * it was — the clearance is a promise about where a mark may not be, and it
+ * cannot be kept by an element that measures itself differently.
+ */
+.gutter {
+  box-sizing: border-box;
+  flex: 0 0 auto;
+  align-self: stretch;
+  border-left: var(--s-border-hairline) solid var(--s-line-quiet);
+}
+
+/*
+ * The field. Bare marks and edges, no text, and the viewBox already starts
+ * after the clearance — so a control point that reaches back into the gutter
+ * (a back edge spanning more than one rank does) is clipped here rather than
+ * the router being asked to forbid it. The drawn ink is the claim rule 11
+ * makes, and `tests/deep-field.test.ts` samples every curve to keep it true.
+ */
+.fieldPlot {
+  flex: 0 0 auto;
+  overflow: hidden;
+}
+
+/* --------------------------------------------------------------- plate --- */
+
+/*
+ * The default is takeable, and the four other forms are departures from it.
+ * The rail is reserved on every plate and coloured on the marked ones, so a
+ * designation arriving moves nothing on the plates around it.
+ *
+ * The glyph is drawn in ink and never in a line colour, which is an
+ * accessibility floor as well as a likeness of The Route: a line token is a
+ * hairline drawn *between* things and lands around 1.7:1 on the pane's paper,
+ * where a 1.5px ring carrying the whole of *this is yours to take* needs 3:1.
+ */
+.plate {
+  --c-field-fill: transparent;
+  --c-field-rail: transparent;
+  --c-field-glyph: var(--s-ink-faint);
+  --c-field-ink: var(--s-ink-primary);
+  --c-field-quiet: var(--s-ink-secondary);
+  --c-field-faint: var(--s-ink-faint);
+
+  box-sizing: border-box;
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: var(--s-space-tight);
+  padding: var(--s-space-hair) var(--s-space-tight);
+  border-left: var(--s-border-rail) solid var(--c-field-rail);
+  background: var(--c-field-fill);
+  font-size: var(--s-text-small);
+  cursor: pointer;
+  transition: background-color var(--s-motion-fast) var(--s-motion-ease);
+}
+
+/* Inside, because the view is its own scrollport and a ring drawn outside the
+   plate is a ring clipped at the top and bottom of the scroll. */
+.plate:focus-visible {
+  outline-offset: -3px;
+}
+
+.id {
+  flex: 0 0 auto;
+  min-width: 4ch;
+  color: var(--c-field-quiet);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-small);
+}
+
+/*
+ * Ellipsised by the browser and not by the view, which is what keeps the whole
+ * title in the document: a title cut in TypeScript is a title nobody can find
+ * with a search and no test can assert.
+ */
+.title {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--c-field-ink);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* One fact about one plate, said in words: a blocker with no row here, which
+   no edge in the field can stand for. */
+.note {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--c-field-faint);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-micro);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.tags {
+  display: flex;
+  flex: 0 0 auto;
+  margin-left: auto;
+  gap: var(--s-space-hair);
+  padding-left: var(--s-space-tight);
+}
+
+.tag {
+  padding: 0 var(--s-space-hair);
+  border: var(--s-border-hairline) solid var(--s-line-quiet);
+  border-radius: var(--s-radius-control);
+  color: var(--c-field-faint);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-micro);
+  letter-spacing: var(--s-tracking-label);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.tagDesignated {
+  border-color: var(--s-designated-edge);
+  background: var(--s-designated-bg);
+  color: var(--s-designated);
+}
+
+.tagLive {
+  border-color: var(--s-live-edge);
+  background: var(--s-live-bg);
+  color: var(--s-live);
+}
+
+/*
+ * Nobody classified it. **Weight and a broken edge, never a hue.** A hue is the
+ * fragile answer to *survives a retheme*: it passes the tier check and can
+ * still be swapped to something that reads as decoration, while the word itself
+ * set in the pane's strongest ink inside a dashed outline survives the theme,
+ * the monochrome screen and the operator who cannot see the colour.
+ */
+.tagUnclassified {
+  border-style: dashed;
+  color: var(--s-ink-primary);
+  font-weight: var(--s-weight-emphasis);
+}
+
+/*
+ * Why a branch stopped, and the one thing on a plate allowed to take more than
+ * a line. `normal` and not `nowrap`: a reason is a sentence, and a sentence the
+ * browser ellipsises is a sentence nobody read — the plate grows taller
+ * instead, which is the one cost worth paying for a decision being legible.
+ * It never grows *wider*: the lane's width is the boundary, and a plate that
+ * spilled past it would be a word in the field.
+ */
+.reason {
+  flex: 1 1 100%;
+  min-width: 0;
+  color: var(--c-field-quiet);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-micro);
+  white-space: normal;
+  overflow-wrap: break-word;
+}
+
+/* -------------------------------------------------------------- glyphs --- */
+
+/*
+ * Five forms: the model's four states plus the one designation. The plate's
+ * colours come from `[data-state]` and `[data-frontier]`; the shape comes from
+ * a class on the glyph itself, because a ring, a thicker ring, a disc and a
+ * hatch are different geometry rather than one shape in five colours — and
+ * geometry is what is left when the colour is gone.
+ *
+ * The same five distinctions are drawn again on the marks below, in SVG. They
+ * are authored twice because the two grammars are different, and they are read
+ * from one `formOf` in the component so they cannot come to mean two things.
+ */
+.glyph {
+  display: flex;
+  flex: 0 0 14px;
+  width: 14px;
+  height: 14px;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Yours to take: an open ring in the plate's ink, and the shape everything else
+   is read against. */
+.glyphTakeable {
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid var(--c-field-glyph);
+  border-radius: 50%;
+}
+
+/* The one answer to *what next*: the same ring, thicker and cold. */
+.glyphDesignated {
+  width: 14px;
+  height: 14px;
+  border: 2.5px solid var(--c-field-glyph);
+  border-radius: 50%;
+}
+
+/*
+ * Somebody is on it: filled rather than open, because it is not yours to take.
+ *
+ * Still, and with no halo. The Route spends the app's one licensed animation on
+ * this shape; this view spends none — the fill against four unfilled forms is
+ * the whole of the distinction here, and a second animation would be motion
+ * spent on a difference that is already carried standing still.
+ */
+.glyphClaimed {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--c-field-glyph);
+}
+
+/* Waiting on something: the hatch is the wait, and it is not a colour. */
+.glyphBlocked {
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid var(--c-field-glyph);
+  border-radius: 50%;
+  background: repeating-linear-gradient(
+    45deg,
+    var(--c-field-glyph) 0 1.5px,
+    transparent 1.5px 4px
+  );
+}
+
+/* Finished: filled and faded, still a disc and still in the lane. */
+.glyphResolved {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--c-field-glyph);
+  opacity: 0.55;
+}
+
+/*
+ * Cut: the disc it is composed onto, struck through. A shape change and nothing
+ * else — no colour of its own, and no opacity on the plate, because a decision
+ * the map cut is still a decision and still has to be read. The bar overhangs
+ * on both sides so it reads as a strike rather than as a notch in the fill.
+ */
+.glyphCut {
+  position: relative;
+}
+
+.glyphCut::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: -3px;
+  left: -3px;
+  height: 1.5px;
+  background: var(--c-field-glyph);
+  transform: translateY(-50%);
+}
+
+/*
+ * The designation, read off the plate's own attribute — which carries
+ * `map.frontier` verbatim. Exactly one plate on the pane can match it.
+ */
+.plate[data-frontier] {
+  --c-field-fill: var(--s-designated-bg);
+  --c-field-rail: var(--s-designated);
+  --c-field-glyph: var(--s-designated);
+}
+
+/* Claimed wins, the same precedence `formOf` uses: a node somebody is already
+   on must not read as free. It comes after the designation for that reason. */
+.plate[data-state="claimed"] {
+  --c-field-fill: var(--s-live-bg);
+  --c-field-rail: var(--s-live);
+  --c-field-glyph: var(--s-live);
+}
+
+/*
+ * Blocked has no block of its own: the hatch is the whole of what it says, and
+ * its ink is the plate default, because a wait is not a fainter version of
+ * *yours to take*.
+ *
+ * Resolved recedes in ink weight and nothing else — never opacity on the plate,
+ * never display, never visibility — so a finished ticket is still read, still
+ * found, still focusable and still counted. Its glyph is the one that recedes
+ * below the others, and it recedes on the shape rather than here, so the fade
+ * cannot reach the title. `tests/deep-field-view.test.tsx` reads this block and
+ * fails on an `opacity`, a `display`, a `visibility` or a `content-visibility`
+ * arriving in it.
+ */
+.plate[data-state="resolved"] {
+  --c-field-ink: var(--s-ink-secondary);
+  --c-field-quiet: var(--s-ink-faint);
+}
+
+/*
+ * The plate you have chosen, and it is a fill change and nothing else. It comes
+ * after the forms on purpose: a designated or claimed plate that you pick keeps
+ * its rail and its glyph, which are facts about the map, and gives up only its
+ * wash, which is decoration of the same fact.
+ */
+.plate[data-selected] {
+  --c-field-fill: var(--s-surface-hover);
+}
+
+/* --------------------------------------------------------------- marks --- */
+
+/*
+ * A mark is a node's position and nothing else — no label, no number, no
+ * tooltip. Everything a mark could have said is on its plate, which is the
+ * whole of rule 11.
+ *
+ * The five forms again, in stroke and fill: an open ring, a thicker ring, a
+ * filled disc, a dashed ring and a faded disc. The dash and the fill are the
+ * two channels that survive a monochrome screen, so no two forms differ only in
+ * their ink.
+ */
+.mark {
+  fill: none;
+  stroke: var(--s-ink-faint);
+  stroke-width: 1.5px;
+}
+
+.markTakeable {
+  stroke: var(--s-ink-faint);
+}
+
+.markDesignated {
+  stroke: var(--s-designated);
+  stroke-width: 2.5px;
+}
+
+.markClaimed {
+  fill: var(--s-live);
+  stroke: var(--s-live);
+}
+
+/* The wait, drawn as a broken ring: the same break the plate's hatch is, in the
+   one channel an SVG stroke has for it. */
+.markBlocked {
+  stroke-dasharray: 3 3;
+}
+
+/*
+ * Finished, and receding rather than leaving. A reduction in salience is never
+ * a reduction in visibility: the opacity here is well clear of zero, the mark
+ * keeps its place in its column, and the node it stands for keeps a plate that
+ * is focusable and hit-testable.
+ */
+.markResolved {
+  fill: var(--s-ink-faint);
+  stroke: var(--s-ink-faint);
+  opacity: 0.55;
+}
+
+/*
+ * An edge leaves the ticket that is finished, or nearly, and lands on what it
+ * releases: read left to right it is ground covered.
+ */
+.edge {
+  fill: none;
+  stroke: var(--s-line-quiet);
+  stroke-width: 1px;
+}
+
+/* Behind the operator: the blocker is resolved, so the edge is history rather
+   than a thing to plan around. Fainter, and still drawn. */
+.edge[data-cleared] {
+  stroke: var(--s-line-absent);
+}
+
+/*
+ * The edge the ranker refused, and the one edge in the field that says
+ * something about itself. Broken, because it does not travel rightwards like
+ * every other line here and a solid line implying it does would be the picture
+ * lying about the direction. What it *means* is on both its plates, in words.
+ */
+.edge[data-circular] {
+  stroke: var(--s-line-strong);
+  stroke-dasharray: 2 4;
+}
+
+/* ---------------------------------------------------------- stand-down --- */
+
+/*
+ * Said, not drawn. Nothing here is a control: no button, no link, nothing with
+ * a handler — widening the pane and switching view are the shell's, and a
+ * second set offered from inside the view would be two controls for one move.
+ */
+.standDown {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: var(--s-space-tight);
+  padding: var(--s-space-base);
+}
+
+.standDownView {
+  margin: 0;
+  color: var(--s-ink-primary);
+  font-size: var(--s-text-body);
+  font-weight: var(--s-weight-emphasis);
+}
+
+.standDownReason {
+  margin: 0;
+  color: var(--s-ink-secondary);
+  font-size: var(--s-text-small);
+}
+
+/* The two measurements, side by side and set in figures, because *needs 596 has
+   320* is read as one comparison rather than as two facts. */
+.measure {
+  display: flex;
+  margin: 0;
+  gap: var(--s-space-base);
+  color: var(--s-ink-faint);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-micro);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ----------------------------------------------------------------- fog --- */
+
+/*
+ * A region that names itself. Drawn on every map, including one with nothing
+ * else on it — every other group is dropped when it is empty, and this is the
+ * one place where the emptiness is the claim.
+ */
+.fog {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+}
+
+.fogHeading {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-space-tight);
+  margin: 0;
+  padding: var(--s-space-base) var(--s-space-base) var(--s-space-hair);
+  color: var(--s-ink-faint);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-micro);
+  font-weight: var(--s-weight-emphasis);
+  letter-spacing: var(--s-tracking-label);
+  text-transform: uppercase;
+}
+
+.fogName {
+  flex: 0 0 auto;
+}
+
+.fogCount {
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * Not a count, and deliberately not set like one. `—` stands where a numeral
+ * would go, in the ui face and the ink of a thing not yet established: a survey
+ * that found nothing and a survey nobody ran must not read as one claim. The
+ * face carries it on a monochrome screen and through a retheme, where a colour
+ * alone would not — and the surveyed reading always draws a body under the
+ * heading while this one draws nothing at all, so the difference is two
+ * elements rather than one character.
+ */
+.fogUnsurveyed {
+  color: var(--s-ink-faint);
+  font-family: var(--s-font-ui);
+}
+
+/*
+ * The section, verbatim. `pre-wrap` and not `pre`: the operator's own line
+ * breaks and indentation are kept, and a line longer than the pane wraps rather
+ * than putting the view into a horizontal scroll it has no room for.
+ */
+.fogText {
+  margin: 0;
+  padding: 0 var(--s-space-base) var(--s-space-base);
+  color: var(--s-ink-secondary);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-small);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+/* A survey that found nothing still says so. */
+.fogEmpty {
+  margin: 0;
+  padding: 0 var(--s-space-base) var(--s-space-base);
+  color: var(--s-ink-faint);
+  font-size: var(--s-text-small);
+}

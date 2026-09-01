@@ -13,15 +13,17 @@
  * a command exposes it, `localStorage` is the same shape (app-scoped, survives
  * restart) behind the same two functions, so the swap is one file.
  *
- * There is deliberately no switcher here, and no picker chrome anywhere. The
- * registry has exactly one entry today, the shell's view dial is a later
- * ticket's work, and a dial built now would be making that ticket's decisions
- * early with one detent to show for it. The omission is the decision.
+ * Nothing here draws. The registry is two entries now — the Route and Deep
+ * Field — and what reads it is `ViewSwitcher.tsx` beside this file, which #52
+ * built and which is the only picker chrome there is. This file stays the
+ * names, the labels, the floors' key and the remembered default; a view is
+ * added by naming it here and then answering for it everywhere a `Record` over
+ * [`ViewName`] refuses to compile without it.
  */
 
 import type { Model } from "../snapshot/snapshot";
 
-export type ViewName = "route";
+export type ViewName = "route" | "deep-field";
 
 /**
  * What every view is given, and the whole of it.
@@ -48,8 +50,8 @@ export interface ViewProps {
   onSelect: (number: number | null) => void;
 }
 
-/** Every view there is, which is currently one. */
-export const VIEWS: readonly ViewName[] = ["route"];
+/** Every view there is, in the order a switcher offers them. */
+export const VIEWS: readonly ViewName[] = ["route", "deep-field"];
 
 /**
  * What each view is called on screen, and the only place it is spelled.
@@ -62,6 +64,9 @@ export const VIEWS: readonly ViewName[] = ["route"];
  */
 export const LABELS: Record<ViewName, string> = {
   route: "The Route",
+  /* The component's own `aria-label`, spelled the same, so the cap on the
+     switcher and the region a reader lands in are one name. */
+  "deep-field": "Deep Field",
 };
 
 /**
@@ -71,7 +76,12 @@ export const LABELS: Record<ViewName, string> = {
  */
 export const DEFAULT_VIEW: ViewName = "route";
 
-const STORAGE_KEY = "perseverance.view";
+/**
+ * The one app-wide key, exported because the conformance driver has to seed it
+ * to open a view that is not the default — a second spelling of the string
+ * there would be the drift this key exists to have none of.
+ */
+export const STORAGE_KEY = "perseverance.view";
 
 /*
  * The array is what says which strings are views, so a stored value is narrowed

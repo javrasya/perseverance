@@ -7,18 +7,19 @@ import { NO_MAP_OPEN } from "../../snapshot/readout";
  * one place that is decided — see `ViewProps`.
  */
 import type { ViewProps } from "../views";
+import { beyondTheMapNote, blockedByLabel } from "../graph";
 import {
   BOUND_ELSEWHERE_TAG,
   DESIGNATED_TAG,
-  DESTINATION_HEADING,
   FOG_ALL_CHARTED,
   FOG_HEADING,
-  NOBODY_SURVEYED,
   SPEC_TAG,
   STATE_NAMES,
   UNCLASSIFIED_TAG,
-  beyondTheMapNote,
-  blockedByLabel,
+} from "../vocabulary";
+import {
+  DESTINATION_HEADING,
+  NOBODY_SURVEYED,
   routeOf,
   type Mark,
   type RouteRow,
