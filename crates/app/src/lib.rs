@@ -33,8 +33,8 @@ use perseverance_github::{
     TokenOutcome, Watched,
 };
 use perseverance_model::{
-    read_response, ChangeLog, ChildKind, Degraded, Frontier, Machine, Map, MapRead, Model, Phase,
-    Provenance, ReadOutcome, Snapshot, Source, TicketType,
+    read_response, ChangeLog, ChildKind, Degraded, Frontier, Machine, Map, MapRead, Model,
+    NodeState, Phase, Provenance, ReadOutcome, Snapshot, Source, TicketType,
 };
 use perseverance_pty::{Delivery, Geometry, RunId, Runs, GRACE};
 use perseverance_store::{CachedBody, CachedGraph, Folder, RepoBindingError, Store, StoreError};
@@ -919,14 +919,19 @@ fn poll_once<R: Runtime>(app: &AppHandle<R>, watched: &Watched, ahead: &Ahead<'_
     // session and nothing about what is on screen: the graph came from GitHub
     // either way, and the stamp beside the map list is where that refusal is
     // already reported.
-    emit_snapshot(
-        app,
-        ledgers.observed(
-            Model::of(fresh.read(), Machine::host()),
-            fresh.fetched_at(),
-            &claims.originated(),
-        ),
+    let snapshot = ledgers.observed(
+        Model::of(fresh.read(), Machine::host()),
+        fresh.fetched_at(),
+        &claims.originated(),
     );
+    // The ledger's lock is already released and the registry's is never taken:
+    // this is a write to one small table, and the half of an ending the poller
+    // owns. `Terminals::noticed` is where the latch is argued and where the
+    // promise that a close touches no terminal is kept.
+    if let Some(terminals) = app.try_state::<Terminals>() {
+        terminals.noticed(&path, &snapshot.model);
+    }
+    emit_snapshot(app, snapshot);
     // What this answer said about the budget, anchored to when it landed. The
     // loop ages it against its own last tick; nothing here interprets it.
     Tick::Read(fresh.budget())
@@ -2024,6 +2029,18 @@ pub struct Terminals {
     /// property of the type. This table is that something, and dropping a row
     /// is the only thing that sends `Poke::RunExited`.
     live: Mutex<BTreeMap<RunId, RunHandle>>,
+    /// The last state each run's ticket was seen in, which is the poller's half
+    /// of [`Ending`] — and the half that has to be *remembered*, because the
+    /// readout that renders it runs three times a second and a poll lands every
+    /// ten seconds at best.
+    ///
+    /// Written only by [`Terminals::noticed`], which is where the latch and the
+    /// absences are argued. Its own table rather than a field beside the stakes,
+    /// for the reason the handles are: these are written by the poller's thread
+    /// and read by the readouts', and the stakes are written once by a press and
+    /// read by a quit. Four small mutexes taken one after another cost less than
+    /// one that every one of those has to queue on.
+    resolution: Mutex<BTreeMap<RunId, NodeState>>,
 }
 
 impl Terminals {
@@ -2033,6 +2050,7 @@ impl Terminals {
             bytes: Mutex::new(None),
             stakes: Mutex::new(BTreeMap::new()),
             live: Mutex::new(BTreeMap::new()),
+            resolution: Mutex::new(BTreeMap::new()),
         }
     }
 
@@ -2072,6 +2090,32 @@ impl Terminals {
         self.staked_here().insert(run, stakes);
     }
 
+    /// Whether this window already holds a run staked on that ticket in that
+    /// folder whose child has not exited.
+    ///
+    /// Matched on the folder as well as the number for the reason
+    /// [`Terminals::noticed`] gives: an issue number is unique inside one
+    /// repository and means nothing across two, so a run against `#77` here
+    /// would otherwise be answered for by somebody else's `#77`.
+    ///
+    /// The two locks are taken one after the other and never nested, as
+    /// everywhere else on this type.
+    fn live_run_on(&self, ticket: u64, folder: &str) -> bool {
+        let staked: Vec<RunId> = self
+            .staked_here()
+            .iter()
+            .filter(|(_, stakes)| stakes.ticket == Some(ticket) && stakes.folder == folder)
+            .map(|(run, _)| *run)
+            .collect();
+
+        !staked.is_empty()
+            && self
+                .held()
+                .telemetry()
+                .iter()
+                .any(|telemetry| !telemetry.over && staked.contains(&telemetry.run))
+    }
+
     /// This run is live, as far as the poller's ladder is concerned, until the
     /// handle handed in here is dropped.
     pub fn counting(&self, run: RunId, handle: RunHandle) {
@@ -2096,6 +2140,116 @@ impl Terminals {
         self.live
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn resolved_here(&self) -> MutexGuard<'_, BTreeMap<RunId, NodeState>> {
+        self.resolution
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// What the poll that just landed says about the tickets these runs are
+    /// working on.
+    ///
+    /// **Nothing here touches [`perseverance_pty::Runs`].** A ticket closing is
+    /// a fact about GitHub, and the terminal beside it is not part of it: no
+    /// session is closed, the monitored run stays monitored, no child is
+    /// signalled and no geometry is disturbed. The two facts meet nowhere but
+    /// in [`ending`], where a readout is written from both and neither is
+    /// allowed to act on the other.
+    ///
+    /// **`Resolved` is a latch.** Once a run's ticket has been seen closed the
+    /// run is spent for the rest of its life. The operator then opens another
+    /// map, or this map stops listing the ticket, or GitHub is unreachable for
+    /// an hour — none of that is the ticket re-opening, and a readout that
+    /// flipped back to *live* because nobody was looking would be the app
+    /// forgetting the one thing it is here to notice.
+    ///
+    /// **A ticket this model does not list writes nothing.** Absence is not a
+    /// state: a run keeps whatever it was last seen as, which is why the loop
+    /// below writes only on a hit.
+    ///
+    /// Matched on the folder as well as the number, because an issue number is
+    /// unique inside one repository and means nothing across two — without it a
+    /// run against `#77` here would be resolved by somebody else's `#77` in
+    /// whichever folder happens to be on screen. Both spellings of the folder
+    /// come from the same registry row (the press is handed it, and
+    /// [`poll_once`] reads it back), and a run whose folder somehow does not
+    /// match is left with the ending it had, which errs towards *live* rather
+    /// than towards a close that never happened.
+    pub fn noticed(&self, folder: &str, model: &Model) {
+        let Some(map) = model.map.as_ref() else {
+            return;
+        };
+
+        // A run that names no ticket has no node to be resolved by, so it never
+        // reaches the table at all.
+        let seen: Vec<(RunId, u64)> = self
+            .staked_here()
+            .iter()
+            .filter(|(_, stakes)| stakes.folder == folder)
+            .filter_map(|(run, stakes)| stakes.ticket.map(|ticket| (*run, ticket)))
+            .collect();
+
+        let mut resolution = self.resolved_here();
+        for (run, ticket) in seen {
+            if resolution.get(&run) == Some(&NodeState::Resolved) {
+                continue;
+            }
+            if let Some(node) = map.nodes.iter().find(|node| node.number == ticket) {
+                resolution.insert(run, node.state);
+            }
+        }
+    }
+
+    /// Every run's readout, with the ending this app has derived for it.
+    ///
+    /// The two locks are taken one after the other and never nested, for the
+    /// reason [`Terminals::losses`] gives and with one more: this runs at three
+    /// hertz against a table the poller writes, and neither thread may be made
+    /// to wait on the other's work.
+    fn readouts(&self) -> Vec<RunReadout> {
+        let telemetry = self.held().telemetry();
+
+        let staked: BTreeMap<RunId, Stakes> = self
+            .staked_here()
+            .iter()
+            .map(|(run, stakes)| (*run, stakes.clone()))
+            .collect();
+
+        let resolution = self.resolved_here();
+        telemetry
+            .iter()
+            .map(|telemetry| {
+                let ending = ending(telemetry.over, resolution.get(&telemetry.run).copied());
+                RunReadout::of(telemetry, ending, staked.get(&telemetry.run))
+            })
+            .collect()
+    }
+
+    /// One run, ended — the session closed, and every row this side kept about
+    /// it dropped with it.
+    ///
+    /// Reached from [`end_run`] and from nothing else; that command is where the
+    /// rule about who may call it is argued.
+    ///
+    /// **Nothing expensive drops under a lock here.** The session is lifted out
+    /// of the registry with [`perseverance_pty::Runs::take`] and dropped once
+    /// the guard is gone, because that drop is what ends the child — a hangup, a
+    /// few looks, then a kill — and it can take a quarter of a second on one
+    /// that traps the hangup. The frame pump and the readout tick both read that
+    /// table several times a second, so a press that held it for that long would
+    /// stop bytes reaching the pane it just closed a neighbour of. The handle
+    /// goes last and outside the lock for the same shape of reason: dropping it
+    /// wakes the poller, and a table three threads read is not a thing to be
+    /// holding while that happens.
+    pub fn ended(&self, run: RunId) {
+        let session = self.held().take(run);
+        self.staked_here().remove(&run);
+        self.resolved_here().remove(&run);
+        let counted = self.counted_here().remove(&run);
+        drop(session);
+        drop(counted);
     }
 
     /// One sentence per live run, in the order they were opened — and the count
@@ -2227,7 +2381,7 @@ fn framed(delivery: &Delivery) -> Option<Vec<u8>> {
 /// prints. **It is here rather than in the byte stream**, which is the whole of
 /// the rule: a terminal that had *scrollback lost* written into it would be a
 /// terminal whose contents are no longer only what the agent said.
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct RunReadout {
     run: u64,
@@ -2240,10 +2394,48 @@ struct RunReadout {
     over: bool,
     code: Option<u32>,
     monitored: bool,
+    /// Which ending this run has, or that it has none yet. Derived here and
+    /// never in `crates/pty`: `over` above is the process, and this is the
+    /// product's reading of it — see [`Ending`].
+    ending: Ending,
+    /// The ticket this run was staked on, or nothing for a run this app was
+    /// never told about.
+    ///
+    /// Half of the value that joins a run to a node, and it is here because that
+    /// join is what tells a claim with a live terminal from a claim with none —
+    /// the difference Resume is offered on. Nothing else on a readout can make
+    /// it, and `crates/pty` must not learn what a ticket is to help.
+    ticket: Option<u64>,
+    /// The folder that run was staked in, and the other half of the join.
+    ///
+    /// Here for the reason [`Terminals::live_run_on`] matches on it: an issue
+    /// number is unique inside one repository and means nothing across two, and
+    /// this window holds every folder's runs at once. A readout carrying the
+    /// number alone let the chrome answer a claim in one repository with
+    /// somebody else's `#77` in another — moving the pane onto an unrelated
+    /// agent and sending no command at all, so that the folder-aware refusal
+    /// next door was never even asked for.
+    ///
+    /// Derived in this crate from the stakes a press wrote, exactly as `ending`
+    /// is: `crates/pty` carries no folder a product would recognise.
+    folder: Option<String>,
 }
 
-impl From<&perseverance_pty::Telemetry> for RunReadout {
-    fn from(telemetry: &perseverance_pty::Telemetry) -> RunReadout {
+impl RunReadout {
+    /// A readout is the telemetry plus the things the telemetry cannot know.
+    ///
+    /// The stakes whole rather than the ticket out of them, because the join to
+    /// a node is a folder and a number together, and a caller handed one of the
+    /// two could not make it.
+    ///
+    /// Constructed rather than `From`, because a `From<&Telemetry>` would have
+    /// to invent an ending out of a process fact alone — which is exactly the
+    /// single state machine over the child that `docs/adr/0022` refuses.
+    fn of(
+        telemetry: &perseverance_pty::Telemetry,
+        ending: Ending,
+        stakes: Option<&Stakes>,
+    ) -> RunReadout {
         RunReadout {
             run: telemetry.run.as_u64(),
             held: telemetry.held,
@@ -2255,7 +2447,71 @@ impl From<&perseverance_pty::Telemetry> for RunReadout {
             over: telemetry.over,
             code: telemetry.code,
             monitored: telemetry.monitored,
+            ending,
+            ticket: stakes.and_then(|stakes| stakes.ticket),
+            folder: stakes.map(|stakes| stakes.folder.clone()),
         }
+    }
+}
+
+/// How a run ended, or that it has not.
+///
+/// **Two independent facts, and never one state machine over the process.** The
+/// ticket's resolution is seen by the poller and the child's exit is seen by
+/// the PTY; neither causes the other, they arrive in either order, and a run can
+/// sit in any pairing of them for hours. `docs/adr/0022` is the argument; what
+/// it buys here is that no path in this app has to ask *what state is this run
+/// in* — there is no such state, there are two facts and this table over them.
+///
+/// It is derived in this crate because it is product knowledge. `crates/pty`
+/// carries `over` and an exit code and must not learn what a ticket is; the byte
+/// scan at the bottom of this file is what keeps that true.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+enum Ending {
+    /// No ending yet: the child is running and the ticket is not closed.
+    Live,
+
+    /// The ticket closed. **The one ending that is good news**, and the one that
+    /// says nothing at all about the child — which may still be printing. The
+    /// run holds its slot in the rack until somebody presses to end it: see
+    /// [`end_run`].
+    Spent,
+
+    /// The child exited with the ticket still open and still somebody's. The
+    /// agent stopped without finishing, the claim is still on GitHub, and the
+    /// terminal beside this is the only record of why.
+    ExitedUnresolved,
+
+    /// The child exited and nothing is claimed of it: the ticket is open and
+    /// unassigned, or blocked, or on a map this app has never read.
+    ///
+    /// **An exit over an open-but-unassigned ticket reads as this and not as
+    /// [`Ending::ExitedUnresolved`].** [`NodeState::Claimed`] is the only state
+    /// that means the work is still held by somebody; `Takeable` says the
+    /// assignment is gone — unassigned by hand, or never made — and `Blocked`
+    /// says the same with something in the way. Calling either of those
+    /// *unresolved* would have the readout assert a claim that is not there,
+    /// which is the one lie this enum can tell that an operator would act on. A
+    /// run whose ticket this app has never seen in a model is the same case for
+    /// the same reason: nothing has been observed, so nothing is asserted.
+    Exited,
+}
+
+/// The whole derivation, over the two facts and nothing else.
+///
+/// A free function over plain values, so the table can be read and tested
+/// without a registry, a poller or a child process — the posture
+/// [`what_it_loses`] takes next door.
+fn ending(over: bool, seen: Option<NodeState>) -> Ending {
+    match (seen, over) {
+        // Resolution first, and in both columns: a ticket that closed is spent
+        // whether or not the child is still running, and an exit afterwards does
+        // not turn a finished piece of work into an abandoned one.
+        (Some(NodeState::Resolved), _) => Ending::Spent,
+        (_, false) => Ending::Live,
+        (Some(NodeState::Claimed), true) => Ending::ExitedUnresolved,
+        (_, true) => Ending::Exited,
     }
 }
 
@@ -2317,12 +2573,31 @@ fn settled_geometry(terminals: State<'_, Terminals>, rows: u16, cols: u16) -> us
 /// having a listener — the ordering every other surface in this file uses.
 #[tauri::command]
 fn run_readouts(terminals: State<'_, Terminals>) -> Vec<RunReadout> {
-    terminals
-        .held()
-        .telemetry()
-        .iter()
-        .map(RunReadout::from)
-        .collect()
+    terminals.readouts()
+}
+
+/// One run, ended by a press.
+///
+/// **The only way a run leaves the rack**, and reachable from nowhere but the
+/// WebView. A *spent* run — its ticket closed, its child possibly still
+/// printing — holds its slot until this is called, because this app noticing a
+/// close is not an operator being finished with what is on screen. If the poller
+/// or a readout thread could reach this, the app would be closing terminals on
+/// the strength of a GitHub read, and the last thing an agent printed is exactly
+/// what a person goes looking for afterwards.
+///
+/// The child is ended with the session, which is what lifting it out through
+/// [`perseverance_pty::Runs::take`] means: a press is a decision to stop, and a
+/// run left alive with nothing holding its bytes would be an orphan this app
+/// could not name at the next quit.
+///
+/// **Async, so the press leaves the main thread.** Ending the child is a hangup
+/// and then a wait, and a child that traps the hangup is killed a quarter of a
+/// second later; a synchronous command would spend that on the event loop, with
+/// the window frozen behind it.
+#[tauri::command(async)]
+fn end_run(terminals: State<'_, Terminals>, run: u64) {
+    terminals.ended(RunId::from_u64(run));
 }
 
 /// The frame pump and the readout tick, on one thread each.
@@ -2371,12 +2646,7 @@ fn start_terminals(app: AppHandle) -> std::io::Result<()> {
             let Some(terminals) = app.try_state::<Terminals>() else {
                 continue;
             };
-            let readouts: Vec<RunReadout> = terminals
-                .held()
-                .telemetry()
-                .iter()
-                .map(RunReadout::from)
-                .collect();
+            let readouts = terminals.readouts();
             // The falling edge of a run, taken from the same readout the screen
             // is drawn from. Dropping the handle is what tells the poller the
             // ladder has come down a rung.
@@ -2595,11 +2865,10 @@ fn start_working(
         &app, &terminals, &harvests, &registry, &ambient, &map, ticket, &folder, &adapter,
     ) {
         Ok((run, rendered)) => {
-            // Three writes and a bind, in the order that keeps each of them
-            // true of a run that already exists: what it would lose, that this
-            // harness is the one that took the node, and that the ladder has a
-            // live run on it.
-            terminals.staked(
+            booked(
+                &terminals,
+                &claims,
+                &poker,
                 run,
                 Stakes {
                     ticket: Some(ticket),
@@ -2607,10 +2876,6 @@ fn start_working(
                     kind: kind_of(&map, ticket),
                 },
             );
-            claims.claimed(ticket);
-            terminals.counting(run, poker.run_started());
-            // The operator watches what they started.
-            terminals.held().monitor(Some(run));
 
             Started::Spawned {
                 run: run.as_u64(),
@@ -2765,12 +3030,185 @@ fn charting(
     )
 }
 
+/// A second press over a claim already made: a fresh session against a ticket
+/// this map already reports as [`NodeState::Claimed`].
+///
+/// **The prompt is byte-identical to Start Working's.** Both render through the
+/// one [`prompt::work_ticket`] with the same [`prompt::Coordinates`], and the
+/// override is read at spawn wholesale exactly as it already is: there is no
+/// verb in the template, no verb on the coordinates and no verb in this
+/// command's arguments. A sixth template was rejected because Resume differs by
+/// a *precondition* and not by a behaviour.
+///
+/// **The three-way step 1 is what makes it legal.** The brief tells the agent to
+/// claim an unassigned ticket, to proceed over one already assigned to the
+/// operator writing nothing, and to stop over one assigned to anybody else — so
+/// a session handed a claim it must not touch refuses by reading its own brief.
+/// This side consults no identity and cannot: the model carries a *count* of
+/// assignees and no logins, and every run of this harness assigns the same
+/// login, so *claimed by me* is liveness rather than identity. Resume is
+/// therefore offered over any `Claimed` node.
+///
+/// **Nothing new is written down.** No session id, no reattach, no
+/// adapter-native continuation flag. A run whose child is gone is picked up by
+/// the sentence already in the template that sends the agent to the ticket's
+/// existing comments before it starts.
+// Eleven arguments for the reason [`start_working`] has eleven: the two
+// commands take the same press and the same managed state, and it is the same
+// press precisely because nothing in it names the verb.
+#[allow(clippy::too_many_arguments)]
+#[tauri::command(async)]
+fn resume_working(
+    app: AppHandle,
+    terminals: State<'_, Terminals>,
+    harvests: State<'_, Harvests>,
+    registry: State<'_, Registry>,
+    ambient: State<'_, Ambient>,
+    ledgers: State<'_, Ledgers>,
+    claims: State<'_, Claims>,
+    poker: State<'_, Poker>,
+    folder: String,
+    ticket: u64,
+    adapter: String,
+) -> Started {
+    // The same awaited poke Start Working gates on, and a UX guard rather than
+    // a correctness one: what makes a resume safe is the node this side reads
+    // *after* it, never the freshness of the read on its own.
+    let harvest_settled = ambient.token.get().is_some();
+    if let Some(refusal) = why_the_check_is_not_a_read(poker.revalidate(CHECKING), harvest_settled)
+    {
+        return Started::refused(refusal, None);
+    }
+
+    let Some(map) = ledgers.held().model.map else {
+        return Started::refused("no map is open, so there is nothing to resume", None);
+    };
+    let standing = Some(map.frontier);
+    if let Some(refusal) = why_the_claim_cannot_be_resumed(&map, ticket) {
+        return Started::refused(refusal, standing);
+    }
+    // One foreground run per crossing, and one pane: a claim whose child is
+    // still alive is re-focused by the rail and never spawned over.
+    if terminals.live_run_on(ticket, &folder) {
+        return Started::refused(
+            format!("#{ticket} already has a run in this window and it is still live"),
+            standing,
+        );
+    }
+
+    match spawn_at(
+        &app, &terminals, &harvests, &registry, &ambient, &map, ticket, &folder, &adapter,
+    ) {
+        Ok((run, rendered)) => {
+            booked(
+                &terminals,
+                &claims,
+                &poker,
+                run,
+                Stakes {
+                    ticket: Some(ticket),
+                    folder,
+                    kind: kind_of(&map, ticket),
+                },
+            );
+
+            Started::Spawned {
+                run: run.as_u64(),
+                prompt: rendered,
+            }
+        }
+        Err(refusal) => Started::refused(refusal, standing),
+    }
+}
+
+/// Why this ticket is not a claim to resume, or nothing at all.
+///
+/// **Two refusals stand in front of the match, and they are the two guards
+/// Resume does not inherit.** Start Working is aimed at the frontier, so the
+/// frontier's own resolver had already answered *is this a wayfinder ticket* and
+/// *is this bound to another machine* before a press could reach one; Resume is
+/// aimed at the operator's selection, which no resolver has been through, so it
+/// asks both here or not at all. A spec node and an unclassified child both read
+/// [`NodeState::Claimed`] the moment they are assigned and unblocked — the
+/// derivation reads state and never kind — and a ticket labelled for another
+/// platform reads `Claimed` here as plainly as any other.
+///
+/// The state is still one exhaustive match, so a fifth [`NodeState`] is a
+/// compile error here rather than a ticket that quietly reads as unclaimed.
+///
+/// **A ticket that has gained a blocker is not resumable**, however plainly it
+/// is assigned to the operator. [`NodeState`] is derived in strict precedence —
+/// resolved, then blocked, then claimed, then takeable — so an open blocker
+/// takes the node off `Claimed` altogether. That is a consequence of the one
+/// derivation the whole app reads, and not a rule this file is entitled to
+/// soften with a second opinion about what *claimed* means.
+fn why_the_claim_cannot_be_resumed(map: &Map, ticket: u64) -> Option<String> {
+    let Some(node) = map.nodes.iter().find(|node| node.number == ticket) else {
+        return Some(format!("#{ticket} is not on this map"));
+    };
+
+    // *Is a ticket*, which the frontier's resolver enforced for the other verb.
+    // Without it `kind_of` below falls through to [`RunKind::Work`] and an agent
+    // is spawned at the destination, or at an unclassified child, with a work
+    // brief in its hands.
+    if !matches!(node.kind, ChildKind::Ticket(_)) {
+        return Some(format!(
+            "#{ticket} is not a wayfinder ticket, so there is nothing to resume"
+        ));
+    }
+
+    // *Is not bound to another machine.* `docs/adr/0015` promises of that label
+    // family that nothing is hidden and nothing is launched, and a claim is not
+    // the exception: the node stays on the map, selectable and legible, and the
+    // press over it refuses.
+    if node.bound_elsewhere {
+        return Some(format!(
+            "#{ticket} is bound to another machine, so it is not resumable here"
+        ));
+    }
+
+    match node.state {
+        NodeState::Claimed => None,
+        NodeState::Resolved => Some(format!(
+            "#{ticket} is closed, so there is nothing to resume"
+        )),
+        NodeState::Blocked => Some(format!(
+            "#{ticket} has something open in its way, so it is not a claim to resume"
+        )),
+        NodeState::Takeable => Some(format!(
+            "#{ticket} is not claimed, so there is nothing to resume"
+        )),
+    }
+}
+
+/// The three writes and the bind that make a spawned run this harness's own.
+///
+/// One function because the two verbs must not be able to drift apart here, and
+/// in the order that keeps each of them true of a run that already exists: what
+/// it would lose, that this harness is the one that took the node — idempotent,
+/// and what keeps a later assignment from announcing as foreign — and that the
+/// ladder has a live run on it.
+fn booked(terminals: &Terminals, claims: &Claims, poker: &Poker, run: RunId, stakes: Stakes) {
+    let ticket = stakes.ticket;
+
+    terminals.staked(run, stakes);
+    // A run that names no ticket takes no claim — charting reaches a repository
+    // before any ticket exists.
+    if let Some(ticket) = ticket {
+        claims.claimed(ticket);
+    }
+    terminals.counting(run, poker.run_started());
+    // The operator watches what they started.
+    terminals.held().monitor(Some(run));
+}
+
 /// What kind of run this ticket is, from the node the frontier named.
 ///
 /// A ticket the frontier designates is a ticket by construction — `is_takeable`
-/// says so — so the fallback is unreachable rather than a policy, and it is
-/// [`RunKind::Work`] because that is the kind whose loss sentence is the safe
-/// one to be wrong with.
+/// says so — and a ticket Resume reaches has been through the kind refusal in
+/// [`why_the_claim_cannot_be_resumed`], so the fallback is unreachable from both
+/// verbs rather than a policy, and it is [`RunKind::Work`] because that is the
+/// kind whose loss sentence is the safe one to be wrong with.
 fn kind_of(map: &Map, ticket: u64) -> RunKind {
     match map
         .nodes
@@ -3826,7 +4264,9 @@ pub fn run() {
             typed_at_run,
             settled_geometry,
             run_readouts,
+            end_run,
             start_working,
+            resume_working,
             start_charting,
             compose_spec
         ])
@@ -4420,9 +4860,12 @@ mod tests {
             over: true,
             code: Some(0),
             monitored: true,
+            ending: Ending::ExitedUnresolved,
+            ticket: Some(48),
+            folder: Some("/work/repo".to_string()),
         };
 
-        let json = serde_json::to_value(readout).expect("serialises");
+        let json = serde_json::to_value(&readout).expect("serialises");
 
         assert_eq!(json["run"], 4);
         assert_eq!(json["held"], 2_048);
@@ -4434,16 +4877,53 @@ mod tests {
         assert_eq!(json["over"], true);
         assert_eq!(json["code"], 0);
         assert_eq!(json["monitored"], true);
-        assert_eq!(json.as_object().expect("an object").len(), 10);
+        // A tagged string and not a pair of booleans: `over` is the process and
+        // `ending` is what this app makes of it, and a WebView handed both
+        // halves would be a second place the crossing is derived.
+        assert_eq!(json["ending"], "exitedUnresolved");
+        // The join to a node, and the two values on a readout that make it:
+        // without them the rail cannot tell a claim with a live terminal from a
+        // claim with none — and without the folder it cannot tell this
+        // repository's `#48` from another repository's.
+        assert_eq!(json["ticket"], 48);
+        assert_eq!(json["folder"], "/work/repo");
+        assert_eq!(json.as_object().expect("an object").len(), 13);
+
+        for (ending, spelt) in [
+            (Ending::Live, "live"),
+            (Ending::Spent, "spent"),
+            (Ending::ExitedUnresolved, "exitedUnresolved"),
+            (Ending::Exited, "exited"),
+        ] {
+            let crossed = serde_json::to_value(RunReadout {
+                ending,
+                ..readout.clone()
+            })
+            .expect("serialises")["ending"]
+                .clone();
+            assert_eq!(crossed, spelt);
+        }
 
         // A run still going says so by having no code rather than by a zero,
         // which is a real exit status and the commonest one there is.
         let running = RunReadout {
             over: false,
             code: None,
-            ..readout
+            ..readout.clone()
         };
         assert!(serde_json::to_value(running).expect("serialises")["code"].is_null());
+
+        // A run this app was never told the stakes of names no ticket and no
+        // folder, rather than a zero and an empty string that would join it to a
+        // node nobody staked, in a repository nobody named.
+        let unstaked = RunReadout {
+            ticket: None,
+            folder: None,
+            ..readout
+        };
+        let crossed = serde_json::to_value(unstaked).expect("serialises");
+        assert!(crossed["ticket"].is_null());
+        assert!(crossed["folder"].is_null());
     }
 
     /// The framing is a header and then the bytes, and the header is ten bytes.
@@ -7159,6 +7639,163 @@ mod tests {
         assert!(!terminals.composing(28));
     }
 
+    /// The whole of [`ending`], as a table over the two facts.
+    ///
+    /// Written out rather than derived from anything, because the value of the
+    /// table is exactly that it can be read: every pairing an operator can
+    /// arrive at is one line here, and the two rows worth arguing are the last
+    /// ones — an exit over a ticket nobody holds is `Exited`, not
+    /// `ExitedUnresolved`, and so is an exit over a ticket this app has never
+    /// seen. Neither may assert a claim that is not there.
+    #[test]
+    fn an_ending_is_the_two_facts_crossed_and_nothing_else() {
+        assert_eq!(ending(false, None), Ending::Live);
+        assert_eq!(ending(false, Some(NodeState::Claimed)), Ending::Live);
+        assert_eq!(ending(false, Some(NodeState::Takeable)), Ending::Live);
+
+        // Resolution outranks the process in both columns, which is what makes
+        // *spent* independent of the child rather than a state after it.
+        assert_eq!(ending(false, Some(NodeState::Resolved)), Ending::Spent);
+        assert_eq!(ending(true, Some(NodeState::Resolved)), Ending::Spent);
+
+        assert_eq!(
+            ending(true, Some(NodeState::Claimed)),
+            Ending::ExitedUnresolved
+        );
+        assert_eq!(ending(true, Some(NodeState::Takeable)), Ending::Exited);
+        assert_eq!(ending(true, Some(NodeState::Blocked)), Ending::Exited);
+        assert_eq!(ending(true, None), Ending::Exited);
+    }
+
+    /// A closed ticket is the end of the story, and no later tick reopens it.
+    ///
+    /// The two reads are the same map before and after #77 closed, so the
+    /// *earlier* one is fed back last: that is a map the operator re-opened, a
+    /// cache replayed, a poll that landed out of order — and none of them is a
+    /// ticket being re-opened. A run staked on a number this map has never
+    /// listed is here for the other absence: nothing observed, nothing written,
+    /// and the run keeps the ending it had.
+    #[test]
+    fn a_ticket_seen_closed_leaves_its_run_spent_for_the_rest_of_its_life() {
+        let terminals = Terminals::new();
+        let (open, elsewhere) = (RunId::from_u64(1), RunId::from_u64(2));
+        terminals.staked(open, a_stake(77, "/repos/perseverance", RunKind::Work));
+        terminals.staked(elsewhere, a_stake(77, "/repos/controlayer", RunKind::Work));
+
+        terminals.noticed("/repos/perseverance", &model_of(AWKWARD));
+        assert_ne!(
+            terminals.resolved_here().get(&open),
+            Some(&NodeState::Resolved)
+        );
+
+        terminals.noticed("/repos/perseverance", &model_of(AWKWARD_LATER));
+        assert_eq!(
+            terminals.resolved_here().get(&open),
+            Some(&NodeState::Resolved)
+        );
+
+        // The earlier read again, and the latch holds.
+        terminals.noticed("/repos/perseverance", &model_of(AWKWARD));
+        assert_eq!(
+            terminals.resolved_here().get(&open),
+            Some(&NodeState::Resolved)
+        );
+
+        // #77 in another folder is another ticket entirely, and the poll that
+        // closed this one says nothing about it.
+        assert_eq!(terminals.resolved_here().get(&elsewhere), None);
+
+        // A ticket no read has ever listed writes nothing at all, which is what
+        // keeps *absent* from being read as *open*.
+        let unlisted = RunId::from_u64(3);
+        terminals.staked(
+            unlisted,
+            a_stake(9_999, "/repos/perseverance", RunKind::Work),
+        );
+        terminals.noticed("/repos/perseverance", &model_of(AWKWARD_LATER));
+        assert_eq!(terminals.resolved_here().get(&unlisted), None);
+    }
+
+    /// The first criterion's other half: the node flips and **the terminal is
+    /// untouched**.
+    ///
+    /// A real run, a real registry and the real derivation, because the promise
+    /// is about what a resolution does *not* do and a pure function cannot be
+    /// asked. Everything the pane depends on is compared across the tick: the
+    /// run is still open, still monitored, still not over, and still holds the
+    /// bytes it held.
+    #[test]
+    fn a_ticket_closing_makes_a_run_spent_and_leaves_its_terminal_exactly_as_it_was() {
+        let directory = TempDir::new().expect("temp dir");
+        let terminals = Terminals::new();
+
+        let run = a_live_run_in(&terminals, directory.path());
+        terminals.staked(run, a_stake(77, "/repos/perseverance", RunKind::Work));
+        terminals.held().monitor(Some(run));
+
+        let registry = |terminals: &Terminals| -> Vec<(u64, bool, bool, u64)> {
+            terminals
+                .held()
+                .telemetry()
+                .iter()
+                .map(|readout| {
+                    (
+                        readout.run.as_u64(),
+                        readout.monitored,
+                        readout.over,
+                        readout.end,
+                    )
+                })
+                .collect()
+        };
+        let before = registry(&terminals);
+        assert_eq!(before.len(), 1);
+
+        terminals.noticed("/repos/perseverance", &model_of(AWKWARD_LATER));
+
+        assert_eq!(registry(&terminals), before);
+        let readouts = terminals.readouts();
+        assert_eq!(readouts.len(), 1);
+        assert_eq!(readouts[0].ending, Ending::Spent);
+        // Spent while the child is still running, which is the pairing the two
+        // facts are independent *for*.
+        assert!(!readouts[0].over);
+        assert_eq!(terminals.losses().len(), 1);
+    }
+
+    /// Spent holds its slot, and only a press takes it.
+    ///
+    /// Every tick this app takes by itself is exercised first — a resolution and
+    /// a readout, twice over — and the run is still there afterwards. Then the
+    /// press, which is the one thing that closes the session, drops the stakes,
+    /// forgets the resolution and lets go of the handle the ladder counts.
+    #[test]
+    fn a_spent_run_holds_its_slot_until_a_press_ends_it() {
+        let directory = TempDir::new().expect("temp dir");
+        let terminals = Terminals::new();
+        let poker =
+            perseverance_github::start(Timings::shipped(), |_watched, _ahead| Tick::NotAttempted)
+                .expect("a poller thread");
+
+        let run = a_live_run_in(&terminals, directory.path());
+        terminals.staked(run, a_stake(77, "/repos/perseverance", RunKind::Work));
+        terminals.counting(run, poker.run_started());
+
+        terminals.noticed("/repos/perseverance", &model_of(AWKWARD_LATER));
+        assert_eq!(terminals.readouts()[0].ending, Ending::Spent);
+        terminals.noticed("/repos/perseverance", &model_of(AWKWARD_LATER));
+        assert_eq!(terminals.readouts().len(), 1);
+        assert_eq!(poker.runs_live(), 1);
+
+        terminals.ended(run);
+
+        assert!(terminals.readouts().is_empty());
+        assert!(terminals.losses().is_empty());
+        assert!(terminals.staked_here().is_empty());
+        assert!(terminals.resolved_here().is_empty());
+        assert_eq!(poker.runs_live(), 0);
+    }
+
     /// The mapping is written once. `route.ts` draws the same line for
     /// `Attendance`, and both read [`TicketType`] rather than a second enum.
     #[test]
@@ -7428,5 +8065,263 @@ mod tests {
                 );
             }
         }
+    }
+
+    /* ------------------------------------------------- resuming a claim --- */
+
+    /// A map whose nodes are exactly the states a resume has to tell apart.
+    fn a_map_reading(nodes: &[(u64, NodeState)]) -> Map {
+        Map {
+            number: 28,
+            title: "The prompt is the product".to_string(),
+            closed: false,
+            phase: perseverance_model::Phase::Wayfinding,
+            counts: perseverance_model::Counts {
+                tickets: nodes.len(),
+                open: nodes.len(),
+                specs: 0,
+            },
+            nodes: nodes
+                .iter()
+                .map(|(number, state)| perseverance_model::Node {
+                    number: *number,
+                    title: format!("#{number}"),
+                    url: format!("https://github.com/javrasya/perseverance/issues/{number}"),
+                    kind: ChildKind::Ticket(TicketType::Task),
+                    state: *state,
+                    waits_on: Vec::new(),
+                    bound_elsewhere: false,
+                    cut: perseverance_model::Cut::InScope,
+                })
+                .collect(),
+            frontier: Frontier::NothingToStart,
+            fog: perseverance_model::Fog::Unsurveyed,
+        }
+    }
+
+    /// **The first criterion.** Resume sends the prompt Start Working sends, and
+    /// nothing in what either press carries says which of the two it was.
+    ///
+    /// Asserted against this file's own source, because the property is an
+    /// absence: there is no second rendering whose output could be compared —
+    /// there is one, and the ways it could stop being one are a second call site
+    /// or a verb added to a signature. Both are pinned here, and a sixth
+    /// template would have to introduce one of them.
+    #[test]
+    fn a_resume_renders_what_start_working_renders_and_neither_press_names_the_verb() {
+        const SOURCE: &str = include_str!("lib.rs");
+
+        // Built rather than written out, so this assertion is not counting
+        // itself.
+        let rendering = format!("{}::work_ticket(", "prompt");
+        assert_eq!(
+            SOURCE.matches(&rendering).count(),
+            1,
+            "a second call site is where a second prompt starts"
+        );
+
+        let press = |command: &str| -> String {
+            let signature = format!("fn {command}(");
+            let after = SOURCE
+                .split(&signature)
+                .nth(1)
+                .unwrap_or_else(|| panic!("{command} is a command in this file"));
+            after
+                .split_once(") -> Started")
+                .unwrap_or_else(|| panic!("{command} answers a Started"))
+                .0
+                .to_string()
+        };
+        assert_eq!(
+            press("start_working"),
+            press("resume_working"),
+            "one press, and a verb in either signature is a prompt that can tell them apart"
+        );
+
+        // The third criterion on this side of the seam: no reattach machinery
+        // anywhere, so there is nothing a resumed session could be handed that a
+        // started one could not.
+        for continuation in [
+            format!("--{}", "continue"),
+            format!("--{}", "resume"),
+            format!("--{}-id", "session"),
+            format!("{}_id", "session"),
+        ] {
+            assert!(
+                !SOURCE.contains(&continuation),
+                "{continuation} would be a transcript this harness kept"
+            );
+        }
+    }
+
+    /// **The second criterion, and the precedence consequence that comes with
+    /// it.**
+    ///
+    /// A claim is resumable and every other reading of a node is a sentence — a
+    /// different one each time, because *closed*, *something is in the way* and
+    /// *nobody holds it* are three different things to tell an operator who has
+    /// just pressed.
+    ///
+    /// **And two refusals before any state is read**, because Resume is aimed at
+    /// the selection rather than at the frontier and inherits neither of the
+    /// guards the frontier's resolver applies: a spec node and an unclassified
+    /// child read `Claimed` the moment they are assigned, and so does a ticket
+    /// this machine is not allowed to take.
+    #[test]
+    fn a_resume_is_offered_over_a_claim_and_refused_over_every_other_node() {
+        let mut map = a_map_reading(&[
+            (70, NodeState::Claimed),
+            (71, NodeState::Takeable),
+            (72, NodeState::Blocked),
+            (73, NodeState::Resolved),
+        ]);
+
+        // Assigned, unblocked and not a ticket: `NodeState` is derived from
+        // state alone, so all three of these read `Claimed`.
+        let claim = map.nodes[0].clone();
+        map.nodes.push(perseverance_model::Node {
+            number: 74,
+            kind: ChildKind::Spec,
+            ..claim.clone()
+        });
+        map.nodes.push(perseverance_model::Node {
+            number: 75,
+            kind: ChildKind::Unclassified,
+            ..claim.clone()
+        });
+        // A claim on a ticket labelled for another platform. `docs/adr/0015`:
+        // nothing is hidden and nothing is launched.
+        map.nodes.push(perseverance_model::Node {
+            number: 76,
+            bound_elsewhere: true,
+            ..claim
+        });
+
+        assert_eq!(why_the_claim_cannot_be_resumed(&map, 70), None);
+
+        // The spec renders as the destination and never as something to launch
+        // at, and an unclassified child has no brief to hand an agent: both
+        // would otherwise fall through `kind_of` into a work run.
+        for node in [74, 75] {
+            let refusal = why_the_claim_cannot_be_resumed(&map, node)
+                .unwrap_or_else(|| panic!("#{node} is not a ticket"));
+            assert!(refusal.contains("not a wayfinder ticket"), "{refusal}");
+        }
+        // Nothing is hidden and nothing is launched: the node is on the map and
+        // the press over it refuses.
+        let elsewhere =
+            why_the_claim_cannot_be_resumed(&map, 76).expect("#76 is another machine's");
+        assert!(elsewhere.contains("another machine"), "{elsewhere}");
+
+        let refusals: Vec<String> = [71, 72, 73]
+            .iter()
+            .map(|ticket| {
+                let refusal = why_the_claim_cannot_be_resumed(&map, *ticket)
+                    .unwrap_or_else(|| panic!("#{ticket} is not a claim"));
+                assert!(refusal.contains(&format!("#{ticket}")), "{refusal}");
+                refusal
+            })
+            .collect();
+        assert_eq!(
+            refusals
+                .iter()
+                .collect::<std::collections::BTreeSet<_>>()
+                .len(),
+            3,
+            "three readings, and an operator told which of them they met"
+        );
+
+        // A ticket assigned to the operator that has since gained an open
+        // blocker reads `Blocked` and not `Claimed`, so it is not resumable —
+        // strict precedence in the one derivation, and not this file's to soften
+        // with a second opinion about what *claimed* means.
+        assert!(refusals[1].contains("in its way"), "{}", refusals[1]);
+
+        // A number this map does not carry is refused before any state is read.
+        assert_eq!(
+            why_the_claim_cannot_be_resumed(&map, 99).as_deref(),
+            Some("#99 is not on this map")
+        );
+    }
+
+    /// **Never a second claiming run against the same ticket from this window.**
+    ///
+    /// A real run, because the property is about a child that has not exited and
+    /// a stakes row on its own cannot say that. The folder is half the match for
+    /// the reason [`Terminals::noticed`] gives, and the two misses below are the
+    /// same number in another repository and another number in this one.
+    #[test]
+    fn a_claim_this_window_already_has_a_live_run_on_is_not_spawned_over_again() {
+        let directory = TempDir::new().expect("temp dir");
+        let terminals = Terminals::new();
+
+        let run = a_live_run_in(&terminals, directory.path());
+        terminals.staked(run, a_stake(70, "/repos/perseverance", RunKind::Work));
+
+        assert!(terminals.live_run_on(70, "/repos/perseverance"));
+        assert!(!terminals.live_run_on(70, "/repos/controlayer"));
+        assert!(!terminals.live_run_on(71, "/repos/perseverance"));
+
+        // The pane closed, and the claim on GitHub outlives it: that stranded
+        // claim is exactly what Resume is for, and it is resumable again the
+        // moment nothing here is holding it.
+        terminals.ended(run);
+        assert!(!terminals.live_run_on(70, "/repos/perseverance"));
+    }
+
+    /// **The three writes and the bind, made by the one writer both verbs use.**
+    ///
+    /// A real registry and a real poller: a quit's sentence, the claim this
+    /// harness will not later announce as somebody else's, the ladder's count,
+    /// and the pane the operator ends up looking at. The unstaked run beside it
+    /// is what a readout says when this app was never told what a run is for.
+    #[test]
+    fn a_run_this_harness_booked_is_staked_claimed_counted_and_watched() {
+        let directory = TempDir::new().expect("temp dir");
+        let terminals = Terminals::new();
+        let claims = Claims::new();
+        let poker =
+            perseverance_github::start(Timings::shipped(), |_watched, _ahead| Tick::NotAttempted)
+                .expect("a poller thread");
+
+        let unstaked = a_live_run_in(&terminals, directory.path());
+        let run = a_live_run_in(&terminals, directory.path());
+
+        booked(
+            &terminals,
+            &claims,
+            &poker,
+            run,
+            a_stake(70, "/repos/perseverance", RunKind::Work),
+        );
+
+        assert_eq!(terminals.losses().len(), 2, "one staked run and one not");
+        assert_eq!(claims.originated(), vec![70]);
+        assert_eq!(poker.runs_live(), 1);
+
+        let readout = |of: RunId| {
+            terminals
+                .readouts()
+                .into_iter()
+                .find(|readout| readout.run == of.as_u64())
+                .expect("a readout for a run that is open")
+        };
+        assert!(
+            readout(run).monitored,
+            "the operator watches what they started"
+        );
+        assert_eq!(readout(run).ticket, Some(70));
+        assert_eq!(readout(unstaked).ticket, None);
+
+        // A claim taken twice is still one claim, which is what keeps a resume
+        // over a node this harness already took from announcing as foreign.
+        booked(
+            &terminals,
+            &claims,
+            &poker,
+            unstaked,
+            a_stake(70, "/repos/perseverance", RunKind::Work),
+        );
+        assert_eq!(claims.originated(), vec![70]);
     }
 }

@@ -39,7 +39,8 @@
 
 .truncation,
 .desync,
-.over {
+.over,
+.unresolved {
   display: inline-flex;
   align-items: baseline;
   gap: var(--s-space-hair);
@@ -60,6 +61,44 @@
 
 .over {
   color: var(--s-ink-secondary);
+}
+
+/*
+ * The one ending worth reading twice, and so the only one set in the primary
+ * ink: a stale claim is still on GitHub, and this pane is the only record of
+ * why the child stopped. Ink and not a colour — there is no alarm hue in the
+ * semantic tier, and inventing one here would make an exit the operator has to
+ * answer read louder than a map that cannot be reached.
+ */
+.unresolved {
+  color: var(--s-ink-primary);
+}
+
+/*
+ * The press that ends a run. A control in a row of statements, so it carries a
+ * hairline to say it is one — the sentences beside it are facts and this is the
+ * only thing on the chrome that does anything.
+ */
+.end {
+  --c-end-line: var(--s-line-strong);
+
+  padding: 0 var(--s-space-tight);
+  border: var(--s-border-hairline) solid var(--c-end-line);
+  border-radius: var(--s-radius-chip);
+  background: transparent;
+  color: var(--s-ink-secondary);
+  font: inherit;
+  font-size: var(--s-text-micro);
+  cursor: pointer;
+}
+
+.end:hover {
+  color: var(--s-ink-primary);
+}
+
+.end:focus-visible {
+  outline: var(--s-border-emphasis) solid var(--s-focus-ring);
+  outline-offset: -1px;
 }
 
 /*

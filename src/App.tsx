@@ -492,6 +492,16 @@ export function App() {
       ? outcome.view.folders.find((folder) => folder.id === selectedId)?.path
       : undefined;
 
+  /*
+   * The node under the pointer, found once.
+   *
+   * Two of the rail's facts come off it — what it reads and whether it is a
+   * ticket at all — and two lookups would be two chances to answer about two
+   * different nodes on one render.
+   */
+  const selectedChild =
+    snapshot.model.map?.nodes.find((node) => node.number === selectedNode) ?? null;
+
   const onAskAgain = useCallback(() => {
     if (selectedPath === undefined) return;
     resolveFolder(() => retryFolderEnvironment(selectedPath));
@@ -722,11 +732,26 @@ export function App() {
           the folder's environment or a command to invoke. The rail reads the
           frontier off `model.map` — the one resolver's answer — and never off a
           row of whatever is on screen beside it.
+
+          Two tickets cross, because two of the verbs are armed on different
+          nodes: Start Working on the frontier, Resume on the selection, and only
+          while the selection reads `claimed`. The state crosses rather than a
+          verdict — the four states are derived once, in `derive.rs`, and the
+          rail is not entitled to a softer opinion about what a claim is. The
+          kind crosses beside it because the derivation reads state and never
+          kind: the destination and the unclassified children are selectable
+          rows too, and an assigned one of either reads `claimed`. The label that
+          binds a ticket to another machine crosses for the same reason and in
+          the same breath — it is invisible to the state, and the frontier's
+          resolver asks it only for the node it designates.
         */}
         <div className={styles.rail}>
           <Sockets
             frontier={snapshot.model.map?.frontier ?? null}
             selection={selectedNode}
+            selectionReads={selectedChild?.state ?? null}
+            selectionIsTicket={selectedChild?.kind.kind === "ticket"}
+            selectionBoundElsewhere={selectedChild?.boundElsewhere ?? false}
             environment={folderEnvironment}
             folder={selectedPath ?? null}
             phase={snapshot.model.map?.phase ?? null}
@@ -735,6 +760,7 @@ export function App() {
                draws — so the rail and the terminal beside it cannot disagree
                about whether the compose an operator is watching has ended. */
             liveRuns={runs.filter((readout) => !readout.over).map((readout) => readout.run)}
+            runs={runs}
             onSelect={select}
           />
         </div>

@@ -111,7 +111,7 @@ pub use geometry::{Geometry, Panes};
 pub use guard::{Guard, GuardRefusal};
 pub use queries::{Queries, ANSWER};
 pub use ring::{Ring, SCROLLBACK};
-pub use runs::{RunId, Runs, Telemetry, GRACE};
+pub use runs::{Run, RunId, Runs, Telemetry, GRACE};
 pub use session::{Ending, Session, SessionFailure};
 pub use shim::{accept, Accepted, SpawnRefusal};
 pub use tap::{Delivery, Tap, SLACK};

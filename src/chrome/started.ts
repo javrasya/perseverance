@@ -1,5 +1,5 @@
 /**
- * The WebView's view of Start Working.
+ * The WebView's view of Start Working and of Resume.
  *
  * These types mirror the app crate's `Started` and `prompt::Rendered` exactly,
  * for the same reason `maps.ts` mirrors `MapsView` and `snapshot.ts` mirrors
@@ -13,6 +13,12 @@
  * comparison against the frontier, the render, the spawn and the three writes
  * that follow it are all inside `start_working` — see `docs/adr/0020`. There is
  * nothing for this side to sequence: it presses once and reads one answer.
+ *
+ * **Two commands, one crossing.** `resume_working` is `start_working` with one
+ * guard swapped — a node reading `Claimed` where the other wants the designated
+ * frontier — and it answers in the same shape off the same template. So this
+ * file has two exported verbs over one private press, and neither of them puts a
+ * word about the verb on the wire: see `docs/adr/0023`.
  */
 
 import type { Frontier } from "../snapshot/model.generated";
@@ -49,6 +55,28 @@ export type Started =
 export const NO_HARNESS = "there is no harness behind this window, so nothing was started";
 
 /**
+ * A press, on either verb.
+ *
+ * **The payload is three values and the command name is the only difference.**
+ * No verb flag, no template name, no origin marker: the prompt a resumed session
+ * is handed has to be byte-identical to the one a started session is handed, and
+ * the cheapest way to keep that true is to have nothing to strip. The command
+ * name never reaches the render — it picks a guard and stops there.
+ */
+async function press(
+  command: "start_working" | "resume_working",
+  folder: string,
+  ticket: number,
+  adapter: string,
+): Promise<Started> {
+  if (!hasRustBehindIt()) {
+    return { kind: "refused", detail: NO_HARNESS, frontier: null };
+  }
+  const { invoke } = await import("@tauri-apps/api/core");
+  return await invoke<Started>(command, { folder, ticket, adapter });
+}
+
+/**
  * Press Start Working, once.
  *
  * The adapter is an argument because the crossing owns the picker: which agent
@@ -60,11 +88,22 @@ export async function startWorking(
   ticket: number,
   adapter: string,
 ): Promise<Started> {
-  if (!hasRustBehindIt()) {
-    return { kind: "refused", detail: NO_HARNESS, frontier: null };
-  }
-  const { invoke } = await import("@tauri-apps/api/core");
-  return await invoke<Started>("start_working", { folder, ticket, adapter });
+  return await press("start_working", folder, ticket, adapter);
+}
+
+/**
+ * Press Resume, once, on a claim the operator already holds.
+ *
+ * The same three values as a start, for the same reason and with the same
+ * picker behind the adapter. What makes it a resume is which guard Rust runs,
+ * and nothing that crosses from here.
+ */
+export async function resumeWorking(
+  folder: string,
+  ticket: number,
+  adapter: string,
+): Promise<Started> {
+  return await press("resume_working", folder, ticket, adapter);
 }
 
 /**

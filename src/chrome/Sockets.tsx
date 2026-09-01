@@ -1,18 +1,21 @@
 import { useEffect, useRef, useState } from "react";
 import type { FolderReadout } from "../environment/folder";
-import type { Frontier, Phase } from "../snapshot/model.generated";
+import type { Frontier, NodeState, Phase } from "../snapshot/model.generated";
 import { monitor } from "../stores/ui";
 import { recordPrompt } from "../terminal/prompts";
+import { monitorRun, type RunReadout } from "../terminal/runs";
 import {
   adapterAtPress,
+  liveRunOn,
   pressable,
   railAt,
   sameFrontier,
   type Press,
   type Socket,
+  type SocketId,
   type StartTarget,
 } from "./sockets";
-import { composeSpec, startWorking } from "./started";
+import { composeSpec, resumeWorking, startWorking, type Composed, type Started } from "./started";
 import styles from "./Sockets.module.css";
 
 interface SocketsProps {
@@ -46,6 +49,35 @@ interface SocketsProps {
    * rail holding the readouts is a rail that could go looking for one more.
    */
   liveRuns: readonly number[];
+  /**
+   * What the selected node reads on the map, straight off the one derivation.
+   * `null` when nothing is selected, and when the selection is not on this map.
+   */
+  selectionReads: NodeState | null;
+  /**
+   * Whether the selection is a wayfinder ticket. Beside the state because the
+   * derivation reads state alone: an assigned spec node and an assigned
+   * unclassified child both read `claimed`, and neither is something to spawn an
+   * agent at. See `Crossing.selectionIsTicket`.
+   */
+  selectionIsTicket: boolean;
+  /**
+   * Whether the selection is labelled for another machine. The second guard
+   * Resume does not inherit, beside the first for the same reason: the
+   * derivation reads state alone, so a ticket assigned to the operator and bound
+   * elsewhere reads `claimed` here as plainly as any other, and the rail would
+   * arm on a press that could only be refused. See `Crossing.selectionBoundElsewhere`.
+   */
+  selectionBoundElsewhere: boolean;
+  /**
+   * Every run this window holds, live and finished.
+   *
+   * Resume reads exactly one thing off them — whether the claim under the hand
+   * already has a child running — and it is the run's own `ticket` that makes
+   * that join. Nothing is persisted and nothing is reattached: a run that is
+   * gone from this list is gone, and Resume spawns a cold one.
+   */
+  runs: readonly RunReadout[];
   onSelect: (node: number | null) => void;
 }
 
@@ -73,8 +105,9 @@ const reArmsOn = (answer: { detail: string; frontier?: Frontier | null }): Front
  *
  * Every word and every fill on screen comes back from `railAt`; the only state
  * here is where the press is and which adapter the hand has picked, and neither
- * survives the window. What this file adds to the derivation is the wiring: one
- * command, and the two writes a spawn owes.
+ * survives the window. What this file adds to the derivation is the wiring: two
+ * commands, the writes a spawn owes, and the one press that spawns nothing —
+ * Resume over a claim this window is already running, which moves the pane.
  *
  * **A press is never silently retargeted.** A refusal prints its sentence and,
  * when it named a frontier, re-arms the button on that number — and then waits.
@@ -94,6 +127,10 @@ export function Sockets({
   phase,
   map,
   liveRuns,
+  selectionReads,
+  selectionIsTicket,
+  selectionBoundElsewhere,
+  runs,
   onSelect,
 }: SocketsProps) {
   const [press, setPress] = useState<Press>({ kind: "idle" });
@@ -139,21 +176,26 @@ export function Sockets({
     folder,
     phase,
     map,
+    selectionReads,
+    selectionIsTicket,
+    selectionBoundElsewhere,
     composing,
     press,
   });
   const adapter = adapterAtPress(rail.adapters, chosen);
 
-  /* Which of the two commands this is was decided by the derivation; what is
-     here is the wiring both of them share, because a spawn owes the same two
-     writes whichever button spelled it. */
-  const start = async (aim: StartTarget) => {
-    if (folder === null || adapter === null) return;
-    setPress({ kind: "checking" });
-    const answer =
-      aim.kind === "compose"
-        ? await composeSpec(folder, adapter)
-        : await startWorking(folder, aim.ticket, adapter);
+  /* The tail every spawning verb shares, factored so they cannot drift: a spawn
+     is a spawn whichever button bought it, and a second copy of these lines is
+     a second place for the prompt or the pane binding to go missing from. What
+     differs is only the command, what it was aimed at, and which socket wears
+     the answer. */
+  const spawning = async (
+    id: SocketId,
+    aim: StartTarget | null,
+    spawn: () => Promise<Started | Composed>,
+  ) => {
+    setPress({ kind: "checking", socket: id });
+    const answer = await spawn();
     if (!live.current) return;
     if (answer.kind === "spawned") {
       /* The prompt is told to this side exactly once, on this answer. */
@@ -162,22 +204,65 @@ export function Sockets({
          spawned it stops offering to spawn another while it is going. One at a
          time is the sub-issue's rule and not the rail's: `wayfinder:spec` is a
          node, and two composes would make it a set. */
-      if (aim.kind === "compose") setComposed({ run: answer.run, map: aim.map });
+      if (aim !== null && aim.kind === "compose") setComposed({ run: answer.run, map: aim.map });
       /* The pane binds what was just started. Rust set its own monitored run
          inside the command, so this is the declaration and not a second one. */
       monitor(answer.run);
       setPress({ kind: "idle" });
       return;
     }
-    setPress({ kind: "refused", detail: answer.detail, frontier: reArmsOn(answer) });
+    setPress({ kind: "refused", socket: id, detail: answer.detail, frontier: reArmsOn(answer) });
+  };
+
+  /* Which of the two commands the primary socket is was decided by the
+     derivation; this presses what it was handed. */
+  const start = (aim: StartTarget, at: string, agent: string) => {
+    void spawning("start", aim, () =>
+      aim.kind === "compose" ? composeSpec(at, agent) : startWorking(at, aim.ticket, agent),
+    );
+  };
+
+  /* Resume reaches a live claim by moving the pane onto it and a stale one by
+     spawning — never both, and never a second agent over a child this window is
+     already running: one crossing is one pane. The join is the folder and the
+     number together, the same pair Rust's `live_run_on` matches on: this window
+     holds every folder's runs, and a match on the number alone would move the
+     pane onto another repository's agent — silently, because a press that finds
+     a live run sends no command and so is never refused. Rust refuses the
+     same-folder collision too, for the press that races this one; this is the
+     answer that never has to ask for it. */
+  const resume = (claim: number, at: string, agent: string) => {
+    const already = liveRunOn(runs, claim, at);
+    if (already !== null) {
+      /* Both sides of the pane, and the harness first. `Runs::frame` emits
+         bytes for the one run the harness is monitoring and for no other, so a
+         store that moved on its own would bind a terminal nothing is being
+         written to — and the ring behind it would go on filling unacknowledged
+         until `truncated` flipped and the pane promised a replay that could
+         never come. Every other `monitor` on this side is safe because the
+         command it followed set Rust's own; this press sends no command, so it
+         is the one place the declaration has to be made here. */
+      void monitorRun(already).then(() => monitor(already));
+      return;
+    }
+    void spawning("resume", null, () => resumeWorking(at, claim, agent));
   };
 
   const onPress = (socket: Socket) => {
-    // A recessed socket and a socket that is checking both take no press, and
-    // the second is why this is a guard rather than a `disabled` attribute.
+    /* A recessed socket and a socket that is checking both take no press, and
+       the second is why this is a guard rather than a `disabled` attribute.
+       It is also the only guard: *one command in flight at a time* is a fill
+       the derivation computes, so the socket beside the one under the hand is
+       recessed with the press named on it rather than left filled and silently
+       swallowing the click. To Frontier sends no command and stays pressable. */
     if (!pressable(socket)) return;
-    if (socket.id === "start" && rail.start !== null) void start(rail.start);
-    if (socket.id === "toFrontier" && rail.target !== null) onSelect(rail.target);
+    if (socket.id === "toFrontier") {
+      if (rail.target !== null) onSelect(rail.target);
+      return;
+    }
+    if (folder === null || adapter === null) return;
+    if (socket.id === "start" && rail.start !== null) start(rail.start, folder, adapter);
+    if (socket.id === "resume" && rail.claim !== null) resume(rail.claim, folder, adapter);
   };
 
   return (

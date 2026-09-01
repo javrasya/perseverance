@@ -1,9 +1,9 @@
 import { useEffect, useRef } from "react";
 import { gesture, type Occasion } from "../panes/geometry";
-import { useUi } from "../stores/ui";
+import { monitor, useUi } from "../stores/ui";
 import { promptFor } from "./prompts";
 import { PromptBlock } from "./PromptBlock";
-import type { RunReadout } from "./runs";
+import { endRun, type RunReadout } from "./runs";
 import type { Terminals } from "./terminals";
 import styles from "./Pane.module.css";
 
@@ -21,6 +21,29 @@ import styles from "./Pane.module.css";
  * choosing how much window a pane is worth in this file would be making that
  * ticket's call early.
  */
+/**
+ * How a run ended, as a sentence.
+ *
+ * One reading per `RunEnding` and nothing else consulted. The derivation is
+ * Rust's — `over` plus the last node state it saw — and re-deriving it here out
+ * of the flags that happen to be on the readout would give the app a second
+ * opinion about its own ending, which is the one thing ADR 0022 spent a table
+ * avoiding. `spent` deliberately says nothing about the child: the ticket
+ * closed, and the agent may still be printing.
+ */
+export function endingSentence(readout: RunReadout): string | null {
+  switch (readout.ending) {
+    case "live":
+      return null;
+    case "spent":
+      return "the ticket closed — this output is yours to read for as long as you want";
+    case "exitedUnresolved":
+      return "this run stopped with its ticket still open and still claimed";
+    case "exited":
+      return `this run has ended${readout.code === null ? "" : ` (${readout.code})`}`;
+  }
+}
+
 export function Pane({
   terminals,
   readouts,
@@ -94,6 +117,27 @@ export function Pane({
    * is absent rather than an empty one.
    */
   const prompt = monitored === null ? null : promptFor(monitored);
+  const sentence = readout === null ? null : endingSentence(readout);
+
+  /*
+   * The press, and the only thing in this app that ends a run.
+   *
+   * Nothing automatic reaches it — no timer, no poll, no readout tick — because
+   * a run that is over and has nothing left to say is still a run somebody is
+   * reading, and the app closing it on the strength of a GitHub read would throw
+   * away the last thing the agent printed.
+   *
+   * The order is the seam's. The harness closes the session first and only then
+   * does this side let go of the node, so a disposed terminal can never be the
+   * terminal of a session Rust still believes is being watched; `monitor(null)`
+   * comes last, because a pane still bound to a run the harness has dropped
+   * would be a frame claiming a run that no longer exists.
+   */
+  const end = async (run: number) => {
+    await endRun(run);
+    terminals.forget(run);
+    monitor(null);
+  };
 
   return (
     <section className={styles.pane} aria-label="Terminal">
@@ -116,11 +160,31 @@ export function Pane({
               this terminal is behind, and will be replayed whole when it catches up
             </span>
           ) : null}
-          {readout.over ? (
-            <span className={styles.over}>
-              this run has ended{readout.code === null ? "" : ` (${readout.code})`}
+          {sentence === null ? null : (
+            <span
+              className={readout.ending === "exitedUnresolved" ? styles.unresolved : styles.over}
+            >
+              {sentence}
             </span>
-          ) : null}
+          )}
+          {/*
+            Offered on every ending but `live`, and it is a real button rather
+            than a click handler on the sentence: the ending is a fact and this
+            is a decision, and the keyboard has to be able to reach the decision.
+            It lives in the chrome and never inside the host node, where xterm
+            plants its own helper textarea.
+          */}
+          {readout.ending === "live" ? null : (
+            <button
+              type="button"
+              className={styles.end}
+              onClick={() => {
+                void end(readout.run);
+              }}
+            >
+              End this run
+            </button>
+          )}
         </div>
       )}
 

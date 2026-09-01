@@ -64,6 +64,26 @@ export function readDelivery(frame: ArrayBuffer): Delivery | null {
   };
 }
 
+/**
+ * How a run ended, or that it has not — as Rust derives it.
+ *
+ * **Two facts and never one state machine over the process.** A ticket closing
+ * is the poller's fact and a child exiting is the terminal's; neither causes the
+ * other and they arrive in either order.
+ *
+ * - `live` — the child is running and the ticket is not closed.
+ * - `spent` — the ticket closed. The one good ending, and it says nothing about
+ *   the child, which may still be printing. The run keeps its slot until
+ *   somebody presses to end it.
+ * - `exitedUnresolved` — the child stopped with the ticket still open and still
+ *   assigned. The claim is still on GitHub and this pane is the only record of
+ *   why it stopped.
+ * - `exited` — the child stopped and nothing is claimed of it. An exit over an
+ *   open *unassigned* ticket is this and not `exitedUnresolved`, because a
+ *   readout must not assert a claim that is not there.
+ */
+export type RunEnding = "live" | "spent" | "exitedUnresolved" | "exited";
+
 /** One run's readout, as Rust writes it. Counts and flags, never bytes. */
 export interface RunReadout {
   run: number;
@@ -76,6 +96,26 @@ export interface RunReadout {
   over: boolean;
   code: number | null;
   monitored: boolean;
+  ending: RunEnding;
+  /**
+   * The ticket this run was staked on, or `null` for a run the harness was never
+   * told about.
+   *
+   * Half of the value that joins a run to a node, which is how a claim with a
+   * live terminal is told from a claim with none — the difference the rail
+   * offers Resume on.
+   */
+  ticket: number | null;
+  /**
+   * The folder that run was staked in, or `null` for a run the harness was never
+   * told about.
+   *
+   * The other half of the join, and the half without which the join is wrong: an
+   * issue number is unique inside one repository and means nothing across two,
+   * and this window holds every folder's runs at once. Rust matches on both, and
+   * so does `liveRunOn`.
+   */
+  folder: string | null;
 }
 
 /**
@@ -143,6 +183,20 @@ export async function settledGeometry(geometry: Geometry): Promise<number> {
     rows: geometry.rows,
     cols: geometry.cols,
   });
+}
+
+/**
+ * One run, ended by this press.
+ *
+ * The **only** way a run leaves the rack. A spent run holds its slot until this
+ * is called: the app noticing that a ticket closed is not a person being
+ * finished with what is on screen, and nothing on the Rust side — no poll, no
+ * readout tick — is allowed to call what this calls.
+ */
+export async function endRun(run: number): Promise<void> {
+  if (!hasRustBehindIt()) return;
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("end_run", { run });
 }
 
 export async function loadRunReadouts(): Promise<RunReadout[]> {
