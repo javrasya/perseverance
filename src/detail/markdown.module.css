@@ -1,0 +1,77 @@
+/*
+ * Words lifted out of an issue body, set so they read as somebody's prose
+ * rather than as another field of the panel. Nothing here is a control: the
+ * subset renders no anchor and no image, so there is no hover, no focus ring
+ * and no cursor change to style.
+ */
+.markdown {
+  color: var(--s-ink-secondary);
+  font-size: var(--s-text-small);
+  line-height: 1.5;
+}
+
+.markdown > :first-child {
+  margin-top: 0;
+}
+
+.markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown p {
+  margin: 0 0 var(--s-space-tight);
+}
+
+.markdown ul {
+  margin: 0 0 var(--s-space-tight);
+  padding-left: var(--s-space-base);
+}
+
+.code {
+  padding: 0 var(--s-space-hair);
+  border-radius: var(--s-radius-chip);
+  background: var(--s-surface-sunken);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-micro);
+}
+
+/*
+ * A fence wraps rather than scrolls. The panel is a column beside the map and
+ * a horizontal scrollbar inside a column that narrow is a line nobody finds;
+ * a long line of code from a map document is prose about code, not code being
+ * edited.
+ */
+.fence {
+  margin: 0 0 var(--s-space-tight);
+  padding: var(--s-space-snug);
+  border-radius: var(--s-radius-panel);
+  background: var(--s-surface-sunken);
+  color: var(--s-ink-primary);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-micro);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.issue {
+  color: var(--s-ink-primary);
+  font-family: var(--s-font-mono);
+}
+
+/*
+ * A link's URL, printed beside its words and looking like neither. It is set
+ * in the mono face and the faint ink so that *this is where those words point*
+ * is legible at a glance without the URL competing with the sentence it
+ * interrupts — and it wraps anywhere, because a URL has no spaces in it and a
+ * column this narrow would otherwise be widened by one.
+ */
+.url {
+  color: var(--s-ink-faint);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-micro);
+  overflow-wrap: anywhere;
+}
+
+.link {
+  overflow-wrap: anywhere;
+}

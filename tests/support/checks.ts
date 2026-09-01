@@ -12,6 +12,62 @@ export interface Violation {
   detail: string;
 }
 
+/* ------------------------------------------------------ markup from text --- */
+
+/**
+ * Every route there is from a string to markup.
+ *
+ * The panel renders markdown lifted verbatim out of an issue body, and the only
+ * defence it has against a `<script>` in one is that **no such route exists**:
+ * the renderer builds React elements, React escapes the strings it is handed,
+ * and text therefore stays text because nothing anywhere could have parsed it.
+ * That property is a property of the whole of `src/` rather than of one file —
+ * one `innerHTML` anywhere and the argument stops being structural and becomes
+ * a promise about who touches what.
+ *
+ * `DOMParser` is on the list beside the assignments. It builds a document
+ * rather than a string, so it defeats nothing on its own; what it does is make
+ * *parse this text as markup* available in the codebase, one `adoptNode` away
+ * from the DOM the app is rendering. `parseHTMLUnsafe` is there for the same
+ * reason and by a shorter road.
+ *
+ * The assignment patterns take `+=` as well as `=`. `node.innerHTML += reason`
+ * is the same route with the same consequence, and a check that read only `=`
+ * would have called a file clean while it appended a `<script>` — the exact
+ * shape a check that cannot fail takes. `setHTMLUnsafe` and
+ * `createContextualFragment` are the two ways to reach a parser without ever
+ * naming `innerHTML`: the first is the sanctioned no-sanitiser sibling of the
+ * setter and is in the evergreen half of the declared browserslist floor, and
+ * the second is `Range`'s parser, which returns a fragment already adopted
+ * into the document that made the range. Every one of them is exercised
+ * against known-bad input in `tests/no-raw-html.test.ts`.
+ */
+const MARKUP_SINKS: readonly { pattern: RegExp; detail: string }[] = [
+  { pattern: /dangerouslySetInnerHTML/g, detail: "dangerouslySetInnerHTML" },
+  { pattern: /\.(?:inner|outer)HTML\s*\+?=/g, detail: "innerHTML/outerHTML assignment" },
+  { pattern: /insertAdjacentHTML\s*\(/g, detail: "insertAdjacentHTML" },
+  { pattern: /setHTMLUnsafe\s*\(/g, detail: "setHTMLUnsafe" },
+  { pattern: /createContextualFragment\s*\(/g, detail: "createContextualFragment" },
+  { pattern: /new\s+DOMParser\s*\(/g, detail: "DOMParser" },
+  { pattern: /parseHTMLUnsafe\s*\(/g, detail: "parseHTMLUnsafe" },
+  { pattern: /document\.write(?:ln)?\s*\(/g, detail: "document.write" },
+];
+
+export function findMarkupSinks(text: string): Violation[] {
+  const violations: Violation[] = [];
+
+  text.split("\n").forEach((line, index) => {
+    for (const sink of MARKUP_SINKS) {
+      sink.pattern.lastIndex = 0;
+      if (sink.pattern.test(line)) {
+        violations.push({ line: index + 1, detail: `${sink.detail} makes markup out of text` });
+      }
+    }
+  });
+
+  return violations;
+}
+
 /* ---------------------------------------------------------------- SMIL --- */
 
 /**

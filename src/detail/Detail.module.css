@@ -1,0 +1,214 @@
+/*
+ * The node panel.
+ *
+ * A reading surface and not a control panel: nothing in it is pressable, so
+ * there is no hover state, no focus ring and no transition anywhere below. The
+ * app's whole motion budget is one keyframe in the Route, and a panel that
+ * animated its way between selections would spend the rest of it on a column of
+ * text.
+ *
+ * Every distinction is in the words and in the weight. `data-state` is on the
+ * DOM for the tests to read and is deliberately not a colour: the palette is
+ * neutrals and one indigo, the four state words are the model's own, and a hue
+ * per state would be a second vocabulary an operator has to learn.
+ */
+.panel {
+  --c-detail-name-width: 5.5rem;
+
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--s-space-snug);
+  color: var(--s-ink-secondary);
+  font-size: var(--s-text-small);
+}
+
+.heading {
+  margin: 0;
+  color: var(--s-ink-faint);
+  font-size: var(--s-text-micro);
+  font-weight: var(--s-weight-emphasis);
+  letter-spacing: var(--s-tracking-label);
+  text-transform: uppercase;
+}
+
+/* Which map, in the panel's own corner. Quiet, because the chip in the header
+   is the place that names the map. */
+.map {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-space-tight);
+  margin: 0;
+  color: var(--s-ink-faint);
+  font-size: var(--s-text-micro);
+}
+
+.absent {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-space-hair);
+  padding: var(--s-space-snug);
+  border: var(--s-border-hairline) dashed var(--s-line-absent);
+  border-radius: var(--s-radius-panel);
+}
+
+/*
+ * The absent state's own sentence, set at reading weight. It is the panel's
+ * whole content in four of its five states, so it may not be a whisper: an
+ * operator who cannot read why there is nothing here will read the emptiness
+ * instead.
+ */
+.absentTitle {
+  margin: 0;
+  color: var(--s-ink-primary);
+  font-size: var(--s-text-body);
+}
+
+.fields {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--s-space-snug);
+  margin: 0;
+}
+
+/*
+ * A field is a heading and its body, side by side while there is room and
+ * stacked when there is not. The heading column is a fixed width so the values
+ * line up down the panel — a ragged left edge in a list of nine fields is nine
+ * places to lose your place.
+ */
+.field {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: var(--s-space-tight);
+}
+
+.name {
+  flex: 0 0 var(--c-detail-name-width);
+  color: var(--s-ink-faint);
+  font-size: var(--s-text-micro);
+  letter-spacing: var(--s-tracking-label);
+  text-transform: uppercase;
+}
+
+.body {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 12rem;
+  flex-direction: column;
+  gap: var(--s-space-hair);
+  margin: 0;
+}
+
+.value {
+  margin: 0;
+  color: var(--s-ink-primary);
+}
+
+/*
+ * The question, which is the node's title and the one thing on the panel set
+ * at reading size. It wraps in full: an elided question is a question you
+ * cannot answer, and the panel has the height a row on the map does not.
+ */
+.question {
+  margin: 0;
+  color: var(--s-ink-primary);
+  font-size: var(--s-text-body);
+  overflow-wrap: anywhere;
+}
+
+/*
+ * What the harness was never told, in a form a number cannot be mistaken for.
+ * An em dash, set in the mono face and at reading size, above a sentence that
+ * says why — the same distinction the fog draws between *nobody surveyed* and
+ * *surveyed, and it is empty*.
+ */
+.absentValue {
+  margin: 0;
+  color: var(--s-ink-faint);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-body);
+}
+
+/* The reason under a value. It is load-bearing text and not a footnote: every
+   absence on this panel carries its cause here, in the open. */
+.note {
+  margin: 0;
+  color: var(--s-ink-faint);
+  font-size: var(--s-text-micro);
+}
+
+.mark {
+  color: var(--s-ink-faint);
+  font-family: var(--s-font-mono);
+}
+
+/* A fact that rides beside a state rather than replacing it — the designation,
+   the machine binding, a closed map. Dashed like the empty chip in the header,
+   because the shape is this app's word for *a thing said about* rather than
+   *a thing selected*. */
+.tag {
+  margin: 0;
+  padding: 0 var(--s-space-hair);
+  border: var(--s-border-hairline) solid var(--s-line-quiet);
+  border-radius: var(--s-radius-chip);
+  color: var(--s-ink-secondary);
+  font-size: var(--s-text-micro);
+  letter-spacing: var(--s-tracking-label);
+}
+
+.tag:only-of-type {
+  align-self: flex-start;
+}
+
+.edges {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-space-hair);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/*
+ * One edge, named. Deliberately not a line, an arrow or a marker of any kind:
+ * the Route draws zero edges and this panel draws none either — the adjacency
+ * is printed as numbers and titles, which is the reading an operator can act
+ * on and the one a narrow column can hold.
+ */
+.edge {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s-space-tight);
+}
+
+.edgeTitle {
+  min-width: 0;
+  color: var(--s-ink-primary);
+  overflow-wrap: anywhere;
+}
+
+.edgeState {
+  color: var(--s-ink-faint);
+  font-size: var(--s-text-micro);
+  letter-spacing: var(--s-tracking-label);
+}
+
+/*
+ * The URL, as text you can select. It is not an anchor and must not look like
+ * one: no underline and no accent, because a link-coloured string that does
+ * nothing when clicked is worse than plain text — it promises a navigation this
+ * window has no way to perform.
+ */
+.url {
+  margin: 0;
+  color: var(--s-ink-secondary);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-micro);
+  overflow-wrap: anywhere;
+  user-select: text;
+}

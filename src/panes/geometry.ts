@@ -6,9 +6,10 @@ import { settledGeometry } from "../terminal/runs";
  *
  * **Every reason a size arrives is named here, and exactly one of them is a
  * resize.** The list is the point: a size shows up when a divider is dragged,
- * when a run is bound to the pane, when a peek opens, when a window arrives at
- * its first layout, and on every frame in the middle of a drag — and only the
- * completed gesture may reach a PTY.
+ * when the operator docks the node panel above or below the pane, when a run is
+ * bound to the pane, when a peek opens, when a window arrives at its first
+ * layout, and on every frame in the middle of any of those movements — and only
+ * the completed gesture may reach a PTY.
  *
  * The rule is *not* that a resize is cheap and a few extra are harmless. A
  * resize is a `SIGWINCH` on unix and a `ResizePseudoConsole` on Windows; an
@@ -16,6 +17,18 @@ import { settledGeometry } from "../terminal/runs";
  * operator is mid-sentence rewraps what they were typing. So the invariant is
  * *never resize on bind* rather than *resize rarely*, and it has to hold for a
  * run in a background worktree that nobody is even looking at.
+ *
+ * A dock press is a gesture rather than an accident, which is why it has no
+ * occasion of its own. The boarding pass is a strip in the pane's own column
+ * (`.runSide` in `src/App.module.css`), so pressing *dock in the run bar* takes
+ * height off the pane and the run really does have fewer rows afterwards. The
+ * pane's `ResizeObserver` cannot tell which hand moved the box and reports the
+ * press exactly as it reports a drag — `"drag"` frames that settle into one
+ * resize. That is the answer rather than a leak in it: an agent that rewraps
+ * after a press rewraps because the operator asked for a smaller pane, which is
+ * the bargain a divider drag already makes. The invariant is *never a size the
+ * operator did not ask for* — never on bind, never on a poll, never on an
+ * arrival — rather than *never a resize*.
  *
  * This is the WebView's half, because a drag is a thing only the WebView can
  * see. The other half is `crates/pty`'s [`Panes`], which has exactly one method

@@ -79,6 +79,53 @@ belongs to the detail panel.
 [ADR 0006](docs/adr/0006-the-route-is-a-grouped-list-not-a-graph.md) records the
 decision, the readings on both sides of it, and the test that falsifies it.
 
+The node panel is where a number becomes a name. It is chrome rather than a view
+— the Route draws the map, this describes the one row you picked — and it prints
+nine fields about it: the question, the type, the
+state with the map's own designation beside it, the blockers and what waits on
+this one *named* rather than counted, the claim, the dates, the resolution and
+the link out. **It never renders empty.** No map open, a map with no children,
+nothing picked, a selection whose row went away under a re-poll, and a node are
+five states with five different sentences, because a panel that can go blank
+looks the same whether the click missed or the app broke.
+
+It is also a **boarding pass**: one element with three addresses — a strip along
+the spine under the body, the run bar, and the rack — moved between them by the
+same imperative-reparent primitive the terminals use, so a re-dock is a move and
+never a remount. The panel is never unmounted, which is what makes the scroll
+offset you left it at and the text you had selected in it still be there on the
+far side of the move; the selection it prints is the store's and it writes
+nothing. Which dock is a press and never an arrival, so no poll can relocate it
+— with one exception that is measurement rather than automation: the `map`
+detent leaves the terminal side worth no pixels, so a dock on that side lends the
+pass back to the spine until the width returns, and both docks say so in a
+sentence. **A dock without the pass is never a blank box**; it names where the
+panel went and offers to take it back.
+[ADR 0025](docs/adr/0025-the-node-panel-is-one-element-with-three-addresses.md)
+records the decision the panel and the pass are two halves of — why a reading
+position is what makes a re-dock a move rather than a remount, why the scroller
+travels with the pass instead of belonging to a dock, why the markdown is
+rendered here rather than fetched rendered or painted in Rust, and the tests that
+falsify each.
+
+What is deliberately not in it is the more interesting half. There is **no issue
+body**: the graph query never asks for one, so the title is the whole question
+and nothing on screen implies otherwise. There is **no claimant**: how many
+people are on a ticket crosses the seam and their names do not, so the panel
+says a claim is held and says, in the open, that it is not told by whom. There
+are **no timestamps**: the model reads none, and the field says so with its
+reason rather than showing a blank or a zero — a fact the harness was never told
+is form-level distinct from a count that is genuinely nought, everywhere on this
+panel. The URL is **text you select and copy** and not an anchor, because this
+WebView has no opener and a live link would navigate the app away from itself.
+And the markdown that arrives from a map document — a cut's reason — is rendered
+**here**, by a subset renderer that emits React elements and never an HTML
+string: no GitHub render endpoint spending a rationed request per
+paint, nothing pre-painted in Rust, and raw HTML in an issue body landing on
+screen as its own characters because no parser in the path could have made an
+element of it. `tests/no-raw-html.test.ts` holds that absence to the whole of
+`src/`.
+
 `perseverance-agent` is a trait with four members and one value. An adapter
 names itself, says what to look for, plans a launch, and optionally classifies
 bytes — it does not spawn, wait, inject a prompt or decide it is done, because
@@ -133,7 +180,8 @@ has no block at all.
 
 There is one xterm.js instance per run and it is moved between the pane and a
 hidden stow by relocating its DOM node — the same imperative-reparent primitive
-the boarding pass needs, so the app has one such mechanism rather than two. There
+the node panel's boarding pass is moved between its three docks by, so the app
+has one such mechanism rather than two. There
 is also one pane geometry for every live run, changed **only** on a settled
 gesture: `src/panes/geometry.ts` names all five occasions a size can arrive on
 and lets exactly one of them through, and `crates/pty`'s `Panes` has a single

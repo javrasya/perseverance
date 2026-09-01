@@ -2,9 +2,18 @@
  * Moving a live DOM node from one parent to another without unmounting it.
  *
  * **One mechanism, used twice.** A run's terminal is moved between the pane and
- * the stow by this, and the boarding pass (#54) needs the identical move for the
- * identical reason — so the app has one imperative-reparent primitive rather
- * than two that drift.
+ * the stow by this, and the node panel's boarding pass is moved between its
+ * three docks by this — the identical move for the identical reason, so the app
+ * has one imperative-reparent primitive rather than two that drift.
+ *
+ * What the panel keeps across a move is not a screen but a reading position: a
+ * scroll offset and a text selection. A remount throws away both, and a text
+ * selection is the one nothing on this side could ever put back. The scroll
+ * offset a move does not keep either: `appendChild` detaches the node before it
+ * re-inserts it, and an engine drops the layout box the offset lives on the
+ * moment the node leaves the tree. So this function moves the node and reports
+ * that it moved; reading the offset back afterwards, in the same task, is the
+ * caller's half — see the dock effect in `src/App.tsx`.
  *
  * Why it has to be a move rather than a remount: an xterm.js instance *is* the
  * terminal. Its scrollback, its cursor, its parser's half-finished escape
