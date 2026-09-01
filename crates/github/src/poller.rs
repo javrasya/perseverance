@@ -747,6 +747,12 @@ mod tests {
 
     /// A window small enough that a test waits milliseconds for it, and large
     /// enough that a scheduling hiccup between two sends does not close it.
+    ///
+    /// Every test here but one sends a single poke into it, so the only hiccup
+    /// it has to survive is the one between that send and the assertion. The
+    /// exception is [`an_idle_signal_waits_for_quiet_before_it_polls`], which
+    /// sends a *chain* — and it does not use this window, for the reason its
+    /// own comment gives.
     const WINDOW: Duration = Duration::from_millis(200);
 
     fn a_folder() -> Watched {
@@ -1474,8 +1480,22 @@ mod tests {
 
     #[test]
     fn an_idle_signal_waits_for_quiet_before_it_polls() {
+        // A wider window than `WINDOW`, because this is the one test whose
+        // premise is a chain rather than a single send: three pokes, each of
+        // which has to reach the loop inside the window the one before it
+        // opened, and then an assertion that has to run inside the last one.
+        // At `WINDOW` the whole chain had a hundred-odd milliseconds of slack
+        // end to end, which a three-core runner with eighty tests in flight
+        // spends without trying — and when it did, the debounce converted
+        // early and the read was already in the channel by the time the
+        // *still talking* assertion looked. A second buys the same shape most
+        // of a second of slack instead.
+        const CHATTER: Duration = Duration::from_secs(1);
+        const BETWEEN: Duration = Duration::from_millis(100);
+        const STILL_TALKING: Duration = Duration::from_millis(200);
+
         let (poker, taken) = watched_by(Timings {
-            idle_debounce: WINDOW,
+            idle_debounce: CHATTER,
         });
 
         poker.poke(Poke::Watching(Some(a_folder())));
@@ -1486,20 +1506,31 @@ mod tests {
 
         // A chattering adapter. Each one restarts the window, so none of them
         // converts on its own.
+        let mut last_poke = Instant::now();
         for _ in 0..3 {
             poker.poke(Poke::Idle);
-            std::thread::sleep(WINDOW / 5);
+            last_poke = Instant::now();
+            std::thread::sleep(BETWEEN);
         }
 
+        let quiet = taken.recv_timeout(STILL_TALKING).is_err();
+        // Checked before the assertion it guards, and that order is the point.
+        // Widening the window makes the premise likelier to hold; it cannot
+        // make it certain, and a machine that took longer than the window to
+        // get three sends out has not caught the poller reading early — it has
+        // failed to ask the question. Saying so is the difference between a
+        // test that is slow and one that lies about what it saw.
         assert!(
-            taken.recv_timeout(WINDOW / 4).is_err(),
-            "an adapter still talking has not gone quiet"
+            last_poke.elapsed() < CHATTER,
+            "the chatter outlasted the window it was meant to sit inside, \
+             so this run put no question to the debounce"
         );
+        assert!(quiet, "an adapter still talking has not gone quiet");
         taken
             .recv_timeout(Duration::from_secs(2))
             .expect("one read once it went quiet");
         // One, not three.
-        assert!(taken.recv_timeout(WINDOW).is_err());
+        assert!(taken.recv_timeout(CHATTER).is_err());
     }
 
     #[test]

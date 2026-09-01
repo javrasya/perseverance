@@ -21,6 +21,15 @@ repository.workspace = true
 # operator's own certificate store decides what is trusted, which is what makes
 # the app work behind a corporate proxy that a bundled root list cannot see.
 # `docs/adr/0003` records why this is not `octocrab`.
+#
+# `fixtures` is the one door through *`FreshRead` has no constructor outside this
+# crate*: it exports `interpret_read`, so a test in another crate can mint one
+# from an answer it wrote itself. It is named nowhere but `perseverance-app`'s
+# `[dev-dependencies]`, which is what keeps the wall a wall for everything that
+# ships. `docs/adr/0019` records what the wall is holding up.
+[features]
+fixtures = []
+
 [dependencies]
 perseverance-model = { workspace = true }
 perseverance-env = { workspace = true }
