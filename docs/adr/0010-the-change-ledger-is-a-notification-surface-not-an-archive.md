@@ -1,6 +1,7 @@
 # 10. The change ledger is a notification surface, not an archive
 
-Status: accepted (2026-08-07)
+Status: accepted (2026-08-07), amended by ADR 0019 (2026-08-30) in the one
+place it refuses a schema bump
 Context: [#41 The change ledger](https://github.com/javrasya/perseverance/issues/41),
 under the spec [#28](https://github.com/javrasya/perseverance/issues/28), which
 asks for a record of what moved between two looks and for that record to be
@@ -116,7 +117,11 @@ taking focus — a test strips the comments from the stylesheet and refuses
 the `graph_cache` row the poller already writes, producing one *while you were
 away* row for the whole gap. No new table, no migration, no
 `STORE_SCHEMA_VERSION` bump. An append-only table was refused as a second, less
-accurate copy of a history GitHub already keeps.
+accurate copy of a history GitHub already keeps. *(Amended: #82 takes the bump.
+The `graph_cache` row this diff reads now carries the stamp of the document that
+produced it, which is a column on the existing row and not a table beside it —
+so the migration and the version-3 bump are the cold-start baseline getting
+harder to misread, not the archive this ADR refused. ADR 0019.)*
 
 **Absence is never zero, in three places.** No cache row reads *first open*
 rather than `0 changes`; a failed poll draws no row at all and the stale stamp

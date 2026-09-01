@@ -44,6 +44,14 @@ serde_json = { workspace = true }
 # available to a test were restatements of its own inputs. With it, five of that
 # function's seven returns are driven for real — every one that does not need a
 # socket.
+#
+# `perseverance-github/fixtures` is the third, and it is the only way a test here
+# can hold a `FreshRead`: the type has no constructor outside its own crate, and
+# this feature is the one door — it exports `interpret_read`, so a test can
+# produce an answer and read it. Naming it here and not under `[dependencies]` is
+# what keeps *the cache is written only on a successful GitHub read* unspellable
+# in everything that ships.
 [dev-dependencies]
 tempfile = { workspace = true }
 tauri = { version = "2", features = ["test"] }
+perseverance-github = { workspace = true, features = ["fixtures"] }
