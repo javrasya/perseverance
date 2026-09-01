@@ -1354,8 +1354,16 @@ export function App() {
                   }
             }
           >
+          {/*
+            `beside` is the launcher being told it has company. The view box is
+            drawn on this same flex line, and a region that has one asks for a
+            column rather than for half the side: the view is what the map side
+            exists for, so the pixels the dial hands over are the view's and the
+            launcher's basis is furniture. With no map open there is no view box
+            on the line and the region takes the whole side, as it always has.
+          */}
           {columns.includes("launcher") ? (
-          <DropRegion onFoldersDropped={onFoldersDropped}>
+          <DropRegion onFoldersDropped={onFoldersDropped} beside={mapSideDraws}>
             <FolderList
               outcome={outcome}
               now={now}
@@ -1526,6 +1534,37 @@ export function App() {
 
           <div className={styles.terminal}>
             {/*
+              The rack, at the address ticket/64 reserved for it: a box of this
+              side's own, in the flow *before* the run side, because this side is
+              a row and the dial is at its left edge. That is what puts the region
+              on the dial's side of the pane, which is the whole of why it is
+              here: the pane's column is `flex: 1 1 0`, so every pixel a
+              narrowing side gives up comes out of the pane and none of it out of
+              the region, down to the region's own `min-width` floor where it
+              stops giving and the pane gives instead. At the `map` detent what
+              is left of this side is the rack in studs plus this box's own
+              gutter — `RACK_RESERVE`, the number `sides()` keeps out of the map
+              end — and `regionFor` in `src/rack/rack.ts` is that flexbox written
+              as arithmetic.
+
+              Inside the run side would have been the wrong address twice over.
+              That box is a *column*, so a region in it has no width of its own
+              to be measured: it is stretched to whatever the pane is worth, and
+              a tier chosen from that measurement is a tier chosen from the
+              pane's width rather than the rack's — `bays` at every detent the
+              pane has any pixels at all. And it would have cost the pane height,
+              which is the one thing the rack is not allowed to take: this region
+              costs width, once, on a dial move nobody can mistake for the world
+              rearranging the window.
+
+              Which run the pane shows is the rack's to change: a row is
+              pressable and the press patches `monitored`, Rust first and the
+              store after. It moves what the terminal shows and never where the
+              keystrokes go — watching and typing are two paths, and the rack is
+              only on the watching one (ADR 0027).
+            */}
+            <Rack readouts={runs} spentElsewhere={rationHeldByMapSide} />
+            {/*
               The run side, as a column: the run bar's dock, the pane, the rack's.
               The two docks are strips in the flow rather than anything positioned,
               because this box is deliberately not a containing block — and they
@@ -1548,20 +1587,6 @@ export function App() {
               <div className={styles.paneSlot}>
                 <Pane terminals={terminals} readouts={runs} />
               </div>
-              {/*
-                The rack, at the address ticket/64 reserved for it: in the flow
-                on the dial's side of the pane, so a narrowing terminal takes the
-                pane's pixels and leaves the rack standing on its floor. At the
-                `map` detent what is left of this side is the rack in studs,
-                which is the width at which supervising N runs still works.
-
-                Which run the pane shows is the rack's to change (#57): a row
-                is pressable and the press patches `monitored`, Rust first and
-                the store after. It moves what the terminal shows and never
-                where the keystrokes go — watching and typing are two paths, and
-                the rack is only on the watching one (ADR 0027).
-              */}
-              <Rack readouts={runs} spentElsewhere={rationHeldByMapSide} />
               <Dock
                 dock="rack"
                 occupant={occupant}

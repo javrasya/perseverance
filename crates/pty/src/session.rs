@@ -1190,6 +1190,28 @@ mod tests {
     /// A run that has printed nothing has been silent for exactly as long as it
     /// has existed — so its silence grows with its age rather than starting over
     /// at a *never spoke* the chrome would have to spell a second way.
+    ///
+    /// The clock the silence is read off differs by platform, and that is the
+    /// console's doing rather than the run's. On unix nothing is in the ring
+    /// until the child writes, so *as long as it has lived* is measured from
+    /// the spawn and the ring is empty. On Windows ConPTY's console host opens
+    /// by writing sixty-one bytes of its own — `ESC[6n`, win32-input and
+    /// focus-event modes, an SGR reset, the window title and a show-cursor —
+    /// before the child has run at all. `runs.rs` already names those bytes
+    /// ("without it the only bytes in the ring are the console host's
+    /// repaint") and works around them there by putting an `echo` in front.
+    ///
+    /// So the Windows half waits for that handshake and then measures. The
+    /// claim it makes is the same one: from the console being open, a run that
+    /// prints nothing adds nothing to the ring and never moves `spoke`. What it
+    /// cannot claim there is `spoke == opened`, because the console spoke
+    /// before the child could — a real difference in what the chrome will show
+    /// for a Windows run, not a weaker test.
+    ///
+    /// Asserting `end() == 0` on Windows passed for two rounds by racing that
+    /// handshake: the assertion ran 300ms after the spawn and won whenever the
+    /// runner was quiet enough. Growing the workspace made `cargo test` busier,
+    /// the handshake started landing first, and it went red every time.
     #[test]
     fn a_run_that_has_printed_nothing_has_been_silent_for_as_long_as_it_has_lived() {
         let directory = TempDir::new().expect("temp dir");
@@ -1203,16 +1225,50 @@ mod tests {
         )
         .expect("a shell starts");
 
+        // The console host's handshake, on the platform that sends one. It
+        // always arrives, so this waits rather than races.
+        #[cfg(windows)]
+        wait_until("the console finished opening", || session.held().end() > 0);
+
+        let opened_with = session.held().end();
+        let quiet_since = session.spoke();
+
         // Long enough that a drain with anything to append would have appended
         // it, and this shell has nothing.
         std::thread::sleep(Duration::from_millis(300));
 
-        assert_eq!(session.held().end(), 0, "the shell printed after all");
-        assert_eq!(session.spoke(), session.opened());
+        let whole = session.held().whole();
+        assert_eq!(
+            session.held().end(),
+            opened_with,
+            "the shell printed after all: {:?}",
+            String::from_utf8_lossy(&whole)
+        );
+        assert_eq!(session.spoke(), quiet_since, "the run spoke after all");
+
+        // Nothing but the console has ever spoken here, so the silence really
+        // does reach back to the spawn.
+        #[cfg(not(windows))]
+        {
+            assert_eq!(opened_with, 0, "the shell printed before the wait");
+            assert_eq!(session.spoke(), session.opened());
+        }
     }
 
+    /// A wait that is genuinely silent, which `timeout` is not.
+    ///
+    /// `timeout /t N /nobreak` writes its countdown to the *console*, so `>nul`
+    /// — which only redirects standard output — does not stop it reaching the
+    /// ring. Every other use of `timeout` in this crate is prefixed by an `echo`
+    /// and is reading output on purpose, so the banner is invisible there; the
+    /// one test that asserts a shell printed *nothing* is the one place it is
+    /// not, and it went red on Windows with the banner's sixty-one bytes.
+    ///
+    /// `ping` writes to standard output like an ordinary program, so `>nul`
+    /// really does swallow it. `hanging_up_ends_a_windows_run_by_itself` in
+    /// `runs.rs` already waits this way, and for the neighbouring reason.
     #[cfg(windows)]
-    const A_WAIT: &str = "timeout /t 30 /nobreak >nul";
+    const A_WAIT: &str = "ping -n 31 127.0.0.1 >nul";
     #[cfg(not(windows))]
     const A_WAIT: &str = "sleep 30";
 }

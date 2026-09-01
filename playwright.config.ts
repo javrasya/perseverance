@@ -24,13 +24,23 @@ import { defineConfig, devices } from "@playwright/test";
  * window has to be wide enough for the *widest* floor in `VIEW_FLOORS` —
  * otherwise `App` draws its stand-down where a view should be, or the view
  * draws its own, and a rule that then found no rows would be going red for a
- * reason that has nothing to do with the rule.
+ * reason that has nothing to do with the rule. The Bench asks for 680px of
+ * canvas, and the canvas is a good deal narrower than the window: the dial opens
+ * at `split`, so the map side is half the body; the rail takes 13rem off it; the
+ * drop region's own frame and the view column's gutter come off next, because
+ * `flex: 1` shares out what is left of the line rather than what is left of the
+ * rail; and only then do the launcher and the view halve it. A little under a
+ * quarter of the body reaches the canvas, which is the whole of why 680px of
+ * canvas is `VIEW_FLOORS.bench = 1842` of map side (`BENCH_MAP_FLOOR` in
+ * `src/panes/dial.ts` does that arithmetic) and why this viewport is well over
+ * four times 680 rather than near it: at `split` the body has to be at least
+ * twice 1842, and 3840 clears that with a margin.
  *
  * The Plate decides the number. Its floor is a floor on the *drawing*, and the
  * map side has to hold the launcher, the rail, the shell's own padding and this
  * view's reserved margin before the drawing gets a pixel — `VIEW_FLOORS.plate`
  * composes all of that and lands at 2360px of map side. The Bench asks for
- * 680px of canvas, which is `VIEW_FLOORS.bench = 1744` of map side by the same
+ * 680px of canvas, which is `VIEW_FLOORS.bench = 1842` of map side by the same
  * kind of arithmetic (`BENCH_MAP_FLOOR` in `src/panes/dial.ts`), and so is the
  * second-widest rather than the widest. 3840 clears the Plate's with a margin
  * at the detent the driver opens a view at.
