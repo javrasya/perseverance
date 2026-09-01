@@ -1,4 +1,5 @@
 import { RACK_RESERVE } from "../rack/rack";
+import { BENCH_WIDTH_FLOOR, RANK_RAIL } from "../views/bench/bench";
 import { widthNeededFor } from "../views/deep-field/deepField";
 import type { ViewName } from "../views/views";
 
@@ -300,15 +301,89 @@ export function namesFit(width: number): boolean {
 }
 
 /**
+ * The map side the shell has to hand the Bench before the Bench will draw, in
+ * pixels.
+ *
+ * `BENCH_WIDTH_FLOOR` is a **canvas** and the map side is the whole flex line,
+ * so the two are different boxes and equating them would stand nothing down
+ * where it matters: the shell would find the floor honoured, draw the view
+ * column, and the Bench would put its own stood-down canvas inside it with
+ * nothing in the shell saying why. This walks the boxes between the two,
+ * outermost in — every length named against the stylesheet that owns it:
+ *
+ * - the rail column is `flex: 0 0 var(--c-app-rail-width)` — 13rem, and the
+ *   root font size is the 16px default — so [`RAIL_COLUMN`] comes off the map
+ *   side before anything is shared out (`src/App.module.css`);
+ * - the launcher and the view are then both `flex: 1` with a zero basis. **What
+ *   they halve is what is left of the map side once every box on the line has
+ *   taken its own margins, padding and borders**, and that is the one step of
+ *   this walk it is easy to get wrong: `flex-grow` shares out free space into
+ *   the items' *content* boxes, and free space is the line less each item's
+ *   outer non-content lengths. So the two columns end up with equal **content**
+ *   widths and unequal border boxes, and every gutter below is subtracted once,
+ *   before the halving, rather than being carried inside a share;
+ * - the launcher column is the drop region itself, and it wears its frame on
+ *   the flex item: `--s-space-base` of margin, `--s-space-room` of padding and a
+ *   `--s-border-hairline` border on each side ([`LAUNCHER_COLUMN_FRAME`],
+ *   `src/chrome/DropRegion.module.css`). None of it is the view's to spend, and
+ *   a derivation that halved the line without it would promise the Bench a
+ *   canvas 33px wider than the one it is handed — enough, at exactly this
+ *   floor, for the Bench to stand itself down inside a view column the shell
+ *   had just found roomy enough;
+ * - the view column pads itself by `--s-space-base` on each side
+ *   ([`VIEW_COLUMN_PAD`], `src/App.module.css`), and the Bench's frame is
+ *   `width: 100%` of what that leaves;
+ * - and the Bench spends [`RANK_RAIL`] of its frame on the rank gutter before
+ *   `benchOf` is handed a canvas at all.
+ *
+ * There is no second regime to fold in: the widest entry in [`COLUMN_FLOORS`]
+ * is the rail's 500px and this number is far above it, so at every width that
+ * honours this floor all three columns are drawn and the share really is a
+ * half. `tests/dial.test.ts` pins the arithmetic against the three stylesheets
+ * so a change to any of the lengths is a red test rather than a silent drift,
+ * `tests/dial-shell.test.tsx` mounts the shell either side of it, and
+ * `tests/conformance/bench-box.spec.ts` is the one that measures it in a real
+ * engine: it computes its viewport back from this constant and drives the Bench
+ * at exactly `BENCH_WIDTH_FLOOR` of canvas, so a floor that over-promises is a
+ * Bench that mounts and draws nothing.
+ */
+const RAIL_COLUMN = 13 * 16;
+const VIEW_COLUMN_PAD = 16;
+/**
+ * The drop region's own frame, both sides: margin, padding and border.
+ *
+ * `src/chrome/DropRegion.module.css` puts all three on the flex item rather than
+ * inside it, so they come off the shared line and never out of the view's half.
+ */
+const LAUNCHER_COLUMN_FRAME = 2 * (16 + 48 + 1);
+/** The launcher and the view, both `flex: 1`: the view column gets one of two. */
+const VIEW_COLUMN_SHARE = 2;
+
+export const BENCH_MAP_FLOOR =
+  VIEW_COLUMN_SHARE * (BENCH_WIDTH_FLOOR + RANK_RAIL) +
+  2 * VIEW_COLUMN_PAD +
+  LAUNCHER_COLUMN_FRAME +
+  RAIL_COLUMN;
+
+/**
  * How much map side each view needs to be worth drawing.
  *
  * A `Record` over `ViewName` rather than a list, so a view added to `VIEWS`
  * without a floor is a type error rather than a view that silently claims to
  * fit anywhere. The Route is a single column of grouped rows; the wider views
- * (#62/#63/#64) arrive as one entry each.
+ * (#63/#64) arrive as one entry each.
+ *
+ * Every number here is a **map side**, because that is the box [`standDown`]
+ * compares against — so a view whose own floor is about a smaller box has to be
+ * converted rather than copied. The Route's floor is already a map side: it is
+ * one column of rows and it is drawn in the whole of what the view column gets.
+ * The Bench's is not, and [`BENCH_MAP_FLOOR`] is that conversion. The import
+ * runs view → dial, which is the direction that already exists (`ViewName`
+ * above) and so adds no cycle.
  */
 export const VIEW_FLOORS: Record<ViewName, number> = {
   route: 420,
+  bench: BENCH_MAP_FLOOR,
   /*
    * Two rank columns' worth: the narrowest picture in which one ticket is drawn
    * releasing another, which is the whole of what this view is for. Asked of

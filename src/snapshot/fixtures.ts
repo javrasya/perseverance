@@ -67,6 +67,18 @@
  * and the resolved count that no longer includes it are both visible rather
  * than asserted, and an out-of-scope line pointing at a still-open ticket that
  * goes on being takeable with nothing said about it.
+ *
+ * `wide-map` is the only one of these that is big. Every other fixture fits in
+ * a single row of plates, so until it existed nothing in the tree asked what a
+ * view does when one rank is wider than the window it has — and a schematic
+ * whose rank 0 wraps is a different drawing from one that does not, not the
+ * same drawing scaled. Twenty-eight children on five ranks, eleven of the
+ * sources feeding the four ranks behind them and nine feeding nothing, which
+ * is the shape a charted map normally has. It carries a cut child whose reason
+ * is far longer than a plate the width of the others can hold, a `#499` that
+ * is waited on and is not a child here, an unclassified child, a spec child, a
+ * designated frontier and a surveyed fog, so the awkward states stay visible
+ * at a width where a view can no longer draw each of them by hand.
  */
 
 import type { Snapshot } from "./model.generated";
@@ -95,6 +107,7 @@ import specReady from "./fixtures/spec-ready.json" with { type: "json" };
 import twoMapsOneOpen from "./fixtures/two-maps-one-open.json" with { type: "json" };
 import unreachable from "./fixtures/unreachable.json" with { type: "json" };
 import whileYouWereAway from "./fixtures/while-you-were-away.json" with { type: "json" };
+import wideMap from "./fixtures/wide-map.json" with { type: "json" };
 
 /*
  * `as unknown as Snapshot`, and for the same reason `maps.ts` does it:
@@ -126,6 +139,7 @@ export const FIXTURES = {
   "two-maps-one-open": AS_GENERATED(twoMapsOneOpen),
   unreachable: AS_GENERATED(unreachable),
   "while-you-were-away": AS_GENERATED(whileYouWereAway),
+  "wide-map": AS_GENERATED(wideMap),
 } as const;
 
 export type FixtureName = keyof typeof FIXTURES;

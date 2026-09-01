@@ -3,8 +3,8 @@
  *
  * The fan-out is *rules × views × the fixture space*, and the view axis is
  * `VIEWS` — two entries today, four eventually. A check written against The
- * Route's own selectors would be a check that silently stops covering anything
- * the day a second view arrives, so the selectors are not in the checks: they
+ * Route's own selectors would have been a check that silently stopped covering
+ * anything the day a second view arrived, so the selectors are not in the checks: they
  * are here, once per view, in a table `satisfies Record<ViewName, ViewSurface>`
  * — which makes a new view a compile error until somebody says how the contract
  * reads in it, rather than a view nothing is asserted about.
@@ -97,6 +97,41 @@ const ROUTE: ViewSurface = {
   fog: { region: "[data-fog]", unsurveyed: "[data-unsurveyed]", count: "[data-count]" },
 };
 
+const BENCH: ViewSurface = {
+  root: 'section[aria-label="The Bench"]',
+  /* The same answer as the Route's and for the same reason: `App` mounts the
+     open view only where a map is open, and which view that is changes nothing
+     about it. */
+  mounts: (snapshot) => snapshot.model.map !== null,
+  /* A plate is the row here — the `li` that carries one node's number, its
+     coordinate and its words. The wires are the other half of the drawing and
+     are `aria-hidden` restatements of tallies the plates already print, so no
+     rule reaches for them. */
+  rows: "li[data-node]",
+  row: (number) => `li[data-node="${number}"]`,
+  /* Both are the model's own words, spelled onto the plate and never
+     re-derived; the Bench's seven-way `data-mark` is this view's own encoding
+     and is deliberately not what the contract reads. */
+  rowsInState: (state) => `li[data-state="${state}"]`,
+  rowsOfKind: (kind) => `li[data-kind="${kind}"]`,
+  /* `data-frontier` for exactly the Route's reason: `data-mark` folds the cut,
+     the kind and the designation together and yields to *claimed*, so the mark
+     is not where the designation is always readable. The attribute carries
+     `map.frontier`'s number verbatim. */
+  designated: "[data-frontier]",
+  /* The stud, and the shape inside it: the stud is the plate's only
+     `aria-hidden` child, and the mark's geometry — square, hollow diamond,
+     hatched bar, dashed circle — is the span it wraps. */
+  glyph: 'span[aria-hidden="true"] > span',
+  unclassifiedWord: UNCLASSIFIED_TAG,
+  /* No fog region, and the omission is this view's decision rather than an
+     oversight: the fog is not a node, has no rank and nothing waits on it, so
+     it has no honest coordinate on a graph of the children and stays with the
+     chrome that already draws it. Rule 4 is delivered there, and its
+     precondition says so rather than passing here on nothing. */
+  fog: null,
+};
+
 /**
  * Deep Field, whose two lanes are the whole reason its selectors are not The
  * Route's spelled a second time.
@@ -142,6 +177,7 @@ const DEEP_FIELD: ViewSurface = {
 
 export const VIEW_SURFACES = {
   route: ROUTE,
+  bench: BENCH,
   "deep-field": DEEP_FIELD,
 } satisfies Record<ViewName, ViewSurface>;
 

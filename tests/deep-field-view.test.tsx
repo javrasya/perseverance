@@ -532,6 +532,54 @@ describe("what a plate carries", () => {
     expect(plate?.getAttribute("data-state")).toBe("resolved");
   });
 
+  /*
+   * The half of the same claim jsdom cannot see, and the reason it is worth a
+   * test of its own.
+   *
+   * `wide-map`'s cut carries forty words, and the plate that drew them shipped
+   * for two rounds as a column one character wide and 2647px tall — every word
+   * present in the document, addressable, asserted on by the test above, and
+   * unreadable on screen. Nothing here computes a layout, so no assertion in
+   * this file could have caught it; what a jsdom test *can* hold is the shape
+   * that made it possible. The reason is the plate's own second box, so the
+   * width it wraps at is the lane's; and neither the plate nor the reason may
+   * go back to earning that line from the field line above, because a flex
+   * container breaks on hypothetical sizes and this line is over-subscribed on
+   * purpose — `wrap` moves the title that is meant to be ellipsised, not the
+   * sentence that needs the room. `tests/conformance/rules.spec.ts` reads the
+   * consequence in a browser under rule 13.
+   */
+  it("gives the cut's reason a box of its own, at the lane's width", async () => {
+    const reason = "superseded by the socket rewrite";
+    const host = await paint(
+      modelOf([node(1, { state: "resolved", cut: { cut: "fromScope", reason } })]),
+    );
+    const plate = view(host).querySelector<HTMLElement>("[data-node='1']");
+    const carrier = [...(plate?.querySelectorAll("span") ?? [])].find(
+      (span) => span.textContent === reason,
+    );
+
+    // The plate's child, and not the field line's: a sibling of the glyph, the
+    // number, the title and the tags is an item those four have already spent
+    // the lane on.
+    expect(carrier).toBeDefined();
+    expect(carrier?.parentElement).toBe(plate);
+
+    const sheet = readFileSync(
+      join(REPO_ROOT, "src/views/deep-field/DeepField.module.css"),
+      "utf8",
+    );
+    const plateBlock = /\n\.plate \{([^}]*)\}/.exec(sheet)?.[1];
+    const reasonBlock = /\n\.reason \{([^}]*)\}/.exec(sheet)?.[1];
+    if (plateBlock === undefined) throw new Error("the stylesheet has no plate block");
+    if (reasonBlock === undefined) throw new Error("the stylesheet has no reason block");
+    // The plate is a stack of two boxes and not one line that wraps.
+    expect(plateBlock).not.toMatch(/wrap/);
+    // And the reason asks the line above for nothing, because a basis is only
+    // a request for a line of one's own in a container that wraps.
+    expect(reasonBlock).not.toMatch(/flex/);
+  });
+
   it("leaves a resolved plate visible, focusable and unfaded", async () => {
     const host = await paint(modelOf([node(1, { state: "resolved" })]));
     const plate = view(host).querySelector<HTMLElement>("[data-state='resolved']");

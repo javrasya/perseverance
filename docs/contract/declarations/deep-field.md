@@ -341,6 +341,43 @@ does not take it away. A plate cut by the map is a decoration on resolved rather
 than a sixth state, and it keeps the cut reason as a text node — never behind a
 hover — so a branch that stopped says why on screen.
 
+A cut plate is **two boxes**, and the arrangement is load-bearing rather than
+incidental. The field line — the glyph, the number, the title, the
+beyond-the-map note and the tag cluster — is one line that never breaks, and
+the reason is a block beneath it at the lane's width. That line is
+over-subscribed on purpose: the tag cluster is unshrinkable so a designation
+arriving moves nothing on the plates around it, and the title is what gives,
+which is the visual cut rule 10's section describes. A wrapping flex line
+decides where to break from its items' *untruncated* sizes, so asking one line
+to wrap would move the title that is meant to be ellipsised long before it
+moved the sentence that needs the room — the two rules cannot both be kept by
+one line, and stacking two boxes is the only arrangement that keeps both.
+
+It shipped for two rounds not keeping either. The reason asked the field line
+for a line of its own with a `flex-basis` of 100% — the idiom The Bench's plate
+uses, where the plate genuinely does wrap — and on a line that does not wrap
+that basis only makes the reason the largest loser in the shrink: it settled at
+a fraction of a pixel and `overflow-wrap` broke the sentence down a column one
+character wide. `out-of-scope`'s #106 drew as a 450px plate and
+`ledger-sweep`'s #77 as a 216px one, every word of both present in the document,
+addressable, read aloud, asserted on by `tests/deep-field-view.test.tsx` — and
+none of them on screen. The floor below read both and passed, because a 450px
+plate still has its centre inside the scrollport.
+
+`wide-map`, which #62 added for the Bench and which reaches every view, is the
+fixture that ended that. Its cut carries forty words, which drew as a 2647px
+plate — 2.2× this view's own scrollport — and the floor went red on the third
+of its four facts, at exactly the thing that fact is worded to catch: with the
+row scrolled into view the point at its centre was 140px below the bottom of
+the scrollport and belonged to the node panel's placeholder. That is a row
+whose centre is somebody else's pixels, which is what *belongs to it rather
+than to something drawn on top* means, and it is a finding about the rendering
+rather than about the probe. Nothing in the floor was relaxed to clear it; the
+plate was made two boxes and every uncut plate in every fixture is the same
+24px it was. The sentence above still holds — the view is its own scrollport
+and length is what scrolling is for — and what it sanctions is a *lane* longer
+than the pane, never one row taller than it.
+
 In the field, the same node's mark stays in its rank column at its coordinate
 and fades: `.markResolved` sits at `opacity: 0.55`, which is a reduction in
 salience well clear of zero, and an edge whose blocker is resolved is drawn in

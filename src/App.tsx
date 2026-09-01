@@ -118,6 +118,10 @@ import { Route } from "./views/route/Route.jsx";
 /* `DeepField.jsx` for the same reason, and it is the harder case: the module
    beside it differs from the component only in its first letter. */
 import { DeepField } from "./views/deep-field/DeepField.jsx";
+/* `Bench.jsx` for the same reason again: `views/bench/bench.ts` holds the
+   layout arithmetic *and* exports a `Bench` type, so an extensionless
+   `./views/bench/Bench` finds the arithmetic and never the component. */
+import { Bench } from "./views/bench/Bench.jsx";
 /* `Ledger.jsx` for the same reason: `chrome/ledger.ts` is the words and the
    arithmetic, `chrome/Ledger.tsx` is the component, and an extensionless
    specifier finds the first of the two. */
@@ -148,9 +152,14 @@ import styles from "./App.module.css";
  * that did not refuse — a third name compiled and rendered an empty pane — and
  * an empty pane is the failure this repo spends its exhaustive switches
  * avoiding everywhere else.
+ *
+ * The prop type is also the second place rule 7 is kept structurally: nothing
+ * in this table can be handed more than the three props, whatever a view's own
+ * signature would accept.
  */
 const SURFACES: Record<ViewName, (props: ViewProps) => ReactElement> = {
   route: Route,
+  bench: Bench,
   "deep-field": DeepField,
 };
 

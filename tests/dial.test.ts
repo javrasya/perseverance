@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  BENCH_MAP_FLOOR,
   COLUMN_FLOORS,
   DEFAULT_DETENT,
   DETENTS,
@@ -12,6 +13,7 @@ import {
   clamp,
   columnsAt,
   detentAt,
+  floorOf,
   fractionOf,
   fittingViews,
   honours,
@@ -30,6 +32,7 @@ import { readPosition, writePosition } from "../src/panes/position";
 import { replaceSnapshot } from "../src/stores/snapshots";
 import { OPENING, moveDial, readUi, startGesture } from "../src/stores/ui";
 import { FIXTURES } from "../src/snapshot/fixtures";
+import { BENCH_WIDTH_FLOOR, RANK_RAIL } from "../src/views/bench/bench";
 import { VIEWS, type ViewName } from "../src/views/views";
 import { REPO_ROOT } from "./support/sources";
 
@@ -41,10 +44,13 @@ import { REPO_ROOT } from "./support/sources";
  * away from any DOM, so the shell has nothing left to get wrong except drawing
  * them. `tests/dial-shell.test.tsx` is the picture; this is the answer.
  *
- * The multi-view cases run on **synthetic floors**. There is one real view
- * today, and inventing a second component to test the switcher's arithmetic
- * would be building #62 early — so the second view here is a name and a number,
- * which is all the arithmetic ever knew about a view anyway.
+ * Most multi-view cases run on **synthetic floors**, and they stay that way now
+ * that a second view is real: a case written against `VIEW_FLOORS` is a case
+ * that changes meaning when somebody re-measures a view, and the arithmetic
+ * never knew more about a view than a name and a number anyway. The registry's
+ * own numbers are exercised where the claim *is* about them — that the Bench
+ * standing down is offered the Route, which is a fact about the two floors
+ * rather than about `standDown`.
  */
 
 const PLATE = "plate" as ViewName;
@@ -292,10 +298,29 @@ describe("a view below its floor stands down, and nothing switches by itself", (
     // The narrowest detent that honours the floor, not the widest: an exit that
     // took the whole window would be answering a question nobody asked.
     expect(standing?.exits[0]).toEqual({ kind: "widen", detent: "split", honoured: true });
-    // The `glance` map side is under every registered view's floor, so there is
-    // no view to offer here and the second exit is the other side of the dial
-    // rather than a view that would stand down the moment it opened.
+    // The `glance` map side is under every registered view's floor — the Route
+    // asks the least of anything registered and even that does not fit — so
+    // there is no view to offer here and the second exit is the other side of
+    // the dial rather than a view that would stand down the moment it opened.
+    expect(sides(fractionOf("glance"), WINDOW).map).toBeLessThan(VIEW_FLOORS.route);
     expect(standing?.exits[1]).toEqual({ kind: "terminal" });
+  });
+
+  it("offers the Route to a Bench that does not fit, from the real floors", () => {
+    // The one place the registry's own numbers are the claim: the Bench asks
+    // for more map side than the Route, so a window between the two floors is a
+    // window where the switcher's second exit is a view and not the terminal.
+    expect(VIEW_FLOORS.bench).toBeGreaterThan(VIEW_FLOORS.route);
+
+    const between = fractionOf("split");
+    const body = 2 * VIEW_FLOORS.route + 2;
+    expect(sides(between, body).map).toBeGreaterThanOrEqual(VIEW_FLOORS.route);
+    expect(sides(between, body).map).toBeLessThan(VIEW_FLOORS.bench);
+
+    const standing = standDown("bench", between, body, VIEWS);
+    expect(standing?.view).toBe("bench");
+    expect(standing?.needs).toBe(VIEW_FLOORS.bench);
+    expect(standing?.exits[1]).toEqual({ kind: "open", view: "route" });
   });
 
   it("offers a view that does fit here when there is one", () => {
@@ -349,6 +374,90 @@ describe("a view below its floor stands down, and nothing switches by itself", (
     expect(fittingViews(512, ["route", PLATE], floors)).toEqual([PLATE]);
     expect(fittingViews(1000, ["route", PLATE], floors)).toEqual(["route", PLATE]);
     expect(honours(VIEW_FLOORS.route, VIEW_FLOORS.route)).toBe(true);
+  });
+
+  it("converts the Bench's canvas floor into the map side it costs", () => {
+    /*
+     * The two are different boxes, and the whole point of the entry is that the
+     * conversion happens. `benchOf` returns a stood-down canvas below
+     * `BENCH_WIDTH_FLOOR`, and the canvas is the view column's content less the
+     * rank rail — while `standDown` compares the *map side*, which also carries
+     * the rail column and the launcher. A dial that copied the canvas number
+     * would find the floor honoured at a width where the Bench refuses to draw:
+     * a view column with a stand-down inside it and nothing in the shell saying
+     * why.
+     */
+    expect(VIEW_FLOORS.bench).toBe(BENCH_MAP_FLOOR);
+    expect(floorOf("bench")).toBe(BENCH_MAP_FLOOR);
+    expect(BENCH_MAP_FLOOR).toBeGreaterThan(BENCH_WIDTH_FLOOR);
+
+    /*
+     * Walked back the other way: at exactly the floor, the canvas that reaches
+     * `benchOf` is exactly the canvas floor — not a pixel of margin either way.
+     *
+     * The walk is the browser's own, and it is a subtraction *before* the
+     * halving rather than after it. `flex-grow` shares free space into the
+     * items' content boxes, and free space is the line less every item's own
+     * margins, padding and borders — so the rail column, the drop region's
+     * frame and the view column's padding all come off once, and what the two
+     * `flex: 1` columns halve is what is left. Halving first and subtracting
+     * inside the share is the same arithmetic only when the two columns wear
+     * the same frame, and they do not: the launcher is the drop region and the
+     * drop region wears 65px a side.
+     */
+    const rail = 13 * 16;
+    const launcher = 2 * (16 + 48 + 1);
+    const viewPad = 2 * 16;
+    const share = (BENCH_MAP_FLOOR - rail - launcher - viewPad) / 2;
+    expect(share - RANK_RAIL).toBe(BENCH_WIDTH_FLOOR);
+
+    // And one pixel under it, the shell stands the Bench down rather than
+    // drawing a column for a canvas that will refuse.
+    expect(honours(floorOf("bench"), BENCH_MAP_FLOOR - 1)).toBe(false);
+  });
+
+  /*
+   * Every length the derivation mirrors is declared in CSS, and TypeScript
+   * cannot see any of them. Reading them here is what makes a change to one a
+   * red test rather than a floor that quietly stops describing the layout.
+   *
+   * The drop region's frame is in the list because it is on the flex item: a
+   * margin, a padding and a border the launcher column wears *outside* its
+   * content box, and so lengths the view column never gets to spend.
+   */
+  it("mirrors the lengths the layout actually declares", () => {
+    const app = readFileSync(join(REPO_ROOT, "src", "App.module.css"), "utf8");
+    expect(app).toMatch(/--c-app-rail-width:\s*13rem;/);
+    // The rail is that width and the two flex children either side of it are
+    // the halving, both `flex: 1`.
+    expect(app).toMatch(/flex:\s*0 0 var\(--c-app-rail-width\);/);
+    // And the view column's own gutter, which the halving is net of.
+    expect(app).toMatch(/\.view \{[^}]*padding: var\(--s-space-base\);/);
+
+    const region = readFileSync(
+      join(REPO_ROOT, "src", "chrome", "DropRegion.module.css"),
+      "utf8",
+    );
+    expect(region).toMatch(/margin: var\(--s-space-base\);/);
+    expect(region).toMatch(/padding: var\(--s-space-room\);/);
+    expect(region).toMatch(/border: var\(--s-border-hairline\) dashed/);
+
+    const semantic = readFileSync(
+      join(REPO_ROOT, "src", "styles", "tokens", "semantic.css"),
+      "utf8",
+    );
+    const primitive = readFileSync(
+      join(REPO_ROOT, "src", "styles", "tokens", "primitive.css"),
+      "utf8",
+    );
+    const pixels = (token: string, expected: string) => {
+      const step = new RegExp(`${token}:\\s*var\\((--p-[a-z]+-\\d+)\\);`).exec(semantic)?.[1];
+      expect(step, `${token} is defined from a primitive`).toBeDefined();
+      expect(primitive).toMatch(new RegExp(`\\${step}:\\s*${expected};`));
+    };
+    pixels("--s-space-base", "16px");
+    pixels("--s-space-room", "48px");
+    pixels("--s-border-hairline", "1px");
   });
 });
 

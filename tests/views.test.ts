@@ -15,12 +15,20 @@ import { collect } from "./support/sources";
  * second launch opens on, and what happens when the store cannot answer. A
  * preference that only works while the app is running is not a preference.
  *
- * Every case below writes and reads `route`, which is also the default, and
- * that is what makes this file easy to write badly: every assertion made
- * against what `readDefaultView` *returns* passes unchanged for a body of
- * `return DEFAULT_VIEW`. What tells a real read from that one is the key —
- * whether the read goes to the store at all, and to the one app-wide key the
- * write used. So the store is watched below rather than only seeded.
+ * `VIEWS` had exactly one entry when this file was written, and that is what
+ * made it easy to write badly: the stored value and the default were the same
+ * string, so every assertion made against what `readDefaultView` *returns*
+ * passed unchanged for a body of `return DEFAULT_VIEW`. What told a real read
+ * from that one was the key — whether the read went to the store at all, and to
+ * the one app-wide key the write used — so the store is watched below rather
+ * than only seeded.
+ *
+ * A second view makes the returned value falsifiable as well, and the cases
+ * below take that rather than leaving the key to carry it alone: a stored
+ * `bench` that reads back as `bench` is an assertion `return DEFAULT_VIEW`
+ * fails. The watch stays, because the two claims are different — *it went to
+ * the store* and *it came back with what was in it* — and the third view since
+ * registered arrived with the first one still worth making.
  */
 
 const KEY = "perseverance.view";
@@ -86,24 +94,28 @@ describe("the default view is remembered globally", () => {
   it("opens on the Route", () => {
     expect(DEFAULT_VIEW).toBe("route");
     expect(VIEWS).toContain("route");
+    // With nothing stored, and with a second view registered that it is not.
+    expect(VIEWS).toContain("bench");
     expect(readDefaultView()).toBe("route");
   });
 
   it("a choice survives a restart", () => {
-    writeDefaultView("route");
+    // The view that is not the default, so the read cannot pass by agreeing
+    // with it: a body of `return DEFAULT_VIEW` answers `route` here and fails.
+    writeDefaultView("bench");
 
     // A fresh boot reads the same store the last session wrote.
-    expect(window.localStorage.getItem(KEY)).toBe("route");
-    expect(readDefaultView()).toBe("route");
+    expect(window.localStorage.getItem(KEY)).toBe("bench");
+    expect(readDefaultView()).toBe("bench");
   });
 
   it("answers from the store rather than from the default", () => {
-    const asked = watchStorage("route");
+    const asked = watchStorage("bench");
 
-    // The value is the one the default names, because there is only one view to
-    // name — so the answer proves nothing and the trip does. A read that never
-    // consulted the store asks for no key and fails this line.
-    expect(readDefaultView()).toBe("route");
+    // Two claims, and the second one only became makeable with a second view:
+    // the read goes to the store at all, and it comes back with what was in it
+    // rather than with the string the default happens to name.
+    expect(readDefaultView()).toBe("bench");
     expect(asked).toEqual([KEY]);
   });
 
@@ -171,9 +183,15 @@ describe("the prop type is the whole of what a view can see", () => {
     // would make every case below a statement about today only.
     expect(declared.map((file) => file.path)).toEqual([PROP_TYPE]);
 
-    const view = viewSources().find((file) => file.path === "src/views/route/Route.tsx");
-    expect(view?.text).toContain("import type { ViewProps }");
-    expect(view?.text).toContain("}: ViewProps)");
+    /* Every registered view's own component, named: the check above says one
+       file declares a props type, and these say the components are the files
+       that read it rather than files that happen to declare nothing. */
+    for (const path of ["src/views/route/Route.tsx", "src/views/bench/Bench.tsx"]) {
+      const view = viewSources().find((file) => file.path === path);
+      expect(view, path).toBeDefined();
+      expect(view?.text, path).toContain("import type { ViewProps }");
+      expect(view?.text, path).toContain("}: ViewProps)");
+    }
   });
 
   it("names the model and never the snapshot it arrived on", () => {

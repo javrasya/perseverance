@@ -10,7 +10,7 @@ import {
   RUNS_PARAMETER,
   type RunFixtureName,
 } from "../../../src/terminal/fixtures";
-import { DEFAULT_VIEW, STORAGE_KEY, type ViewName } from "../../../src/views/views";
+import { DEFAULT_VIEW, VIEW_STORAGE_KEY, type ViewName } from "../../../src/views/views";
 import type { FixtureState } from "../../support/contract";
 import { surfaceOf, type ViewSurface } from "./views";
 
@@ -122,9 +122,16 @@ export async function load(
   /*
    * Which view is open is the remembered one, so the way to open a view here is
    * the way an operator's last session opens it: the key `views.ts` reads at
-   * boot, written before any of the app's own script runs. Pressing the
-   * switcher instead would make every rule check depend on the switcher being
-   * reachable at this width, which is a different claim from the rule's.
+   * boot, written before any of the app's own script runs, so the very first
+   * paint is already the asked-for view. Pressing the switcher instead would
+   * make every rule check depend on the switcher being reachable at this width,
+   * which is a different claim from the rule's. The key is imported and never
+   * respelled: a second spelling would go on passing after the app renamed it,
+   * asserting against whatever the app opened on instead.
+   *
+   * A `?view=` parameter beside `?map=` was the alternative, and it was refused
+   * for the reason a second list always is: choosing a view would then be two
+   * mechanisms, and the day they disagree the suite is the thing that lies.
    */
   await page.addInitScript(
     ([key, name]: readonly [string, ViewName]) => {
@@ -135,7 +142,7 @@ export async function load(
         // is what reports that rather than a check quietly reading another view.
       }
     },
-    [STORAGE_KEY, view] as const,
+    [VIEW_STORAGE_KEY, view] as const,
   );
 
   /* Both fixtures in one URL, spelled from the parameters their own modules
@@ -159,6 +166,25 @@ export async function load(
   if (surface.mounts(snapshot)) {
     root = page.locator(surface.root);
     await root.waitFor({ state: "visible" });
+
+    /*
+     * Mounted is not drawn. A view is free to answer a canvas narrower than it
+     * can work in by printing what it needs instead of the map — The Bench
+     * does, inside its own root — and that rendering has a visible root, no
+     * rows, and nothing about it that a rule would fail on for the right
+     * reason. A suite that ran over it would be green about nothing, so the
+     * shortfall is raised here, once, where the width was chosen.
+     *
+     * The condition is the model's and not any view's: a map with nodes in it
+     * is a map every view draws rows for.
+     */
+    const drawable = snapshot.model.map?.nodes.length ?? 0;
+    if (drawable > 0 && (await root.locator(surface.rows).count()) === 0) {
+      throw new Error(
+        `${view} mounted for ${state.fixture} and drew none of its ${drawable} nodes — ` +
+          `the viewport is almost certainly below the view's floor (see playwright.config.ts)`,
+      );
+    }
   }
 
   await page.evaluate(() => document.fonts.ready);

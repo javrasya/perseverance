@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../src/App";
-import { DETENTS, fractionOf, type Detent } from "../src/panes/dial";
+import { BENCH_MAP_FLOOR, DETENTS, fractionOf, type Detent } from "../src/panes/dial";
 import { monitor, moveDial, readUi } from "../src/stores/ui";
 
 /*
@@ -461,5 +461,81 @@ describe("a map rendered during a run shows that run", () => {
       monitor(null);
     });
     expect(document.body.textContent).not.toContain("is on the pane");
+  });
+});
+
+/**
+ * The Bench, through the shell, either side of the floor the shell compares.
+ *
+ * `VIEW_FLOORS.bench` is a **map side** derived from the Bench's canvas floor,
+ * and the derivation is what keeps these two mounts from both being a drawn
+ * Bench: above the floor the view column really does hold plates, and one pixel
+ * under it the shell says so itself rather than handing the column to a view
+ * that would put its own stand-down inside it. `tests/bench-view.test.tsx`
+ * mounts the component; nothing but this reaches it the way an operator does.
+ *
+ * jsdom lays nothing out, so what is pinned here is the *decision* — floor
+ * honoured, column drawn, plates rendered — and not the pixels. The pixels are
+ * `tests/dial.test.ts` (the arithmetic) and the conformance run (a browser).
+ */
+describe("the Bench is reached through the shell, or stood down by it", () => {
+  const wasWide = window.innerWidth;
+
+  /** jsdom's body measures zero, so the window is what the shell falls back to. */
+  async function windowIs(width: number): Promise<void> {
+    Object.defineProperty(window, "innerWidth", { value: width, configurable: true });
+    await act(async () => {
+      window.dispatchEvent(new Event("resize"));
+    });
+  }
+
+  afterEach(() => {
+    Object.defineProperty(window, "innerWidth", { value: wasWide, configurable: true });
+  });
+
+  const theBenchCap = () =>
+    [...(theSwitcher()?.querySelectorAll("button") ?? [])].find((cap) =>
+      cap.textContent?.includes("The Bench"),
+    ) ?? null;
+
+  /** Half of `body` is the map side at the opening detent. */
+  async function openTheBench(body: number): Promise<void> {
+    await boot();
+    await windowIs(body);
+    await put(0.5);
+
+    const cap = theBenchCap();
+    expect(cap, "no cap for the Bench").not.toBeNull();
+    expect(cap?.getAttribute("data-fits")).toBe("true");
+    await act(async () => {
+      cap?.click();
+    });
+    expect(readUi().view).toBe("bench");
+  }
+
+  it("draws plates in the view column just above the floor", async () => {
+    await openTheBench(2 * BENCH_MAP_FLOOR + 2);
+
+    expect(theStandDown(), "the shell stood the Bench down above its floor").toBeNull();
+    const bench = document.querySelector('[aria-label="The Bench"]');
+    expect(bench, "no Bench on the map side").not.toBeNull();
+    expect(bench?.querySelectorAll("[data-mark]").length ?? 0).toBeGreaterThan(0);
+  });
+
+  it("stands the Bench down one pixel under the floor, and names the number", async () => {
+    const body = 2 * BENCH_MAP_FLOOR + 2;
+    await openTheBench(body);
+    await put((BENCH_MAP_FLOOR - 1) / body);
+
+    const said = theStandDown()?.textContent ?? "";
+    expect(said, "no view named").toContain("The Bench");
+    expect(said, "the floor is not the map-side number").toContain(
+      `needs ${BENCH_MAP_FLOOR}px of map`,
+    );
+    expect(said).toContain(`this position gives ${BENCH_MAP_FLOOR - 1}px`);
+    // The shell said it, so the column is not there saying nothing.
+    expect(document.querySelector('[aria-label="The Bench"]')).toBeNull();
+    // And nothing switched by itself on the way down.
+    expect(readUi().view).toBe("bench");
   });
 });

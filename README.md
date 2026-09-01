@@ -126,6 +126,23 @@ screen as its own characters because no parser in the path could have made an
 element of it. `tests/no-raw-html.test.ts` holds that absence to the whole of
 `src/`.
 
+The Bench is a second view over the same model, and it draws the fan the Route
+deliberately does not. Its question is *where is this plan bottlenecked* on a map of 25–60 nodes:
+plates in rank bands, the first rank wrapped over as many rows as the canvas
+gives it, and orthogonal edges from a node to everything it unblocks — so the
+node twenty tickets are waiting behind is the one with twenty wires leaving it,
+which is a reading no column of rows hands over. It is a hand-rolled SVG
+schematic with no graph library and no layout library behind it either, and it
+stores no position: the drawing is a pure function of the derived model and the
+width it is given, so a map redrawn tomorrow lands where its ranks put it rather
+than where somebody once dragged it. A cut ticket gets a double-width plate
+carrying its reason as text on the plate, because a fan is exactly where a node
+with no stated reason for being out of scope reads as an oversight. Below its
+stated width floor it stands down and says what it needs instead of drawing a
+map nobody could read. What the contract standardises it delivers, and
+everything above the paint layer — its rows, its marks, its own floor — is the
+Bench's own identity rather than the Route restyled.
+
 `perseverance-agent` is a trait with four members and one value. An adapter
 names itself, says what to look for, plans a launch, and optionally classifies
 bytes — it does not spawn, wait, inject a prompt or decide it is done, because
@@ -442,15 +459,20 @@ rows, its designated encoding — so the checks name no view's selectors.
 `tests/conformance-coverage.test.ts`. An entry existing is not an entry firing.
 A check that skips at *every* point of the space is green exactly the way one
 that holds everywhere is green, with the difference living only in a report
-nobody opens on a passing run — so deleting the two fixtures that carry a cut
+nobody opens on a passing run — so deleting the three fixtures that carry a cut
 ticket would leave rule 6 asserting nothing anywhere and the suite still all
 green. Each entry's precondition is therefore separable from its assertion
 (`RuleEntry.applies`) and answerable without a browser: it reads the fixture's
 own `Snapshot`, the point's theme and motion, and what the view declares about
 mounting. This gate walks `VIEWS` × `fixtureSpace(FIXTURE_NAMES)` with those
 preconditions and goes red on any entry with a check and nowhere left to apply
-— today rule 6 applies at 8 of 76 points and rule 12 at 12, which is a margin
-worth knowing has not gone to zero. It is a vitest test rather than a
+— today the space is 160 points (twenty fixtures over two themes, two motion
+settings and two views), rule 6 applies at 24 of them and rule 12 at 28, which
+is a margin worth knowing has not gone to zero. Those three figures are counted
+by hand here — off `src/snapshot/fixtures.ts` and the entries' own preconditions
+— because the gate that prints them cannot run on a checkout without
+`@playwright/test`; read them back off its own output once it can. It is a
+vitest test rather than a
 browser one precisely so it runs inside `npm run verify` on a bare checkout, and
 like the other pure checks it is proved against known-bad input — a precondition
 met nowhere, and one met everywhere — before it is run over the table.
