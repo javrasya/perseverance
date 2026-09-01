@@ -54,29 +54,42 @@ attribute precisely so a count of rows stays a count of nodes. The second is
 that this view can decide it does not fit: below `widthNeededFor(depth)` it
 renders a stand-down in place of the picture, keeping the three integers and the
 frontier alive. **At the viewport the conformance projects run, every fixture
-stands down, and the first WebKit run is what found that out.** The arithmetic
-this paragraph used to carry read the map side as the view's box. It is not:
-the map side is a flex line of three columns — the drop region that holds the
-folder launcher, the view, and the rail — and the launcher is `flex: 1` on that
-line exactly as the view is, so the two split whatever the fixed rail leaves.
+used to stand down, and the first WebKit run is what found that out.** The
+arithmetic that reading replaced took the map side for the view's box. It is
+not: the map side is a flex line of three columns — the drop region that holds
+the folder launcher, the view, and the rail — and the launcher was `flex: 1` on
+that line exactly as the view is, so the two split whatever the fixed rail left.
 Measured in `Desktop Safari` at 1280px: at the default `split` detent the view
-is drawn into **135px** of a 640px map side, and even at the `map` detent, with
-the whole window on the map, it is drawn into **445px**. `widthNeededFor(3)` is
-512. So no dial position on a 1280px window draws a three-rank map, and the
-floors below are, as of this run, read against the stand-down rather than
-against the picture — which is a hole in the reading and not a green.
+was drawn into **135px** of a 640px map side, and even at the `map` detent, with
+the whole window on the map, into **445px**. `widthNeededFor(3)` is 512, so no
+dial position on a 1280px window drew a three-rank map, and every floor below
+was read against the stand-down rather than against the picture — a hole in the
+reading and not a green.
 
-Three things have to change together before that hole closes, and none of them
-is this view's to decide alone. The launcher has to stop growing on equal terms
-with the view, which contradicts nothing in #48 — a column with a basis is not a
-column that disappeared — but does contradict `COLUMN_FLOORS`'s own stated
-priority, where the view is shed last because it is the reason the map side
-exists. `VIEW_FLOORS["deep-field"]` has to stop being a view-box number
-(`widthNeededFor(2)`) compared against a map-side width, because the shell
-mounts a view on that comparison and the view then stands itself down from
-inside. And the conformance driver has to open the dial where the view is drawn,
-the way it already seeds which view is open. Until then this file's floors are
-declared, not read.
+Two of the three changes that hole needed have been made, and the floors below
+are read against the picture now. **The launcher has stopped growing on equal
+terms with the view**: beside a drawn view the drop region takes a basis —
+`--c-region-column` in `src/chrome/DropRegion.module.css`, the same 13rem the
+rail takes on the other side — instead of half of every pixel the dial hands
+over. That contradicts nothing in #48, because a column with a basis is not a
+column that disappeared, and it settles `COLUMN_FLOORS`'s own stated priority,
+where the view is shed last because it is the reason the map side exists at all.
+**And the conformance driver opens the dial before it reads anything**, at the
+`map` detent, the way it already seeds which view is open;
+`tests/conformance/support/drive.ts` argues there for that detent rather than
+for the narrowest one that fits. Measured again in `Desktop Safari` at 1280px,
+the view is drawn into **780px** at that detent — over `widthNeededFor(3)`, and
+over the deepest map in this fixture space — so every state below renders the
+picture.
+
+The third change is still owed, and it is not this view's to make alone.
+`VIEW_FLOORS["deep-field"]` is still a view-box number (`widthNeededFor(2)`)
+compared against a map-side width, so the shell can still mount this view into a
+map side its own three columns then leave too narrow, and the view stands itself
+down from inside instead of the shell standing it down with the exits the dial
+and the switcher offer. What that costs is the exits, and it costs the reading
+below nothing: at the detent the harness reads, the shell's answer and the
+view's agree that the picture fits.
 
 The floors run under Playwright against `dev:web` — a frontend-only Vite boot,
 no Rust, no Tauri shell, no PTY, no GitHub. WebKit is the required engine,
@@ -84,19 +97,17 @@ because macOS ships a WebView pinned to the OS version and exposes no
 WebDriver, so this is the only automated reading the tighter CSS floor
 (`browserslist`, `safari >= 16.4`) will ever get; Chromium is an optional second
 reading and is not what CI gates on. **The suite has been run against this
-view once, in WebKit**, and the two paragraphs above are what that run
-returned. It is what caught rule 5 banning `[aria-valuenow]` page-wide over the
-Dial, and it is what measured the 135px and the 445px the view is actually
-drawn into. It is also what turned the floors below into a partial reading:
-every Deep Field state in that run rendered the stand-down rather than the
-picture, so what the surface in `tests/conformance/support/views.ts` read was
-the stand-down's DOM, and no floor below has yet seen a rank column, a mark or
-a fan-out curve on a screen. The stand-down's half of each rule is read; the
-picture's half is declared and unread, and it stays that way until the three
-changes named above are made. Re-reading it is a deliberate run on a machine
-with WebKit: `@playwright/test` is not installed in this checkout and
-`npm run verify` does not include the conformance projects, so nothing in the
-ordinary gate will do it for the next person.
+view in WebKit**, and the paragraphs above are what those runs returned. The
+first is what caught rule 5 banning `[aria-valuenow]` page-wide over the Dial,
+and it is what measured the 135px and the 445px the view was actually drawn
+into; it is also what turned the floors below into a partial reading, because
+every Deep Field state in it rendered the stand-down and what the surface in
+`tests/conformance/support/views.ts` read was the stand-down's DOM. The run
+after the two changes above is the one the floors below are written against:
+every state renders the picture, so a rank column, a mark and a fan-out curve
+are on the screen each assertion runs over. Re-reading it is a deliberate run on
+a machine with WebKit: `npm run verify` does not include the conformance
+projects, so nothing in the ordinary gate will do it for the next person.
 
 ## Rule 4 — Absence is never zero
 
@@ -117,9 +128,10 @@ renders a missing fog heading as a count.
 The asserted floor covers the form half over the whole fixture space, the
 stand-down included: over a fixture nobody surveyed, the region renders no
 numeral at all — not in the count slot and not a digit anywhere in it — and
-stands its absence in a slot of its own. The stand-down is half of that space at
-the widths the harness measures, and it is the reason the fog rides in the
-`StandDown` reading beside the three integers and the frontier: the fog is
+stands its absence in a slot of its own. The stand-down is no longer any of that
+space at the width the harness reads — the dial is opened where the picture fits
+— and the fog rides in the `StandDown` reading beside the three integers and the
+frontier anyway, for a reason that was never the harness's: the fog is
 words, it costs no width, and a region that vanished with the picture would turn
 *nobody has been here* into nothing said at all. `tests/deep-field.test.ts` reads
 that on the model side — the stand-down's fog is the same reading the drawn
@@ -302,10 +314,15 @@ about the rendering.
 
 The asserted floor is exactly the shape of that: it reads the reduced-motion
 half of the space, asks rule 9's walk what is animated, and requires a
-registered still form for every animated selector it finds. It is currently
-satisfied here by there being nothing to check in this view — which is the
-compliant answer and not a skip, and is what makes *no motion* a claim the next
-commit has to keep rather than a fact about today. The residue is the one the
+registered still form for every animated selector it finds, in the view whose
+stylesheet spends it. That last clause is read off the walk rather than written
+down — `spentBy` in `tests/conformance/support/rules.ts` keeps the file each
+animation was found in — because a selector is a name and both views spell
+`.markClaimed`; only The Route's stylesheet animates it. So the floor annotates
+its skip here with that sentence rather than demanding The Route's halo of a
+glyph this view never moved, and *no motion* stays a claim the next commit has
+to keep rather than a fact about today: an animation added to this view's
+stylesheet arrives owing a still form in this view and turns rule 12 red. The residue is the one the
 floor always leaves: a machine can prove two renderings still differ with the
 motion off, not that the surviving difference is the one the motion was making.
 Here that residue is empty, because no difference was being made by motion.
@@ -323,6 +340,43 @@ behaviour: picking a finished ticket is a thing an operator does, and this view
 does not take it away. A plate cut by the map is a decoration on resolved rather
 than a sixth state, and it keeps the cut reason as a text node — never behind a
 hover — so a branch that stopped says why on screen.
+
+A cut plate is **two boxes**, and the arrangement is load-bearing rather than
+incidental. The field line — the glyph, the number, the title, the
+beyond-the-map note and the tag cluster — is one line that never breaks, and
+the reason is a block beneath it at the lane's width. That line is
+over-subscribed on purpose: the tag cluster is unshrinkable so a designation
+arriving moves nothing on the plates around it, and the title is what gives,
+which is the visual cut rule 10's section describes. A wrapping flex line
+decides where to break from its items' *untruncated* sizes, so asking one line
+to wrap would move the title that is meant to be ellipsised long before it
+moved the sentence that needs the room — the two rules cannot both be kept by
+one line, and stacking two boxes is the only arrangement that keeps both.
+
+It shipped for two rounds not keeping either. The reason asked the field line
+for a line of its own with a `flex-basis` of 100% — the idiom The Bench's plate
+uses, where the plate genuinely does wrap — and on a line that does not wrap
+that basis only makes the reason the largest loser in the shrink: it settled at
+a fraction of a pixel and `overflow-wrap` broke the sentence down a column one
+character wide. `out-of-scope`'s #106 drew as a 450px plate and
+`ledger-sweep`'s #77 as a 216px one, every word of both present in the document,
+addressable, read aloud, asserted on by `tests/deep-field-view.test.tsx` — and
+none of them on screen. The floor below read both and passed, because a 450px
+plate still has its centre inside the scrollport.
+
+`wide-map`, which #62 added for the Bench and which reaches every view, is the
+fixture that ended that. Its cut carries forty words, which drew as a 2647px
+plate — 2.2× this view's own scrollport — and the floor went red on the third
+of its four facts, at exactly the thing that fact is worded to catch: with the
+row scrolled into view the point at its centre was 140px below the bottom of
+the scrollport and belonged to the node panel's placeholder. That is a row
+whose centre is somebody else's pixels, which is what *belongs to it rather
+than to something drawn on top* means, and it is a finding about the rendering
+rather than about the probe. Nothing in the floor was relaxed to clear it; the
+plate was made two boxes and every uncut plate in every fixture is the same
+24px it was. The sentence above still holds — the view is its own scrollport
+and length is what scrolling is for — and what it sanctions is a *lane* longer
+than the pane, never one row taller than it.
 
 In the field, the same node's mark stays in its rank column at its coordinate
 and fades: `.markResolved` sits at `opacity: 0.55`, which is a reduction in
