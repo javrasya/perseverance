@@ -188,14 +188,36 @@
   box-sizing: border-box;
   display: flex;
   width: 100%;
-  align-items: center;
-  gap: var(--s-space-tight);
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--s-space-hair);
   padding: var(--s-space-hair) var(--s-space-tight);
   border-left: var(--s-border-rail) solid var(--c-field-rail);
   background: var(--c-field-fill);
   font-size: var(--s-text-small);
   cursor: pointer;
   transition: background-color var(--s-motion-fast) var(--s-motion-ease);
+}
+
+/*
+ * The field line: one line, and it never breaks.
+ *
+ * This is why the plate is a column of two boxes rather than one flex line
+ * with the reason wrapped onto the end of it. This line is over-subscribed by
+ * design — the tag cluster is unshrinkable because a designation arriving must
+ * move nothing on the plates around it, and the title is the thing that gives,
+ * which is what the ellipsis under rule 10 is for. A wrapping flex container
+ * decides where to break from its items' *hypothetical* main sizes, which for
+ * this line are their untruncated ones, so `wrap` would break before the title
+ * rather than before the reason: every plate in the lane would grow a second
+ * line and the one plate that needs one would still not have it. Only two
+ * boxes can say *this line never breaks* and *that block always does* at once.
+ */
+.line {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--s-space-tight);
 }
 
 /* Inside, because the view is its own scrollport and a ring drawn outside the
@@ -291,9 +313,20 @@
  * instead, which is the one cost worth paying for a decision being legible.
  * It never grows *wider*: the lane's width is the boundary, and a plate that
  * spilled past it would be a word in the field.
+ *
+ * It is the plate's second box and not an item on the field line above, so the
+ * width it wraps at is the lane's and not whatever that line has left over.
+ * `flex: 1 1 100%` was the earlier attempt at the same sentence — the idiom
+ * The Bench's plate uses, where `flex-flow: row wrap` makes a 100% basis mean
+ * *take a line of your own*. On a line that does not wrap it means nothing of
+ * the kind: it is the largest basis on the line, so the reason absorbed the
+ * whole shrink and settled at a fraction of a pixel, and `overflow-wrap` broke
+ * a forty-word sentence down a column one character wide. `wide-map`'s cut is
+ * what made that visible — 248 characters became a 2647px plate, 2.2× the
+ * scrollport it sits in, and rule 13's floor went red because the point at the
+ * plate's centre landed on another pane.
  */
 .reason {
-  flex: 1 1 100%;
   min-width: 0;
   color: var(--c-field-quiet);
   font-family: var(--s-font-mono);
