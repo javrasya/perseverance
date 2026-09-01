@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { FolderReadout } from "../environment/folder";
-import type { Frontier } from "../snapshot/model.generated";
+import type { Frontier, Phase } from "../snapshot/model.generated";
 import { monitor } from "../stores/ui";
 import { recordPrompt } from "../terminal/prompts";
 import {
@@ -10,14 +10,10 @@ import {
   sameFrontier,
   type Press,
   type Socket,
+  type StartTarget,
 } from "./sockets";
-import { startWorking } from "./started";
+import { composeSpec, startWorking } from "./started";
 import styles from "./Sockets.module.css";
-
-/** The two sockets that act on a number, and so print the one they are on. */
-function aimed(socket: Socket): boolean {
-  return socket.id === "start" || socket.id === "toFrontier";
-}
 
 interface SocketsProps {
   /** `model.map.frontier`, and the only place the target comes from. */
@@ -30,8 +26,41 @@ interface SocketsProps {
    */
   environment: FolderReadout | null;
   folder: string | null;
+  /**
+   * `model.map.phase` and `model.map.number` — scalars off the model, the way
+   * `frontier` is. The rail is chrome and not a view, but it is not handed the
+   * snapshot either: what it needs is a named few readings, and a component
+   * holding the whole model is one that could go looking for one more.
+   */
+  phase: Phase | null;
+  map: number | null;
+  /**
+   * The runs this window still shows as going, by id.
+   *
+   * The one thing the rail needs that the model cannot tell it. A compose takes
+   * no assignment and leaves its map on `specReady` for the whole of the run,
+   * so the snapshot reads the same during a compose as before one; what a
+   * second press would collide with is the run itself, and these ids are the
+   * only reading of *still going* this window has. Ids rather than the readouts
+   * they came from, for the reason every other prop here is a named scalar: a
+   * rail holding the readouts is a rail that could go looking for one more.
+   */
+  liveRuns: readonly number[];
   onSelect: (node: number | null) => void;
 }
+
+/**
+ * What a refusal learned about the frontier, in the one place the two answers
+ * have to meet.
+ *
+ * `Composed` has no `frontier` at all — a compose press was never aimed at a
+ * ticket, so there is nothing for one to re-arm on — and *nothing to re-arm on*
+ * is exactly what `null` already means to the press. The absence is widened
+ * here, on this side of the seam, rather than sent across it as a field that
+ * could only ever be null.
+ */
+const reArmsOn = (answer: { detail: string; frontier?: Frontier | null }): Frontier | null =>
+  answer.frontier ?? null;
 
 /**
  * The crossing, in four sockets.
@@ -57,9 +86,25 @@ interface SocketsProps {
  * snapshot, and a rail still printing the old number and the old sentence is a
  * screen lying about what is startable. So the incoming prop clears the press.
  */
-export function Sockets({ frontier, selection, environment, folder, onSelect }: SocketsProps) {
+export function Sockets({
+  frontier,
+  selection,
+  environment,
+  folder,
+  phase,
+  map,
+  liveRuns,
+  onSelect,
+}: SocketsProps) {
   const [press, setPress] = useState<Press>({ kind: "idle" });
   const [chosen, setChosen] = useState<string | null>(null);
+  /* The compose this window started, kept until the run it names stops being
+     one of the live ones — which is the whole of what this side can know about
+     a compose being under way, and the same join `Terminals::composing` makes
+     in Rust out of the registry and the stakes. The harness is the guard: a
+     press made in the beat between the spawn and the readout that first counts
+     it is still refused there, in the same sentence this recesses with. */
+  const [composed, setComposed] = useState<{ run: number; map: number } | null>(null);
   /* A press outlives the render that made it; an answer landing after this
      rail has gone has nothing left to write to. */
   const live = useRef(true);
@@ -86,32 +131,53 @@ export function Sockets({ frontier, selection, environment, folder, onSelect }: 
     );
   }, [frontier]);
 
-  const rail = railAt({ frontier, selection, environment, folder, press });
+  const composing = composed !== null && liveRuns.includes(composed.run) ? composed.map : null;
+  const rail = railAt({
+    frontier,
+    selection,
+    environment,
+    folder,
+    phase,
+    map,
+    composing,
+    press,
+  });
   const adapter = adapterAtPress(rail.adapters, chosen);
 
-  const start = async (target: number) => {
+  /* Which of the two commands this is was decided by the derivation; what is
+     here is the wiring both of them share, because a spawn owes the same two
+     writes whichever button spelled it. */
+  const start = async (aim: StartTarget) => {
     if (folder === null || adapter === null) return;
     setPress({ kind: "checking" });
-    const answer = await startWorking(folder, target, adapter);
+    const answer =
+      aim.kind === "compose"
+        ? await composeSpec(folder, adapter)
+        : await startWorking(folder, aim.ticket, adapter);
     if (!live.current) return;
     if (answer.kind === "spawned") {
       /* The prompt is told to this side exactly once, on this answer. */
       recordPrompt(answer.run, answer.prompt);
+      /* And a compose is remembered by the run it became, so the box that
+         spawned it stops offering to spawn another while it is going. One at a
+         time is the sub-issue's rule and not the rail's: `wayfinder:spec` is a
+         node, and two composes would make it a set. */
+      if (aim.kind === "compose") setComposed({ run: answer.run, map: aim.map });
       /* The pane binds what was just started. Rust set its own monitored run
          inside the command, so this is the declaration and not a second one. */
       monitor(answer.run);
       setPress({ kind: "idle" });
       return;
     }
-    setPress({ kind: "refused", detail: answer.detail, frontier: answer.frontier });
+    setPress({ kind: "refused", detail: answer.detail, frontier: reArmsOn(answer) });
   };
 
   const onPress = (socket: Socket) => {
     // A recessed socket and a socket that is checking both take no press, and
     // the second is why this is a guard rather than a `disabled` attribute.
-    if (!pressable(socket) || rail.target === null) return;
-    if (socket.id === "start") void start(rail.target);
-    if (socket.id === "toFrontier") onSelect(rail.target);
+    if (!pressable(socket)) return;
+    if (socket.id === "start" && rail.start !== null) void start(rail.start);
+    if (socket.id === "toFrontier" && rail.target !== null) onSelect(rail.target);
   };
 
   return (
@@ -141,9 +207,9 @@ export function Sockets({ frontier, selection, environment, folder, onSelect }: 
               a re-arm on a frontier that moved is a visible change or it is not
               a re-arm anybody can see.
             */}
-            {aimed(socket) && rail.target !== null ? (
-              <span className={styles.target}>#{rail.target}</span>
-            ) : null}
+            {socket.aimedAt === null ? null : (
+              <span className={styles.target}>#{socket.aimedAt}</span>
+            )}
           </button>
           {/*
             The condition as visible text, never a `title`. Information behind a

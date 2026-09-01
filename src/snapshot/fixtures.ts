@@ -55,6 +55,9 @@
  * state ever asks about. It sits one child away from `spec-composed`, so *ready
  * to compose* and *composed* are two readings on screen rather than one word an
  * operator has to take on trust.
+ * It is the rung the harness offers Compose Spec on, so it sits beside
+ * `spec-composed` and `map-closed` to make the offer's appearance and its two
+ * disappearances visible on screen rather than only asserted in a socket test.
  *
  * `out-of-scope` is there for both halves of that reason at once. A browser
  * cannot edit a map document, and *closed as done* and *closed because it was

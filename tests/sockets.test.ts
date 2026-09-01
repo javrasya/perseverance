@@ -4,6 +4,7 @@ import {
   ANOTHER_MACHINE,
   ASK_ARRIVES,
   CHECKING_LABEL,
+  COMPOSE_LABEL,
   NOTHING_TAKEABLE,
   NO_ADAPTER,
   NO_FOLDER_OPEN,
@@ -13,6 +14,7 @@ import {
   START_LABEL,
   TO_FRONTIER_LABEL,
   adapterAtPress,
+  alreadyComposing,
   offerable,
   pressable,
   railAt,
@@ -29,6 +31,7 @@ import {
   type AdapterReading,
   type FolderReadout,
 } from "../src/environment/folder";
+import { FIXTURES } from "../src/snapshot/fixtures";
 import type { Frontier } from "../src/snapshot/model.generated";
 import { forgetPrompts, promptFor, recordPrompt } from "../src/terminal/prompts";
 
@@ -71,6 +74,9 @@ function crossing(over: Partial<Crossing> = {}): Crossing {
     selection: null,
     environment: readout([resolved("claude")]),
     folder: "/work/repo",
+    phase: "wayfinding",
+    map: 28,
+    composing: null,
     press: { kind: "idle" },
     ...over,
   };
@@ -279,5 +285,150 @@ describe("the prompt a spawn answered with", () => {
 
     expect(promptFor(4)).toEqual(rendered);
     expect(promptFor(5)).toBeNull();
+  });
+});
+
+
+/**
+ * The compose offer, as arithmetic.
+ *
+ * #66's own claims: the offer stands in the primary socket and nowhere else, it
+ * is gated by the phase rather than by the frontier, it is aimed at the map
+ * rather than at a ticket, and it is gone on every other rung — including the
+ * two the ladder lands on afterwards.
+ */
+describe("Compose Spec", () => {
+  /*
+   * The one rung that offers a compose, taken off the fixture the Rust
+   * derivation produced rather than assembled here. `spec-ready` is
+   * `spec-composed` with the `wayfinder:spec` child not written yet — every
+   * ticket closed, no spec, map still open — so the phase, the frontier and
+   * the map's number below are the model's own reading of a real recorded
+   * answer, and this file no longer asserts against a crossing it invented.
+   */
+  const SPEC_READY = FIXTURES["spec-ready"].model.map;
+  const SPEC_READY_MAP = SPEC_READY?.number ?? null;
+
+  it("is a fixture on the one rung, and not a crossing this file made up", () => {
+    expect(SPEC_READY?.phase).toBe("specReady");
+    expect(SPEC_READY?.frontier).toEqual({ frontier: "nothingToStart" });
+    expect(SPEC_READY_MAP).not.toBeNull();
+  });
+
+  const composable = (over: Partial<Crossing> = {}): Crossing =>
+    crossing({
+      frontier: SPEC_READY?.frontier ?? null,
+      phase: SPEC_READY?.phase ?? null,
+      map: SPEC_READY_MAP,
+      ...over,
+    });
+
+  const primary = (over: Partial<Crossing> = {}): Socket => {
+    const first = railAt(composable(over)).sockets[0];
+    if (first === undefined) throw new Error("no primary socket on the rail");
+    return first;
+  };
+
+  it("offers the compose in the box Start Working already owns, aimed at the map", () => {
+    const rail = railAt(composable());
+
+    // The rail is still four sockets in one order: the offer is ink, not a
+    // fifth box that arrives when a map finishes.
+    expect(rail.sockets.map((socket) => socket.id)).toEqual([
+      "start",
+      "resume",
+      "ask",
+      "toFrontier",
+    ]);
+    expect(rail.sockets[0]?.label).toBe(COMPOSE_LABEL);
+    expect(rail.sockets[0]?.fill).toBe("filled");
+    expect(rail.sockets[0]?.aimedAt).toBe(SPEC_READY_MAP);
+    expect(rail.start).toEqual({ kind: "compose", map: SPEC_READY_MAP });
+    // And To Frontier is still the frontier's, which on a finished map has
+    // nothing to snap to. The two aimed sockets are not aimed at one number.
+    expect(rail.target).toBeNull();
+    expect(rail.sockets[3]?.aimedAt).toBeNull();
+    expect(rail.sockets[3]?.condition).toBe(NOTHING_TAKEABLE);
+  });
+
+  it("leaves every other rung of the ladder starting a ticket", () => {
+    for (const phase of ["done", "unstarted", "wayfinding", "specced"] as const) {
+      const rail = railAt(crossing({ phase }));
+
+      expect(rail.sockets[0]?.label).toBe(START_LABEL);
+      expect(rail.start).toEqual({ kind: "ticket", ticket: 75 });
+    }
+  });
+
+  it("recesses on the same three conditions, in the same words, as a ticket press", () => {
+    expect(primary({ folder: null }).condition).toBe(NO_FOLDER_OPEN);
+    expect(primary({ environment: readout([], { kind: "harvesting" }) }).condition).toBe(
+      STILL_READING,
+    );
+    expect(primary({ environment: readout([missing("claude")]) }).condition).toBe(NO_ADAPTER);
+    // Recessed and still aimed: the box says what it would compose and why it
+    // cannot, and both are text on the socket rather than an attribute.
+    expect(primary({ folder: null }).fill).toBe("recessed");
+    expect(primary({ folder: null }).aimedAt).toBe(SPEC_READY_MAP);
+  });
+
+  it("recesses while this map's compose is still going, and only this map's", () => {
+    /*
+     * The rung cannot say this and never will: a compose assigns nobody and its
+     * map reads `specReady` for the whole of the run, so the phase during a
+     * compose is the phase that offered it. What a second press would collide
+     * with is the run, and `wayfinder:spec` is a node rather than a set
+     * precisely so that two of them can never exist — hence the box goes dark
+     * while one is open, in the words the harness refuses with.
+     */
+    const going = primary({ composing: SPEC_READY_MAP });
+
+    expect(going.fill).toBe("recessed");
+    expect(going.condition).toBe(alreadyComposing(SPEC_READY_MAP ?? 0));
+    expect(pressable(going)).toBe(false);
+    // Still aimed at the map it would compose: the box says what it is about
+    // and why it cannot, and neither is an attribute.
+    expect(going.label).toBe(COMPOSE_LABEL);
+    expect(going.aimedAt).toBe(SPEC_READY_MAP);
+
+    // A compose going on some other map is somebody else's run, and a ticket
+    // press is not a compose at all — neither costs this socket its fill.
+    expect(primary({ composing: (SPEC_READY_MAP ?? 0) + 1 }).fill).toBe("filled");
+    expect(socketOf("start", { composing: 28 }).label).toBe(START_LABEL);
+    expect(socketOf("start", { composing: 28 }).fill).toBe("filled");
+  });
+
+  it("reads checking while a compose press is in flight, and takes no press", () => {
+    const pressed = primary({ press: { kind: "checking" } });
+
+    expect(pressed.label).toBe(CHECKING_LABEL);
+    expect(pressable(pressed)).toBe(false);
+    expect(pressed.aimedAt).toBe(SPEC_READY_MAP);
+  });
+
+  it("is gone once the spec is composed, and gone on a map that is closed", () => {
+    /*
+     * The two readings #66 closes on, taken off the fixtures the Rust
+     * derivation produced rather than worked out here: a composed spec puts the
+     * map on `specced`, and a closed map reads `done` — the terminal signal for
+     * a destination that produces no issue. Neither rung offers a compose,
+     * because only `specReady` does.
+     */
+    expect(FIXTURES["spec-composed"].model.map?.phase).toBe("specced");
+    expect(FIXTURES["map-closed"].model.map?.phase).toBe("done");
+
+    for (const name of ["spec-composed", "map-closed"] as const) {
+      const map = FIXTURES[name].model.map;
+      const rail = railAt(
+        crossing({
+          frontier: map?.frontier ?? null,
+          phase: map?.phase ?? null,
+          map: map?.number ?? null,
+        }),
+      );
+
+      expect(rail.sockets[0]?.label).not.toBe(COMPOSE_LABEL);
+      expect(rail.start?.kind).not.toBe("compose");
+    }
   });
 });

@@ -66,3 +66,37 @@ export async function startWorking(
   const { invoke } = await import("@tauri-apps/api/core");
   return await invoke<Started>("start_working", { folder, ticket, adapter });
 }
+
+/**
+ * What a Compose press comes back with.
+ *
+ * A second, smaller type beside [`Started`] and not a field on it, mirroring
+ * the app crate's `Composed` — including the field it does not have. A compose
+ * press has no frontier: it is aimed at the map, so there is no number for a
+ * refusal to re-arm on and no null here for this side to read as one. The Rust
+ * assertion that pins the shape, field count included, is
+ * `what_compose_spec_answers_crosses_in_the_shape_the_frontend_declares`.
+ *
+ * **And no claim.** The claim is the harness's record of the ticket it handed
+ * out, and a compose run takes no ticket — so nothing is written down for this
+ * press to be told about, and nothing here asks.
+ */
+export type Composed =
+  | { kind: "spawned"; run: number; prompt: Rendered }
+  | { kind: "refused"; detail: string };
+
+/**
+ * Press Compose Spec, once.
+ *
+ * The map is not an argument: which map is open is the ledger's answer and the
+ * command re-reads it, so a number sent from here could only ever disagree with
+ * it. The folder and the adapter are, for `startWorking`'s reason — both are
+ * facts about *this press*.
+ */
+export async function composeSpec(folder: string, adapter: string): Promise<Composed> {
+  if (!hasRustBehindIt()) {
+    return { kind: "refused", detail: NO_HARNESS };
+  }
+  const { invoke } = await import("@tauri-apps/api/core");
+  return await invoke<Composed>("compose_spec", { folder, adapter });
+}
