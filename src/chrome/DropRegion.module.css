@@ -1,5 +1,12 @@
 .region {
   --c-region-line: var(--s-line-quiet);
+  /*
+   * What this region is worth when it is not the only thing on its line: the
+   * same 13rem the rail takes on the other side of the view, because the two
+   * columns flanking the view are furniture with a width and the view is what
+   * the pixels between them are for.
+   */
+  --c-region-column: 13rem;
 
   display: flex;
   flex: 1;
@@ -35,6 +42,29 @@
   transition:
     border-color var(--s-motion-base) var(--s-motion-ease),
     background-color var(--s-motion-base) var(--s-motion-ease);
+}
+
+/*
+ * Beside a drawn view, the launcher takes a basis rather than a share.
+ *
+ * `flex: 1` on both columns is two columns growing on equal terms, and the map
+ * side's own priority is not equal: `COLUMN_FLOORS` sheds the rail first, then
+ * this region, and the view last, because the view is the reason the map side
+ * exists. A region that went on claiming half of every pixel the dial handed
+ * over is that priority contradicted at every width above the floors — and it
+ * is what left the wider views standing themselves down at every dial position
+ * on an ordinary window, with a launcher twice the size of the picture the
+ * operator opened.
+ *
+ * `min-width: 0` is not tidiness. Without it the used minimum is this region's
+ * own min-content — the list's longest row, the dashed frame's padding and the
+ * hint — which is wider than the basis above, so the basis would be a number
+ * nothing honoured. The region owns its scrollport (see above), so shrinking
+ * past its content scrolls rather than clips.
+ */
+.region[data-beside="true"] {
+  flex: 0 1 var(--c-region-column);
+  min-width: 0;
 }
 
 .region[data-armed="true"] {

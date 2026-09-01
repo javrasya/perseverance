@@ -46,6 +46,7 @@ import type { Cut, Node, Snapshot } from "../../../src/snapshot/model.generated"
 import { describeModel } from "../../../src/snapshot/readout";
 import { readMotion } from "../../support/checks";
 import { collectStylesheets } from "../../support/sources";
+import { VIEWS, type ViewName } from "../../../src/views/views";
 import type { Prospect, Rendering } from "./drive";
 
 /**
@@ -209,6 +210,60 @@ async function stillFormOf(glyph: Locator): Promise<Record<string, string>> {
 }
 
 /**
+ * The still form of the rack's lamp: what the region has left to say *something
+ * here is running* with the movement taken away.
+ *
+ * Read off the lamp's own box rather than off a pseudo-element, because that is
+ * where the rack authored its still form. The Route splits the two classes —
+ * `.markClaimed::after` draws the halo's ring and `.markPing::after` only moves
+ * it — while the rack draws its ring on `.lamp` itself and hangs the whole of
+ * `.lampPing::after` on top, so the thing that has to survive the media query
+ * here is the lamp and the count beside it. `[data-lamp]` is the address the
+ * rack promises for exactly this: a lamp found by its ping could not be asked
+ * what is left when there is no ping.
+ *
+ * `moving` is the region walked whole — every element in it and both pseudos on
+ * each — rather than the lamp alone. The guard in `src/styles/global.css` is a
+ * `*` rule, so *the query reached it* is a claim about the subtree and not about
+ * one selector, and an animation authored where the guard cannot beat it would
+ * be invisible to a reading of the lamp by itself.
+ */
+async function stillLampOf(page: Page): Promise<{
+  readonly borderStyle: string;
+  readonly borderWidth: string;
+  readonly opacity: string;
+  readonly drawn: boolean;
+  readonly haloAnimation: string;
+  readonly said: string;
+  readonly moving: readonly string[];
+}> {
+  return page.locator("[data-lamp]").evaluate((lamp: Element) => {
+    const ring = getComputedStyle(lamp);
+    const halo = getComputedStyle(lamp, "::after");
+    const region = lamp.closest("section");
+    const moving: string[] = [];
+    for (const box of region === null ? [] : [region, ...Array.from(region.querySelectorAll("*"))]) {
+      for (const pseudo of [null, "::before", "::after"]) {
+        const style = getComputedStyle(box, pseudo ?? undefined);
+        if (style.animationName !== "none") {
+          moving.push(`${box.tagName.toLowerCase()}${pseudo ?? ""} runs ${style.animationName}`);
+        }
+      }
+    }
+    const box = lamp.getBoundingClientRect();
+    return {
+      borderStyle: ring.borderTopStyle,
+      borderWidth: ring.borderTopWidth,
+      opacity: ring.opacity,
+      drawn: box.width > 0 && box.height > 0,
+      haloAnimation: halo.animationName,
+      said: (lamp.parentElement as HTMLElement | null)?.innerText ?? "",
+      moving,
+    };
+  });
+}
+
+/**
  * The properties a row can carry an ink on, and the inks it actually resolves.
  *
  * This is what makes the collapse above load-bearing rather than decorative.
@@ -275,6 +330,52 @@ function animatedSelectors(): string[] {
 }
 
 /**
+ * Whose stylesheet spends the motion on one selector — a view's, or the app's.
+ *
+ * A selector is a *name*, and CSS modules let two files spell the same one. The
+ * claimed mark is `.markClaimed` in both registered views and only one of them
+ * animates it: `ping` is authored in `src/views/route/Route.module.css` and
+ * rule 9's settlement names that file. Deep Field spends no motion at all —
+ * every distinction it carries is geometry, which is what ADR 0025 says and
+ * what `tests/motion-ration.test.ts` would go red on if it stopped being true.
+ *
+ * So the walk keeps the file it found the animation in. A stylesheet under
+ * `src/views/<name>/` is that view's, by the same convention `VIEWS` and the
+ * directories already keep; anything else is the chrome's, is on screen in
+ * every view, and answers `null` — owed everywhere, by nobody in particular.
+ */
+function spentBy(selector: string): readonly (ViewName | null)[] {
+  const owners = collectStylesheets().flatMap((file) => {
+    if (!readMotion(file.text).animations.some((one) => one.selector === selector)) return [];
+    const under = /^src\/views\/([^/]+)\//.exec(file.path)?.[1];
+    return [VIEWS.find((view) => view === under) ?? null];
+  });
+  return [...new Set(owners)];
+}
+
+/**
+ * A still form is owed where the motion is spent, and nowhere else.
+ *
+ * Rule 12 binds *a distinction carried by motion*, and a view whose own
+ * stylesheet never wrote the animation carries no such distinction — there is
+ * nothing for a reduced-motion fallback to have lost. Asserting the halo
+ * anyway would be this table demanding one view's ornament of every view that
+ * happens to spell a class the same way, which is the meta-rule's *a rule
+ * reaching into one view's layout* arriving through the motion ration.
+ *
+ * It is read off the stylesheets rather than written down, for the reason the
+ * walk above is: a list of which view moves would go on being green the day the
+ * animation moved to another one.
+ */
+function spentHere(selector: string): Precondition {
+  return ({ view }) => {
+    const owners = spentBy(selector);
+    if (owners.includes(null) || owners.includes(view)) return null;
+    return `\`${selector}\` is animated in another view's stylesheet and not in this one's, so no distinction here is carried by that motion`;
+  };
+}
+
+/**
  * The still form owed by one animated selector, read off a rendering under
  * `prefers-reduced-motion: reduce`. Keyed by the selector as authored: an
  * animation moving to another selector loses its entry and goes red.
@@ -296,6 +397,7 @@ const STILL_FORMS: Record<string, StillForm> = {
   ".markPing::after": {
     applies: (at) =>
       ON_SCREEN(at) ??
+      spentHere(".markClaimed::after")(at) ??
       (nodesOf(at).some((node) => node.state === "claimed") &&
       nodesOf(at).some((node) => node.state !== "claimed")
         ? null
@@ -320,6 +422,55 @@ const STILL_FORMS: Record<string, StillForm> = {
       expect(moving.borderStyle).not.toBe("none");
       expect(moving.borderWidth).not.toBe("0px");
       expect(moving, "the two states are the same thing with the motion off").not.toEqual(still);
+    },
+  },
+
+  /* The rack's lamp, whose still form is the lamp itself. #56 bought a second
+     licence — `rackPing` on `.lampPing::after`, for *a child process is still
+     printing*, which is the running-vs-stale reading rule 9 asks for — and a
+     second licence owes a second entry here or rule 12 goes red everywhere,
+     which is the whole point of keying this table by the selector as authored.
+
+     What the rack keeps when the movement goes is not a ring underneath a
+     pseudo-element but the lamp's own: `.lamp` is drawn at every one of the
+     three states, `.lampLive` fills it, and `N of M still running` says the
+     same thing in words beside it. So this reads the lamp and the head band it
+     sits in rather than a `::after`, and it reads the region whole for anything
+     still moving — the guard in `src/styles/global.css` is a `*` rule, so *the
+     query reached it* is a claim about the subtree.
+
+     The lit pair — a lamp that pings against one that yielded the ration — is
+     not read here and cannot be. This space is map snapshots × theme × motion
+     and `load` asks for no run fixture, so the rack on screen at every point of
+     it holds no run at all; the pair is settled in `tests/rack.test.tsx`, where
+     the readouts are handed in directly. What is left for a browser to settle
+     is the half that is about the media query, and it is the half a stylesheet
+     can break: a ring that had migrated onto `.lampPing::after` would leave a
+     rack with nothing drawn wherever the ping is suppressed, and an animation
+     authored where the guard cannot beat it would still be running here. Both
+     are red below. */
+  ".lampPing::after": {
+    /* The rack is chrome and is on screen at every point of the space — rule
+       7's corollary, the same reason rules 4, 5 and 10 are scoped to the page.
+       A rendering with no map open still draws it, dark, saying `no runs`. */
+    applies: EVERYWHERE,
+    check: async ({ page }) => {
+      const lamp = await stillLampOf(page);
+
+      expect(lamp.moving, "motion survived the media query").toEqual([]);
+      expect(lamp.haloAnimation, "motion survived the media query").toBe("none");
+
+      /* And what the media query left standing is still a lamp: a ring with a
+         box, drawn by the rack rather than by the selector that moves it. */
+      expect(lamp.drawn, "the lamp is not drawn at all").toBe(true);
+      expect(lamp.borderStyle, "the lamp's ring went with the animation").not.toBe("none");
+      expect(lamp.borderWidth, "the lamp's ring went with the animation").not.toBe("0px");
+      expect(Number(lamp.opacity), "the lamp is faded out").toBeGreaterThan(0);
+
+      /* The fact in words, beside it. A lamp is a reading somebody has to
+         already know how to take; the count is the one that survives not
+         knowing, and rationing motion may not cost it. */
+      expect(lamp.said.trim(), "the head band says nothing beside the lamp").not.toBe("");
     },
   },
 };
@@ -558,7 +709,7 @@ export const RULE_CHECKS: Partial<Record<RuleId, RuleEntry>> = {
   },
 
   12: {
-    why: "The floor of a judged rule, over the view root, and only at the reduced-motion half of the space — the still form is what the media query leaves standing, so the other half has nothing to read. What owes a still form is not named here: it is whatever rule 9's walk over the stylesheets finds an animation on, so an animation added anywhere under `src/` arrives with no still form registered and turns this rule red rather than passing unread. For each animated selector the entry asserts the pair its still form describes — today the claimed mark's halo, where with reduce on the animation is gone, the ring authored underneath it is still drawn, and a row in another state still does not wear it. Whether what survives is the *same* distinction the motion carried is the judged residue: a machine can prove the two renderings still differ, not that the surviving difference is the one that was being made.",
+    why: "The floor of a judged rule, over the view root, and only at the reduced-motion half of the space — the still form is what the media query leaves standing, so the other half has nothing to read. What owes a still form is not named here: it is whatever rule 9's walk over the stylesheets finds an animation on, so an animation added anywhere under `src/` arrives with no still form registered and turns this rule red rather than passing unread. For each animated selector the entry asserts what its still form describes. Today that is two: the Route's claimed mark, where with reduce on the animation is gone, the ring authored underneath it is still drawn, and a row in another state still does not wear it; and the rack's lamp, where the ring is the lamp's own rather than a pseudo-element's, and what survives beside it is `N of M still running` in words. The lamp's lit-against-yielded pair is the one thing this suite cannot reach — the run readouts are not an axis of this space — and is settled in `tests/rack.test.tsx`. Whether what survives is the *same* distinction the motion carried is the judged residue: a machine can prove the two renderings still differ, not that the surviving difference is the one that was being made.",
     applies: (at) => {
       if (at.state.motion !== "reduced") {
         return "the still form is what `prefers-reduced-motion: reduce` leaves standing, and motion is on at this point of the space";

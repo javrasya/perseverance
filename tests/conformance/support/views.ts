@@ -156,9 +156,11 @@ const BENCH: ViewSurface = {
 const DEEP_FIELD: ViewSurface = {
   root: 'section[aria-label="Deep Field"]',
   /* The Route's precondition and for the same reason: `App` mounts no view with
-     no map open. The view's own width stand-down is a different question — the
-     root is on screen either way, and a rule that needs rows skips on finding
-     none rather than on a width nothing here can measure. */
+     no map open. The view's own width stand-down is a different question, and
+     it is the driver's rather than this table's: `load` opens the dial at the
+     `map` detent before anything is read, where every map in this fixture space
+     is drawn as a picture. A surface that tried to answer it here would be
+     answering from a width nothing here can measure. */
   mounts: (snapshot) => snapshot.model.map !== null,
   rows: "li[data-node]",
   row: (number) => `li[data-node="${number}"]`,

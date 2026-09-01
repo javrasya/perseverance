@@ -26,13 +26,15 @@ import { defineConfig, devices } from "@playwright/test";
  * draws its own, and a rule that then found no rows would be going red for a
  * reason that has nothing to do with the rule. The Bench asks for 680px of
  * canvas, and the canvas is a good deal narrower than the window: the dial opens
- * at `split`, so the map side is half the body; the rail takes 13rem off it; and
- * the launcher and the view are both `flex: 1`, so they halve what is left. A
- * little under a quarter of the body reaches the canvas, which is the whole of
- * why 680px of canvas is `VIEW_FLOORS.bench = 1744` of map side
- * (`BENCH_MAP_FLOOR` in `src/panes/dial.ts` does that arithmetic) and why this
- * viewport is roughly four times 680 rather than near it: at `split` the body
- * has to be at least twice 1744, and 3840 clears that with a margin.
+ * at `split`, so the map side is half the body; the rail takes 13rem off it; the
+ * drop region's own frame and the view column's gutter come off next, because
+ * `flex: 1` shares out what is left of the line rather than what is left of the
+ * rail; and only then do the launcher and the view halve it. A little under a
+ * quarter of the body reaches the canvas, which is the whole of why 680px of
+ * canvas is `VIEW_FLOORS.bench = 1842` of map side (`BENCH_MAP_FLOOR` in
+ * `src/panes/dial.ts` does that arithmetic) and why this viewport is well over
+ * four times 680 rather than near it: at `split` the body has to be at least
+ * twice 1842, and 3840 clears that with a margin.
  *
  * The devices' own 1280 would put every fixture on a stood-down Bench, so this
  * is not a preference. The driver refuses to run against a mounted-but-undrawn
