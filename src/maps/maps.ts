@@ -67,6 +67,20 @@ export interface MapsView {
   /** A page GitHub's own limits say cannot exist. Said, never paged through. */
   truncated: boolean;
   /**
+   * More issues carry the map label than one page of the query holds — an
+   * ordinary thing for a well-used repository to be.
+   *
+   * Beside `truncated` rather than inside it: the map list is a page the query
+   * asked for and not one a product limit imposed, so a repository with a
+   * hundred and one maps has been told nothing by GitHub about its own limits,
+   * and printing that sentence at it would be a false statement.
+   *
+   * Two producers in Rust, and the sentence it draws is hedged over both: a
+   * `hasNextPage` a live read really saw, and a cached body read under a query
+   * document this build no longer sends (ADR 0019).
+   */
+  mapsTruncated: boolean;
+  /**
    * A label list longer than one page — an ordinary thing for an issue to have,
    * and the one truncation that fails unsafe.
    *
@@ -74,9 +88,12 @@ export interface MapsView {
    * issue may carry, so folding this into the flag that draws *GitHub's own
    * limits say this cannot happen* would print an impossibility at an operator
    * whose issue is merely well-labelled — and would print it instead of the one
-   * sentence that names what the overrun costs. The two read disjoint halves of
-   * one Rust `Truncation`, so they cannot disagree; either, both or neither can
-   * be true.
+   * sentence that names what the overrun costs.
+   *
+   * Two producers in Rust, and only one of them is a half of `Truncation`: a
+   * `hasNextPage` a live read really saw, and a cached body whose stamp is not
+   * that build's (ADR 0019). Any combination of the three caveat flags can be
+   * true at once, and none is written in terms of another.
    */
   labelsTruncated: boolean;
   /**
@@ -139,6 +156,7 @@ export function nothingReadYet(folderId: number): MapsView {
     provenance: { source: "none", outcome: { kind: "notAttempted" }, fetchedAt: null },
     rateLimit: null,
     truncated: false,
+    mapsTruncated: false,
     labelsTruncated: false,
     yieldingToRateLimit: false,
   };
@@ -335,15 +353,38 @@ export const NOT_READ_COPY =
  * happen, so if it has, the thing worth reporting is that it has.
  *
  * It is drawn from `truncated`, which is the Rust side's `Truncation::capped()`
- * and covers the three connections that really are capped. The fourth flag has
- * its own sentence below, because *this cannot happen* is exactly what is not
- * true of it.
+ * and covers the two connections that really are capped — sub-issues at 100 per
+ * parent, linked issues at 50 per relationship. The other two flags have their
+ * own sentences below, because *this cannot happen* is exactly what is not true
+ * of the pages behind them.
  */
 export const TRUNCATED_NOTE =
   "GitHub answered with more than one page, which its own limits say cannot happen. Some of what is here is not on screen.";
 
 /**
- * The fourth tripwire's sentence, and why it is a second one.
+ * The map list's own sentence, and why it is not the one above.
+ *
+ * `issues(first: 100, labels: [...])` is a page this query chose. Nothing caps
+ * how many issues carry a label, so a repository that has charted a hundred and
+ * one maps has watched GitHub keep every promise it makes — and the sentence
+ * above, printed here, would accuse it of breaking one. What this names instead
+ * is the consequence an operator can act on: a map they know they charted is
+ * missing from the list, and the honest reading of that is *past the end of the
+ * page*, not *deleted*. Closing or unlabelling finished maps is what shortens
+ * the list.
+ *
+ * It hedges for the same reason `LABELS_TRUNCATED_NOTE` does, and the two are
+ * hedged together on purpose. The flag has two producers: a `hasNextPage` a live
+ * read really came back with, and a cached body read under a query document this
+ * build no longer sends (ADR 0019), where nothing is known either way because
+ * the `pageInfo` may never have been asked for. One sentence over both has to be
+ * the weaker of the two, and the weaker one is still true of the stronger case.
+ */
+export const MAPS_TRUNCATED_NOTE =
+  "Some of the maps here may not have been read. A repository can carry more of them than one page holds, so a map missing from this list is past the end of it rather than gone.";
+
+/**
+ * The unsafe tripwire's sentence, and why it is one of its own.
  *
  * Nothing caps how many labels an issue may carry, so this page can exist and
  * the sentence above would be false about it. And it is the only truncation
@@ -355,13 +396,24 @@ export const TRUNCATED_NOTE =
  * makes it something an operator can act on: the fix is fewer labels on the
  * issue, and until then a designated ticket is worth a second look.
  *
+ * It says *may not have been read* rather than *were not read*, and the word is
+ * load-bearing. The flag has two producers now: a `hasNextPage` a live read
+ * really came back with, and a cached body read under a query document this
+ * build no longer sends (ADR 0019), where nothing is known either way because
+ * the `pageInfo` may never have been asked for. One sentence over both has to
+ * be the weaker of the two, and the weaker one is still true of the stronger
+ * case. The alternative was a second sentence keyed to the second producer,
+ * which buys a state on the wire and a fourth note to keep true for a
+ * difference an operator would act on identically — the act is the same second
+ * look either way.
+ *
  * The label family is named in prose and never spelled with its prefix, here or
  * in the copy. Matching happens in `crates/model/src/derive.rs` and the prefix
  * itself stays there — ADR 0006, and the structural guard in
  * `tests/snapshot.test.ts` that reads every file on this side looking for it.
  */
 export const LABELS_TRUNCATED_NOTE =
-  "An issue here carries more labels than one page holds, so some of them were not read. A ticket whose platform label was cut off reads as one that said nothing about machines, so it can be offered on this one even though it is bound to another.";
+  "Some of the labels here may not have been read. A ticket whose platform label was cut off reads as one that said nothing about machines, so it can be offered on this one even though it is bound to another.";
 
 /**
  * What a section says when the poller has stopped reading it.

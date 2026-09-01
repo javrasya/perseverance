@@ -6,6 +6,7 @@ import {
   LABELS_TRUNCATED_NOTE,
   MAPS_HEADING,
   MAPS_PREAMBLE,
+  MAPS_TRUNCATED_NOTE,
   NOT_READ_COPY,
   NOT_READ_HEADLINE,
   NO_MAP_COPY,
@@ -76,6 +77,18 @@ export function MapList({ view, selected, onOpen }: MapListProps) {
       {view.truncated ? (
         <p className={styles.caveat} role="status">
           {TRUNCATED_NOTE}
+        </p>
+      ) : null}
+
+      {/*
+        The map list's own caveat. A page a cap forbids and a map list that
+        simply ran long are two facts, and this is the one an operator can do
+        something about: the maps past the end are not gone, and closing the
+        finished ones is what brings the list back inside a page.
+      */}
+      {view.mapsTruncated ? (
+        <p className={styles.caveat} role="status" data-maps-truncated="">
+          {MAPS_TRUNCATED_NOTE}
         </p>
       ) : null}
 

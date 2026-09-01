@@ -33,6 +33,35 @@ pub struct CachedGraph {
     pub graph_json: String,
     /// Seconds since the Unix epoch, taken when the answer arrived.
     pub fetched_at: i64,
+    /// The identity of the query document that produced `graph_json`.
+    ///
+    /// `None` means the row was written before this column existed, which the
+    /// reader treats the same way it treats a stamp it does not recognise: as
+    /// nothing having been read here yet. This crate does not know what the
+    /// current document is — it cannot open a socket — so it stores the stamp
+    /// and compares nothing.
+    pub query_id: Option<String>,
+}
+
+/// One body to write, and everything the row records about it.
+///
+/// The three fields are exactly what a single live read produces, so they
+/// travel as one argument rather than three positions. A caller cannot pair a
+/// body from one read with the stamp of another without saying so out loud,
+/// and the next thing a cached read learns about itself is a field here rather
+/// than a sixth parameter on the writer.
+///
+/// Passed by value: two borrowed strs and an integer, which is why the type is
+/// `Copy` and why handing one over costs no more than handing over a reference
+/// to it. The strings themselves stay borrowed, so nothing here is cloned.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CachedBody<'a> {
+    /// The GraphQL response, verbatim, as GitHub sent it.
+    pub graph_json: &'a str,
+    /// Seconds since the Unix epoch, taken when the answer arrived.
+    pub fetched_at: i64,
+    /// The identity of the query document that produced `graph_json`.
+    pub query_id: &'a str,
 }
 
 impl Store {
@@ -50,7 +79,7 @@ impl Store {
         Ok(self
             .conn
             .query_row(
-                "SELECT graph_json, fetched_at
+                "SELECT graph_json, fetched_at, query_id
                  FROM graph_cache
                  WHERE folder_id = ?1 AND IFNULL(map_number, 0) = ?2",
                 params![folder_id, key_of(map_number)],
@@ -58,6 +87,7 @@ impl Store {
                     Ok(CachedGraph {
                         graph_json: row.get(0)?,
                         fetched_at: row.get(1)?,
+                        query_id: row.get(2)?,
                     })
                 },
             )
@@ -73,13 +103,22 @@ impl Store {
     ///
     /// Nothing in this signature can tell whether the text came from GitHub —
     /// which is why the caller that has that proof is the only one that may
-    /// call it, and why the proof is a type rather than a promise.
+    /// call it, and why the proof is a type rather than a promise. The
+    /// [`CachedBody`] is one argument for the same reason: the stamp is the
+    /// identity of the document that asked, it comes off the same value that
+    /// proves the answer was live, and arriving here bundled with the body is
+    /// what stops the two being assembled from two places.
+    ///
+    /// `query_id` is named in the `DO UPDATE SET` clause deliberately. A column
+    /// left out of that clause keeps its old value on every write after the
+    /// first, so a body from a widened document would go on wearing the stamp
+    /// of the narrow one — which is precisely the bug the column exists to
+    /// close.
     pub fn cache_graph(
         &self,
         folder_id: i64,
         map_number: Option<u64>,
-        graph_json: &str,
-        fetched_at: i64,
+        body: CachedBody<'_>,
     ) -> Result<(), StoreError> {
         let listed: bool = self
             .conn
@@ -93,16 +132,18 @@ impl Store {
         }
 
         self.conn.execute(
-            "INSERT INTO graph_cache (folder_id, map_number, graph_json, fetched_at)
-             VALUES (?1, ?2, ?3, ?4)
+            "INSERT INTO graph_cache (folder_id, map_number, graph_json, fetched_at, query_id)
+             VALUES (?1, ?2, ?3, ?4, ?5)
              ON CONFLICT (folder_id, IFNULL(map_number, 0)) DO UPDATE SET
                  graph_json = excluded.graph_json,
-                 fetched_at = excluded.fetched_at",
+                 fetched_at = excluded.fetched_at,
+                 query_id = excluded.query_id",
             params![
                 folder_id,
                 map_number.map(|number| number as i64),
-                graph_json,
-                fetched_at
+                body.graph_json,
+                body.fetched_at,
+                body.query_id
             ],
         )?;
 
@@ -161,6 +202,23 @@ mod tests {
     use super::*;
     use std::path::Path;
 
+    /// The stamp these tests write when which document asked is not the point.
+    const A_STAMP: &str = "abc123";
+
+    /// A body to cache, stamped with the document every test shares.
+    fn body(json: &str, at: i64) -> CachedBody<'_> {
+        body_stamped(json, at, A_STAMP)
+    }
+
+    /// The same, for the two tests where the stamp is what is being asserted.
+    fn body_stamped<'a>(json: &'a str, at: i64, query_id: &'a str) -> CachedBody<'a> {
+        CachedBody {
+            graph_json: json,
+            fetched_at: at,
+            query_id,
+        }
+    }
+
     fn store_with_folder() -> (Store, i64) {
         let store = Store::open_in_memory().expect("opens");
         let folder = store
@@ -181,7 +239,7 @@ mod tests {
         let (store, folder_id) = store_with_folder();
 
         store
-            .cache_graph(folder_id, None, r#"{"data":{}}"#, 1_785_888_000)
+            .cache_graph(folder_id, None, body(r#"{"data":{}}"#, 1_785_888_000))
             .expect("caches");
 
         assert_eq!(
@@ -189,6 +247,7 @@ mod tests {
             Some(CachedGraph {
                 graph_json: r#"{"data":{}}"#.to_string(),
                 fetched_at: 1_785_888_000,
+                query_id: Some("abc123".to_string()),
             })
         );
     }
@@ -198,10 +257,10 @@ mod tests {
         let (store, folder_id) = store_with_folder();
 
         store
-            .cache_graph(folder_id, Some(28), "first", 100)
+            .cache_graph(folder_id, Some(28), body("first", 100))
             .expect("caches");
         store
-            .cache_graph(folder_id, Some(28), "second", 200)
+            .cache_graph(folder_id, Some(28), body("second", 200))
             .expect("caches again");
 
         assert_eq!(
@@ -209,6 +268,7 @@ mod tests {
             Some(CachedGraph {
                 graph_json: "second".to_string(),
                 fetched_at: 200,
+                query_id: Some("abc123".to_string()),
             })
         );
         let rows: i64 = store
@@ -223,10 +283,10 @@ mod tests {
         let (store, folder_id) = store_with_folder();
 
         store
-            .cache_graph(folder_id, None, "the folder's map list", 100)
+            .cache_graph(folder_id, None, body("the folder's map list", 100))
             .expect("caches");
         store
-            .cache_graph(folder_id, Some(28), "map 28's graph", 200)
+            .cache_graph(folder_id, Some(28), body("map 28's graph", 200))
             .expect("caches");
 
         // No map open is not map zero, and a read taken with none open must not
@@ -258,10 +318,10 @@ mod tests {
             .id;
 
         store
-            .cache_graph(first, Some(1), "one", 10)
+            .cache_graph(first, Some(1), body("one", 10))
             .expect("caches");
         store
-            .cache_graph(second, Some(1), "another", 20)
+            .cache_graph(second, Some(1), body("another", 20))
             .expect("caches");
 
         assert_eq!(
@@ -278,13 +338,13 @@ mod tests {
     fn a_map_a_successful_read_no_longer_lists_is_dropped_and_the_rest_are_kept() {
         let (store, folder_id) = store_with_folder();
         store
-            .cache_graph(folder_id, None, "the map list", 10)
+            .cache_graph(folder_id, None, body("the map list", 10))
             .expect("caches");
         store
-            .cache_graph(folder_id, Some(1), "one", 10)
+            .cache_graph(folder_id, Some(1), body("one", 10))
             .expect("caches");
         store
-            .cache_graph(folder_id, Some(2), "two", 10)
+            .cache_graph(folder_id, Some(2), body("two", 10))
             .expect("caches");
 
         let dropped = store
@@ -308,10 +368,10 @@ mod tests {
     fn a_repository_whose_last_map_was_deleted_still_keeps_its_map_list_row() {
         let (store, folder_id) = store_with_folder();
         store
-            .cache_graph(folder_id, None, "the map list", 10)
+            .cache_graph(folder_id, None, body("the map list", 10))
             .expect("caches");
         store
-            .cache_graph(folder_id, Some(1), "one", 10)
+            .cache_graph(folder_id, Some(1), body("one", 10))
             .expect("caches");
 
         let dropped = store
@@ -333,10 +393,10 @@ mod tests {
             .expect("remembers")
             .id;
         store
-            .cache_graph(first, Some(1), "one", 10)
+            .cache_graph(first, Some(1), body("one", 10))
             .expect("caches");
         store
-            .cache_graph(second, Some(1), "one", 10)
+            .cache_graph(second, Some(1), body("one", 10))
             .expect("caches");
 
         store.forget_cached_maps_except(first, &[]).expect("prunes");
@@ -352,7 +412,7 @@ mod tests {
         let store = Store::open_in_memory().expect("opens");
 
         let refusal = store
-            .cache_graph(404, Some(1), "one", 10)
+            .cache_graph(404, Some(1), body("one", 10))
             .expect_err("refuses");
 
         assert!(matches!(refusal, StoreError::UnknownFolder(404)));
@@ -362,7 +422,7 @@ mod tests {
     fn a_relocated_folder_keeps_the_cache_it_had_before_the_move() {
         let (store, folder_id) = store_with_folder();
         store
-            .cache_graph(folder_id, Some(28), "map 28's graph", 10)
+            .cache_graph(folder_id, Some(28), body("map 28's graph", 10))
             .expect("caches");
 
         store
@@ -380,7 +440,7 @@ mod tests {
     fn forgetting_a_folder_takes_its_cache_with_it_rather_than_leaving_it_behind() {
         let (store, folder_id) = store_with_folder();
         store
-            .cache_graph(folder_id, Some(28), "map 28's graph", 10)
+            .cache_graph(folder_id, Some(28), body("map 28's graph", 10))
             .expect("caches");
 
         store.forget_folder(folder_id).expect("forgets");
@@ -390,5 +450,37 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM graph_cache", [], |row| row.get(0))
             .expect("counts");
         assert_eq!(rows, 0);
+    }
+
+    #[test]
+    fn re_caching_a_map_under_a_different_document_replaces_the_stamp_it_was_written_with() {
+        let (store, folder_id) = store_with_folder();
+        store
+            .cache_graph(
+                folder_id,
+                Some(28),
+                body_stamped("ten labels", 100, "the narrow one"),
+            )
+            .expect("caches");
+
+        store
+            .cache_graph(
+                folder_id,
+                Some(28),
+                body_stamped("a hundred labels", 200, "the wide one"),
+            )
+            .expect("caches again");
+
+        // A stamp left out of the `ON CONFLICT ... DO UPDATE SET` clause keeps
+        // its first value forever, so the new body would go on claiming to have
+        // come from the narrow document. That is the whole failure.
+        assert_eq!(
+            store
+                .cached_graph(folder_id, Some(28))
+                .expect("reads")
+                .expect("is there")
+                .query_id,
+            Some("the wide one".to_string())
+        );
     }
 }
