@@ -18,16 +18,16 @@
  *
  * Three rules, over the non-test Rust of the whole workspace:
  *
- * 1. **No mutating `git` subcommand**, except the pair `worktree add` in
- *    `crates/worktree/` — *that* pair, in that order, and with no other mutating
- *    verb beside it. The verbs are read out of the argv literals of each
+ * 1. **No mutating `git` subcommand**, except three `worktree` commands in
+ *    `crates/worktree/` — those three, each spelled whole, and with no other
+ *    mutating verb beside it. The verbs are read out of the argv literals of each
  *    `Command::new("git")` chain, and only verbs that cannot be read-only are
  *    named — `branch` and `remote` are absent because their listing spellings
  *    are ordinary and this check would rather miss a `git branch -f` (which the
  *    next rule catches anyway) than fire on a `git remote get-url`. The
  *    worktree verbs that write are named too: `remove`, `move`, `lock`,
- *    `unlock` and `repair` are how a second worktree command gets in, and ADR
- *    0022 gave this app exactly one.
+ *    `unlock` and `repair` are how a further worktree command gets in, and ADR
+ *    0022 plus ADR 0028 give this app three of them and no fourth.
  * 2. **No forcing flag in any `git` argv**, anywhere, including the crate that
  *    is allowed to run git. `--force`, `-f`, `-B`, `--hard`, `-D`: every one of
  *    them is git being told that something already there does not matter, and
@@ -101,19 +101,27 @@ const MUTATING = [
 ];
 
 /**
- * The one pair a crate is allowed to say, in order, and the crate allowed to say
- * it.
+ * The `worktree` subcommands a crate is allowed to say, and the crate allowed to
+ * say them.
  *
- * **In order, and nothing else with it.** The mutating verbs of an allowed argv
- * must be exactly this sequence — not a subset of it, which is what a per-crate
- * allowance would come to. A subset admits `git add .`, whose only mutating verb
- * is `add`: staging the operator's checkout, inside the one crate this check
- * exists to bound, passing because half of the allowed pair happens to spell a
- * verb of its own. `worktree` alone is admitted by nothing either, which is what
- * keeps `git worktree remove` and `git worktree move` out — ADR 0022 gives this
- * app one worktree verb, and removal is #60's.
+ * **The subcommand is read as a literal, and the argv may say nothing else.** An
+ * allowed argv is one whose `"worktree"` literal is followed immediately by one
+ * of these words, and whose mutating verbs are that command and nothing more.
+ * Both halves are load-bearing. Without the second, an allowance would admit
+ * `git add .` beside a legal `worktree add` — staging the operator's checkout,
+ * inside the one crate this check exists to bound, passing on the strength of
+ * the command next to it. Without the first, `git worktree <verb>` with the verb
+ * held in a variable would pass as a listing does, and `prune`, `move`, `lock`,
+ * `unlock` and `repair` are exactly the words somebody would reach for a
+ * variable to spell.
+ *
+ * `remove` is here because ADR 0028 put it here, and it is the narrow command
+ * rather than the broad one: it unregisters the directory named on its argv and
+ * no other, deletes no branch, and refuses rather than proceed without a
+ * `--force` this workspace cannot say. `list` writes nothing at all, and is
+ * named only because `worktree` is a mutating verb by spelling.
  */
-const ALLOWED = { crate: `crates${sep}worktree${sep}`, verbs: ["worktree", "add"] };
+const ALLOWED = { crate: `crates${sep}worktree${sep}`, subcommands: ["add", "list", "remove"] };
 
 /** Git being told that what is already there does not matter. */
 const FORCING = ["--force", "--force-with-lease", "-f", "-B", "-D", "--hard", "--delete"];
@@ -294,12 +302,17 @@ export function trespassesIn(file, source) {
 
     const said = verbs.map((word) => word.text);
     /* The whole argv is judged once, not each verb against the allowance on its
-       own: what is permitted is the command `git worktree add`, and a command is
-       its verbs in the order it says them. */
+       own: what is permitted is a command, and a command is its verbs in the
+       order it says them. `git worktree list` says one mutating word rather than
+       two, because `list` is not one — the subcommand is read either way, so a
+       `worktree` whose verb this file cannot see is not mistaken for a listing. */
+    const worktree = argv.findIndex((word) => word.text === "worktree");
+    const subcommand = worktree === -1 ? undefined : argv[worktree + 1]?.text;
+    const command = said.join(" ");
     const allowed =
       inside &&
-      said.length === ALLOWED.verbs.length &&
-      said.every((verb, index) => verb === ALLOWED.verbs[index]);
+      ALLOWED.subcommands.includes(subcommand) &&
+      (command === "worktree" || command === `worktree ${subcommand}`);
 
     for (const word of verbs) {
       if (!allowed) {
@@ -368,9 +381,19 @@ const KNOWN_BAD = [
     source: 'Command::new("git").arg("-C").arg(folder).arg("add").arg(".").output()?;\n',
   },
   {
-    name: "a worktree removed by the crate that may only add one",
+    name: "a lock the operator set, undone by the app that did not set it",
     file: "crates/worktree/src/lib.rs",
+    source: 'Command::new("git").arg("worktree").arg("unlock").arg(path).output()?;\n',
+  },
+  {
+    name: "a worktree removed from a crate that may not run git at all",
+    file: "crates/app/src/lib.rs",
     source: 'Command::new("git").arg("worktree").arg("remove").arg(path).output()?;\n',
+  },
+  {
+    name: "a worktree subcommand this file cannot read",
+    file: "crates/worktree/src/inventory.rs",
+    source: 'Command::new("git").arg("worktree").arg(verb).arg(path).output()?;\n',
   },
   {
     name: "a worktree moved out from under the operator",
@@ -421,6 +444,22 @@ const KNOWN_GOOD = [
       'let mut command = Command::new("git");\n' +
       'command.arg("-C").arg(folder).arg("worktree").arg("add");\n' +
       'command.arg("-b").arg(branch).arg(path);\ncommand.output()\n',
+  },
+  {
+    name: "the removal ADR 0028 admits",
+    file: "crates/worktree/src/inventory.rs",
+    source:
+      'let mut command = Command::new("git");\n' +
+      'command.arg("-C").arg(folder).arg("worktree").arg("remove").arg(path);\n' +
+      "command.output()\n",
+  },
+  {
+    name: "the listing the inventory is derived from",
+    file: "crates/worktree/src/inventory.rs",
+    source:
+      'let mut command = Command::new("git");\n' +
+      'command.arg("-C").arg(folder).args(["worktree", "list", "--porcelain"]);\n' +
+      "command.output()\n",
   },
   {
     name: "a read of the repository",
@@ -512,5 +551,5 @@ if (findings.length > 0) {
 }
 
 console.log(
-  "the operator's repository: one `git worktree add`, one appended exclude line, nothing forced.",
+  "the operator's repository: `git worktree` add, list and remove, one appended exclude line, nothing forced.",
 );

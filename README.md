@@ -18,7 +18,7 @@ A Cargo workspace of eight crates plus a React 19 + TypeScript frontend.
 | `perseverance-pty` | PTY and child-process ownership, the per-run ring, when a run opened and when it last printed, the byte channel's contiguity, the deadline a quit gives every run, and refusing a launch whose program is not a native image | Deciding what to run, knowing what a run is working on, or handing over a non-contiguous byte range |
 | `perseverance-store` | The launcher registry: one SQLite file, its schema, and binding a folder to its repo | The network, Tauri, a child process |
 | `perseverance-env` | The environment harvest: the operator's login shell asked once, in memory, and running one program inside the answer | Owning a terminal |
-| `perseverance-worktree` | The working copy a research run is started in: one `git worktree add`, and one line in `.git/info/exclude` | Deleting, moving or forcing anything, and storing a worktree anywhere |
+| `perseverance-worktree` | The working copies a research run lives in: `git worktree` add, list and remove, and one line in `.git/info/exclude` | Moving or forcing anything, `prune`, deleting a branch, and storing a worktree anywhere |
 | `perseverance-app` | The Tauri window and command surface | Any decision at all |
 
 `perseverance-model` is the primary seam. It is derivation only, so the same
@@ -34,8 +34,12 @@ completed one, and a read that is already old, because a cache with age on it is
 a state a fresh browser has no way to reach. The four conditions a read can fail
 in — unreachable, auth-failed, map-gone, rate-limited — are four more such
 states, and they are generated from the model crate rather than written by hand,
-so `dev:web` can show a revoked token without one existing. And so does the run
-pane: `src/terminal/fixtures.ts` carries a rack of readouts named by `?runs=`,
+so `dev:web` can show a revoked token without one existing. So does the worktree
+panel: `src/worktrees/worktrees.fixture.json` carries a worktree with
+uncommitted work in it, one whose directory the operator deleted by hand, a lock
+somebody set and an orphan of a ticket no open map knows, because those are
+states a browser cannot conjure and a real machine rarely shows on demand. And
+so does the run pane: `src/terminal/fixtures.ts` carries a rack of readouts named by `?runs=`,
 because a wedged AFK run wants five minutes of a research run saying nothing and
 a run waiting on its CLI's trust prompt wants a machine state, not a click.
 Those are hand-written rather than generated — a run readout is not part of
@@ -348,13 +352,17 @@ anything and one that would reject the prose arguing its own case.
 
 **The operator's repository is written in two places and nowhere else** —
 `npm run check:repo-writes` reads the non-test Rust of every crate and fails on a
-mutating `git` subcommand outside `worktree add` in `crates/worktree/`, on a
-forcing flag (`--force`, `-f`, `-B`, `--hard`, `-D`) in any `git` argv including
-that one, on a file opened for rewriting rather than appending in that crate, and
-on any mention of the tracked `.gitignore`. `docs/adr/0022` traded the old *the
-harness writes nothing inside the operator's repository* for a narrower bound —
-one directory this app created, one line appended to `.git/info/exclude` — and a
-bound decays one convenient `git fetch` at a time. It puts known-bad and
+mutating `git` subcommand outside three `worktree` subcommands — `add`, `list`
+and `remove` — in `crates/worktree/`, each of them spelled as a literal beside
+the `"worktree"` in the argv, so a verb held in a variable fails the way `prune`
+would; on a forcing flag (`--force`, `-f`, `-B`, `--hard`, `-D`) in any `git`
+argv including those; on a file opened for rewriting rather than appending in
+that crate; and on any mention of the tracked `.gitignore`. `docs/adr/0022`
+traded the old *the harness writes nothing inside the operator's repository* for
+a narrower bound — one directory this app created, one line appended to
+`.git/info/exclude` — and `docs/adr/0028` widened it by exactly one verb, the
+removal of a directory this app made; a bound decays one convenient `git fetch`
+at a time. It puts known-bad and
 known-good input through its own verdict function. Two things it cannot see, and
 its doc block says so: what the child session does to the checkout it was
 spawned in, which is the point of a work run, and a bare `fs::write` whose path

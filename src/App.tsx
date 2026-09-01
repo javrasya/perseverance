@@ -22,6 +22,8 @@ import {
   useOverride,
   type FolderReadout,
 } from "./environment/folder";
+import { WorktreeList } from "./worktrees/WorktreeList";
+import { loadWorktrees, removeWorktree, type Inventory } from "./worktrees/worktrees";
 import { FolderList } from "./launcher/FolderList";
 import {
   bindRepo,
@@ -255,6 +257,14 @@ export function App() {
    */
   const [folderEnvironment, setFolderEnvironment] = useState<FolderReadout | null>(null);
   const [folderShown, setFolderShown] = useState(false);
+  /*
+   * Every worktree of the folder you last opened, as git had them at the moment
+   * this was asked. `null` until a folder has been opened, and never patched in
+   * place: a removal answers with the listing that comes after it, because a
+   * list this side edited would be the stored inventory the feature refuses.
+   */
+  const [worktrees, setWorktrees] = useState<Inventory | null>(null);
+  const [worktreesShown, setWorktreesShown] = useState(false);
   const [maps, setMaps] = useState<MapsView>(() => nothingReadYet(0));
   /*
    * Which map this window has declared it is watching. The poller asks GitHub
@@ -604,10 +614,31 @@ export function App() {
     [settleFolder],
   );
 
+  /*
+   * Which listing this window is still waiting for, on the same terms and for a
+   * sharper reason: a listing names directories, and one that arrived for the
+   * folder you left would put another repository's worktrees under this folder's
+   * name — with a *Remove* button on them.
+   */
+  const listing = useRef(0);
+
+  const listWorktrees = useCallback((read: () => Promise<Inventory>) => {
+    listing.current += 1;
+    const ticket = listing.current;
+    setWorktrees(null);
+    read()
+      .then((inventory) => {
+        if (listing.current === ticket) setWorktrees(inventory);
+      })
+      .catch(() => {});
+  }, []);
+
   /* Nothing is being waited for, and nothing in flight may land. */
   const dropResolution = useCallback(() => {
     resolution.current += 1;
     setFolderEnvironment(null);
+    listing.current += 1;
+    setWorktrees(null);
   }, []);
 
   /*
@@ -633,6 +664,10 @@ export function App() {
            * the same claim.
            */
           resolveFolder(() => loadFolderEnvironment(entry.path));
+          // Started here for the same reason and awaited by nothing either. A
+          // folder with no git behind it answers with a refusal that is one
+          // sentence in one panel, and nothing else on this screen waits on it.
+          listWorktrees(() => loadWorktrees(entry.path));
           return bindRepo(entry.path).then((binding) =>
             setNote((current) =>
               // The binding is the ordinary answer to opening a folder, and a
@@ -645,7 +680,7 @@ export function App() {
         })
         .catch(refuse);
     },
-    [updateList, refuse, readMapsFor, resolveFolder],
+    [updateList, refuse, readMapsFor, resolveFolder, listWorktrees],
   );
 
   /*
@@ -1132,6 +1167,30 @@ export function App() {
     resolveFolder(() => retryFolderEnvironment(selectedPath));
   }, [selectedPath, resolveFolder]);
 
+  /*
+   * Both worktree presses go through the same slot the listing arrives in, and
+   * both act on the folder that is **selected** rather than on whatever list is
+   * on screen — the same rule *Ask again* follows, and here it decides which
+   * repository a removal is spelled against.
+   *
+   * The removal answers with the listing that comes after it. Nothing is
+   * spliced: the row that was pressed is gone from the next answer because git
+   * says it is gone, and a refusal replaces the list with Rust's own sentence
+   * rather than leaving a list that is now a guess.
+   */
+  const onRemoveWorktree = useCallback(
+    (worktree: string) => {
+      if (selectedPath === undefined) return;
+      listWorktrees(() => removeWorktree(selectedPath, worktree));
+    },
+    [selectedPath, listWorktrees],
+  );
+
+  const onLookAgainWorktrees = useCallback(() => {
+    if (selectedPath === undefined) return;
+    listWorktrees(() => loadWorktrees(selectedPath));
+  }, [selectedPath, listWorktrees]);
+
   const onOverride = useCallback(
     (argv: string[]) => {
       if (selectedPath === undefined) return;
@@ -1397,6 +1456,21 @@ export function App() {
                 shown={folderShown}
                 onToggle={() => setFolderShown((open) => !open)}
                 onAskAgain={onAskAgain}
+              />
+            )}
+            {/*
+              And what that folder's git has registered, under the same folder.
+              One list for every worktree of it, ours and everybody else's: the
+              read-only rule is easier to believe when the entries it protects
+              are visible beside the ones it does not.
+            */}
+            {worktrees === null ? null : (
+              <WorktreeList
+                inventory={worktrees}
+                shown={worktreesShown}
+                onToggle={() => setWorktreesShown((open) => !open)}
+                onRemove={onRemoveWorktree}
+                onLookAgain={onLookAgainWorktrees}
               />
             )}
             {/*
