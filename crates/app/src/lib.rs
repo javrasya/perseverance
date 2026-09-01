@@ -10096,16 +10096,20 @@ mod tests {
 
         let running_in = where_it_runs(&map, &node, &picked).expect("makes a worktree");
 
+        // Spelled by the crate that made it, not by `std::fs::canonicalize`.
+        // On Windows the bare call answers an extended-length path and
+        // `worktree_for` answers the one git prints, so a second spelling here
+        // would compare `\\?\C:\…` against `C:\…` and fail about a
+        // difference that is not one.
         assert_eq!(
             running_in,
-            std::fs::canonicalize(
-                folder
+            perseverance_worktree::canonical(
+                &folder
                     .path()
                     .join(".perseverance")
                     .join("worktrees")
                     .join("58")
             )
-            .expect("the worktree is there")
         );
 
         let on = std::process::Command::new("git")

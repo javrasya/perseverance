@@ -633,7 +633,7 @@ fn publication_of(folder: &Path, branch: Option<&str>) -> Publication {
 /// *foreign* about every worktree this app made and the whole feature would go
 /// quiet there. Stripping the prefix is the whole of the difference, and four
 /// lines of it are cheaper than a dependency.
-pub(crate) fn canonical(path: &Path) -> PathBuf {
+pub fn canonical(path: &Path) -> PathBuf {
     without_verbatim_prefix(std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()))
 }
 

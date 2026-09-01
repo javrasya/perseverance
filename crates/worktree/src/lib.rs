@@ -36,8 +36,8 @@
 mod inventory;
 
 pub use inventory::{
-    classify, inventory, parse, remove, InventoryError, Listed, Origin, Probed, Publication,
-    Record, Removal, Working,
+    canonical, classify, inventory, parse, remove, InventoryError, Listed, Origin, Probed,
+    Publication, Record, Removal, Working,
 };
 
 use std::io::Write;
