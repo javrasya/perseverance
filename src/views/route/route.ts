@@ -493,3 +493,33 @@ export const DESTINATION_HEADING = "Destination";
  * `folder.ts` each declare their own.
  */
 export const NOBODY_SURVEYED = "—";
+
+/**
+ * Which row carries the halo — the screen's one moving element on this side —
+ * or `null` when this route has nothing in progress to spend it on.
+ *
+ * **One element and not one per claim.** #56 rations motion by the *screen*: at
+ * most one animated element however many runs are live, and a rule that counted
+ * per subtree would be met by a view drawing four pings. The halo is decoration
+ * over an encoding rather than the encoding itself — `.markClaimed` is a filled
+ * disc with a still ring, and that ring is what a `prefers-reduced-motion`
+ * window has always read *claimed* off — so drawing the movement once costs no
+ * fact. A second claimed row keeps the disc, the ring, `data-mark` and the word
+ * in its section heading, and loses only the animation.
+ *
+ * **Document order, and only the sections.** The first claimed row down the
+ * pane is the one that moves, so the answer changes only when the map does.
+ * Nothing in the destination or the fog can be it: [`markOf`] answers
+ * `destination` and `unclassified` above the state, so a spec child holding an
+ * assigned session is not marked `claimed` and does not draw the ping — which
+ * is the trap the shell fell into when it read `node.state` directly and
+ * suppressed the rack's lamp against a ping the Route never drew.
+ */
+export function pingOf(route: Route): number | null {
+  for (const section of route.sections) {
+    for (const row of section.rows) {
+      if (row.mark === "claimed") return row.node.number;
+    }
+  }
+  return null;
+}

@@ -73,9 +73,11 @@ import {
   VIEW_FLOORS,
   clamp,
   columnsAt,
+  beyondMapCap,
   floorOf,
   fractionOf,
   honours,
+  mapCap,
   nextDetent,
   remembers,
   sides,
@@ -89,6 +91,7 @@ import { clearance, peekWidth } from "./panes/peek";
 import { readPosition, writePosition } from "./panes/position";
 import { useBodyBox } from "./panes/useBodyBox";
 import { usePeek } from "./panes/usePeek";
+import { Rack } from "./rack/Rack.jsx";
 import { ViewSwitcher } from "./views/ViewSwitcher.jsx";
 import { DEFAULT_VIEW, VIEWS, type ViewName, type ViewProps } from "./views/views";
 import { Pane } from "./terminal/Pane.jsx";
@@ -1050,6 +1053,36 @@ export function App() {
   /* Whether the pane is drawing a prompt block, which is the second thing the
      peek has to stop short of — the first being the cursor's own rows. */
   const promptShown = monitored !== null && promptFor(monitored) !== null;
+  /*
+   * Whether the window's motion ration is held by the map side.
+   *
+   * #56 rations motion by the *screen*: at most one animated element, however
+   * many runs are live. Two surfaces are licensed to move — the Route's halo,
+   * drawn once for the pane by `pingOf` however many rows are claimed, and the
+   * rack's lamp — and only this file can see both, so the arbitration is made
+   * here and handed down. The rack is the surface that yields.
+   *
+   * **Every term is a press.** Which view is open, whether the map side is
+   * worth the column, whether the view stood down: all four move on a press or
+   * a resize, and nothing the world does is read here at all. That is the whole
+   * of the fix for the earlier reading, which asked whether the graph held a
+   * `claimed` node — a fact GitHub polling moves, and one the Route does not
+   * even animate on (`markOf` answers `destination` and `unclassified` above
+   * the state, so an assigned spec child made this true while the Route drew
+   * nothing). A claim appearing would have stopped the lamp and a ticket
+   * resolving would have started it: a ping ceasing with no landing under it,
+   * and motion beginning because something ended. #56 forbids both.
+   *
+   * So the licence goes with the surface the operator turned to rather than
+   * with what is on it: while the Route is drawn the map side holds it, spent
+   * or not, and turning the dial away hands it back to the rack. An unspent
+   * licence is not lent back, because lending it back is exactly what would put
+   * polled GitHub data in charge of the lamp. Zero animated elements is inside
+   * *at most one*; a lamp that starts on a resolution is not. See `lampPings`
+   * in `src/rack/rack.ts`.
+   */
+  const rationHeldByMapSide =
+    view === "route" && mapSideDraws && viewColumn && standing === null;
 
   const onAskAgain = useCallback(() => {
     if (selectedPath === undefined) return;
@@ -1242,16 +1275,21 @@ export function App() {
             style={{
               flexBasis: `${clamp(position) * 100}%`,
               /*
-                The dial's own column, kept out of the map side's share — the same
-                correction `sides()` makes to the number it prints, made to the box
-                that number is about. At the `map` detent a basis of 100% puts the
-                seam and the terminal's padding past the body's clip edge, and the
-                column that goes over it is the dial's: the one control that brings
-                back everything the position shed. Measured rather than named,
-                because `--c-dial-reach` is declared on the dial and this box is
-                not one of its descendants.
+                The dial's own column and the rack's floor, both kept out of the
+                map side's share — the same corrections `sides()` makes to the
+                number it prints, made to the box that number is about. A width the
+                shell prints and the flexbox does not produce is the failure every
+                comment in `panes/dial.ts` exists to prevent, so the cap is
+                authored *there*, degrade and all, rather than spelled a second
+                time here: on a body too narrow to afford the reservation the
+                arithmetic halves it away, and a cap that subtracted the whole of
+                it would put the terminal side ahead of the map side at the `map`
+                detent — the dial, inverted, by its own floor.
+
+                The reach is measured rather than named, because `--c-dial-reach`
+                is declared on the dial and this box is not one of its descendants.
               */
-              maxWidth: `calc(100% - ${dialReach}px)`,
+              maxWidth: mapCap(dialReach),
             }}
           >
           {/*
@@ -1267,7 +1305,19 @@ export function App() {
             style={
               peeking.held === null
                 ? undefined
-                : { right: `${dialReach}px`, bottom: `${clearance(promptShown)}px` }
+                : {
+                    /*
+                      The promoted layer stops where the map side's own cap does,
+                      and stops there by being the complement of that same cap:
+                      the dial's column and the rack's floor, the reservation
+                      given up on a body that cannot afford it exactly as the cap
+                      gives it up. A glance sheds exactly the columns the `map`
+                      detent sheds, and the rack keeps saying what every run is
+                      doing while the peek is up.
+                    */
+                    right: beyondMapCap(dialReach),
+                    bottom: `${clearance(promptShown)}px`,
+                  }
             }
           >
           {/*
@@ -1428,9 +1478,10 @@ export function App() {
           {/*
             The terminal, on the far side of the dial.
 
-            Mounted at every position, including `map`, where it is worth no pixels
-            at all: a dial move collapses this box by width and never unmounts,
-            remounts or reparents the node inside it. A terminal taken out of the
+            Mounted at every position, including `map`, where this box is worth
+            the rack's floor and the pane inside it is worth no pixels at all: a
+            dial move collapses the pane by width and never unmounts, remounts or
+            reparents the node inside it. A terminal taken out of the
             tree is a screen the harness has no way to put back, so *collapsed* and
             *gone* have to be different things.
 
@@ -1448,6 +1499,34 @@ export function App() {
           />
 
           <div className={styles.terminal}>
+            {/*
+              The rack, at the address ticket/64 reserved for it: a box of this
+              side's own, in the flow *before* the run side, because this side is
+              a row and the dial is at its left edge. That is what puts the region
+              on the dial's side of the pane, which is the whole of why it is
+              here: the pane's column is `flex: 1 1 0`, so every pixel a
+              narrowing side gives up comes out of the pane and none of it out of
+              the region, down to the region's own `min-width` floor where it
+              stops giving and the pane gives instead. At the `map` detent what
+              is left of this side is the rack in studs plus this box's own
+              gutter — `RACK_RESERVE`, the number `sides()` keeps out of the map
+              end — and `regionFor` in `src/rack/rack.ts` is that flexbox written
+              as arithmetic.
+
+              Inside the run side would have been the wrong address twice over.
+              That box is a *column*, so a region in it has no width of its own
+              to be measured: it is stretched to whatever the pane is worth, and
+              a tier chosen from that measurement is a tier chosen from the
+              pane's width rather than the rack's — `bays` at every detent the
+              pane has any pixels at all. And it would have cost the pane height,
+              which is the one thing the rack is not allowed to take: this region
+              costs width, once, on a dial move nobody can mistake for the world
+              rearranging the window.
+
+              Which run the pane shows is #57's, so nothing in the rack is
+              pressable and the monitored binding is untouched by all of it.
+            */}
+            <Rack readouts={runs} spentElsewhere={rationHeldByMapSide} />
             {/*
               The run side, as a column: the run bar's dock, the pane, the rack's.
               The two docks are strips in the flow rather than anything positioned,
@@ -1471,7 +1550,6 @@ export function App() {
               <div className={styles.paneSlot}>
                 <Pane terminals={terminals} readouts={runs} />
               </div>
-              {/* #56 builds the rack around this. */}
               <Dock
                 dock="rack"
                 occupant={occupant}
@@ -1483,19 +1561,31 @@ export function App() {
           </div>
 
           {/*
-            The stud hangs off *the body* rather than off the terminal, and that is
-            the whole of it being drawn at all.
+            The stud hangs off *the body* rather than off the terminal, and the
+            rack keeps the strip it hangs in clear.
 
             It may not sit in any flow — a strip that took width would narrow the
             pane, and a terminal narrowed by a piece of chrome is a live agent
             reflowed by a decoration — so it has to be absolutely positioned
             against something. The terminal is the wrong something: at the `map`
-            detent the terminal's box is worth no pixels and clips its own
-            overflow, so a stud hung there is clipped to nothing at exactly the
-            position where the refusal it prints is the only feedback there is.
-            The body is the box the dial cannot collapse, and it is already the
-            peek overlay's containing block, so the stud and the overlay are
-            measured against the same edges.
+            detent that box is worth the rack's floor and nothing more and clips
+            its own overflow, so a stud hung there is clipped into a strip the rack
+            already fills, at exactly the position where the refusal it prints is
+            the only feedback there is. The body is the box the dial cannot narrow,
+            and it is already the peek overlay's containing block, so the stud and
+            the overlay are measured against the same edges.
+
+            Which leaves what the stud is drawn *over*. At the top right of the
+            body that is the rack, whose region reaches the body's right edge at
+            the `map` detent — so an opaque stud there would cover the head band,
+            the lamp and `N of M still running` with it, which is the same erasure
+            as clipping, done from on top. No inset fixes that: the region's right
+            edge moves with the dial and its top edge does not, so the clearance
+            has to be horizontal, and `--c-rack-strip` in `Rack.module.css` is the
+            rack giving it. The stud's own geometry is unchanged by that, and it
+            still sits above the promoted map side — a stud under the peek overlay
+            is a button the pointer is still holding and the browser has just left,
+            which releases the spring being held.
           */}
           <PeekStud
             label={peek.label}

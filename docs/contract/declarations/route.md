@@ -140,8 +140,8 @@ carries four `transform` declarations and no interaction state selects any of
 them. Two are static shape: the destination waypoint's fixed 45° rotation on
 `.markDestination`, and the cut strike's centring `translateY` on
 `.markCut::after`. The other two are the `scale(0.7)` and `scale(1.25)` steps of
-the `ping` keyframes, which a claimed row's halo (`.markClaimed::after`) runs on
-a clock of its own — see rule 12. So a mark's pseudo-element does scale; what
+the `ping` keyframes, which one claimed row's halo (`.markClaimed::after`, taking
+the animation from `.markPing::after`) runs on a clock of its own — see rule 12. So a mark's pseudo-element does scale; what
 nothing here does is scale because of a pointer. The claim in older contract
 prose that this view scales the designation on hover is not true of the shipped
 view.
@@ -215,18 +215,25 @@ red rather than passing unread. That is wider than the earlier floor, which
 named the `ping` keyframes and `.markClaimed::after` outright and would have
 stayed green over a second animation somewhere else.
 
-Today the walk finds exactly one selector: `.markClaimed::after`, the halo on a
-claimed row, animated by the `ping` keyframes in
-`src/views/route/Route.module.css`. It is the whole of `src/`'s motion budget.
-Its still form is asserted on every fixture that renders a claimed node beside a
-node in some other state: with reduce on, the computed `animation-name` on that
+What the walk finds in this view is one selector: `.markPing::after`, the
+animation on the halo of one claimed row, driven by the `ping` keyframes in
+`src/views/route/Route.module.css`. It is this view's whole motion budget, and
+since #56 it is not the app's — the rack's lamp holds a second licence, spent
+only while this pane is not drawn, and *at most one animated element on the
+screen* is arbitrated in `src/App.tsx` rather than inside either surface. The
+halo's still form is asserted on every fixture that renders a claimed node beside
+a node in some other state: with reduce on, the computed `animation-name` on that
 pseudo-element is `none`, its `content` is still drawn, its opacity is above
 zero, it still has a border of non-zero width, and the same read taken on a node
 in another state differs.
 
 The halo is authored as a still ring and the animation is added on top of it —
-the `::after` declares its inset, its border and its opacity outright, and only
-then takes the animation. The global reduced-motion guard in
+`.markClaimed::after` declares its inset, its border and its opacity outright on
+*every* claimed row, and `.markPing::after` adds the animation to the one row
+`pingOf` names. That split is what makes the screen's ration reachable without
+giving anything up: a map staking three claims draws three rings and moves one of
+them, and the two claims that lost the movement are marked exactly as they were.
+The global reduced-motion guard in
 `src/styles/global.css` kills `animation` with `!important` on every element and
 pseudo-element, so what is left under the media query is the ring itself rather
 than nothing. The distinction survives in the still form, and the still form is
@@ -239,9 +246,10 @@ carrying rather than an unrelated one that happens to survive. The assertion
 above would be just as green if the ring meant something other than *claimed*
 and the claimed row merely happened to differ from its neighbour in one of the
 values read. This view's answer to that is that the motion is drawn on the ring
-and the ring is drawn on the claimed mark, so there is no second difference for
-a reader to be reading instead: marks that are not claimed carry no halo at all,
-still or moving. A reader falsifies it by finding some *other* visual difference
+and the ring is drawn on the claimed mark — every claimed mark, the rationed
+animation notwithstanding — so there is no second difference for a reader to be
+reading instead: marks that are not claimed carry no halo at all, still or
+moving. A reader falsifies it by finding some *other* visual difference
 between a claimed row and an unclaimed one under reduce — which would mean the
 surviving distinction is not uniquely the ring's, and the machine's verdict was
 riding on the wrong difference.

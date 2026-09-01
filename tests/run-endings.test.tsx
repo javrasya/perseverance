@@ -75,6 +75,11 @@ function readout(ending: RunEnding, code: number | null = null): RunReadout {
     ticket: 49,
     folder: "/work/repo",
     ending,
+    kind: "work",
+    // Stamps rather than ages, which is what lets the words a row prints hold
+    // still while readouts land three times a second.
+    opened: 1_785_888_000,
+    spoke: 1_785_888_240,
   };
 }
 
@@ -231,7 +236,7 @@ describe("the press that ends a run", () => {
  * failures with different fixes.
  */
 describe("the silence reading crosses in the shape Rust writes", () => {
-  it("fifteen keys cross, and these fifteen", () => {
+  it("eighteen keys cross, and these eighteen", () => {
     expect(Object.keys(readout("live")).sort()).toEqual([
       "code",
       "desynced",
@@ -240,11 +245,14 @@ describe("the silence reading crosses in the shape Rust writes", () => {
       "ending",
       "folder",
       "held",
+      "kind",
       "monitored",
+      "opened",
       "over",
       "run",
       "signal",
       "silence",
+      "spoke",
       "through",
       "ticket",
       "truncated",

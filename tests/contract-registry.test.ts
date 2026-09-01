@@ -142,7 +142,7 @@ describe("the two restatements, and the enumeration", () => {
     expect(rule.check).toMatch(/animation/);
     expect(rule.check).toMatch(/no-smil/);
 
-    // The one animation in the tree rides on *claimed*, not on running-vs-stale,
+    // The Route's animation rides on *claimed*, not on running-vs-stale,
     // and an asserted rule has no deviation route to file that under. #43
     // settled it in the entry rather than deferring it, so the reasoning lives
     // in `settlement` and not in `tension` — the matrix files the two under

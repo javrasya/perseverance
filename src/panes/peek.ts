@@ -204,11 +204,17 @@ function release(state: Peek, why: Release): Peek {
 
 /**
  * How wide the promoted map side is: the map side at the `map` detent, which is
- * the body less the dial's own column.
+ * the body less the dial's own column and less what the terminal side owes the
+ * rack.
  *
- * The full map width and not a width of its own, because *no view stands down*
+ * The detent's width and not a width of its own, because *no view stands down*
  * is the whole argument for peeking at the real view; a glance a few pixels
- * narrower than the detent could stand a view down that the detent would draw.
+ * wider or narrower than the detent could shed a column, or stand a view down,
+ * that the detent does not. That is why this stayed a call to [`sides`] when the
+ * dial began reserving the rack's floor: a peek drawn at a width the dial can no
+ * longer reach would be a glance at a map nobody can dial up — the second map to
+ * re-learn that #52 refused — and the rack would be covered at the one position
+ * where it is the whole of the terminal side.
  */
 export function peekWidth(bodyWidth: number, reach: number): number {
   return sides(fractionOf("map"), bodyWidth, reach).map;

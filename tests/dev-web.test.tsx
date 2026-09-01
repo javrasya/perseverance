@@ -20,6 +20,7 @@ import {
 import { FIXTURES, FIXTURE_NAMES, type FixtureName } from "../src/snapshot/fixtures";
 import type { Snapshot } from "../src/snapshot/model.generated";
 import { NOTHING_FOR_THIS_MACHINE, NO_MAP_OPEN } from "../src/snapshot/readout";
+import { NO_STAKES } from "../src/rack/rack";
 import { hasRustBehindIt } from "../src/snapshot/snapshot";
 import { monitor } from "../src/stores/ui";
 import {
@@ -1616,5 +1617,84 @@ describe("a wedged run is a state `dev:web` can be put into, and a browser canno
     await boot("/?map=awkward-map");
 
     expect(thePane()).toContain("Nothing is running here yet.");
+  });
+});
+
+/**
+ * The rack, in the window `dev:web` actually boots.
+ *
+ * The fixture behind it carries the states a browser cannot be clicked into: a
+ * run that has just printed, one that has said nothing for minutes, one whose
+ * terminal is a megabyte behind, one that has landed, and one the harness was
+ * never told the stakes of. `tests/rack.test.tsx` is where the tiers and the row
+ * model are pinned; this is the claim that the whole window draws them.
+ */
+describe("the rack lists every run beside the pane, from the fixture behind dev:web", () => {
+  const theRack = (): HTMLElement => {
+    const found = document.querySelector<HTMLElement>('[aria-label="The rack"]');
+    if (found === null) throw new Error("the window booted without a rack");
+    return found;
+  };
+
+  it("draws one row per run, landed ones included", async () => {
+    await boot("/?map=awkward-map&runs=rack");
+    const rack = theRack();
+
+    expect(rack.querySelectorAll("li")).toHaveLength(RUN_FIXTURES.rack.length);
+    // A landing takes no row away: only `endRun` — a press — does that.
+    expect(rack.querySelectorAll('li[data-live="false"]')).toHaveLength(1);
+    expect(rack.textContent).toContain(
+      `${RUN_FIXTURES.rack.length - 1} of ${RUN_FIXTURES.rack.length} still running`,
+    );
+  });
+
+  it("carries the kind, the waiting output and the silence on the row", async () => {
+    await boot("/?map=awkward-map&runs=rack");
+    const rack = theRack();
+
+    expect(rack.textContent).toContain("research");
+    expect(rack.textContent).toContain(NO_STAKES);
+    // jsdom measures every box at zero, so this is the `studs` row — and the
+    // narrow tiers say the silence and the waiting output in the characters a
+    // 152px region has, rather than in the wide row's sentence.
+    expect(rack.textContent).toContain("quiet 6m");
+    expect(rack.textContent).toContain("2.1 KB");
+    expect(rack.textContent).not.toContain("last printed");
+    expect(rack.textContent).not.toContain("bytes unseen");
+    expect(rack.textContent).toContain("landed");
+  });
+
+  it("moves one thing at most on the screen, however many of them are running", async () => {
+    await boot("/?map=awkward-map&runs=rack");
+    /*
+     * Counted over the window and not over the rack's subtree, because the
+     * criterion is one animated element *on screen*. Both licensed animations
+     * carry `data-animated` — the Route's claimed ping and the rack's lamp — and
+     * here the map side is drawing the Route over a fixture that stakes exactly
+     * one claim, so the window's ration is already spent when the rack is asked.
+     * The rack yields it: this is the state that animated two things at once
+     * before the ration was arbitrated in `lampPings`.
+     */
+    expect(document.querySelectorAll('[data-animated="true"]')).toHaveLength(1);
+    expect(theRack().querySelectorAll('[data-animated="true"]')).toHaveLength(0);
+    /* And what it gives up is the movement, never the fact: the lamp is still
+       lit and the count still says how many are going. */
+    expect(theRack().querySelector("[data-lamp]")).not.toBeNull();
+    expect(theRack().textContent).toContain("still running");
+  });
+
+  it("draws the narrow tier in a window nothing has laid out, rather than nothing", async () => {
+    await boot("/?map=awkward-map&runs=rack");
+    // jsdom measures every box at zero, which is the same reading as a first
+    // paint. The rack answers `studs` — there is no tier that means gone.
+    expect(theRack().getAttribute("data-tier")).toBe("studs");
+    expect(theRack().querySelectorAll("li").length).toBeGreaterThan(0);
+  });
+
+  it("fills no rack at all when nothing was asked for, which is what `?map=` alone means", async () => {
+    // The rack is chrome at a fixed address, so it is *there* either way — with
+    // no runs behind it, it says so rather than disappearing.
+    await boot("/?map=awkward-map");
+    expect(theRack().querySelectorAll("li")).toHaveLength(0);
   });
 });

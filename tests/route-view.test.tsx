@@ -1229,22 +1229,54 @@ describe("the same model twice, and nothing of its own kept between", () => {
     /*
      * The global rule kills `animation` outright, so a halo that *is* the
      * animation vanishes and *live* stops being visible at all. The ring is
-     * authored in the base rule and the animation is added on top of it, which
-     * this fails if the two are ever merged: the keyframes may move the ring
-     * and may not be what draws it.
+     * authored on `.markClaimed::after`, which every claimed row carries, and
+     * the animation is added on top of it by a second class the pane hands to
+     * one row. This fails if the two are ever merged: the keyframes may move
+     * the ring and may not be what draws it.
      */
     const stylesheet = collect([".css"]).find(
       (file) => file.path === "src/views/route/Route.module.css",
     );
     const css = stylesheet?.text ?? "";
     const halo = block(css, ".markClaimed::after");
+    const ping = block(css, ".markPing::after");
     const frames = block(css, "@keyframes");
 
     expect(halo).toContain("border:");
-    expect(halo).toContain("animation:");
+    expect(halo).not.toContain("animation");
+    expect(ping).toContain("animation:");
     for (const drawing of ["border", "background", "content", "inset"]) {
       expect(frames).not.toContain(drawing);
     }
+  });
+
+  it("moves one mark however many rows are claimed", async () => {
+    /*
+     * The ration is the *screen's* — at most one animated element, however many
+     * runs are live and however many claims the map stakes. Every checked-in
+     * fixture stakes exactly one, so this paints a map that stakes several and
+     * counts the elements carrying the attribute the ration is counted by. What
+     * the rows that lost the movement keep is the fact: the mark is `claimed` on
+     * all of them, and the still ring above rides on that class and not on this
+     * one.
+     */
+    const map = awkward();
+    const staked = map.nodes.filter(
+      (node) => node.kind.kind === "ticket" && node.cut.cut === "inScope",
+    );
+    expect(staked.length).toBeGreaterThan(1);
+
+    const host = await paint({
+      map: {
+        ...map,
+        nodes: map.nodes.map((node) =>
+          staked.includes(node) ? { ...node, state: "claimed" as const } : node,
+        ),
+      },
+    });
+
+    expect(host.querySelectorAll('[data-mark="claimed"]')).toHaveLength(staked.length);
+    expect(host.querySelectorAll('[data-animated="true"]')).toHaveLength(1);
   });
 });
 
