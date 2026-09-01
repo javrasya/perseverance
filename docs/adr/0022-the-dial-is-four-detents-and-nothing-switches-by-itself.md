@@ -105,7 +105,19 @@ back finds its terminal the size it left it.
   the window and growing as the dial moved would be a bar filling up, and
   progress in this app is exactly three integers. Ticks are places, the hand is a
   dot among them, and neither is focusable — the detent is already announced by
-  `aria-valuetext` on the separator itself.
+  the separator's own accessible name.
+- **The dial carries no `aria-valuenow`**, and so none of the three value
+  properties that travel with it. Contract rule 5 refuses a value widget
+  *anywhere in the rendering* — `progress`, `meter`, a progressbar role, an
+  `aria-valuenow` — rather than only one wrapped around the three integers,
+  because the rule as written names one widget and there are a hundred ways to
+  build the same claim. This dial's proportion is the window's and not the
+  map's, but that is a distinction no locator can draw, and the same reasoning
+  that keeps the ladder off the body keeps the percentage out of the
+  accessibility tree. Nothing is lost: where the dial stands is a *place*, and
+  a place belongs in the accessible name, which is rewritten on every move. A
+  screen reader hears *split* rather than *fifty*, which was the intent here
+  before rule 5 was consulted.
 - The position is remembered **per map**, behind the two functions in
   `src/panes/position.ts`. A stored value that does not parse reads as absence
   and falls back to the default detent. With no map open there is no key and no
