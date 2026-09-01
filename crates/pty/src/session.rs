@@ -1211,8 +1211,20 @@ mod tests {
         assert_eq!(session.spoke(), session.opened());
     }
 
+    /// A wait that is genuinely silent, which `timeout` is not.
+    ///
+    /// `timeout /t N /nobreak` writes its countdown to the *console*, so `>nul`
+    /// — which only redirects standard output — does not stop it reaching the
+    /// ring. Every other use of `timeout` in this crate is prefixed by an `echo`
+    /// and is reading output on purpose, so the banner is invisible there; the
+    /// one test that asserts a shell printed *nothing* is the one place it is
+    /// not, and it went red on Windows with the banner's sixty-one bytes.
+    ///
+    /// `ping` writes to standard output like an ordinary program, so `>nul`
+    /// really does swallow it. `hanging_up_ends_a_windows_run_by_itself` in
+    /// `runs.rs` already waits this way, and for the neighbouring reason.
     #[cfg(windows)]
-    const A_WAIT: &str = "timeout /t 30 /nobreak >nul";
+    const A_WAIT: &str = "ping -n 31 127.0.0.1 >nul";
     #[cfg(not(windows))]
     const A_WAIT: &str = "sleep 30";
 }
