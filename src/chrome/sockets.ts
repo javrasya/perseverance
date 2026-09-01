@@ -23,7 +23,7 @@
 
 import type { AdapterReading, FolderReadout } from "../environment/folder";
 import type { Frontier, NodeState, Phase } from "../snapshot/model.generated";
-import type { RunReadout } from "../terminal/runs";
+import { claiming, type RunReadout } from "../terminal/runs";
 
 /** The four verbs, in the fixed order they occupy the rail in. */
 export type SocketId = "start" | "resume" | "ask" | "toFrontier";
@@ -49,8 +49,8 @@ export interface Socket {
   /**
    * The number this socket acts on and prints, or `null` when it acts on none.
    *
-   * `null` for Ask, the claim under the hand for Resume, the frontier's ticket
-   * for To Frontier, and
+   * The selection for Ask, the claim under the hand for Resume, the frontier's
+   * ticket for To Frontier, and
    * either a ticket or the map for the primary socket — which is why it is a
    * fact about the socket rather than one the rendering works out from an id.
    * The two aimed sockets stopped being aimed at the same number the moment one
@@ -66,6 +66,15 @@ export interface Socket {
  * facts: `detail` is what the harness said, and `frontier` is what it learned —
  * `null` meaning *no fresh read landed*, which names no new target at all.
  *
+ * `node` is the third fact, and it is **what the press was aimed at**: the
+ * selection the question was about, for the one verb the selection alone arms.
+ * Ask's refusal names it; the two verbs that re-arm on a fresh read name `null`
+ * and are retired by `frontier` above. It is carried rather than read off the
+ * rail because the answer lands after the press, and the node under the hand by
+ * then need not be the one the press was about — a refusal printed against a
+ * node it was never about is a sentence about a press nobody made, which is the
+ * same failure `socket` is here to prevent one socket over.
+ *
  * The `socket` rides along because two verbs now spawn. A rail that remembered
  * only *a press is out* would print `checking…` on Start Working while Resume
  * was the button under the hand, and would hang Resume's refusal under Start —
@@ -76,7 +85,13 @@ export interface Socket {
 export type Press =
   | { kind: "idle" }
   | { kind: "checking"; socket: SocketId }
-  | { kind: "refused"; socket: SocketId; detail: string; frontier: Frontier | null };
+  | {
+      kind: "refused";
+      socket: SocketId;
+      detail: string;
+      frontier: Frontier | null;
+      node: number | null;
+    };
 
 export interface Crossing {
   /** `model.map.frontier`, or `null` when no map is open. */
@@ -275,27 +290,59 @@ export const CLAIM_ELSEWHERE =
   "the selected ticket is bound to another machine, so it is not resumable here";
 
 /**
- * What a socket says while the *other* spawning verb's press is out.
+ * What a socket says while *another* spawning verb's press is out.
  *
  * Derived and never guarded: one crossing sends one command at a time, and a
  * rail that enforced that in the handler would leave the socket beside the one
  * under the hand filled, armed and silent, swallowing a press for the whole of a
- * revalidation. So the fact travels as ink, in the pair of sentences that name
- * whose press it is. Only the two spawning sockets take it — To Frontier sends
- * no command, so a check in flight is nothing to it.
+ * revalidation. So the fact travels as ink, in the three sentences that name
+ * whose press it is. Only the spawning sockets take it — To Frontier sends no
+ * command, so a check in flight is nothing to it.
+ *
+ * [`ASK_IS_OUT`] is about a **press** and never about a run, and the two look
+ * alike at exactly the wrong moment. Ask gates on no run at all — a live work
+ * run and a live compose leave it filled — but a press it has already made is
+ * this crossing's one command in flight, and the socket beside it says so for
+ * as long as that answer is still on its way. See
+ * `docs/adr/0027-ask-claims-nothing-so-it-gates-on-nothing`.
  */
 export const START_IS_OUT =
   "Start Working's press is still out, and one crossing sends one command at a time";
 export const RESUME_IS_OUT =
   "Resume's press is still out, and one crossing sends one command at a time";
+export const ASK_IS_OUT =
+  "Ask's press is still out, and one crossing sends one command at a time";
 
 /**
- * Ask is #55's. Its socket is here because the rail is four boxes rather than
- * however many verbs happen to be implemented — a socket that appears when its
- * ticket lands is a rail that changes shape, and a rail that changes shape under
- * a hand is what this file exists to prevent.
+ * Why there is nothing to ask about, in the words the map's absence has here.
+ *
+ * Not [`NO_MAP_OPEN`], whose sentence is about designation: nothing about Ask is
+ * designated, and the reading it takes is `model.map.number` rather than the
+ * frontier. A rail that asked the frontier this question would be borrowing an
+ * answer to a different one — *is there a takeable ticket* — and would recess
+ * Ask on a finished map, where a question is exactly what is left to have.
  */
-export const ASK_ARRIVES = "asking a live run a question is not built yet";
+export const NO_MAP_TO_ASK_ABOUT = "open a map — a question is asked about a node on one";
+/**
+ * Not [`NOTHING_SELECTED`], which names the wrong verb and the wrong kind of
+ * node. Ask says *node* because a node is what it takes: the spec, an
+ * unclassified child and a ticket are all askable, and a sentence saying
+ * *select a ticket* would be telling an operator that the interesting half of
+ * the map is out of bounds.
+ */
+export const NO_NODE_SELECTED = "select a node — Ask asks about the selection";
+/**
+ * The one refusal Rust makes about the number, said in front of the press
+ * rather than after it, in the words `ask` refuses with in
+ * `crates/app/src/lib.rs`.
+ *
+ * A function of the number for the reason [`alreadyComposing`] is one: a
+ * sentence that names what is wrong is a sentence an operator can act on, and
+ * the selection can outlive the map it belonged to — the Route keeps a pointer
+ * the ledger has already moved off.
+ */
+export const notOnThisMap = (node: number): string =>
+  `#${node} is not on the open map, so there is nothing here to ask about`;
 
 /** The number a frontier designates, or `null` in either of its two absences. */
 export function designated(frontier: Frontier | null): number | null {
@@ -352,6 +399,14 @@ export function whyNoClaim(crossing: Crossing): string | null {
  * `over` and not the ending, because the two are independent facts: a run whose
  * ticket closed under it is still a child with a shell in it, and re-focusing
  * that pane is what a hand pressing Resume on that claim is asking for.
+ *
+ * **And the kind on top of the pair, because naming a node is not holding it.**
+ * An Ask run stakes the node it is asking about, in that node's folder — the
+ * same two values a work run stakes — so on the pair alone a question about a
+ * claim answered for the claim. Resume then took its re-focus branch and bound
+ * the pane to the question session, and because that branch sends no command
+ * nothing refused and nothing was printed: the operator believed they had
+ * resumed work and was reading an Ask.
  */
 export function liveRunOn(
   runs: readonly RunReadout[],
@@ -359,7 +414,11 @@ export function liveRunOn(
   folder: string,
 ): number | null {
   const found = runs.find(
-    (run) => run.ticket === ticket && run.folder === folder && !run.over,
+    (run) =>
+      run.ticket === ticket &&
+      run.folder === folder &&
+      claiming(run.kind) &&
+      !run.over,
   );
   return found?.run ?? null;
 }
@@ -472,9 +531,23 @@ function checkingOn(press: Press, socket: SocketId): boolean {
   return press.kind === "checking" && press.socket === socket;
 }
 
-/** The harness's last sentence to this socket, and never to the one beside it. */
-function sentenceOn(press: Press, socket: SocketId): string | null {
-  return press.kind === "refused" && press.socket === socket ? press.detail : null;
+/**
+ * The harness's last sentence to this socket, and never to the one beside it —
+ * and never about a node the operator has since moved off.
+ *
+ * The second half is for the answer that lands late. A press goes out on #41,
+ * the selection moves to #42 while the command is still in flight, and the
+ * refusal is written to state after the move: no selection change follows it,
+ * so the retirement in `Sockets.tsx` never sees it, and the sentence about #41
+ * would sit under a socket now armed on #42. Read here against the selection it
+ * is simply not this rail's sentence to print, which makes the window between
+ * the press and its answer no wider than the window after it. A refusal that
+ * named no node was aimed at the frontier, and `standing` retires that one.
+ */
+function sentenceOn(crossing: Crossing, socket: SocketId): string | null {
+  const { press, selection } = crossing;
+  if (press.kind !== "refused" || press.socket !== socket) return null;
+  return press.node === null || press.node === selection ? press.detail : null;
 }
 
 /**
@@ -493,8 +566,18 @@ function sentenceOn(press: Press, socket: SocketId): string | null {
  */
 function pressOut(press: Press, socket: SocketId): string | null {
   if (press.kind !== "checking" || press.socket === socket) return null;
-  if (press.socket === "start") return START_IS_OUT;
-  return press.socket === "resume" ? RESUME_IS_OUT : null;
+  switch (press.socket) {
+    case "start":
+      return START_IS_OUT;
+    case "resume":
+      return RESUME_IS_OUT;
+    case "ask":
+      return ASK_IS_OUT;
+    /* To Frontier moves the selection and sends nothing, so it is never the
+       press in flight — and if it somehow were, it would be nothing to wait on. */
+    case "toFrontier":
+      return null;
+  }
 }
 
 function startSocket(
@@ -502,7 +585,7 @@ function startSocket(
   start: StartTarget | null,
   offered: readonly string[],
 ): Socket {
-  const note = sentenceOn(crossing.press, "start");
+  const note = sentenceOn(crossing, "start");
   const aimedAt = aimOf(start);
 
   if (checkingOn(crossing.press, "start")) {
@@ -566,7 +649,7 @@ function resumeSocket(
   claim: number | null,
   offered: readonly string[],
 ): Socket {
-  const note = sentenceOn(crossing.press, "resume");
+  const note = sentenceOn(crossing, "resume");
 
   if (checkingOn(crossing.press, "resume")) {
     return {
@@ -597,6 +680,89 @@ function resumeSocket(
     condition,
     note,
     aimedAt: claim,
+  };
+}
+
+/**
+ * Ask, over whatever node the operator pointed at.
+ *
+ * The third spawning socket, and the one that claims nothing. Its conditions are
+ * the honest ones and only those: a question needs a map to be about, a node on
+ * that map to be about, and the same three facts about the folder every other
+ * spawn needs, because an Ask session is a child in a folder with an agent in it
+ * exactly as a work run is. Nothing else recesses it.
+ * `docs/adr/0027-ask-claims-nothing-so-it-gates-on-nothing` is why, and the
+ * absences below are that decision written into the derivation.
+ *
+ * **The kind is absent.** `selectionIsTicket` is never read here. A spec node
+ * and a child carrying no `wayfinder:` label are both askable — the unclassified
+ * child is the one you most need to ask about, and a rail that refused it would
+ * make the murky half of the map the unaskable half.
+ *
+ * **The binding is absent.** `selectionBoundElsewhere` is never read here. That
+ * label says who may *launch* at a node, and nothing is being launched at this
+ * one; a node another machine is working is still a node an operator can have a
+ * question about.
+ *
+ * **The state is absent.** `selectionReads` is read for one thing only — whether
+ * the selection is on the open map at all — and never for what it says.
+ * `claimed`, `blocked`, `takeable` and `closed` all fill this socket, because
+ * Ask takes no claim and so no state of the node has anything to refuse.
+ *
+ * **The map's rung and the frontier are absent.** Neither `phase` nor
+ * `frontier` nor `composing` is read. A live compose run and a live claiming
+ * work run both stay live and neither refuses the press: that is the GitHub
+ * invariant, and Ask is outside it.
+ *
+ * **The live runs are absent.** There is no ceiling here and no queue. The one
+ * rule Ask is inside is the keyboard invariant — one pane, one keyed run — and
+ * that is enforced by the monitor bind a successful spawn makes, not by a
+ * condition that would have kept the press from being made.
+ */
+function askSocket(crossing: Crossing, offered: readonly string[]): Socket {
+  const note = sentenceOn(crossing, "ask");
+  /* The selection, and never a ticket or the frontier: Ask acts on the node
+     under the hand, so the number on the button is the number that goes out. */
+  const aimedAt = crossing.selection;
+
+  if (checkingOn(crossing.press, "ask")) {
+    return {
+      id: "ask",
+      label: CHECKING_LABEL,
+      fill: "checking",
+      condition: null,
+      note,
+      aimedAt,
+    };
+  }
+
+  /* `selectionReads` is `null` in exactly two cases — nothing selected, and a
+     selection that is not a child of the open map — so with the second
+     condition already past, `null` here is the off-map one. That is Rust's own
+     `#N is not on map #M` refusal, printed before the press rather than bought
+     with one. */
+  const condition =
+    crossing.map === null
+      ? NO_MAP_TO_ASK_ABOUT
+      : crossing.selection === null
+        ? NO_NODE_SELECTED
+        : crossing.selectionReads === null
+          ? notOnThisMap(crossing.selection)
+          : crossing.folder === null
+            ? NO_FOLDER_OPEN
+            : stillReading(crossing.environment)
+              ? STILL_READING
+              : offered.length === 0
+                ? NO_ADAPTER
+                : pressOut(crossing.press, "ask");
+
+  return {
+    id: "ask",
+    label: ASK_LABEL,
+    fill: condition === null ? "filled" : "recessed",
+    condition,
+    note,
+    aimedAt,
   };
 }
 
@@ -633,14 +799,7 @@ export function railAt(crossing: Crossing): Rail {
     sockets: [
       startSocket(crossing, start, offered),
       resumeSocket(crossing, claim, offered),
-      {
-        id: "ask",
-        label: ASK_LABEL,
-        fill: "recessed",
-        condition: ASK_ARRIVES,
-        note: null,
-        aimedAt: null,
-      },
+      askSocket(crossing, offered),
       toFrontierSocket(crossing, target),
     ],
   };

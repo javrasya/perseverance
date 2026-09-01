@@ -35,7 +35,7 @@ use perseverance_github::{
     TokenOutcome, Watched,
 };
 use perseverance_model::{
-    read_response, ChangeLog, ChildKind, Degraded, Frontier, Machine, Map, MapRead, Model,
+    read_response, ChangeLog, ChildKind, Degraded, Frontier, Machine, Map, MapRead, Model, Node,
     NodeState, Phase, Provenance, ReadOutcome, Snapshot, Source, TicketType,
 };
 use perseverance_pty::{Delivery, Geometry, Readiness, RunId, Runs, GRACE};
@@ -2275,8 +2275,16 @@ impl Terminals {
         self.staked_here().insert(run, stakes);
     }
 
-    /// Whether this window already holds a run staked on that ticket in that
-    /// folder whose child has not exited.
+    /// Whether this window already holds a *claiming* run staked on that ticket
+    /// in that folder whose child has not exited.
+    ///
+    /// **Claiming, because the invariant is about claims and not about
+    /// windows.** `ticket` and `folder` say which node a run names, and an Ask
+    /// run names the node it is asking about — so on the number and the folder
+    /// alone a question about `#41` would answer for the work run on `#41`, and
+    /// Resume would be told a claim it has never spawned is already up. The kind
+    /// is what tells the two apart: see [`RunKind::claiming`], and `liveRunOn`
+    /// in `src/chrome/sockets.ts`, which draws the same line on the same pair.
     ///
     /// Matched on the folder as well as the number for the reason
     /// [`Terminals::noticed`] gives: an issue number is unique inside one
@@ -2289,7 +2297,9 @@ impl Terminals {
         let staked: Vec<RunId> = self
             .staked_here()
             .iter()
-            .filter(|(_, stakes)| stakes.ticket == Some(ticket) && stakes.folder == folder)
+            .filter(|(_, stakes)| {
+                stakes.ticket == Some(ticket) && stakes.folder == folder && stakes.kind.claiming()
+            })
             .map(|(run, _)| *run)
             .collect();
 
@@ -2399,11 +2409,17 @@ impl Terminals {
         };
 
         // A run that names no ticket has no node to be resolved by, so it never
-        // reaches the table at all.
+        // reaches the table at all — and neither does a run that holds no claim.
+        // A non-claiming run *names* a node without being about its resolution:
+        // an Ask on a closed node would otherwise read `Spent`, and one on a
+        // claimed node would exit `ExitedUnresolved`, asserting a claim it never
+        // took. See [`RunKind::claiming`]; the readings themselves are [`ending`]
+        // and [`silence`], and both take resolution from this table alone, so
+        // keeping a non-claiming run out of it is the whole of the fix.
         let seen: Vec<(RunId, u64)> = self
             .staked_here()
             .iter()
-            .filter(|(_, stakes)| stakes.folder == folder)
+            .filter(|(_, stakes)| stakes.folder == folder && stakes.kind.claiming())
             .filter_map(|(run, stakes)| stakes.ticket.map(|ticket| (*run, ticket)))
             .collect();
 
@@ -2649,6 +2665,21 @@ struct RunReadout {
     /// Derived in this crate from the stakes a press wrote, exactly as `ending`
     /// is: `crates/pty` carries no folder a product would recognise.
     folder: Option<String>,
+    /// What kind of run this is, or nothing for a run this app was never told
+    /// about.
+    ///
+    /// **The third value in the join, and the one that says whether the other
+    /// two mean a claim.** `ticket` and `folder` name a node; they do not say
+    /// what this run is doing to it, and an Ask run names the node it is
+    /// questioning exactly as a work run names the node it is holding. Without
+    /// this the rail read a question as a claim: Resume found the Ask child on
+    /// the ticket, took the re-focus branch, sent no command, and put the
+    /// operator in front of a session they had not asked to resume.
+    ///
+    /// It is also the field the rack in #56 needs to draw a run as its own kind,
+    /// which is why the whole kind crosses rather than the one bit `liveRunOn`
+    /// reads off it — see `docs/adr/0027-ask-claims-nothing-so-it-gates-on-nothing`.
+    kind: Option<RunKind>,
     /// What this run's silence means, derived here from six facts and never from
     /// a threshold — see [`silence`].
     silence: Silence,
@@ -2661,18 +2692,6 @@ struct RunReadout {
     /// right — it means *poll GitHub sooner* — so nothing downstream may treat
     /// this as an answer about a ticket.
     signal: Option<RunSignal>,
-    /// What kind of run this is, or nothing for a run this app was never told
-    /// the stakes of.
-    ///
-    /// Joined here from the stakes for the reason `ticket` and `folder` are:
-    /// *work*, *research*, *chart* and *compose* are product vocabulary, and the
-    /// crate that owns the PTY is not allowed to hold any of it.
-    ///
-    /// Optional rather than defaulted to `work`, and that is the same posture
-    /// [`what_it_loses`] takes at a quit: a run nobody staked is still a run, and
-    /// it crosses saying it does not know what it is rather than being counted as
-    /// something it might not be.
-    kind: Option<RunKind>,
     /// When this run was opened, as seconds since the epoch.
     ///
     /// A stamp rather than an age **because of what reads it**: the rack prints
@@ -2745,9 +2764,9 @@ impl RunReadout {
             ending,
             ticket: stakes.and_then(|stakes| stakes.ticket),
             folder: stakes.map(|stakes| stakes.folder.clone()),
+            kind: stakes.map(|stakes| stakes.kind),
             silence,
             signal: telemetry.signal.map(RunSignal::from),
-            kind: stakes.map(|stakes| stakes.kind),
             opened: telemetry.opened,
             spoke: telemetry.spoke,
         }
@@ -4223,6 +4242,191 @@ fn compose_at(
     start_child(terminals, harvests, registry, folder, adapter, rendered)
 }
 
+/* ------------------------------------------------- asking about a node --- */
+
+/// What one Ask press came to.
+///
+/// [`Composed`]'s shape rather than [`Started`]'s, for the reason argued there:
+/// an Ask press is aimed at the node the operator picked, so there is no
+/// frontier for a refusal to re-arm on, and a `frontier` here could only ever
+/// be null. What a value cannot carry, nobody can misread.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+enum Asked {
+    Spawned {
+        run: u64,
+        /// The text the child was actually started with, its length, and whose
+        /// prose it came from — the same badge every other spawn carries.
+        prompt: prompt::Rendered,
+    },
+    Refused {
+        detail: String,
+    },
+}
+
+impl Asked {
+    fn refused(detail: impl Into<String>) -> Asked {
+        Asked::Refused {
+            detail: detail.into(),
+        }
+    }
+}
+
+/// Ask, from the press to the child.
+///
+/// [`compose_spec`]'s order with a node put back and every gate taken out, and
+/// the gates are what this command is about.
+///
+/// **Nothing is revalidated first.** No `poker.revalidate(CHECKING)` and no
+/// awaited poll: a revalidation buys a fresh read so that the harness does not
+/// hand out a ticket somebody else has already taken, and an Ask takes nothing.
+/// There is no race here to lose, so there is nothing to spend a round trip —
+/// and a `checking…` the operator has to sit through — finding out.
+///
+/// **No claim, and no gate of any other kind.** No [`Claims`] handle is taken
+/// (exactly as [`compose_spec`] takes none), no frontier is compared, no phase
+/// or rung is read, and no live run refuses this one. A work run holding a
+/// claim and a compose run writing a document are both invariants about *what
+/// gets written to GitHub*, and this run writes nothing at all — so neither of
+/// them has anything to say about a question.
+///
+/// **Any node on the open map.** A ticket, the map's own specification
+/// document, a child carrying no `wayfinder:` label: all three are things an
+/// operator has questions about, and refusing the last two would make the
+/// unclassified child — the one you most need to ask about — the one you
+/// cannot. The honest refusals are the only ones left: no map, a number that is
+/// not on it, no token, no operator, the store's own sentence, and whatever the
+/// spawn itself refuses with.
+///
+/// **It takes the keys, and that is deliberate.** The monitor bind at the end
+/// puts the pane on this run even while a claiming run is live, because *at
+/// most one keyed run* and *at most one claiming run* are two different rules:
+/// the first is about the keyboard, which has one operator, and the second is
+/// about GitHub, which this run does not touch.
+///
+/// **The harness surfaces only its own failures**, exactly as its neighbours:
+/// every refusal here is a sentence returned to the socket, none of them is a
+/// `Degraded` on the graph, and nothing the child prints is one either.
+// Nine, for [`start_working`]'s reason: managed state Tauri resolves by type,
+// plus the three facts about this press.
+#[allow(clippy::too_many_arguments)]
+#[tauri::command(async)]
+fn ask(
+    app: AppHandle,
+    terminals: State<'_, Terminals>,
+    harvests: State<'_, Harvests>,
+    registry: State<'_, Registry>,
+    ambient: State<'_, Ambient>,
+    ledgers: State<'_, Ledgers>,
+    poker: State<'_, Poker>,
+    folder: String,
+    node: u64,
+    adapter: String,
+) -> Asked {
+    let Some(map) = ledgers.held().model.map else {
+        return Asked::refused("no map is open, so there is nothing to ask about");
+    };
+    // The map's own children and not the number the press arrived with: a brief
+    // naming a node this map does not have is a coordinate pointing somewhere
+    // else, and a session would go and read it.
+    let Some(at) = map.nodes.iter().find(|node_| node_.number == node) else {
+        return Asked::refused(format!(
+            "#{node} is not on map #{}, so there is nothing here to ask about",
+            map.number
+        ));
+    };
+
+    match ask_at(
+        &app, &terminals, &harvests, &registry, &ambient, &map, at, &folder, &adapter,
+    ) {
+        Ok((run, rendered)) => {
+            // The same two writes and a bind a compose press makes, and nothing
+            // is written down before the spawn has succeeded. No claim, because
+            // this run takes none; and the count is the poller's cadence, which
+            // every live run feeds, and not a ceiling this press is measured
+            // against.
+            terminals.staked(
+                run,
+                Stakes {
+                    ticket: Some(at.number),
+                    folder,
+                    kind: RunKind::Ask,
+                },
+            );
+            terminals.counting(run, poker.run_started());
+            // The keyboard follows the question, live claiming run or not.
+            terminals.held().monitor(Some(run));
+
+            Asked::Spawned {
+                run: run.as_u64(),
+                prompt: rendered,
+            }
+        }
+        Err(refusal) => Asked::refused(refusal),
+    }
+}
+
+/// Everything between the node and the run, and every way it can refuse.
+///
+/// [`compose_at`]'s shape with one node put back, and nothing else: no ticket
+/// body and no `read_ticket_body`, because the one piece of map content that
+/// travels inline is the *claimed* ticket's question and this run claims
+/// nothing. The operator types the real question into the live session, so the
+/// only thing asked of GitHub before the spawn is the login already memoised.
+#[allow(clippy::too_many_arguments)]
+fn ask_at(
+    app: &AppHandle,
+    terminals: &Terminals,
+    harvests: &Harvests,
+    registry: &Registry,
+    ambient: &Ambient,
+    map: &Map,
+    at: &Node,
+    folder: &str,
+    adapter: &str,
+) -> Result<(RunId, prompt::Rendered), String> {
+    let repo = perseverance_store::bind_repo(Path::new(folder))
+        // The store's own sentence, unedited, exactly as `poll_once` carries it.
+        .map_err(|refusal| refusal.to_string())?;
+
+    let Some(TokenOutcome::Acquired(token)) = ambient.token.get() else {
+        return Err(NO_TOKEN.to_string());
+    };
+    let Some(operator) = remembered_login(&ambient.login, || read_login(token)) else {
+        return Err(NO_OPERATOR.to_string());
+    };
+
+    let map_url = where_the_map_lives(map).ok_or_else(|| {
+        format!(
+            "#{} lists no child to derive its own address from, so no brief could name it",
+            map.number
+        )
+    })?;
+
+    // Read at the moment of spawn and never cached, which is
+    // [`prompt::ask_override`]'s rule and not one this file softens.
+    let overriding = app
+        .path()
+        .app_data_dir()
+        .ok()
+        .and_then(|directory| prompt::ask_override(&directory));
+
+    let rendered = prompt::ask(
+        overriding.as_deref(),
+        &prompt::NodeCoordinates {
+            repo: format!("{}/{}", repo.owner, repo.name),
+            map_number: map.number,
+            map_url,
+            node_number: at.number,
+            node_url: at.url.clone(),
+            node_title: at.title.clone(),
+            operator,
+        },
+    );
+
+    start_child(terminals, harvests, registry, folder, adapter, rendered)
+}
+
 /* --------------------------------------------------- what a quit costs --- */
 
 /// Whether losing a run costs a claim that can be picked back up, or everything
@@ -4258,6 +4462,13 @@ pub enum RunKind {
     /// map from: [`RunKind::of`] stays the only mapping *from a ticket*, and a
     /// compose press has no ticket to hand it.
     Compose,
+    /// A question about one node, which claims none of it.
+    ///
+    /// Chosen at the call site for [`RunKind::Compose`]'s reason and one more:
+    /// an Ask is pressed on whatever node the operator selected, and that node
+    /// may be the map's spec or a child carrying no `wayfinder:` label — and
+    /// neither of those has a [`TicketType`] for a mapping to start from.
+    Ask,
 }
 
 impl RunKind {
@@ -4285,7 +4496,29 @@ impl RunKind {
     pub fn unattended(self) -> bool {
         match self {
             RunKind::Research => true,
-            RunKind::Work | RunKind::Chart | RunKind::Compose => false,
+            RunKind::Work | RunKind::Chart | RunKind::Compose | RunKind::Ask => false,
+        }
+    }
+
+    /// Whether this run holds the claim on the ticket it names.
+    ///
+    /// **The line the GitHub invariant is actually drawn on**, and the second
+    /// predicate over this enum rather than a flag on [`Stakes`]: a kind already
+    /// decides who is waiting, and whether a run took the assignment is the same
+    /// kind of fact about the same enum. Work and research are booked — the
+    /// press writes the assignment before the child is staked — and the other
+    /// three never touch one: a chart has no ticket to claim, a compose is
+    /// writing the spec that becomes one, and an Ask is a question about a node
+    /// somebody else may well be holding.
+    ///
+    /// Two things read it, and both are joins that would otherwise mistake a
+    /// question for a claim: [`Terminals::live_run_on`], which Resume asks, and
+    /// [`Terminals::noticed`], which is where a node's resolution becomes a
+    /// run's ending. The mirror is `claiming` in `src/terminal/runs.ts`.
+    pub fn claiming(self) -> bool {
+        match self {
+            RunKind::Work | RunKind::Research => true,
+            RunKind::Chart | RunKind::Compose | RunKind::Ask => false,
         }
     }
 }
@@ -4293,9 +4526,10 @@ impl RunKind {
 /// What one live run would lose if the app quit now.
 #[derive(Debug, Clone)]
 pub struct Stakes {
-    /// What the confirmation names: the ticket a work run took, or the map a
-    /// compose run is writing a spec for. A number an operator can find, and
-    /// never a claim — a compose run holds none.
+    /// What the confirmation names: the ticket a work run took, the map a
+    /// compose run is writing a spec for, or the node an Ask run is asking
+    /// about. A number an operator can find, and never a claim — of those
+    /// three, only the first is one.
     ///
     /// `None` is *this run names no issue at all*, which today is exactly a
     /// charting run — the one run that reaches a repository before any ticket
@@ -4341,6 +4575,15 @@ const CHART_LOSS: &str =
 const COMPOSE_LOSS: &str =
     "a compose run posts its spec in one piece, so a spec it has not posted yet goes with it";
 
+/// An Ask run's loss, which is only the conversation.
+///
+/// It may borrow neither of the sentences above. There is no claim for Resume
+/// to pick up, because this run never took one; and there is nothing unposted
+/// waiting to go, because an Ask run posts nothing anywhere by design. What
+/// closing it costs is the exchange the operator was having, and saying more
+/// than that would be promising the operator a loss they are not taking.
+const ASK_LOSS: &str = "an Ask run writes nothing anywhere, so only the conversation goes with it";
+
 /// A live run this app cannot describe.
 ///
 /// It is named anyway. A confirmation that quietly omitted a run because the
@@ -4379,6 +4622,7 @@ fn what_it_loses(run: RunId, stakes: Option<&Stakes>) -> String {
                 RunKind::Research => RESEARCH_LOSS,
                 RunKind::Chart => CHART_LOSS,
                 RunKind::Compose => COMPOSE_LOSS,
+                RunKind::Ask => ASK_LOSS,
             }
         ),
         // `RunId`'s own `Display` is *run 7*, which is the most this side can
@@ -4540,7 +4784,7 @@ fn may_quit<R: Runtime>(app: &AppHandle<R>) -> bool {
         OnClose::GoNow => true,
         OnClose::WaitForTheAnswer => false,
         OnClose::Ask => {
-            ask(app.clone(), losses);
+            ask_to_quit(app.clone(), losses);
             false
         }
     }
@@ -4569,7 +4813,7 @@ impl<R: Runtime> Drop for Released<R> {
 /// that has to draw it — the same reason `choose_folder` is `(async)` — so the
 /// answer comes back by re-entering through [`AppHandle::exit`] rather than by
 /// returning.
-fn ask<R: Runtime>(app: AppHandle<R>, losses: Vec<String>) {
+fn ask_to_quit<R: Runtime>(app: AppHandle<R>, losses: Vec<String>) {
     if let Some(quitting) = app.try_state::<Quitting>() {
         quitting.now(Quit::Asking);
     }
@@ -4816,7 +5060,8 @@ pub fn run() {
             start_working,
             resume_working,
             start_charting,
-            compose_spec
+            compose_spec,
+            ask
         ])
         .build(tauri::generate_context!())
         .expect("perseverance failed to start")
@@ -5125,6 +5370,64 @@ mod tests {
         assert!(!loss.contains("claim"), "{loss}");
     }
 
+    /// #55's answer is hand-mirrored in TypeScript by the slice that presses
+    /// this button, so the shape is pinned from this side — field count
+    /// included, which is how the *no frontier here* decision stays a decision
+    /// rather than an omission somebody later fills in.
+    #[test]
+    fn what_ask_answers_crosses_in_the_shape_the_frontend_declares() {
+        let spawned = serde_json::to_value(Asked::Spawned {
+            run: 4,
+            prompt: prompt::Rendered {
+                text: "ask #55".to_string(),
+                characters: 7,
+                origin: prompt::Origin::Stock,
+            },
+        })
+        .expect("serialises");
+
+        assert_eq!(spawned["kind"], "spawned");
+        assert_eq!(spawned["run"], 4);
+        assert_eq!(spawned["prompt"]["text"], "ask #55");
+        assert_eq!(spawned["prompt"]["characters"], 7);
+        assert_eq!(spawned["prompt"]["origin"], "stock");
+        assert_eq!(spawned.as_object().expect("an object").len(), 3);
+
+        let refused = serde_json::to_value(Asked::refused(
+            "no map is open, so there is nothing to ask about",
+        ))
+        .expect("serialises");
+
+        assert_eq!(refused["kind"], "refused");
+        assert_eq!(
+            refused["detail"],
+            "no map is open, so there is nothing to ask about"
+        );
+        // Two fields and no third: an Ask press is aimed at a node somebody
+        // selected, so it has no frontier to re-arm on and there is no null
+        // here for the other side to read as one.
+        assert_eq!(refused.as_object().expect("an object").len(), 2);
+    }
+
+    /// An Ask run takes no claim and writes nowhere, so its sentence may borrow
+    /// neither the work run's promise that Resume picks something back up nor
+    /// the compose run's unposted document. What it loses is the conversation.
+    #[test]
+    fn an_ask_run_loses_only_the_conversation_and_promises_no_resume() {
+        let loss = what_it_loses(
+            RunId::from_u64(4),
+            Some(&a_stake(55, "perseverance", RunKind::Ask)),
+        );
+
+        // The node and the folder, so the confirmation names something an
+        // operator can find rather than a run id.
+        assert!(loss.contains("#55"), "{loss}");
+        assert!(loss.contains("perseverance"), "{loss}");
+        assert!(loss.contains("conversation"), "{loss}");
+        assert!(!loss.contains("claim"), "{loss}");
+        assert!(!loss.contains("Resume"), "{loss}");
+    }
+
     /// Every answer the awaited revalidation can give, told apart — which is
     /// the whole point of the gate: one of these five is a spawn and the other
     /// four are four different things to tell an operator.
@@ -5411,11 +5714,11 @@ mod tests {
             ending: Ending::ExitedUnresolved,
             ticket: Some(48),
             folder: Some("/work/repo".to_string()),
+            kind: Some(RunKind::Work),
             silence: Silence::Quiet {
                 silent_for_ms: 90_000,
             },
             signal: Some(RunSignal::Busy),
-            kind: Some(RunKind::Research),
             opened: 1_785_888_000,
             spoke: 1_785_888_240,
         };
@@ -5442,6 +5745,11 @@ mod tests {
         // repository's `#48` from another repository's.
         assert_eq!(json["ticket"], 48);
         assert_eq!(json["folder"], "/work/repo");
+        // The third value in that join, and the one that says the other two mean
+        // a claim: a question staked on a node carries the same number and the
+        // same folder, and the rail has nothing else to tell it from the run
+        // that is holding the ticket.
+        assert_eq!(json["kind"], "work");
         // The silence reading is a tagged value with the elapsed inside it, and
         // not a number plus a boolean: what an elapsed means is a joint
         // predicate over six facts, and a WebView handed the parts would be a
@@ -5451,9 +5759,6 @@ mod tests {
         // Recorded for the chrome and acted on nowhere: a signal means *poll
         // GitHub sooner* and is never evidence about a ticket.
         assert_eq!(json["signal"], "busy");
-        // What the row is, joined from the stakes and spelled the way the rest
-        // of this file's enums cross.
-        assert_eq!(json["kind"], "research");
         // Stamps and not ages, so the rack can round them to a word that holds
         // still between readouts — and JSON numbers, not strings and not
         // bigints, because `src/chrome/age.ts` subtracts them from a `number`.
@@ -5461,6 +5766,25 @@ mod tests {
         assert_eq!(json["spoke"], 1_785_888_240u64);
         assert!(json["opened"].is_number() && json["spoke"].is_number());
         assert_eq!(json.as_object().expect("an object").len(), 18);
+
+        // Every kind, in the spelling `src/terminal/runs.ts` declares. All five
+        // cross: the rack in #56 draws a run as its own kind, and one bit would
+        // have said only what `liveRunOn` reads.
+        for (kind, spelt) in [
+            (RunKind::Work, "work"),
+            (RunKind::Research, "research"),
+            (RunKind::Chart, "chart"),
+            (RunKind::Compose, "compose"),
+            (RunKind::Ask, "ask"),
+        ] {
+            let crossed = serde_json::to_value(RunReadout {
+                kind: Some(kind),
+                ..readout.clone()
+            })
+            .expect("serialises")["kind"]
+                .clone();
+            assert_eq!(crossed, spelt);
+        }
 
         for (ending, spelt) in [
             (Ending::Live, "live"),
@@ -5492,15 +5816,16 @@ mod tests {
         let unstaked = RunReadout {
             ticket: None,
             folder: None,
+            kind: None,
             // A run nothing has ever classified says so by having no signal,
             // rather than by naming a state nobody observed.
             signal: None,
-            kind: None,
             ..readout.clone()
         };
         let crossed = serde_json::to_value(unstaked).expect("serialises");
         assert!(crossed["ticket"].is_null());
         assert!(crossed["folder"].is_null());
+        assert!(crossed["kind"].is_null());
         assert!(crossed["signal"].is_null());
         // And it says it does not know what it is, rather than crossing as
         // *work* — the same posture [`UNKNOWN_LOSS`] takes at a quit.
@@ -8647,9 +8972,9 @@ mod tests {
                 ending: Ending::Live,
                 ticket: Some(50),
                 folder: Some("perseverance".to_string()),
+                kind: Some(RunKind::Work),
                 silence: Silence::Quiet { silent_for_ms: 0 },
                 signal,
-                kind: Some(RunKind::Work),
                 opened: 1_785_888_000,
                 spoke: 1_785_888_000,
             }]
@@ -8827,6 +9152,61 @@ mod tests {
         // facts are independent *for*.
         assert!(!readouts[0].over);
         assert_eq!(terminals.losses().len(), 1);
+    }
+
+    /// **A run that holds no claim takes no ending from the node it names.**
+    ///
+    /// Asking about a closed node is a supported press — `askSocket` fills on
+    /// `closed` and the ADR says so in as many words — and on the resolution
+    /// join alone the pane greeted it with *the ticket closed, this output is
+    /// yours to read for as long as you want* and an **End this run** button,
+    /// over a session nobody had typed a question into yet. The mirror is the
+    /// lie the [`Ending`] doc names: an Ask on a claimed node exiting would read
+    /// `ExitedUnresolved` and assert a claim it never took.
+    ///
+    /// The fix is upstream of both readings — a non-claiming run never reaches
+    /// the resolution table — so what is asserted here is the table as well as
+    /// the ending, and the ending the exit would take is the pure derivation's
+    /// last row.
+    #[test]
+    fn an_ask_run_staked_on_a_closed_node_stays_live_while_its_child_is() {
+        let directory = TempDir::new().expect("temp dir");
+        let terminals = Terminals::new();
+
+        let asking = a_live_run_in(&terminals, directory.path());
+        terminals.staked(asking, a_stake(77, "/repos/perseverance", RunKind::Ask));
+        terminals.held().monitor(Some(asking));
+
+        // #77 open, and then #77 closed: the read that makes a work run spent.
+        terminals.noticed("/repos/perseverance", &model_of(AWKWARD));
+        terminals.noticed("/repos/perseverance", &model_of(AWKWARD_LATER));
+
+        assert_eq!(
+            terminals.resolved_here().get(&asking),
+            None,
+            "a question about #77 was joined to #77's resolution"
+        );
+        let readouts = terminals.readouts();
+        assert_eq!(readouts.len(), 1);
+        assert_eq!(readouts[0].ending, Ending::Live);
+        assert_eq!(readouts[0].kind, Some(RunKind::Ask));
+        // The silence reading takes resolution from the same table, so it does
+        // not call the question spent either.
+        assert_ne!(readouts[0].silence, Silence::Spent);
+
+        // Nothing observed is what the exit then reads against, which is
+        // [`Ending::Exited`] — the run stopped, and nothing is asserted about a
+        // claim it never held.
+        assert_eq!(ending(true, None), Ending::Exited);
+
+        // The claiming run on the same node is untouched by any of it.
+        let working = a_live_run_in(&terminals, directory.path());
+        terminals.staked(working, a_stake(77, "/repos/perseverance", RunKind::Work));
+        terminals.noticed("/repos/perseverance", &model_of(AWKWARD_LATER));
+        assert_eq!(
+            terminals.resolved_here().get(&working),
+            Some(&NodeState::Resolved)
+        );
     }
 
     /// Spent holds its slot, and only a press takes it.
@@ -9391,6 +9771,54 @@ mod tests {
         // moment nothing here is holding it.
         terminals.ended(run);
         assert!(!terminals.live_run_on(70, "/repos/perseverance"));
+    }
+
+    /// **A question about a claim is not a run on it**, in the one join Resume
+    /// asks.
+    ///
+    /// The reachable collision that
+    /// `docs/adr/0027-ask-claims-nothing-so-it-gates-on-nothing` never
+    /// examined: Ask fills on a `claimed` node deliberately, and it stakes
+    /// that node's number in that node's folder — the same pair a work run
+    /// stakes. On the pair alone this answered *yes*, and the two presses
+    /// that follow both go wrong from it:
+    /// the rail takes its re-focus branch and binds the pane to the question
+    /// session without sending a command, and `resume_working` refuses the press
+    /// that races it over a run holding no claim. Both read this predicate, so
+    /// this is where the line is drawn.
+    #[test]
+    fn an_ask_run_on_a_claim_is_not_the_live_run_resume_joins_to() {
+        let directory = TempDir::new().expect("temp dir");
+        let terminals = Terminals::new();
+
+        let asking = a_live_run_in(&terminals, directory.path());
+        terminals.staked(asking, a_stake(70, "/repos/perseverance", RunKind::Ask));
+
+        assert!(
+            !terminals.live_run_on(70, "/repos/perseverance"),
+            "a question about #70 was answered for as a run holding it"
+        );
+
+        // The claiming run beside it, on the same number in the same folder,
+        // which is the pairing the ticket exists for: the answer is *yes* on
+        // account of that run and never on account of the question.
+        let working = a_live_run_in(&terminals, directory.path());
+        terminals.staked(working, a_stake(70, "/repos/perseverance", RunKind::Work));
+        assert!(terminals.live_run_on(70, "/repos/perseverance"));
+
+        // And the work run ending takes the answer with it, with the question
+        // still live: nothing about Ask holds the claim open.
+        terminals.ended(working);
+        assert!(!terminals.live_run_on(70, "/repos/perseverance"));
+
+        // Research is the other claiming kind — it is booked with an assignment
+        // exactly as work is — so it answers this join too.
+        let researching = a_live_run_in(&terminals, directory.path());
+        terminals.staked(
+            researching,
+            a_stake(70, "/repos/perseverance", RunKind::Research),
+        );
+        assert!(terminals.live_run_on(70, "/repos/perseverance"));
     }
 
     /// **The three writes and the bind, made by the one writer both verbs use.**

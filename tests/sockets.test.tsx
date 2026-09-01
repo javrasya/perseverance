@@ -10,11 +10,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  */
 import { Sockets, focusPicker } from "../src/chrome/Sockets.jsx";
 import {
-  ASK_ARRIVES,
+  ASK_IS_OUT,
+  ASK_LABEL,
   CHECKING_LABEL,
   COMPOSE_LABEL,
   NOTHING_TAKEABLE,
   NO_ADAPTER,
+  NO_MAP_TO_ASK_ABOUT,
   NOTHING_SELECTED,
   NOT_A_TICKET,
   RESUME_IS_OUT,
@@ -24,7 +26,7 @@ import {
   TO_FRONTIER_LABEL,
   alreadyComposing,
 } from "../src/chrome/sockets";
-import type { Composed, Started } from "../src/chrome/started";
+import type { Asked, Composed, Started } from "../src/chrome/started";
 import {
   readoutFrom,
   type AdapterReading,
@@ -33,7 +35,7 @@ import {
 import type { Frontier } from "../src/snapshot/model.generated";
 import { monitor, readUi } from "../src/stores/ui";
 import { forgetPrompts, promptFor } from "../src/terminal/prompts";
-import type { RunReadout } from "../src/terminal/runs";
+import type { RunKind, RunReadout } from "../src/terminal/runs";
 
 /**
  * The rail, mounted.
@@ -69,6 +71,7 @@ const staked = (
   ticket: number,
   over: boolean,
   folder = "/work/repo",
+  kind: RunKind = "work",
 ): RunReadout => ({
   run,
   held: 0,
@@ -83,6 +86,7 @@ const staked = (
   ending: over ? "exitedUnresolved" : "live",
   ticket,
   folder,
+  kind,
 });
 
 /** #41 selected and read as a claim: the crossing Resume is offered at. */
@@ -171,7 +175,7 @@ describe("the rail on screen", () => {
 
     expect(socket(host, "start").textContent).toContain(NO_ADAPTER);
     expect(socket(host, "resume").textContent).toContain(NOTHING_SELECTED);
-    expect(socket(host, "ask").textContent).toContain(ASK_ARRIVES);
+    expect(socket(host, "ask").textContent).toContain(NO_MAP_TO_ASK_ABOUT);
     expect(host.querySelectorAll("[title]")).toHaveLength(0);
   });
 
@@ -286,6 +290,34 @@ describe("Resume", () => {
       adapter: "claude",
     });
     expect(readUi().monitored).toBe(14);
+  });
+
+  /* An Ask on the claim is the collision this rail could actually reach: the
+     socket fills on a `claimed` node on purpose, and the question is staked on
+     that node in that folder. Resuming over it must be a resume — the question
+     holds nothing, so there is nothing here for one crossing, one pane to
+     protect. Before the kind crossed, this press moved the pane onto the Ask
+     session and sent no command, so the operator was reading a question they
+     believed was their work. */
+  it("spawns over a live Ask run staked on the same claim", async () => {
+    invoke.mockResolvedValue({
+      kind: "spawned",
+      run: 15,
+      prompt: { text: "work #41", characters: 8, origin: "stock" },
+    } satisfies Started);
+    const host = paint({ ...CLAIM, runs: [staked(9, 41, false, "/work/repo", "ask")] });
+
+    await act(async () => {
+      button(host, "resume").click();
+    });
+
+    expect(invoke).toHaveBeenCalledWith("resume_working", {
+      folder: "/work/repo",
+      ticket: 41,
+      adapter: "claude",
+    });
+    expect(invoke).not.toHaveBeenCalledWith("monitor_run", { run: 9 });
+    expect(readUi().monitored).toBe(15);
   });
 
   it("treats a run that is over as no run at all, and starts a cold one", async () => {
@@ -588,6 +620,217 @@ describe("a compose press", () => {
     // A compose refusal names no frontier, so nothing was re-armed and the box
     // is back to the offer it made.
     expect(button(host, "start").textContent).toContain(COMPOSE_LABEL);
+  });
+});
+
+/**
+ * The Ask press, wired.
+ *
+ * The same two writes every spawn owes — the prompt this run was started with,
+ * and the pane bound to it, which is the keyboard invariant on this side — over
+ * a node that no resolver has been through and no claim is held on. What the
+ * press does *not* do is the point of #55: it asks nothing about the frontier,
+ * takes nothing from the map, and re-arms on nothing when it is refused.
+ */
+describe("an Ask press", () => {
+  /** #41 selected on the open map, and nothing else true of it. */
+  const ASKING = { map: 28, selection: 41, selectionReads: "takeable" } as const;
+
+  it("goes out with the folder, the node and the adapter, and nothing else", async () => {
+    const prompt = { text: "ask about #41", characters: 13, origin: "stock" } as const;
+    invoke.mockResolvedValue({ kind: "spawned", run: 21, prompt } satisfies Asked);
+    const host = paint(ASKING);
+
+    expect(button(host, "ask").textContent).toContain(ASK_LABEL);
+    // Aimed at the selection, and Start Working beside it at the frontier: the
+    // two numbers are different facts and the rail prints both.
+    expect(socket(host, "ask").textContent).toContain("#41");
+    expect(socket(host, "start").textContent).toContain("#75");
+
+    await act(async () => {
+      button(host, "ask").click();
+    });
+
+    expect(invoke).toHaveBeenCalledWith("ask", {
+      folder: "/work/repo",
+      node: 41,
+      adapter: "claude",
+    });
+    // A node and not a ticket: the argument is the selection whatever it is.
+    expect(Object.keys(invoke.mock.calls[0]?.[1] as object)).toEqual([
+      "folder",
+      "node",
+      "adapter",
+    ]);
+    /* The two writes a spawn owes. The pane follows the question even while a
+       claiming run is live — one operator, one pane, one keyed run. */
+    expect(readUi().monitored).toBe(21);
+    expect(promptFor(21)).toEqual(prompt);
+  });
+
+  it("is offered over a claim another run is holding, and takes nothing from it", async () => {
+    const prompt = { text: "ask about #41", characters: 13, origin: "stock" } as const;
+    invoke.mockResolvedValue({ kind: "spawned", run: 22, prompt } satisfies Asked);
+    const host = paint({
+      ...ASKING,
+      selectionReads: "claimed",
+      selectionIsTicket: true,
+      runs: [staked(7, 41, false)],
+      liveRuns: [7],
+    });
+
+    expect(button(host, "ask").getAttribute("aria-disabled")).toBe("false");
+
+    await act(async () => {
+      button(host, "ask").click();
+    });
+
+    expect(invoke).toHaveBeenCalledWith("ask", {
+      folder: "/work/repo",
+      node: 41,
+      adapter: "claude",
+    });
+    // And the keys move to the question, which is the whole of what a live run
+    // beside it has to give up.
+    expect(readUi().monitored).toBe(22);
+  });
+
+  it("prints its refusal under its own socket and re-arms nothing", async () => {
+    invoke.mockResolvedValue({
+      kind: "refused",
+      detail: "#41 is not on map #28, so there is nothing here to ask about",
+      /* No `frontier` on the answer at all: an Ask was never aimed at what the
+         map offers to start, so there is nothing for one to re-arm on. */
+    } satisfies Asked);
+    const host = paint(ASKING);
+
+    await act(async () => {
+      button(host, "ask").click();
+    });
+
+    expect(socket(host, "ask").textContent).toContain("nothing here to ask about");
+    expect(socket(host, "start").textContent).not.toContain("nothing here to ask about");
+    expect(socket(host, "resume").textContent).not.toContain("nothing here to ask about");
+    expect(invoke).toHaveBeenCalledTimes(1);
+    expect(readUi().monitored).toBeNull();
+    // Nothing was retargeted: Start Working is still armed on the frontier the
+    // snapshot gave, and Ask is back to the offer it made.
+    expect(socket(host, "start").textContent).toContain("#75");
+    expect(button(host, "ask").textContent).toContain(ASK_LABEL);
+  });
+
+  it("retires that refusal when the selection moves off the node it was about", async () => {
+    invoke.mockResolvedValue({
+      kind: "refused",
+      detail: "#41 is not on map #28, so there is nothing here to ask about",
+    } satisfies Asked);
+    const host = paint(ASKING);
+
+    await act(async () => {
+      button(host, "ask").click();
+    });
+
+    expect(socket(host, "ask").textContent).toContain("nothing here to ask about");
+
+    /* A tick that hands back the same selection is not a move: the refusal is
+       still the answer to the press the socket is wearing. */
+    paint(ASKING);
+    expect(socket(host, "ask").textContent).toContain("nothing here to ask about");
+
+    /* A different node is, and the sentence goes with the press it answered:
+       it was about #41, and nobody has asked anything about #42. */
+    paint({ ...ASKING, selection: 42 });
+    expect(socket(host, "ask").textContent).not.toContain("nothing here to ask about");
+    expect(socket(host, "ask").textContent).toContain("#42");
+    expect(button(host, "ask").textContent).toContain(ASK_LABEL);
+  });
+
+  it("never prints a refusal that landed after the selection had already moved", async () => {
+    /* The same move, made while the command is still out. Nothing retires this
+       one: the refusal reaches state after the last selection change, so the
+       effect that watches the selection has already run for the last time and
+       there is no further change coming to run it again. The sentence is read
+       against the node the press was about instead, and #41's answer is not a
+       sentence a socket armed on #42 has any business printing. */
+    let answer: (asked: Asked) => void = () => {};
+    invoke.mockReturnValue(
+      new Promise<Asked>((resolve) => {
+        answer = resolve;
+      }),
+    );
+    const host = paint(ASKING);
+
+    await act(async () => {
+      button(host, "ask").click();
+    });
+    expect(button(host, "ask").textContent).toContain(CHECKING_LABEL);
+
+    // The Route moves under the command in flight.
+    paint({ ...ASKING, selection: 42 });
+
+    await act(async () => {
+      answer({
+        kind: "refused",
+        detail: "#41 is not on map #28, so there is nothing here to ask about",
+      } satisfies Asked);
+    });
+
+    expect(socket(host, "ask").textContent).not.toContain("nothing here to ask about");
+    // Armed on the node under the hand, and pressable: nothing was spawned, and
+    // the answer to a press about #41 costs the next press about #42 nothing.
+    expect(socket(host, "ask").textContent).toContain("#42");
+    expect(button(host, "ask").textContent).toContain(ASK_LABEL);
+    expect(button(host, "ask").getAttribute("aria-disabled")).toBe("false");
+    expect(readUi().monitored).toBeNull();
+  });
+
+  it("says `checking…` while its press is out, and a second press buys nothing", async () => {
+    let answer: (asked: Asked) => void = () => {};
+    invoke.mockReturnValue(
+      new Promise<Asked>((resolve) => {
+        answer = resolve;
+      }),
+    );
+    /* A claim under the hand, so both the sockets beside this one are armed on
+       something and the only reason either recesses is the press in flight. */
+    const host = paint({ ...ASKING, selectionReads: "claimed", selectionIsTicket: true });
+
+    await act(async () => {
+      button(host, "ask").click();
+    });
+
+    expect(button(host, "ask").textContent).toContain(CHECKING_LABEL);
+    expect(button(host, "ask").getAttribute("aria-disabled")).toBe("true");
+
+    /* One crossing sends one command at a time. That is a rule about presses
+       and not about runs: the two spawning sockets beside this one recess with
+       the press named on them rather than swallowing a click in silence. */
+    expect(socket(host, "start").textContent).toContain(ASK_IS_OUT);
+    expect(socket(host, "resume").textContent).toContain(ASK_IS_OUT);
+    expect(button(host, "toFrontier").getAttribute("aria-disabled")).toBe("false");
+
+    // The rail is still four boxes in one order, mid-press as everywhere else.
+    const ids = [...host.querySelectorAll("[data-socket]")].map((el) =>
+      el.getAttribute("data-socket"),
+    );
+    expect(ids).toEqual(["start", "resume", "ask", "toFrontier"]);
+
+    await act(async () => {
+      button(host, "ask").click();
+    });
+    await act(async () => {
+      button(host, "start").click();
+    });
+    expect(invoke).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      answer({
+        kind: "spawned",
+        run: 23,
+        prompt: { text: "ask about #41", characters: 13, origin: "stock" },
+      });
+    });
+    expect(button(host, "ask").textContent).toContain(ASK_LABEL);
   });
 });
 

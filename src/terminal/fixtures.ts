@@ -49,9 +49,9 @@ const ORDINARY: FixtureRun = {
   ending: "live",
   ticket: null,
   folder: null,
+  kind: null,
   silence: { kind: "nothing" },
   signal: null,
-  kind: null,
   openedSecondsAgo: 0,
   quietSecondsAgo: 0,
 };

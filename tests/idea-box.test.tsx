@@ -93,12 +93,12 @@ const reading = (run: number, finished: boolean): RunReadout => ({
   ending: finished ? "exited" : "live",
   ticket: null,
   folder: null,
+  kind: null,
   over: finished,
   code: finished ? 0 : null,
   monitored: false,
   silence: { kind: "nothing" },
   signal: null,
-  kind: null,
   // Stamps and not ages, so a row's words hold still between readouts. The box
   // reads neither; they are here because a readout carries them.
   opened: 1_785_888_000,

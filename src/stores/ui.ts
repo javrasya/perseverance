@@ -26,10 +26,14 @@ import { readable } from "./readable";
  * reason the whole gesture exists: a glance borrows the dial and may not move
  * it. `dock` arrived beside them both because the same argument holds a third
  * time: which dock the boarding pass is at is a press and never an arrival, so
- * a poll may not write it either. The warm surface and the rack *binding* are
- * still not declared here — they are #55's and #56's, and a field with one legal
- * value invented now would be making those tickets' decisions early. What the shape settles is only that
- * when they arrive, they arrive *here* rather than beside a snapshot.
+ * a poll may not write it either. Ask arrived with #55 and declared no field at
+ * all, which is the shape working rather than the shape being skipped: an Ask is
+ * a spawn, a spawn's binding is `monitored`, and the node it asks about is
+ * `selection` — both already here, both already written by a press and never by
+ * a poll. What is still undeclared is the rack *binding*, which is #56's, and a
+ * field with one legal value invented now would be making that ticket's decision
+ * early. What the shape settles is only that when it arrives, it arrives *here*
+ * rather than beside a snapshot.
  */
 export interface Ui {
   /** Which view is on screen. App-global and remembered across launches. */

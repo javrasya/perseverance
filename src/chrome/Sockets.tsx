@@ -19,7 +19,15 @@ import {
   type SocketId,
   type StartTarget,
 } from "./sockets";
-import { composeSpec, resumeWorking, startWorking, type Composed, type Started } from "./started";
+import {
+  ask,
+  composeSpec,
+  resumeWorking,
+  startWorking,
+  type Asked,
+  type Composed,
+  type Started,
+} from "./started";
 import styles from "./Sockets.module.css";
 
 interface SocketsProps {
@@ -94,6 +102,13 @@ interface SocketsProps {
  * is exactly what `null` already means to the press. The absence is widened
  * here, on this side of the seam, rather than sent across it as a field that
  * could only ever be null.
+ *
+ * `Asked` has none for the same reason and one more: an Ask press is aimed at
+ * the selection, which no frontier resolver has been through, and the command
+ * never asks the map what is takeable. So an Ask refusal re-arms on nothing and
+ * its sentence stays under its own socket until the next press answers it. One
+ * widening here for every answer that names no frontier, rather than a second
+ * helper per verb — the three would only ever say the same thing.
  */
 const reArmsOn = (answer: { detail: string; frontier?: Frontier | null }): Frontier | null =>
   answer.frontier ?? null;
@@ -172,6 +187,28 @@ export function Sockets({
     );
   }, [frontier]);
 
+  /* The same retirement, on the other thing a press can be aimed at. An Ask
+     refusal names no frontier — it was aimed at the selection, which no
+     resolver has been through — so the comparison above finds nothing to
+     contradict it and leaves it standing. What contradicts it is the selection
+     moving off the node the press was about: the sentence answers a press made
+     at one node, and under another node it is a sentence about a press nobody
+     made. The node the refusal names and not the socket that wears it, because
+     an effect can only retire what is already in state: a press still in flight
+     when the selection moves writes its refusal after this has run for the last
+     time, and no further change is coming to run it again. That one is never
+     printed either — `sentenceOn` makes the same comparison at render — and
+     this is the half that hands the socket back once the operator moves again.
+     The selection is a number, so a tick that reselects the same node is not a
+     move and retires nothing. */
+  useEffect(() => {
+    setPress((current) =>
+      current.kind === "refused" && current.node !== null && current.node !== selection
+        ? { kind: "idle" }
+        : current,
+    );
+  }, [selection]);
+
   const composing = composed !== null && liveRuns.includes(composed.run) ? composed.map : null;
   const rail = railAt({
     frontier,
@@ -197,11 +234,18 @@ export function Sockets({
      is a spawn whichever button bought it, and a second copy of these lines is
      a second place for the prompt or the pane binding to go missing from. What
      differs is only the command, what it was aimed at, and which socket wears
-     the answer. */
+     the answer.
+
+     `about` is the node a refusal from this press would be a sentence about,
+     read at press time because the selection can move while the command is out
+     and the answer belongs to the node the question was asked over. Only the
+     verb the selection alone arms names one; the two that re-arm on a fresh
+     read pass `null`, because a frontier is what retires those. */
   const spawning = async (
     id: SocketId,
     aim: StartTarget | null,
-    spawn: () => Promise<Started | Composed>,
+    about: number | null,
+    spawn: () => Promise<Started | Composed | Asked>,
   ) => {
     setPress({ kind: "checking", socket: id });
     const answer = await spawn();
@@ -220,13 +264,19 @@ export function Sockets({
       setPress({ kind: "idle" });
       return;
     }
-    setPress({ kind: "refused", socket: id, detail: answer.detail, frontier: reArmsOn(answer) });
+    setPress({
+      kind: "refused",
+      socket: id,
+      detail: answer.detail,
+      frontier: reArmsOn(answer),
+      node: about,
+    });
   };
 
   /* Which of the two commands the primary socket is was decided by the
      derivation; this presses what it was handed. */
   const start = (aim: StartTarget, at: string, agent: string) => {
-    void spawning("start", aim, () =>
+    void spawning("start", aim, null, () =>
       aim.kind === "compose" ? composeSpec(at, agent) : startWorking(at, aim.ticket, agent),
     );
   };
@@ -254,7 +304,7 @@ export function Sockets({
       void monitorRun(already).then(() => monitor(already));
       return;
     }
-    void spawning("resume", null, () => resumeWorking(at, claim, agent));
+    void spawning("resume", null, null, () => resumeWorking(at, claim, agent));
   };
 
   const onPress = (socket: Socket) => {
@@ -272,6 +322,15 @@ export function Sockets({
     if (folder === null || adapter === null) return;
     if (socket.id === "start" && rail.start !== null) start(rail.start, folder, adapter);
     if (socket.id === "resume" && rail.claim !== null) resume(rail.claim, folder, adapter);
+    /* Aimed at nothing, because `StartTarget` is the primary socket's own
+       discrimination — two commands behind one box — and an Ask has none to
+       make: one command, over the node the derivation already armed it on. The
+       shared tail does the two writes a spawn owes, and its `monitor` is *Ask
+       may hold the keys*: Rust bound its own monitored run inside the command,
+       so this is the declaration and not a second one. */
+    if (socket.id === "ask" && selection !== null) {
+      void spawning("ask", null, selection, () => ask(folder, selection, adapter));
+    }
   };
 
   return (
