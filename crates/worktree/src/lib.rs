@@ -227,7 +227,14 @@ pub fn worktree_for(folder: &Path, ticket: u64, title: &str) -> Result<Worktree,
         // Canonicalised last, so the answer is the spelling the filesystem
         // itself uses: this path becomes a harvest key and a child's working
         // directory, and two spellings of one directory would be two harvests.
-        path: std::fs::canonicalize(&path).unwrap_or(path),
+        //
+        // Through `inventory::canonical` and not `std::fs::canonicalize`, for
+        // exactly that reason. On Windows the bare call answers an
+        // extended-length path (`\\?\C:\…`) while `git worktree list
+        // --porcelain` prints `C:/…`, so the worktree this function just made
+        // and the entry the listing reports for it would be two spellings of
+        // one directory — which is the second harvest this comment forbids.
+        path: inventory::canonical(&path),
         branch,
     })
 }

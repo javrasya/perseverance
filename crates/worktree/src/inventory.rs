@@ -625,14 +625,15 @@ fn publication_of(folder: &Path, branch: Option<&str>) -> Publication {
 /// The path canonicalised, and then spelled the way git spells one.
 ///
 /// The root is the only path in this module built locally rather than read out
-/// of the porcelain, so it is the only place the two spellings can disagree. On
+/// of the porcelain, and `worktree_for` builds the other one — so those two are
+/// where the spellings can disagree, and both come through here. On
 /// Windows they do: `std::fs::canonicalize` answers an extended-length path
 /// (`\\?\C:\…`) while `git worktree list --porcelain` prints `C:/…`, and Rust
 /// compares those two prefixes by variant, so an unstripped root would answer
 /// *foreign* about every worktree this app made and the whole feature would go
 /// quiet there. Stripping the prefix is the whole of the difference, and four
 /// lines of it are cheaper than a dependency.
-fn canonical(path: &Path) -> PathBuf {
+pub(crate) fn canonical(path: &Path) -> PathBuf {
     without_verbatim_prefix(std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()))
 }
 
