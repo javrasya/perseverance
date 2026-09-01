@@ -1,0 +1,88 @@
+/*
+ * Tier 3 — component tokens, defined from semantic tokens only.
+ *
+ * No transition and no `@keyframes` for the unfold: the repo spends its whole
+ * motion budget on liveness, and a block that animated open would be competing
+ * with the terminal underneath it.
+ */
+
+.block {
+  --c-prompt-line: var(--s-line-quiet);
+  --c-prompt-ink: var(--s-ink-secondary);
+  --c-prompt-badge-edge: var(--s-line-strong);
+  --c-prompt-badge-fill: var(--s-surface-raised);
+
+  border-bottom: var(--s-border-hairline) solid var(--c-prompt-line);
+  color: var(--c-prompt-ink);
+  font-size: var(--s-text-micro);
+}
+
+/*
+ * `display: flex` takes the summary off `list-item` and with it the disclosure
+ * marker WebKit and Blink draw — both of this app's WebViews — so the triangle
+ * is drawn back below, and the pointer says the line is a control. A summary
+ * reading `stock prompt  1,487 characters` with no marker and no cursor is a
+ * block nobody knows opens, and the prose behind it is the whole point of it.
+ */
+.summary {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-space-snug);
+  padding: var(--s-space-hair) var(--s-space-snug);
+  cursor: pointer;
+}
+
+/*
+ * The marker, as a glyph swap and not a rotation: still no transition and no
+ * `@keyframes` here — see the header. Decorative, because `<details>` already
+ * tells the accessibility tree whether it is open, and a reader announcing a
+ * triangle beside that would be saying it twice.
+ */
+.summary::before {
+  content: "\25B8";
+  color: var(--c-prompt-ink);
+  line-height: 1;
+}
+
+.block[open] > .summary::before {
+  content: "\25BE";
+}
+
+/*
+ * Stock and custom are told apart by the word, the weight and the edge, and
+ * never by hue alone — the palette is one file away from being rethemed, and a
+ * badge that only differed in colour would say nothing after that.
+ */
+.badge {
+  border: var(--s-border-hairline) solid var(--c-prompt-badge-edge);
+  border-radius: var(--s-radius-chip);
+  padding: 0 var(--s-space-hair);
+  letter-spacing: var(--s-tracking-label);
+  font-weight: var(--s-weight-regular);
+}
+
+.badge[data-custom] {
+  border-width: var(--s-border-emphasis);
+  background: var(--c-prompt-badge-fill);
+  color: var(--s-ink-primary);
+  font-weight: var(--s-weight-emphasis);
+}
+
+.count {
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * The unfold is bounded. ~1.5K of prose given the whole pane would leave the
+ * terminal a strip, so the text scrolls inside the block instead of pushing it.
+ */
+.text {
+  max-height: 12rem;
+  margin: 0;
+  padding: 0 var(--s-space-snug) var(--s-space-snug);
+  overflow: auto;
+  color: var(--s-ink-secondary);
+  font-family: var(--s-font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 use std::collections::BTreeMap;
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 
 use crate::parse::Reading;
@@ -81,6 +81,20 @@ impl Environment {
         for (name, value) in &self.variables {
             command.env(name, os_value(value));
         }
+    }
+
+    /// Every pair, in the spelling a process spawner takes.
+    ///
+    /// The sibling of [`Environment::apply`], for the one child this workspace
+    /// starts that is not a `std::process::Command`: a PTY session is built
+    /// through `portable_pty`'s own command builder, which knows nothing about
+    /// this type. The conversion is the same one `apply` makes, so what a
+    /// terminal run inherits and what a captured run inherits cannot differ.
+    pub fn os_pairs(&self) -> Vec<(OsString, OsString)> {
+        self.variables
+            .iter()
+            .map(|(name, value)| (OsString::from(name), os_value(value).into_owned()))
+            .collect()
     }
 
     /// An absolute path to `program`, resolved against **this** `PATH`.

@@ -47,7 +47,9 @@ pub use cadence::{
 /// The type every read in this crate ultimately produces. Re-exported so the
 /// direction of the seam is visible from the crate that crosses it.
 pub use perseverance_model::Snapshot;
-pub use poller::{start, Ahead, Poke, Poker, RunHandle, Tick, Timings, Watched};
+pub use poller::{
+    start, Ahead, Poke, Poker, Reply, Revalidated, RunHandle, Tick, Timings, Watched,
+};
 /// The one seam a test can cross to hold a [`FreshRead`] without a socket.
 ///
 /// `interpret_read` is the only thing in the workspace that mints one, and
@@ -58,7 +60,7 @@ pub use poller::{start, Ahead, Poke, Poker, RunHandle, Tick, Timings, Watched};
 #[cfg(feature = "fixtures")]
 pub use read::interpret_read;
 pub use read::{
-    map_read_query_id, read_maps, request_body, Answer, FreshRead, ReadFailure, GRAPHQL_ENDPOINT,
-    MAP_READ_QUERY,
+    map_read_query_id, read_login, read_maps, read_ticket_body, request_body, Answer, FreshRead,
+    ReadFailure, GRAPHQL_ENDPOINT, MAP_READ_QUERY, TICKET_READ_QUERY, VIEWER_READ_QUERY,
 };
 pub use token::{acquire_token, interpret, Token, TokenOutcome, TokenRefusal};

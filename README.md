@@ -117,6 +117,14 @@ and truncation is printed in the chrome and never into the stream.
 [ADR 0013](docs/adr/0013-lag-drop-cannot-mean-dropping-bytes.md) records the
 decision, what it costs, and the property test that falsifies it.
 
+**What a run was told is chrome beside its terminal.** The prompt a press was
+answered with is kept per run for as long as the window is open and printed
+above the emulator as a collapsed block that unfolds in place, its summary line
+carrying the character count Rust gave and a **stock/custom** badge — whose
+prose this run was started on is the first thing a bug report needs, and ~1.5K
+of it unfolded would be the whole first screen. A run this window did not start
+has no block at all.
+
 There is one xterm.js instance per run and it is moved between the pane and a
 hidden stow by relocating its DOM node — the same imperative-reparent primitive
 the boarding pass needs, so the app has one such mechanism rather than two. There
@@ -320,12 +328,6 @@ check that cannot fail.
   blocker that is both closed and elsewhere. `crates/model` still documents the
   field as carrying every blocker the answer named, so the next reader will
   believe it. It is one query against a real map to settle.
-- **Nothing creates a run yet.** #47 built the machinery — the registry, the
-  channel, the ring, the pane — and *Start Working* is #48's, so the command
-  surface has no producer behind it in the shipped app. Every invariant it holds
-  is exercised against real children in `crates/pty`'s own tests, which spawn the
-  platform's shell rather than an agent CLI, and the pane says *nothing is running
-  here yet* until #48 lands.
 - **`nothing_inside_the_terminal_can_raise_a_condition_on_the_graph` names every
   file in `crates/pty/src` by hand.** A file added there escapes the scan until
   someone adds it to the list. The array's length is part of its type, so the
@@ -397,16 +399,6 @@ check that cannot fail.
   Nothing measured says the agent CLIs produce one, and the Windows job object
   has no such gap — this is the shape of the platform asymmetry, not a bug on one
   side of it.
-- **The quit confirmation has nothing to name in the shipped app yet.**
-  `Terminals::staked` is what records a run's ticket, folder and kind, and it has
-  no caller until #48 *Start Working* — so the side table is empty every launch,
-  and a live run today would be described as one this app was not told anything
-  about. That sentence is deliberate rather than a fallback: a confirmation that
-  omitted a run it could not describe would under-report exactly when the app is
-  most confused. The rule itself is exercised end to end —
-  `a_staked_run_is_named_by_what_it_loses_and_an_unstaked_one_is_still_named`
-  opens three real runs through the registry, stakes two of them and reads the
-  sentences back — so what is missing is the caller and not the behaviour.
 - **A stranded claim being reachable through Resume on the next launch is not
   demonstrable on this branch.** A claim is a GitHub assignment and nothing this
   process holds; claiming is #48's and Resume is #49's, and both are open. What
@@ -572,17 +564,17 @@ check that cannot fail.
   against a number that had stopped being true. The fixture pins it only for as
   long as somebody refreshes the fixture, and the `#[ignore]`d live test is the
   only thing that meets a real schema.
-- **Two of the three pokes have no producer, and now for two different
-  reasons.** A run's process exit waits on #47, which is the crate that will own
-  a child process. An adapter's `Idle` is not waiting on anything: **all three**
-  shipped adapters take the default `watch`, which classifies nothing — the whole
-  out-of-band tier is cut from v1, a live signal would mean only *poll sooner*,
-  and polling never stopped. Three adapters producing no signal is a stronger
-  claim than one did: no call site can have grown a branch on whether an adapter
-  watches, because none of them does and every call site works anyway. So the
-  type is here and deliberately unproduced. Either way both arrive as things the poller is
-  *told about* on a channel, the only thing holding a `RunHandle` today is a
-  test, and the run-live rung is unreachable in a running build.
+- **One of the three pokes has no producer, and deliberately so.** An adapter's
+  `Idle` is not waiting on a ticket: **all three** shipped adapters take the
+  default `watch`, which classifies nothing — the whole out-of-band tier is cut
+  from v1, a live signal would mean only *poll sooner*, and polling never
+  stopped. Three adapters producing no signal is a stronger claim than one did:
+  no call site can have grown a branch on whether an adapter watches, because
+  none of them does and every call site works anyway. So the type is here and
+  deliberately unproduced. The other two are produced now that #48 *Start
+  Working* spawns: `start_working` holds a `RunHandle` through
+  `Terminals::counting`, so the run-live rung is reached in a running build and
+  a run's process exit arrives on the channel the poller is told about.
 - **A fourth poke the ticket did not ask for.** `EnvironmentSettled` fires when
   the harvest lands, because without it a Windows launch spends 1.5–1.9 s
   harvesting, ticks with no token, and waits a whole rung before the first list

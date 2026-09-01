@@ -86,6 +86,63 @@ pub enum Poke {
     /// The harvest settled and `gh` has been asked. Not one of the ticket's
     /// three, and the module doc says why it is here anyway.
     EnvironmentSettled,
+
+    /// Somebody is about to spawn and will not until this pass has answered.
+    ///
+    /// The only poke anybody waits on, and the read it buys is the ordinary one
+    /// — same thread, same closure, same emits — so what it learns reaches the
+    /// graph and the ledger by the route every other pass uses and this carries
+    /// nothing back but the outcome. See [`Poker::revalidate`].
+    Revalidate(Reply),
+}
+
+/// Where an awaited pass sends its outcome.
+///
+/// **The reply rides in the enum rather than on a second channel**, because a
+/// second channel is a second thing to wake on and this loop has one
+/// `recv_timeout` and no runtime to select with. That costs [`Poke`] nothing:
+/// the derives every test in this file compares pokes with are kept by writing
+/// the two impls below by hand rather than by dropping them. A `Sender` has no
+/// identity of its own to compare on this toolchain, so the equality is the one
+/// a shared handle does have: two requests are the same request when they are
+/// the same allocation.
+#[derive(Debug, Clone)]
+pub struct Reply(Arc<Sender<Tick>>);
+
+impl PartialEq for Reply {
+    fn eq(&self, other: &Reply) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for Reply {}
+
+/// What an awaited pass came to, from the asker's side.
+///
+/// Two answers rather than one, because *the deadline ran out* is not a tick.
+/// [`crate::ladder_floor`] answers `POKE_FLOOR` for a poked pass and the budget
+/// and backoff floors answer far more, so a wait with no end is a button that
+/// hangs — and a caller that could not tell a held-up pass from a read would
+/// spawn on evidence it never got.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Revalidated {
+    /// A pass ran on the poller's thread inside the deadline, and this is what
+    /// it came to. `NotAttempted` is one of these: a launch whose harvest has
+    /// not settled has not failed to read GitHub, and it is still not a read.
+    Ticked(Tick),
+
+    /// The deadline ran out with no pass having landed — held under a floor, or
+    /// queued behind a read already in flight. Nothing failed and nothing is
+    /// known.
+    NotInTime,
+}
+
+impl Revalidated {
+    /// Whether this answer is a **fresh read of GitHub**, which is the only
+    /// thing a caller about to spawn may act on.
+    pub fn is_fresh(&self) -> bool {
+        matches!(self, Revalidated::Ticked(Tick::Read(_)))
+    }
 }
 
 /// The repository the poller is reading, and the map inside it if one is open.
@@ -119,6 +176,9 @@ impl Poke {
             Poke::Watching(Some(_)) => Some(Authority::Human),
             Poke::Watching(None) => None,
             Poke::RunStarted => None,
+            // A person pressed a button and is watching a spinner, so it clears
+            // a backoff exactly as opening a folder does.
+            Poke::Revalidate(_) => Some(Authority::Human),
             Poke::Idle | Poke::RunExited | Poke::EnvironmentSettled => Some(Authority::Agent),
         }
     }
@@ -236,6 +296,37 @@ impl Poker {
         }
     }
 
+    /// One pass, awaited, for a press that is about to spawn.
+    ///
+    /// The re-read Start Working and Resume gate on: an ordinary poke, so the
+    /// pass it buys is the ordinary pass and a lost race lands in the graph and
+    /// feeds the ledger through the tick's own emits. This returns only what
+    /// became of it — the caller reads what it learned where every other reader
+    /// does.
+    ///
+    /// **A UX guard and not a correctness guard.** Two machines can revalidate
+    /// in the same second and both spawn; the correctness guard is the agent's
+    /// conditional claim, because the agent is the only writer.
+    ///
+    /// `within` is a deadline rather than a courtesy. A poked pass is still
+    /// held by [`crate::ladder_floor`]'s `POKE_FLOOR`, and by the budget and
+    /// backoff floors for far longer, so the answer has to be able to be
+    /// [`Revalidated::NotInTime`].
+    pub fn revalidate(&self, within: Duration) -> Revalidated {
+        let (tx, rx) = mpsc::channel();
+        // A poller thread that has gone answers nothing, which is exactly what
+        // the deadline means — and is not a reason to panic on the command
+        // thread.
+        if self.tx.send(Poke::Revalidate(Reply(Arc::new(tx)))).is_err() {
+            return Revalidated::NotInTime;
+        }
+
+        match rx.recv_timeout(within) {
+            Ok(outcome) => Revalidated::Ticked(outcome),
+            Err(_) => Revalidated::NotInTime,
+        }
+    }
+
     /// How many runs are live right now. The ladder's own input, exposed so the
     /// property can be asserted from outside.
     pub fn runs_live(&self) -> usize {
@@ -317,6 +408,10 @@ where
 /// exhaustive `match` in one place: every poke's whole effect is in that match,
 /// and a seventh poke is a compile error rather than a poke that arrives and
 /// changes nothing.
+/// `Clone` because the tests build variations of one watch with struct update
+/// syntax, which stopped being a copy the moment a list of waiting callers
+/// joined the fields.
+#[derive(Clone)]
 struct Watch {
     attention: Attention,
     watched: Option<Watched>,
@@ -326,6 +421,11 @@ struct Watch {
     failures: u32,
     last_fault: Option<Fault>,
     seen: Option<Seen>,
+    /// Everybody waiting on the next pass. A list rather than an `Option`,
+    /// because two presses inside one wait are two callers owed the same
+    /// answer, and dropping one would leave a button on `checking…` until its
+    /// own deadline ran out.
+    awaiting: Vec<Reply>,
 }
 
 /// What a tick does to the two fields the backoff is a function of.
@@ -373,6 +473,7 @@ impl Watch {
             failures: 0,
             last_fault: None,
             seen: None,
+            awaiting: Vec::new(),
         }
     }
 
@@ -439,6 +540,10 @@ impl Watch {
             // effect — it returns the loop to the composition, which recomputes
             // against the rung the new count put it on.
             Poke::RunStarted => {}
+            Poke::Revalidate(reply) => {
+                self.poke = Some(Authority::Human);
+                self.awaiting.push(reply);
+            }
             Poke::RunExited | Poke::EnvironmentSettled => {
                 self.poke = arrived.authority();
             }
@@ -562,6 +667,14 @@ where
 
         if let Some(arrived) = arrived {
             watch.apply(arrived);
+            // Nothing is being watched, so the next wait is `WhenPoked` and no
+            // pass will ever run to answer with. `NotAttempted` is the honest
+            // answer and it is not a read, which is all a caller about to spawn
+            // has to know — and it is given now rather than leaving a button on
+            // `checking…` until its own deadline runs out.
+            if watch.watched.is_none() {
+                answer(&mut watch.awaiting, Tick::NotAttempted);
+            }
             continue;
         }
 
@@ -611,6 +724,19 @@ where
         let (failures, last_fault) = folded(watch.failures, watch.last_fault, outcome);
         watch.failures = failures;
         watch.last_fault = last_fault;
+        // Last, after the pass has been folded in for real: what an awaited
+        // caller is told is what the loop itself concluded, and never a
+        // prediction taken before the fold.
+        answer(&mut watch.awaiting, outcome);
+    }
+}
+
+/// Hands one pass's outcome to everybody who was waiting on it, and forgets
+/// them. A receiver that has gone is a caller whose deadline ran out first,
+/// which is not this loop's problem.
+fn answer(awaiting: &mut Vec<Reply>, outcome: Tick) {
+    for reply in awaiting.drain(..) {
+        let _ = reply.0.send(outcome);
     }
 }
 
@@ -673,6 +799,67 @@ mod tests {
         })
         .expect("spawns");
         (poker, taken)
+    }
+
+    /// The whole of #48's *checking…*: the press waits, the pass that answers
+    /// it is a pass on the poller's own thread, and what comes back is what
+    /// that pass concluded.
+    #[test]
+    fn an_awaited_revalidation_is_answered_by_the_pass_it_bought() {
+        let (poker, taken) = watched_by(Timings::shipped());
+
+        poker.poke(Poke::Watching(Some(a_folder())));
+        taken
+            .recv_timeout(Duration::from_secs(2))
+            .expect("the first read");
+
+        let answered = poker.revalidate(Duration::from_secs(5));
+
+        assert_eq!(answered, Revalidated::Ticked(Tick::Read(None)));
+        assert!(answered.is_fresh());
+        // And it was a real pass rather than a value invented for the caller:
+        // the tick ran, on the one thread, against the folder being watched.
+        assert_eq!(
+            taken
+                .recv_timeout(Duration::from_secs(1))
+                .expect("the revalidation's own read"),
+            a_folder()
+        );
+    }
+
+    /// A press with the launcher open reads nothing, and must not hang while
+    /// finding that out: with nothing watched the loop parks on `recv` and no
+    /// pass is ever due.
+    #[test]
+    fn a_revalidation_with_nothing_watched_is_answered_and_is_not_a_read() {
+        let (poker, _taken) = watched_by(Timings::shipped());
+
+        let answered = poker.revalidate(Duration::from_secs(2));
+
+        assert_eq!(answered, Revalidated::Ticked(Tick::NotAttempted));
+        assert!(!answered.is_fresh());
+    }
+
+    /// The reason the answer has a second variant at all. The floors apply to
+    /// this poke exactly as they apply to every other one, so a drained budget
+    /// holds the pass for an hour — and the button gets an answer in
+    /// milliseconds instead.
+    #[test]
+    fn a_revalidation_held_under_a_floor_runs_out_rather_than_waiting_for_it() {
+        let (poker, taken) = budgeted_by(Budget {
+            remaining: RESERVE,
+            seconds_to_reset: 3_600,
+        });
+
+        poker.poke(Poke::Watching(Some(a_folder())));
+        taken
+            .recv_timeout(Duration::from_secs(2))
+            .expect("the first read");
+
+        assert_eq!(
+            poker.revalidate(Duration::from_millis(300)),
+            Revalidated::NotInTime
+        );
     }
 
     #[test]
@@ -785,7 +972,7 @@ mod tests {
                 at: now,
             }),
             last_tick: Some(now),
-            ..watching
+            ..watching.clone()
         };
         assert_eq!(interval(&stopped.cadence(0)).held_by, Held::Budget);
         assert_eq!(stopped.ahead(0, Tick::Read(Some(refilled))), Held::Ladder);
@@ -801,7 +988,7 @@ mod tests {
                 at: now,
             }),
             last_tick: Some(now),
-            ..watching
+            ..watching.clone()
         };
         assert_eq!(interval(&poked.cadence(0)).held_by, Held::Budget);
         assert_eq!(poked.ahead(0, Tick::Read(Some(refilled))), Held::Ladder);
