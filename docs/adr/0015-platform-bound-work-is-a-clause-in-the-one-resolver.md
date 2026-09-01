@@ -1,6 +1,7 @@
 # 15. Platform-bound work is a clause in the one resolver
 
-Status: accepted (2026-08-09)
+Status: accepted (2026-08-09), amended by ADR 0019 (2026-09-01) in what feeds
+`MapsView::labels_truncated` and in what `Truncation::capped()` covers
 Context: [#61 Platform-bound work](https://github.com/javrasya/perseverance/issues/61),
 under the spec [#28](https://github.com/javrasya/perseverance/issues/28), whose
 implementation decisions pin the rule verbatim: *first in map order among
@@ -144,8 +145,8 @@ pages that cannot exist; this one is for a page that can, and it is the only
 truncation whose silent version is unsafe rather than merely incomplete — which
 is why it is *not* folded into the caveat the chrome already prints. That
 sentence says "GitHub answered with more than one page, which its own limits say
-cannot happen", and it is now fed by `Truncation::capped()` — the three
-connections that really are capped — while `labels` crosses beside it as
+cannot happen", and it is fed by `Truncation::capped()` — the connections that
+really are capped — while `labels` crosses beside it as
 `MapsView::labels_truncated` and draws its own. Folding them together was the
 one combination that misinforms: an operator with a hundred-and-one labels on an
 issue would be told an impossible thing had happened, and told nothing about the
@@ -153,7 +154,18 @@ consequence. The second sentence names it, because it is the only one of the
 four with a consequence to name: *a ticket whose platform label was cut off
 reads as one that said nothing about machines, so it can be offered on this one
 even though it is bound to another*. `Truncation::any()` still means *anything at
-all*, and stays what tests and assertions ask; copy asks the two halves.
+all*, and stays what tests and assertions ask; copy asks the halves.
+
+*Amended by [ADR 0019](0019-a-cached-body-is-keyed-to-the-document-that-produced-it.md)
+in two respects.* `Truncation::capped()` counted three connections when this was
+written and now counts two: the `maps` leg was never one GitHub caps either, so
+it was split out to carry `MapsView::maps_truncated` and a sentence of its own.
+And `MapsView::labels_truncated` has a second producer that is not a half of
+`Truncation` at all — a cached body whose stamp is not this build's raises it
+through `MapsView::unvouched`, because a `pageInfo` a narrower document never
+asked for answers clean by never having been asked. The sentence quoted above
+was weakened by one word for that reason: it now says some of the labels *may*
+not have been read.
 
 **The bare prefix can collide.** A repository running its own `platform:`
 taxonomy will hold back a child that also carries a `wayfinder:` label. Bounded

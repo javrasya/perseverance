@@ -143,27 +143,34 @@ therefore stay **unvouched and silent**: a cap GitHub forbids has never been
 observed, and a caveat that asserts something false is not a smaller lie than a
 flag that reads clean.
 
-**The `maps` leg of `capped()` is a known gap in that scoping, and this ADR
-does not close it.** `Truncation::capped()` is `maps || children || blocked_by`,
-and only two of the three are the ones `map-read.graphql` argues are impossible
-— sub-issues at 100 per parent, linked issues at 50 per relationship. The map
-list is `issues(first: 100, labels: ["wayfinder:map"])`, and nothing caps how
-many issues carry a label, so that page can ordinarily exist too. The
-consequence is real and left open on purpose: if `maps(first: N)` or its
-`pageInfo` is ever widened the way #61 widened labels, a body cached under the
-narrower document reports `truncated: false` with no caveat at all. The fix is
-not to reach for `truncated`'s sentence, which would be false about GitHub for
-the other two legs; it is to split `capped()` so the `maps` leg carries a
-sentence of its own and can then be vouched for like `labelsTruncated`. That
-grouping predates this stack and is not #82's to unpick — but #82 now leans on
-it, which is why it is written down here rather than left implied.
+**The `maps` leg came out of `capped()`, because the scoping cannot hold while
+it is in there.** `Truncation::capped()` used to be `maps || children ||
+blocked_by`, and only two of the three were the ones `map-read.graphql` argues
+are impossible — sub-issues at 100 per parent, linked issues at 50 per
+relationship. The map list is `issues(first: 100, labels: ["wayfinder:map"])`,
+and nothing caps how many issues carry a label, so that page can ordinarily
+exist too. Leaving it grouped with the other two cost twice over: a repository
+with a hundred and one maps was told GitHub had answered a page *its own limits
+say cannot happen*, which is a false statement about GitHub; and a later
+widening of `maps(first: N)` or its `pageInfo` would have reproduced this
+ticket's own bug on a flag nothing here could vouch for, because reaching for
+`truncated`'s sentence would have been false about the other two legs.
 
-The alternative — a third state on `MapsView` with a sentence of its own, *this
-copy was read under a query this build no longer sends, so what it says was cut
-off may be incomplete* — was rejected. It buys a caveat over three flags that
-have never fired at the price of a WebView-visible field, a regenerated binding
-and a fourth note to keep true, and this ADR's answer is that the honest thing
-to say about the three is nothing.
+So `capped()` is now `children || blocked_by`, the impossibility sentence is
+honest about exactly the connections that are capped, and `Truncation::maps`
+crosses on its own as `MapsView::maps_truncated` with `MAPS_TRUNCATED_NOTE`
+beside it — a page that can ordinarily exist, said the way the label page is
+said, naming the consequence an operator acts on: *a map missing from this list
+is past the end of it rather than gone*. `MapsView::unvouched` then raises it
+alongside `labelsTruncated`, and the Decision above holds with no exception —
+nothing derived from a body whose identity is not this build's is believed.
+
+The alternative — a further state on `MapsView` with a sentence of its own,
+*this copy was read under a query this build no longer sends, so what it says
+was cut off may be incomplete* — was rejected for the two capped legs that
+remain. It buys a caveat over flags that have never fired at the price of a
+WebView-visible field, a regenerated binding and another note to keep true, and
+this ADR's answer is that the honest thing to say about those two is nothing.
 
 The row is **not** deleted. Only a successful GitHub read may delete anything,
 and that principle has no exception for a row we happen to dislike. It does not
@@ -211,16 +218,34 @@ for. The consequence it names is unchanged and is still the actionable half: a
 ticket whose platform label was cut off is offered on a machine it is bound away
 from.
 
-The rejected alternative was a second sentence keyed to the stamp, on the
-`Provenance` channel. It is more precise, and the extra precision buys nothing
-an operator does differently — the act under either sentence is a second look at
-a designated ticket — at the price of a state on the wire and a fourth note to
-keep true. What is lost is real and is recorded here: an operator who reads the
-caveat after a live read can no longer tell from the copy alone that the
-truncation was *observed* rather than merely possible. The word is the price of
-one sentence over two producers. The same weakening is not available to
-`truncated`, whose sentence would be wrong about GitHub rather than cautious
-about a page, which is why that flag stays silent instead.
+`MAPS_TRUNCATED_NOTE`, the sentence the `capped()` split added, is hedged in
+the same word and for the same reason: `MapsView::unvouched` raises that flag
+too, so *some of the maps here may not have been read* is the strongest thing
+true of both of its producers.
+
+The rejected alternative was a second sentence per flag, keyed to the stamp on
+the `Provenance` channel. It is more precise, and the extra precision buys
+nothing an operator does differently — the act under either sentence is a second
+look at a designated ticket, or at a list that may be longer than it looks — at
+the price of a state on the wire and two more notes to keep true. **It is also
+not available for free from what already crosses**, which is worth writing down
+because `Provenance` looks like it would carry it: `Source::Cache` is what an
+ordinary vouched cache read reports as well, so a caveat keyed off source alone
+would print the stamp sentence on every cached paint. Telling the two apart
+needs a new state either way, which is the cost this decision declined.
+
+What is lost is real and is recorded here: an operator who reads either caveat
+after a live read can no longer tell from the copy alone that the truncation was
+*observed* rather than merely possible. The word is the price of one sentence
+over two producers. The same weakening is not available to `truncated`, whose
+sentence would be wrong about GitHub rather than cautious about a page, which is
+why that flag stays silent instead.
+
+**The weakening widened #82's scope, and the ticket says so.** The ticket asked
+for stamped bodies and *first open* on a mismatch; a hedged word in a sentence
+every live-read operator reads was not in it. The trade is the one recorded
+above, and the body of #82 was amended to name it rather than left describing
+only the ledger half.
 
 **A widening now costs a baseline rather than corrupting one.** Anybody editing
 what `map-read.graphql` *asks for* gets the cold start for free, in exchange for
