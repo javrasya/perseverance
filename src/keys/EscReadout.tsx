@@ -1,5 +1,6 @@
 import { useUi } from "../stores/ui";
 import { currentState, escDestination } from "./router";
+import { warmReadout, type WarmRun } from "./temperature";
 import styles from "./EscReadout.module.css";
 
 /**
@@ -20,12 +21,21 @@ import styles from "./EscReadout.module.css";
  * It subscribes to the UI store because that is what changes the answer; the
  * state it prints from is the router's own, so there is no second reading of
  * *what is in front* anywhere.
+ *
+ * The readouts are the one thing it is handed, and for the one thing the store
+ * cannot tell it: whether the warm run's child has stopped. That arrives on the
+ * poll, and without it this line would name the agent CLI directly above a
+ * temperature saying the child is gone and the keystrokes are being kept in a
+ * register — the same promise of an interrupt that never arrives which is why
+ * this sentence reads `warm` and not `monitored` in the first place. Required
+ * and not defaulted, so a caller cannot make that promise by omission.
  */
-export function EscReadout() {
+export function EscReadout({ readouts }: { readouts: readonly WarmRun[] }) {
   // Subscribed rather than read: `currentState` is a plain read, and without
   // this the sentence would be whatever it was at the last unrelated render.
   useUi();
-  const destination = escDestination(currentState());
+  const state = currentState();
+  const destination = escDestination(state, warmReadout(state, readouts)?.over === true);
 
   return (
     <p className={styles.readout} data-esc>

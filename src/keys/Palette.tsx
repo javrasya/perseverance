@@ -8,6 +8,7 @@ import {
   type ActionId,
   type Entry,
 } from "./router";
+import { keysGo } from "./temperature";
 import styles from "./Palette.module.css";
 
 /** The picker row's own sentence, in the shape the table's verbs are written. */
@@ -62,6 +63,11 @@ export function Palette({
    * already sent the keyboard somewhere itself, so a dismiss that placed it
    * again would take it straight back off the control the row exists to reach.
    * Every other row goes out through `onRun`, and the shell's dismiss with it.
+   *
+   * The shell answers this by going cold as it dismisses, which is the same
+   * statement in the model's own words: the keys are on the map side now, and
+   * the temperature beside the terminal says so rather than naming a run
+   * nobody is typing at.
    */
   onHandOff: () => void;
   /** The table to print. A parameter so a test can prove it is not hard-coded. */
@@ -128,6 +134,22 @@ export function Palette({
           <kbd className={styles.key}>Esc</kbd>
           <span className={styles.verb}>{escDestination(state)}</span>
           <span className={styles.aside}>a readout, not a binding</span>
+        </p>
+        {/*
+          *Where do my keystrokes go* is the one sentence an operator needs most
+          while a surface is in front, and it is the one state where the pane's
+          own readout is behind the scrim. So the surface prints it too, from the
+          same [`keysGo`] the pane's does. No readouts argument: with
+          `inFront !== null` the answer is this surface's own name, read off its
+          dismiss row in the routing table, and no run is named.
+
+          Its own address — `data-keys-go`, not `data-temperature` — because the
+          pane's line owns that one and two nodes answering to it would leave
+          every query for the temperature ambiguous.
+        */}
+        <p className={styles.keysGo} data-keys-go>
+          <span className={styles.aside}>keys go to</span>
+          <span className={styles.verb}>{keysGo(state)}</span>
         </p>
         <ul className={styles.rows}>
           {printed

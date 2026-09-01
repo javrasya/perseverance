@@ -253,6 +253,28 @@ checked-in stamp would age into a year.
 [ADR 0025](docs/adr/0025-the-racks-tier-is-a-function-of-width-not-of-n.md)
 records the decision, the reading it turned down, and what falsifies it.
 
+**What you are watching and what you are typing into are two paths, joined most
+of the time.** The terminal region is a monitor and the runs are sources: a press
+on a rack row patches a different run onto it, and your keyboard stays exactly
+where you put it. Temperature is *where do my keystrokes go* and never *which
+room am I in* — a window can be turned all the way to the terminal with nothing
+warm, and can sit on the map with a run still holding the caret. Warm and cold
+are not symmetrical: at most one surface is warm, and nothing warm is not missing
+information, it means the keys are on the map. The window says which in words,
+naming the run the way the rack names it. What that buys is a property a
+one-binding window cannot even state — **the keyboard is never on a run that is
+not on screen**, so you can never type blind — and it is bought structurally
+rather than asserted: there is exactly one run id in the store and warm is a flag
+on it, so *the warm run is the monitored run* is a fact about the type and the
+disagreement has nowhere to be written down. A run whose child has stopped keeps
+the caret, and what you type at that read-only pane is caught, counted and shown
+back to you verbatim, with a press that **offers** it to the live work run in the
+same folder — the folder and never the run number, because an issue number means
+nothing across two checkouts and a sentence handed over that join would land in
+an agent you never opened. Nothing but a hand ever warms a run.
+[ADR 0027](docs/adr/0027-watching-and-typing-are-two-paths.md) records the
+decision, the second run id it turned down, and what falsifies it.
+
 **A quit is one confirmation and one deadline.** One dialog however many runs
 are live, naming per run what that run loses — a work run's claim is a GitHub
 assignment nothing here holds, so it survives; a research run keeps nothing. The

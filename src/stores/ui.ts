@@ -30,10 +30,9 @@ import { readable } from "./readable";
  * all, which is the shape working rather than the shape being skipped: an Ask is
  * a spawn, a spawn's binding is `monitored`, and the node it asks about is
  * `selection` — both already here, both already written by a press and never by
- * a poll. What is still undeclared is the rack *binding*, which is #56's, and a
- * field with one legal value invented now would be making that ticket's decision
- * early. What the shape settles is only that when it arrives, it arrives *here*
- * rather than beside a snapshot.
+ * a poll. The warm surface arrived last, as `keyed`, and it arrived *inside* the
+ * monitored binding rather than beside it — see the field for why a second run
+ * id would have been a bug held open by the type.
  */
 export interface Ui {
   /** Which view is on screen. App-global and remembered across launches. */
@@ -42,6 +41,32 @@ export interface Ui {
   selection: number | null;
   /** Which run's bytes cross to this window, or none. */
   monitored: number | null;
+  /**
+   * Whether the run on the monitor also has the keys.
+   *
+   * **Temperature is *where do my keystrokes go*, and not *which room am I
+   * in*.** A window can be turned all the way to the terminal with nothing
+   * warm, and it can be turned to the map with a run still holding the caret;
+   * the dial is a room and this is a destination. Prose elsewhere in this repo
+   * that read the two as one thing was wrong rather than merely loose, and is
+   * corrected where it stands rather than worked around here.
+   *
+   * **Why a boolean here and not a `warm: number | null` beside `monitored`.**
+   * Two run ids side by side can be written down disagreeing — warm on a run
+   * that is not on the pane — and that state is precisely the one the ticket
+   * exists to forbid: keys landing on a run whose output nobody can see is
+   * typing blind, and no amount of asserting that it never happens makes it
+   * unrepresentable. There is exactly one run id in this store, so *the keyed
+   * run* can only ever be *the monitored run*. [`keyedRun`] is the only way to
+   * read it and it answers `null` whenever nothing is monitored, so even the
+   * degenerate `{ monitored: null, keyed: true }` is not a state any reader can
+   * see.
+   *
+   * Warm and cold are not symmetrical, which is why this is one flag and not a
+   * temperature per surface: at most one thing is warm, and *nothing warm* is
+   * not an absence of information — it means the keys are on the map.
+   */
+  keyed: boolean;
   /**
    * Where the dial is: the share of the window the map side has, `0` … `1`.
    *
@@ -137,6 +162,7 @@ const [store, replace] = readable<Ui>({
   view: readDefaultView(),
   selection: null,
   monitored: null,
+  keyed: false,
   /*
    * The default detent, not a remembered one. What a *map* is worth is
    * remembered per map by `src/panes/position.ts`, and the shell restores it
@@ -237,6 +263,15 @@ export function select(selection: number | null): void {
  * not the run's terminal, not how much of its stream that terminal holds — which
  * is what makes *never resize on bind* true on this side of the seam too.
  *
+ * **It does go cold, every time it changes which run is on the pane.** That is
+ * not a courtesy, it is the whole of *you can select which run the terminal
+ * shows without moving your keyboard to it*: re-patching the monitor while a
+ * run is warm would leave the caret pointing into a conversation the operator
+ * is no longer looking at. Cooling on re-patch is why the key line can never
+ * land on a run that is not on the monitor without a single test having to say
+ * so, and `monitor(null)` is cold for the same reason — there is nothing left
+ * to type at.
+ *
  * **Only a press calls this.** Every caller is an operator doing something: the
  * rail starting or resuming a run, the idea box, and the one press that ends a
  * run and empties the pane. Nothing automatic may reach it, and in particular
@@ -260,7 +295,43 @@ export function select(selection: number | null): void {
  * nothing driven by a poll, a readout tick or a death path reaches this.
  */
 export function monitor(run: number | null): void {
-  change((current) => (current.monitored === run ? current : { ...current, monitored: run }));
+  change((current) =>
+    current.monitored === run ? current : { ...current, monitored: run, keyed: false },
+  );
+}
+
+/**
+ * Whose keystrokes the keyboard is typing, or nobody's.
+ *
+ * The only reading of the temperature there is, and the reason `keyed` is a
+ * boolean: this cannot answer with a run that is not on the monitor, because
+ * there is no other run id in the store for it to answer with. Every caller —
+ * the key router's state, the readout beside the terminal, the effect that
+ * moves DOM focus — comes through here, so *the keyed run is on the monitor* is
+ * a property of the type rather than a rule spread over three call sites.
+ */
+export function keyedRun(ui: Ui): number | null {
+  return ui.keyed ? ui.monitored : null;
+}
+
+/**
+ * Take the keys to the run on the monitor, or put them down.
+ *
+ * Only a press calls this, in the same sense [`monitor`] means it: crossing to
+ * the terminal, clicking into it, crossing back to the map. Nothing automatic
+ * warms a run — a poll that moved the caret would be handing the next sentence
+ * an operator typed to an agent they never chose.
+ *
+ * **Warming with nothing on the monitor is refused rather than recorded.** It
+ * is the second half of the guarantee `keyed` is shaped for: the flag is only
+ * ever true over a real binding, so no reader has to defend against a warm
+ * nothing. Cooling is always legal, including when it changes nothing.
+ */
+export function setKeyed(keyed: boolean): void {
+  change((current) => {
+    const wanted = keyed && current.monitored !== null;
+    return current.keyed === wanted ? current : { ...current, keyed: wanted };
+  });
 }
 
 /**

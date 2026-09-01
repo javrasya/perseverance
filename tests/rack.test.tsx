@@ -24,6 +24,9 @@ import {
 } from "../src/rack/rack";
 import { fractionOf, sides, type Detent } from "../src/panes/dial";
 import { runFixtureNamed } from "../src/terminal/fixtures";
+import { keysGo } from "../src/keys/temperature";
+import { currentState } from "../src/keys/router";
+import { keyedRun, monitor, readUi, setKeyed } from "../src/stores/ui";
 import { type RunReadout } from "../src/terminal/runs";
 import { readMotion } from "./support/checks";
 import { collectStylesheets } from "./support/sources";
@@ -390,7 +393,7 @@ describe("a row says what a run is, how old, how far behind and how quiet", () =
     regionIs(500);
     const rack = await draw(await fixtureRuns());
 
-    const rows = [...rack.querySelectorAll("li")];
+    const rows = [...rack.querySelectorAll("[data-run]")];
     expect(rows).toHaveLength(6);
     expect(rows.filter((row) => row.getAttribute("data-live") === "false")).toHaveLength(1);
   });
@@ -400,7 +403,7 @@ describe("liveness is still-readable, and only one thing moves", () => {
   it("tells a live run from a landed one in words and in a class, with nothing moving", async () => {
     regionIs(500);
     const rack = await draw(await fixtureRuns());
-    const rows = [...rack.querySelectorAll("li")];
+    const rows = [...rack.querySelectorAll("[data-run]")];
 
     const live = rows.find((row) => row.getAttribute("data-live") === "true")!;
     const landed = rows.find((row) => row.getAttribute("data-live") === "false")!;
@@ -474,5 +477,134 @@ describe("liveness is still-readable, and only one thing moves", () => {
     // What is left is the still form: every row still there, every one landed.
     expect(rack.querySelectorAll("li")).toHaveLength(runs.length);
     expect(rack.textContent).toContain("0 of 6 still running");
+  });
+});
+
+describe("the rack is the patchbay's selector, and the keys do not follow", () => {
+  // Inside `act`: this runs while the rack is still mounted, and it is a store
+  // change the rack renders for.
+  afterEach(() => {
+    act(() => monitor(null));
+  });
+
+  /** Every row, as the thing that is pressed: the row *is* the button. */
+  const pressable = (rack: Element) => [...rack.querySelectorAll("[data-run]")] as HTMLElement[];
+
+  /* The press tells the harness before it moves the store, so the store's change
+     lands a microtask after the click and has to be settled inside `act`. */
+  async function press(row: HTMLElement): Promise<void> {
+    await act(async () => {
+      row.click();
+      await Promise.resolve();
+    });
+  }
+
+  it("puts the run it names on the monitor", async () => {
+    regionIs(500);
+    const rack = await draw(await fixtureRuns());
+    const row = pressable(rack)[2]!;
+
+    await press(row);
+
+    expect(readUi().monitored).toBe(Number(row.dataset.run));
+  });
+
+  it("leaves the keys where they were rather than taking them to the run it patched", async () => {
+    /*
+     * The acceptance criterion in one press: *select which run the terminal
+     * shows without moving your keyboard to it*. The run was warm, another row
+     * was pressed, and the readout has to be able to say so — a rack that
+     * focused the terminal would leave the key line pointing at a conversation
+     * nobody chose to type into.
+     */
+    regionIs(500);
+    const rack = await draw(await fixtureRuns());
+    const [first, second] = pressable(rack);
+
+    await act(async () => {
+      monitor(Number(first!.dataset.run));
+      setKeyed(true);
+    });
+    expect(keyedRun(readUi())).toBe(Number(first!.dataset.run));
+
+    await press(second!);
+
+    expect(readUi().monitored).toBe(Number(second!.dataset.run));
+    expect(keyedRun(readUi())).toBeNull();
+    expect(keysGo(currentState())).toBe("the map");
+  });
+
+  it("patches the monitor onto a run that has already exited", async () => {
+    /* A landed run keeps its row, and reading the crash on the monitor is what
+       the row is for. `monitor` cools, so this cannot land the caret in a dead
+       child. */
+    regionIs(500);
+    const rack = await draw(await fixtureRuns());
+    const landed = pressable(rack).find((row) => row.dataset.live === "false")!;
+
+    await press(landed);
+
+    expect(readUi().monitored).toBe(Number(landed.dataset.run));
+    expect(keyedRun(readUi())).toBeNull();
+  });
+
+  it("marks the row that is on the monitor, in form and not in colour alone", async () => {
+    regionIs(500);
+    const rack = await draw(await fixtureRuns());
+    /* A live row on purpose: the fixture holds one landed run, and a mark
+       compared against a row of the other liveness would be comparing two
+       classes that already differ. */
+    const chosen = pressable(rack).find((row) => row.dataset.live === "true")!;
+
+    await press(chosen);
+
+    const marked = pressable(rack).filter((row) => row.dataset.monitored === "true");
+    expect(marked).toHaveLength(1);
+    expect(marked[0]!.dataset.run).toBe(chosen.dataset.run);
+    expect(marked[0]!.getAttribute("aria-current")).toBe("true");
+
+    const other = pressable(rack).find(
+      (row) => row.dataset.monitored !== "true" && row.dataset.live === marked[0]!.dataset.live,
+    )!;
+    expect(marked[0]!.className).not.toBe(other.className);
+
+    /* The mark is a ring and not a tint, it is not hidden behind a hover, and
+       it does not move: the screen's one animation is the lamp. */
+    const css = stylesheet(RACK_CSS);
+    const rule = css.slice(css.indexOf(".rowPatched"));
+    expect(rule.slice(0, rule.indexOf("}"))).toContain("outline");
+    expect(css).not.toContain(".rowPatched:hover");
+    expect(rack.querySelectorAll("[data-animated]")).toHaveLength(
+      rack.querySelectorAll("[data-lamp][data-animated]").length,
+    );
+  });
+
+  it("reads the mark off the store rather than off Rust's own account", async () => {
+    /* `RunReadout.monitored` lags the press by a poll tick and the `dev:web`
+       fixtures never set it, so a mark taken from there would be a mark the
+       operator's own press could not move. */
+    regionIs(500);
+    const runs = (await fixtureRuns()).map((run) => ({ ...run, monitored: true }));
+    const rack = await draw(runs);
+
+    await act(async () => {
+      monitor(runs[1]!.run);
+    });
+
+    const marked = pressable(rack).filter((row) => row.dataset.monitored === "true");
+    expect(marked).toHaveLength(1);
+    expect(marked[0]!.dataset.run).toBe(String(runs[1]!.run));
+  });
+
+  it("changes neither the tier nor the region's width when a row is pressed", async () => {
+    // The rack changes width on a press against the dial and on nothing else.
+    regionIs(TIER_FLOORS.boards);
+    const rack = await draw(await fixtureRuns());
+    const before = rack.getAttribute("data-tier");
+
+    await press(pressable(rack)[1]!);
+
+    expect(rack.getAttribute("data-tier")).toBe(before);
+    expect([...rack.querySelectorAll("[data-field]")].length).toBeGreaterThan(0);
   });
 });

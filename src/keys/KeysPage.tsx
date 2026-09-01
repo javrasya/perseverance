@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useUi } from "../stores/ui";
 import { ENTRIES, currentState, escDestination, labelFor, type Entry } from "./router";
+import { keysGo } from "./temperature";
 import styles from "./KeysPage.module.css";
 
 /**
@@ -81,6 +82,22 @@ export function KeysPage({
         <kbd className={styles.key}>Esc</kbd>
         <span className={styles.verb}>{escDestination(state)}</span>
         <span className={styles.aside}>a readout, not a binding</span>
+      </p>
+      {/*
+        *Where do my keystrokes go* is the one sentence an operator needs most
+        while a surface is in front, and it is the one state where the pane's
+        own readout is behind the scrim. So the surface prints it too, from the
+        same [`keysGo`] the pane's does. No readouts argument: with
+        `inFront !== null` the answer is this surface's own name, read off its
+        dismiss row in the routing table, and no run is named.
+
+        Its own address — `data-keys-go`, not `data-temperature` — because the
+        pane's line owns that one and two nodes answering to it would leave
+        every query for the temperature ambiguous.
+      */}
+      <p className={styles.keysGo} data-keys-go>
+        <span className={styles.aside}>keys go to</span>
+        <span className={styles.verb}>{keysGo(state)}</span>
       </p>
       <ul className={styles.rows}>
         {printed.map((entry) => {

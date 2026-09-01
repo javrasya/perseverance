@@ -9,7 +9,8 @@ import { afterEach, describe, expect, it } from "vitest";
  */
 import { EscReadout } from "../src/keys/EscReadout.jsx";
 import { install } from "../src/keys/router";
-import { dismiss, monitor, raise } from "../src/stores/ui";
+import type { WarmRun } from "../src/keys/temperature";
+import { dismiss, monitor, raise, setKeyed } from "../src/stores/ui";
 
 /**
  * The one key an operator cannot work out by looking, written down.
@@ -24,13 +25,19 @@ import { dismiss, monitor, raise } from "../src/stores/ui";
 
 let mounted: { root: ReturnType<typeof createRoot>; host: HTMLElement } | null = null;
 
-async function paint(): Promise<HTMLElement> {
+/*
+ * The readouts are handed in the way the pane hands them in, because one of the
+ * four destinations cannot be known without them: whether the warm run's child
+ * has stopped arrives on the poll and is nowhere in the UI store. Most of the
+ * claims below are about states no readout bears on, and pass none.
+ */
+async function paint(readouts: readonly WarmRun[] = []): Promise<HTMLElement> {
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
   mounted = { root, host };
   await act(async () => {
-    root.render(<EscReadout />);
+    root.render(<EscReadout readouts={readouts} />);
   });
   return host;
 }
@@ -51,8 +58,11 @@ describe("the Esc readout", () => {
     const host = await paint();
     expect(host.textContent).toContain("nothing is bound to this window");
 
+    /* Warm and not merely bound: `Esc` is the CLI's only while the CLI has the
+       keys, and a run can be on the pane with the keyboard on the map. */
     await act(async () => {
       monitor(9);
+      setKeyed(true);
     });
     expect(host.textContent).toContain("reaches the agent CLI");
 
@@ -60,6 +70,44 @@ describe("the Esc readout", () => {
       monitor(null);
     });
     expect(host.textContent).not.toContain("reaches the agent CLI");
+  });
+
+  it("does not promise the CLI over a run whose child has stopped", async () => {
+    /*
+     * The caret parks on a dead run and stays warm — ADR 0026 — so the
+     * temperature printed directly under this line still names the run and says
+     * its keystrokes are being kept in a register. Naming the agent CLI here
+     * would promise an interrupt over a sentence that has already said there is
+     * nothing left to interrupt.
+     */
+    const host = await paint([{ run: 9, ticket: 128, kind: "work", over: true }]);
+    await act(async () => {
+      monitor(9);
+      setKeyed(true);
+    });
+
+    expect(host.textContent).not.toContain("reaches the agent CLI");
+    expect(host.textContent).toContain("child has stopped");
+
+    /* And the surface in front still answers first: `Esc` over a palette takes
+       the palette away, whatever is parked underneath it. */
+    await act(async () => {
+      raise("palette");
+    });
+    expect(host.textContent).toContain("dismisses the command palette");
+  });
+
+  it("names the CLI when the readout it has is for some other run", async () => {
+    /* The array is refreshed several times a second and the warm run may have
+       changed between two of them, so the parked sentence is owed to the warm
+       run's own readout or to no readout at all. */
+    const host = await paint([{ run: 4, ticket: 128, kind: "work", over: true }]);
+    await act(async () => {
+      monitor(9);
+      setKeyed(true);
+    });
+
+    expect(host.textContent).toContain("reaches the agent CLI");
   });
 
   it("names the surface in front, without this component being edited", async () => {
@@ -71,6 +119,7 @@ describe("the Esc readout", () => {
     const host = await paint();
     await act(async () => {
       monitor(9);
+      setKeyed(true);
       raise("palette");
     });
     expect(host.textContent).toContain("dismisses the command palette");
@@ -109,6 +158,7 @@ describe("the Esc readout", () => {
     for (const run of [null, 9]) {
       await act(async () => {
         monitor(run);
+        setKeyed(run !== null);
       });
       const escape = new KeyboardEvent("keydown", { key: "Escape", cancelable: true });
       await act(async () => {

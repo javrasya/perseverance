@@ -3,10 +3,21 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "../src/App";
-import { monitor, readUi } from "../src/stores/ui";
-import { SPILL_READING, spillSentence } from "../src/terminal/Pane";
+import { keyedRun, monitor, readUi, setKeyed } from "../src/stores/ui";
+import {
+  NOWHERE_TO_OFFER,
+  NO_FOLDER_TO_JOIN,
+  SPILL_READING,
+  spillSentence,
+} from "../src/terminal/Pane";
 import type { RunReadout } from "../src/terminal/runs";
-import { KEPT_CHARACTERS, forgetSpills, spillAtRun, spilledAtRun } from "../src/terminal/spill";
+import {
+  KEPT_CHARACTERS,
+  forgetSpills,
+  offeredTo,
+  spillAtRun,
+  spilledAtRun,
+} from "../src/terminal/spill";
 
 /**
  * The caret parks when the run it is on dies.
@@ -51,6 +62,9 @@ vi.mock("../src/terminal/xterm", () => ({
           fake.handlers = fake.handlers.filter((held) => held !== handler);
         };
       },
+      // Really focuses its node, the way `tests/keys-shell.test.tsx` does it: a
+      // recorded call would pass with the pane's focusing deleted.
+      focus: () => fake.element.focus(),
       dispose: () => {
         fake.disposed += 1;
       },
@@ -358,5 +372,162 @@ describe("the spill register", () => {
 
   it("says nothing at all about a run that has caught nothing", () => {
     expect(spillSentence(spilledAtRun(7))).toBe(null);
+  });
+});
+
+/** A press, found the way an operator finds one: by the words on it. */
+function button(label: string): HTMLButtonElement | undefined {
+  return [...document.querySelectorAll("button")].find(
+    (found) => found.textContent === label,
+  );
+}
+
+describe("the run a register is offered to", () => {
+  const work = (run: number, over: boolean, folder: string | null): RunReadout => ({
+    ...a(run, over),
+    folder,
+  });
+
+  it("is the live work run sharing the parked run's folder", () => {
+    const readouts = [work(7, true, "/work/one"), work(8, false, "/work/one")];
+
+    expect(offeredTo(readouts, 7)?.run).toBe(8);
+  });
+
+  it("is not a live work run in another folder, whatever its number", () => {
+    // An issue number means nothing across two repositories, and a sentence
+    // handed over this join would land in an agent the operator never opened.
+    const readouts = [work(7, true, "/work/one"), work(8, false, "/work/two")];
+
+    expect(offeredTo(readouts, 7)).toBe(null);
+  });
+
+  it("is not a run that has stopped, and not a run that is not work", () => {
+    const stopped = work(8, true, "/work/one");
+    const composing: RunReadout = { ...work(9, false, "/work/one"), kind: "compose" };
+
+    expect(offeredTo([work(7, true, "/work/one"), stopped, composing], 7)).toBe(null);
+  });
+
+  it("is never the parked run itself, even while it is the only work run there", () => {
+    expect(offeredTo([work(7, false, "/work/one")], 7)).toBe(null);
+  });
+
+  it("is nothing at all for a parked run the window knows no folder for", () => {
+    const readouts = [work(7, true, null), work(8, false, "/work/one")];
+
+    expect(offeredTo(readouts, 7)).toBe(null);
+  });
+
+  it("is nothing at all for a run that is in no readout", () => {
+    expect(offeredTo([work(8, false, "/work/one")], 7)).toBe(null);
+  });
+});
+
+describe("the register, offered", () => {
+  const both = (over: boolean): RunReadout[] => [
+    a(7, over),
+    { ...a(8, false), ticket: 123 },
+  ];
+
+  it("sends what was caught to the work run, and moves nothing else", async () => {
+    await boot();
+    await readouts(both(false));
+    /* Warm and not merely monitored, which is the only state the claim is about:
+       `monitor` puts the keys down on its way, so a press asserted from there
+       would be comparing cold to cold. The caret is on #7 when its child dies,
+       parks there, and has to still be there when the offer has been made. */
+    act(() => {
+      monitor(7);
+      setKeyed(true);
+    });
+    await readouts(both(true));
+    expect(keyedRun(readUi())).toBe(7);
+    await types("rerun the tests");
+
+    const press = button("Send to #123 work");
+    expect(press).toBeDefined();
+    await act(async () => {
+      press?.click();
+    });
+
+    expect(sent).toEqual([{ run: 8, text: "rerun the tests" }]);
+    // The words are recovered, so the register has nothing left to hold.
+    expect(spilledAtRun(7)).toBe(null);
+    // And the caret is exactly where the operator left it: a hand-off of text
+    // is not a decision about where the next keystroke goes.
+    expect(readUi().monitored).toBe(7);
+    expect(keyedRun(readUi())).toBe(7);
+    expect(onThePane().disposed).toBe(0);
+  });
+
+  it("offers nothing while no work run is going in the folder, and still shows the words", async () => {
+    await boot();
+    await readouts([a(7, false)]);
+    act(() => monitor(7));
+    await readouts([a(7, true)]);
+
+    await types("nowhere to go");
+
+    expect(button("Send to #50 work")).toBeUndefined();
+    expect(chrome()).toContain(NOWHERE_TO_OFFER);
+    // Verbatim, counted and held — the absent press changes none of that.
+    expect(chrome()).toContain("nowhere to go");
+    expect(chrome()).toContain(SPILL_READING);
+    expect(spilledAtRun(7)?.characters).toBe(13);
+  });
+
+  it("says the folder was never told, and never that the folder came out empty", async () => {
+    // The two absences of `offeredTo` are two facts about the world, and the
+    // node panel's rule holds here: a fact the harness was never told is
+    // form-level distinct from a count that is genuinely nought. There is a live
+    // work run one line away — what is missing is the join, not the run.
+    const nameless = (over: boolean): RunReadout[] => [
+      { ...a(7, over), folder: null, ticket: null },
+      { ...a(8, false), ticket: 123 },
+    ];
+
+    await boot();
+    await readouts(nameless(false));
+    act(() => monitor(7));
+    await readouts(nameless(true));
+
+    await types("staked nowhere");
+
+    expect(button("Send to #123 work")).toBeUndefined();
+    expect(chrome()).toContain(NO_FOLDER_TO_JOIN);
+    expect(chrome()).not.toContain(NOWHERE_TO_OFFER);
+    // Verbatim, counted and held — which absence it is changes none of that.
+    expect(chrome()).toContain("staked nowhere");
+    expect(spilledAtRun(7)?.characters).toBe(14);
+  });
+
+  it("offers nothing at all until something has been caught", async () => {
+    await boot();
+    await readouts(both(false));
+    act(() => monitor(7));
+
+    await readouts(both(true));
+
+    expect(button("Send to #123 work")).toBeUndefined();
+    expect(chrome()).not.toContain(NOWHERE_TO_OFFER);
+  });
+
+  it("keeps the words when the send fails, because a promise of recovery is one", async () => {
+    const typed = vi.mocked((await import("../src/terminal/runs")).typedAtRun);
+    typed.mockRejectedValueOnce(new Error("the far side is gone"));
+
+    await boot();
+    await readouts(both(false));
+    act(() => monitor(7));
+    await readouts(both(true));
+    await types("still recoverable");
+
+    await act(async () => {
+      button("Send to #123 work")?.click();
+    });
+
+    expect(spilledAtRun(7)?.text).toBe("still recoverable");
+    expect(chrome()).toContain("still recoverable");
   });
 });

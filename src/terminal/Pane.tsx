@@ -1,12 +1,14 @@
 import { useEffect, useRef } from "react";
 import { briefSpan } from "../chrome/age";
 import { EscReadout } from "../keys/EscReadout.jsx";
+import { Temperature } from "../keys/Temperature.jsx";
 import { collapsed, gesture, type Occasion } from "../panes/geometry";
-import { monitor, useUi } from "../stores/ui";
+import { nameOf } from "../keys/temperature";
+import { keyedRun, monitor, readUi, setKeyed, useUi } from "../stores/ui";
 import { promptFor } from "./prompts";
 import { PromptBlock } from "./PromptBlock";
-import { endRun, type RunReadout, type RunSignal } from "./runs";
-import { forgetSpill, useSpill, type Spill } from "./spill";
+import { endRun, typedAtRun, type RunReadout, type RunSignal } from "./runs";
+import { forgetSpill, offeredTo, useSpill, type Spill } from "./spill";
 import type { Terminals } from "./terminals";
 import styles from "./Pane.module.css";
 
@@ -146,6 +148,12 @@ export const SIGNAL_READINGS: Record<RunSignal, string> = {
  * still state at every value it takes — rule 12 asks for a still-state
  * equivalent of anything motion carries, and a reading that never animates
  * never incurs one.
+ *
+ * *Held rather than sent* stays exactly true beside the press that offers them:
+ * the words are held, and they go nowhere until a hand sends them. The sentence
+ * describes the register at the moment it is printed, and never the register's
+ * future — a reading that said *these will be sent* would be the chrome making a
+ * promise on the operator's behalf.
  */
 export const SPILL_READING = "typed after this run ended, and held rather than sent";
 
@@ -157,6 +165,55 @@ export function spillSentence(spill: Spill | null): string | null {
   return `${SPILL_READING} · ${held} — “${words}”`;
 }
 
+/**
+ * Where the words can go, named the way the rest of the app names a run.
+ *
+ * The destination is printed on the button rather than left to *Send*: this
+ * window holds several folders' runs and the operator cannot see, from a pane
+ * showing a stopped run, which live agent is about to be spoken to. `nameOf` in
+ * `src/keys/temperature.ts` is that naming already written down — the same
+ * spelling the temperature line above uses — so the button and the readout name
+ * one run one way.
+ */
+export function offerLabel(work: RunReadout): string {
+  return `Send to ${nameOf(work)}`;
+}
+
+/**
+ * Why there is no press beside the words, as visible text.
+ *
+ * Printed rather than left blank, and never as a disabled button: a control that
+ * cannot be pressed with the reason behind a hover is a reason a keyboard and a
+ * screen reader do not have, which is the rule `src/chrome/sockets.ts` states for
+ * the rail and this chrome keeps. It says the offer is missing and deliberately
+ * says nothing about the words themselves — they are still held, still counted
+ * and still printed beside this, and a sentence hinting they were lost would be
+ * the pane contradicting the register an inch to its left.
+ *
+ * **There are two of these, because [`offeredTo`] has two absences.** This one
+ * is the counted absence: the folder is known and no live work run is going in
+ * it. [`NO_FOLDER_TO_JOIN`] is the other, and the split is the one the node
+ * panel draws for its three unlit fields — a fact the harness was never told is
+ * form-level distinct from a count that is genuinely nought, so the two may not
+ * share a sentence.
+ */
+export const NOWHERE_TO_OFFER =
+  "no work run is going in this folder, so there is nowhere to send these yet";
+
+/**
+ * Why there is no press when the window was never told where the run was staked.
+ *
+ * The other absence, and a different fact about the world. A parked run whose
+ * `folder` is `null` is a run this window was never told the folder of, and the
+ * join an offer is made on is the folder — so there is no folder here to be
+ * empty of live work runs, and printing [`NOWHERE_TO_OFFER`] over it would name
+ * a folder the window does not have and report a search that was never run.
+ * `src/terminal/fixtures.ts` boots one such run on purpose, so the reading is on
+ * screen in `dev:web` rather than only in a test.
+ */
+export const NO_FOLDER_TO_JOIN =
+  "this window was never told which folder this run was staked in, so no offer can be joined";
+
 export function Pane({
   terminals,
   readouts,
@@ -164,7 +221,12 @@ export function Pane({
   terminals: Terminals;
   readouts: readonly RunReadout[];
 }) {
-  const { monitored } = useUi();
+  const ui = useUi();
+  const { monitored, inFront } = ui;
+  /* The temperature, read through the store's own derivation and never
+     assembled here: there is one answer to *where do the keys go*, and this
+     component is not entitled to a second one. */
+  const warm = keyedRun(ui);
   const host = useRef<HTMLDivElement | null>(null);
   const gestures = useRef<ReturnType<typeof gesture> | null>(null);
 
@@ -180,6 +242,92 @@ export function Pane({
   useEffect(() => {
     terminals.bind(monitored, host.current);
   }, [terminals, monitored]);
+
+  /*
+   * The keyboard follows the temperature, and never the other way around.
+   *
+   * The store is the fact; where the browser happens to have put the caret is
+   * its consequence. Before this, the only way to type at a run was that
+   * xterm's helper textarea happened to hold focus, which made *which run has
+   * the keys* a question only the DOM could answer — unprintable, untestable,
+   * and impossible to hold to the rule that the keyed run is on the monitor.
+   *
+   * Declared after the bind above so it runs after it: focusing a terminal that
+   * is still in the stow would put the keyboard inside a node that is not on
+   * screen. And it depends on `inFront` as well as on `warm`, because a surface
+   * standing in front holds the keys for as long as it is up — which is why
+   * dismissing one gives them back from *here* rather than from the shell's
+   * dismiss handler, and why there is no second opinion about where they land.
+   */
+  useEffect(() => {
+    if (inFront !== null) return;
+    if (warm !== null) {
+      terminals.for(warm).focus();
+      return;
+    }
+    /* Nothing warm means the terminal may not keep the keys — but only the
+       terminal's. Blurring whatever happens to be focused would take the
+       keyboard off a route row or a picker on the map side, which is exactly
+       where cold says the keys are. */
+    const active = document.activeElement as HTMLElement | null;
+    if (active !== null && host.current?.contains(active) === true) active.blur();
+  }, [terminals, warm, inFront]);
+
+  /*
+   * The other direction, so that the store and the browser can never disagree
+   * about who has the keys.
+   *
+   * A click lands the caret in xterm's helper textarea with nothing in this app
+   * having been pressed, and a store still saying *cold* would be printing a
+   * readout the keyboard contradicts; a click on the map takes it away again
+   * and the same is true in reverse. So the terminal's own focus is watched and
+   * written back as temperature.
+   *
+   * `addEventListener` on the host node rather than React's `onFocus`/`onBlur`:
+   * the terminal is **not a child React knows about** — it is appended by
+   * `Terminals.bind` — and React's delegated focus events never reach a handler
+   * on this element for a node it did not render. That is a landmine, not a
+   * style choice; the JSX form silently does nothing. Focus events and never
+   * key events: the one key listener in this window is the router's.
+   *
+   * The state is read at the moment of the event rather than closed over, which
+   * is what lets this be installed once for the pane's life. `inFront` matters:
+   * a surface standing in front is *expected* to hold the keys, and the run
+   * underneath stays warm so dismissing it hands them back rather than putting
+   * them down.
+   */
+  useEffect(() => {
+    const held = host.current;
+    if (held === null) return;
+
+    const warmed = () => setKeyed(true);
+    const cooled = (event: FocusEvent) => {
+      // Focus moving *within* the terminal is not the keyboard leaving it.
+      const into = event.relatedTarget;
+      if (into instanceof Node && held.contains(into)) return;
+      /*
+       * Answered after the focus has landed, not during it. Mid-`focusout` the
+       * document has no focused element at all, so every reading that could
+       * tell *the keyboard went to the map* from *the whole window lost focus*
+       * says the same thing — and cooling on the second one would put the keys
+       * down every time the operator alt-tabbed away, so that coming back left
+       * them typing at nobody. A window losing focus moves nobody's keys.
+       */
+      queueMicrotask(() => {
+        if (readUi().inFront !== null) return;
+        if (!document.hasFocus()) return;
+        if (document.activeElement !== null && held.contains(document.activeElement)) return;
+        setKeyed(false);
+      });
+    };
+
+    held.addEventListener("focusin", warmed);
+    held.addEventListener("focusout", cooled);
+    return () => {
+      held.removeEventListener("focusin", warmed);
+      held.removeEventListener("focusout", cooled);
+    };
+  }, []);
 
   /*
    * The pane's size, watched, and turned into at most one resize per completed
@@ -249,7 +397,15 @@ export function Pane({
   const sentence = readout === null ? null : endingSentence(readout);
   const silence = readout === null ? null : silenceSentence(readout);
   const signal = readout === null || readout.signal === null ? null : readout.signal;
-  const spill = spillSentence(useSpill(monitored));
+  const held = useSpill(monitored);
+  const spill = spillSentence(held);
+  /*
+   * Who the words could go to, derived every frame from the readouts this pane
+   * already has rather than remembered: the work run beside a parked one can end
+   * while its neighbour's chrome is on screen, and a destination kept in state
+   * would leave a button offering a run that stopped answering.
+   */
+  const work = held === null || readout === null ? null : offeredTo(readouts, readout.run);
 
   /*
    * The press, and the only thing in this app that ends a run.
@@ -276,6 +432,36 @@ export function Pane({
     terminals.forget(run);
     forgetSpill(run);
     monitor(null);
+  };
+
+  /*
+   * The other press, and the one that moves nothing but the words.
+   *
+   * It does not re-patch the monitor, does not warm anything and does not end
+   * the parked run: the caret is where the operator put it and a hand-off of
+   * text is not a decision about where to type next. `typed_at_run` takes any
+   * run id, so the sentence lands in the work run's child without the caret ever
+   * leaving the run it is parked on — which is the whole reason this can be
+   * offered at all under the parking rule.
+   *
+   * Moving nothing is not something this handler achieves by leaving state
+   * alone — the *press* would move the caret on its own. A parked run is warm
+   * by the parking rule, so the keys are sitting in xterm's helper textarea; a
+   * mouse press that focused the button would take them out of the host node,
+   * and the pane's `focusout` watcher above would believe the browser and write
+   * that back as cold. So the button refuses the focus (see its `onMouseDown`)
+   * and there is nothing to write back: the temperature after the press is the
+   * operator's, not the press's.
+   *
+   * The order is load-bearing in the opposite direction to `end`'s. The register
+   * is dropped only after the send has come back, because a register forgotten
+   * on a send that threw would be the app losing the sentence it printed a
+   * promise about — and the words are unrecoverable at that point, since the
+   * child that would have echoed them never got them.
+   */
+  const offer = async (parked: number, work: number, text: string) => {
+    await typedAtRun(work, text);
+    forgetSpill(parked);
   };
 
   return (
@@ -322,6 +508,51 @@ export function Pane({
           )}
           {spill === null ? null : <span className={styles.spill}>{spill}</span>}
           {/*
+            And where they can go, beside the words themselves. A real button
+            for the same reason `End this run` is one — this is a decision and
+            the keyboard has to reach it — and in the chrome rather than in the
+            host node, which is xterm's. With nobody to offer to there is a
+            sentence here instead: never a disabled button, whose reason is
+            reachable only by a hover, and never a word about the words being
+            gone, which the register beside it would contradict.
+
+            Which sentence is the absence's own. A known folder with no live work
+            run in it is a count that came out nought; a run this window was
+            never told the folder of is a fact it does not hold, and the two are
+            not the same reading — the pick is off `readout.folder` and never off
+            `work` alone, which cannot tell them apart.
+          */}
+          {held === null ? null : work === null ? (
+            <span className={styles.unoffered}>
+              {readout === null || readout.folder === null ? NO_FOLDER_TO_JOIN : NOWHERE_TO_OFFER}
+            </span>
+          ) : (
+            <button
+              type="button"
+              className={styles.offer}
+              onMouseDown={(event) => {
+                /* The press takes the words and not the keys. Focus landing on
+                   this button is focus leaving the host node, which the pane
+                   reads — correctly — as the keyboard having gone to the map,
+                   and a parked run is warm: the offer would cool the very run it
+                   was made for, on the one press documented as moving nothing
+                   but the words. Defaulting the *press* away is what keeps the
+                   caret; the click still fires, and reaching this button by
+                   `Tab` still moves the keys, because that one is the operator
+                   moving them. */
+                event.preventDefault();
+              }}
+              onClick={() => {
+                /* A send that comes back refused leaves the register exactly as
+                   it was, and this button beside it: the words are still here to
+                   press again, which is the difference between held and lost. */
+                offer(readout.run, work.run, held.text).catch(() => {});
+              }}
+            >
+              {offerLabel(work)}
+            </button>
+          )}
+          {/*
             Offered on every ending but `live`, and it is a real button rather
             than a click handler on the sentence: the ending is a fact and this
             is a decision, and the keyboard has to be able to reach the decision.
@@ -348,9 +579,23 @@ export function Pane({
         that could wrap would take a row off the terminal's box — a resize
         nobody asked for. #52's ledge at the terminal's edge is where this ends
         up, which is why it is a component of its own and knows nothing about
-        this pane.
+        this pane. The readouts are the exception and are not pane knowledge
+        either: whether the warm run's child has stopped arrives on the poll and
+        nowhere else, and it is what keeps this line from naming the agent CLI
+        directly above a temperature saying the child is gone. Both lines are
+        handed the same array and match the warm run out of it the same way, so
+        they answer *is the caret parked* once between them.
       */}
-      <EscReadout />
+      <EscReadout readouts={readouts} />
+
+      {/*
+        And where the keystrokes go, which `Esc` alone stopped being able to
+        answer the moment watching and typing became two paths. Beside the Esc
+        line and built the same way — one pure function over the router's own
+        state — so the two sentences and the key that acts are one reading of
+        one fact.
+      */}
+      <Temperature readouts={readouts} />
 
       {prompt === null ? null : <PromptBlock prompt={prompt} />}
 

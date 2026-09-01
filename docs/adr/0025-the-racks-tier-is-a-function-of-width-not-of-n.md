@@ -1,6 +1,7 @@
 # 25. The rack's tier is a function of width, not of N
 
-Status: accepted (2026-08-31)
+Status: accepted (2026-08-31), amended by ADR 0027 (2026-08-31) in the one
+place marked *Amended* below.
 Context: [#56 The rack](https://github.com/javrasya/perseverance/issues/56),
 under the spec [#28](https://github.com/javrasya/perseverance/issues/28). It sits
 beside
@@ -218,7 +219,25 @@ stakes recorded* rather than defaulted to *work*.
 
 The rack is a readout and binds nothing. Choosing which run the terminal shows is
 the patchbay's (#57); rows carry no affordance and the monitored binding is
-untouched by everything here.
+untouched by everything here. [Amended by
+[ADR 0027](0027-watching-and-typing-are-two-paths.md): #57 made the rack the
+patchbay's selector, and it is the whole of the patchbay's selector. The rows
+already name every run this window holds, one line each, in the order they were
+opened; a second list to pick a run out of would be the rack drawn twice, and the
+operator reading the two would have to decide which one was the truth.
+
+Every row is a `<button>` now, and a press calls `monitorRun` and then `monitor`.
+What that moves is `monitored`, and nothing else. It does **not** warm the run:
+`monitor` cools the binding on every change it makes, so a press hands the pane a
+new run to *show* and leaves the keyboard where the operator put it — the two
+paths #57 separates, in one gesture. Warming stays the crossing chord and a click
+into the pane, which is where it was before this ticket and where a person's
+intent to type is actually expressed. A landed run's row is pressable like any
+other: runs stay in the rack as `exited`, and patching the monitor onto one so
+its crash can be read is the point rather than an edge case. Nothing else about
+this ADR moves — the tier is still a function of width, rows still appear and
+disappear for nothing but a press, and `RunReadout.monitored` is still Rust's own
+account rather than what marks the row.]
 
 `dev:web` gains a fixture of six runs, and it carries seconds-ago rather than
 stamps. Every other fixture in this repo checks in absolute seconds and lets them
