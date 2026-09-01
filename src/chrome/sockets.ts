@@ -205,7 +205,7 @@ function standing(crossing: Crossing): Frontier | null {
  * Either way the folder has not finished being read, and nothing here is
  * entitled to say what it holds.
  */
-function stillReading(environment: FolderReadout | null): boolean {
+export function stillReading(environment: FolderReadout | null): boolean {
   return environment === null || environment.harvest.kind === "harvesting";
 }
 

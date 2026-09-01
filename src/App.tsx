@@ -74,6 +74,8 @@ import { Ledger } from "./chrome/Ledger.jsx";
 /* `Sockets.jsx` for the third time and the same reason: `chrome/sockets.ts` is
    the derivation and `chrome/Sockets.tsx` is the rendering. */
 import { Sockets } from "./chrome/Sockets.jsx";
+/* `IdeaBox.jsx` for the fourth: `chrome/idea.ts` is the derivation. */
+import { IdeaBox } from "./chrome/IdeaBox.jsx";
 import { useDefaultView } from "./views/useDefaultView";
 import styles from "./App.module.css";
 
@@ -668,7 +670,37 @@ export function App() {
             rather than replacing the launcher — there is no mode to be in.
           */}
           {selectedId === null ? null : (
-            <MapList view={maps} selected={openMap} onOpen={onOpenMap} />
+            <MapList
+              view={maps}
+              selected={openMap}
+              onOpen={onOpenMap}
+              /*
+                The idea box, handed to the list rather than placed beside it:
+                it belongs under the *no map in this repository* copy, which is
+                the one sentence on screen that already says a charting session
+                leaving no map behind is that session working correctly.
+              */
+              ideaBox={
+                /* The same readouts the pane is given: the box recesses
+                   while the session it started is running and re-arms once
+                   that run is over, and these are how it learns which. */
+                <IdeaBox
+                  /* Keyed to the folder, because the single-press guard the box
+                     holds is a fact about *this* folder and nothing takes the
+                     box away between two mapless folders: the list draws it at
+                     one position, so without a key one React instance would
+                     carry a press made in one folder into the next — printing
+                     *already running* where nothing runs, and losing the guard
+                     on the folder that does have a session the moment a folder
+                     with maps is visited in between. A folder change discards
+                     the press, the idea and the pick together. */
+                  key={selectedPath ?? "none"}
+                  folder={selectedPath ?? null}
+                  environment={folderEnvironment}
+                  readouts={runs}
+                />
+              }
+            />
           )}
         </DropRegion>
 
