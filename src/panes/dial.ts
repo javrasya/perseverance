@@ -1,6 +1,7 @@
 import { RACK_RESERVE } from "../rack/rack";
 import { BENCH_WIDTH_FLOOR, RANK_RAIL } from "../views/bench/bench";
 import { widthNeededFor } from "../views/deep-field/deepField";
+import { PLATE_CHROME, PLATE_FLOOR } from "../views/plate/plate";
 import type { ViewName } from "../views/views";
 
 /**
@@ -286,6 +287,61 @@ export function columnsAt(mapWidth: number): readonly Column[] {
   return COLUMNS.filter((column) => mapWidth >= COLUMN_FLOORS[column]);
 }
 
+/** The rail's fixed strip, in pixels: `--c-app-rail-width` is `13rem`. */
+export const RAIL_PIXELS = 208;
+
+/**
+ * What the **view column** is drawn at, given a map side this wide.
+ *
+ * The map side is a flex row and the view column is one item in it, so a view's
+ * floor compared against the map side is a floor compared against the wrong
+ * number — the launcher and the rail are beside it. `App.module.css` says how
+ * the row divides and this says the same thing in pixels: the rail takes its
+ * fixed strip wherever it is drawn, and the launcher and the view are both
+ * `flex: 1`, so they split what the rail leaves in equal shares.
+ *
+ * It is arithmetic over the shed columns rather than a measurement, which is
+ * what lets [`floorOf`] invert it — a floor has to be known before there is
+ * anything on screen to measure.
+ */
+export function viewColumnAt(mapWidth: number): number {
+  const columns = columnsAt(mapWidth);
+  if (!columns.includes("view")) return 0;
+  const beside = columns.includes("rail") ? RAIL_PIXELS : 0;
+  const shares = columns.includes("launcher") ? 2 : 1;
+  return Math.max(0, Math.floor((mapWidth - beside) / shares));
+}
+
+/**
+ * What the view column keeps for itself before the view is drawn a pixel, in px.
+ *
+ * `.view` in `App.module.css` is `padding: var(--s-space-base)` — 16px, on both
+ * sides — so the box a view is actually drawn into is this much narrower than
+ * the column [`viewColumnAt`] answers with. It belongs here and not in any
+ * view's own chrome constant: the shell draws this gutter around every view, so
+ * a view that composed its floor out of its own stylesheet alone would be short
+ * by exactly this, which is what #63's Plate was. Charged once, in
+ * [`mapSideFor`], so no view can forget it and none can charge it twice.
+ */
+export const VIEW_GUTTER = 16 * 2;
+
+/**
+ * The narrowest map side that draws a view `need` pixels wide.
+ *
+ * The inverse of [`viewColumnAt`] less [`VIEW_GUTTER`], in the only regime a
+ * wide view can ever be drawn in — every column present — because any width big
+ * enough to hold a view column of hundreds of pixels is a width well past the
+ * rail's own floor, and shedding a column to make room for a view is not
+ * something the shell does: columns go by measured width and nothing else.
+ *
+ * `need` is the drawing, not the column: callers pass what the view has to end
+ * up with, and the shell's own padding is added here rather than by each of
+ * them.
+ */
+export function mapSideFor(need: number): number {
+  return Math.max(COLUMN_FLOORS.rail, (need + VIEW_GUTTER) * 2 + RAIL_PIXELS);
+}
+
 /**
  * How wide the body has to be before the detents are drawn with their names.
  *
@@ -384,6 +440,33 @@ export const BENCH_MAP_FLOOR =
 export const VIEW_FLOORS: Record<ViewName, number> = {
   route: 420,
   bench: BENCH_MAP_FLOOR,
+  /* The Plate's own hard floor, read from the geometry that decided it rather
+     than restated here: a diagram drawn in three inches is a diagram nobody can
+     read a label on, so under it the view stands down instead of shrinking.
+
+     Composed rather than copied. `PLATE_FLOOR` is a floor on the *field* — the
+     box the diagram is drawn in — and this table is read against the *map
+     side*, which also holds the launcher and the rail and hands the view column
+     only its share. So the number here is the map side at which the field
+     finally gets its 700: the view's own chrome (`PLATE_CHROME`) added to the
+     field's floor, [`VIEW_GUTTER`] added by [`mapSideFor`] for the padding the
+     shell draws around every view, and the doubling for the launcher's equal
+     share. Written as one expression on purpose — no half of it can drift if no
+     half of it is a literal.
+
+     What that composes to is 2360px of map side, and it is worth saying in
+     words because the arithmetic hides it: 700 field + 344 own chrome + 32
+     shell gutter = 1076 of view column, which the launcher matches share for
+     share, plus the rail's 208. The Plate is therefore a monitor-class view. A
+     1920×1080 laptop cannot draw it at any detent; a 2560px window draws it at
+     the `map` detent and nowhere else. That is deliberate rather than
+     overlooked — see ADR 0026 — and the two ways out are both larger than this
+     table: either the launcher stops taking an equal share beside a wide view,
+     which #48 argues against and which would put this near 1250, or 700 is the
+     wrong floor for a field that also carries an 18rem margin. Falsify it by
+     measuring: if operators are meeting the Plate's stand-down on the displays
+     they actually own, the number is wrong and one of those two is the fix. */
+  plate: mapSideFor(PLATE_FLOOR + PLATE_CHROME),
   /*
    * Two rank columns' worth: the narrowest picture in which one ticket is drawn
    * releasing another, which is the whole of what this view is for. Asked of

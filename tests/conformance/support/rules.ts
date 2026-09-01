@@ -48,6 +48,7 @@ import { readMotion } from "../../support/checks";
 import { collectStylesheets } from "../../support/sources";
 import { VIEWS, type ViewName } from "../../../src/views/views";
 import type { Prospect, Rendering } from "./drive";
+import type { ViewSurface } from "./views";
 
 /**
  * Whether an assertion has a subject at one point of the space, and the
@@ -276,29 +277,51 @@ async function stillLampOf(page: Page): Promise<{
  * collapse lands and cannot differ afterwards. Asserting that first is what
  * proves colour is not the channel the assertions below are riding on.
  *
- * Alpha-zero values are dropped: a background nobody painted is not an ink,
- * and the two rows draw deliberately different shapes.
+ * The properties come from the surface (`ViewSurface.inks`) rather than from a
+ * list here, because a fixed list is a probe that reads one view's channel and
+ * pronounces every other view clean. The Route paints its glyph in `color`, a
+ * border and a background; the Plate paints its mark in SVG `fill` and
+ * `stroke`, and a probe reading only the first three would find one ink on a
+ * plate whose every kind distinction was pure hue.
+ *
+ * The glyph's descendants are read as well as the glyph itself: an SVG mark is
+ * a group, and the paint is on the shapes inside it rather than on the group.
+ * The containers themselves are not read — `fill` on a `<g>` is whatever it
+ * inherited, initially black, which is a colour nobody chose and would be an
+ * ink this view never draws.
+ *
+ * Values nobody painted are dropped — `transparent`, an alpha-zero colour and
+ * SVG's `none` — because an unfilled shape is not an ink, and the two rows draw
+ * deliberately different shapes.
  */
-const INK_PROPERTIES = ["color", "border-top-color", "background-color"] as const;
-
-async function inksOf(row: Locator, glyph: string): Promise<string[]> {
+async function inksOf(row: Locator, surface: ViewSurface): Promise<string[]> {
   return row.evaluate(
     (element: Element, read: { glyph: string; properties: readonly string[] }) => {
       const inks = new Set<string>();
+      /* An SVG container paints nothing; its `fill` is only what it inherited. */
+      const containers = new Set(["g", "svg", "defs", "symbol", "clippath", "title", "desc"]);
       const gather = (target: Element, properties: readonly string[]): void => {
+        if (containers.has(target.tagName.toLowerCase())) return;
         const style = getComputedStyle(target);
         for (const property of properties) {
           const value = style.getPropertyValue(property);
-          if (value !== "transparent" && !/,\s*0\)$/.test(value)) inks.add(value);
+          if (value === "" || value === "none" || value === "transparent") continue;
+          if (/,\s*0\)$/.test(value)) continue;
+          inks.add(value);
         }
       };
 
       gather(element, ["color"]);
       const mark = element.querySelector(read.glyph);
-      if (mark !== null) gather(mark, read.properties);
+      if (mark !== null) {
+        gather(mark, read.properties);
+        for (const inside of Array.from(mark.querySelectorAll("*"))) {
+          gather(inside, read.properties);
+        }
+      }
       return [...inks];
     },
-    { glyph, properties: INK_PROPERTIES },
+    { glyph: surface.glyph, properties: surface.inks },
   );
 }
 
@@ -330,48 +353,71 @@ function animatedSelectors(): string[] {
 }
 
 /**
- * Whose stylesheet spends the motion on one selector — a view's, or the app's.
+ * The text a row actually puts on screen, in a view that may not be HTML.
  *
- * A selector is a *name*, and CSS modules let two files spell the same one. The
- * claimed mark is `.markClaimed` in both registered views and only one of them
- * animates it: `ping` is authored in `src/views/route/Route.module.css` and
- * rule 9's settlement names that file. Deep Field spends no motion at all —
- * every distinction it carries is geometry, which is what ADR 0025 says and
- * what `tests/motion-ration.test.ts` would go red on if it stopped being true.
+ * `innerText` is the reading the contract wants — it is what a person can read,
+ * so a reason parked behind `display: none` does not count as rendered — but it
+ * is an `HTMLElement` property, and the Plate's rows are SVG `<g>` elements:
+ * WebKit throws `Node is not an HTMLElement` rather than answering. Reaching
+ * for `textContent` instead would quietly change what the rule asserts, since
+ * `textContent` reads hidden text too and the hiding is exactly what is being
+ * refused.
  *
- * So the walk keeps the file it found the animation in. A stylesheet under
- * `src/views/<name>/` is that view's, by the same convention `VIEWS` and the
- * directories already keep; anything else is the chrome's, is on screen in
- * every view, and answers `null` — owed everywhere, by nobody in particular.
+ * So the same reading is done by hand, for every view rather than only for the
+ * one that needs it: one definition of *rendered text*, applied to a list and a
+ * diagram alike, is what keeps the rule from meaning two things.
  */
-function spentBy(selector: string): readonly (ViewName | null)[] {
-  const owners = collectStylesheets().flatMap((file) => {
-    if (!readMotion(file.text).animations.some((one) => one.selector === selector)) return [];
-    const under = /^src\/views\/([^/]+)\//.exec(file.path)?.[1];
-    return [VIEWS.find((view) => view === under) ?? null];
+async function renderedText(row: Locator): Promise<string> {
+  return row.evaluate((element: Element) => {
+    const read = (node: Element): string => {
+      const style = getComputedStyle(node);
+      if (style.display === "none" || style.visibility === "hidden") return "";
+      let text = "";
+      for (const child of Array.from(node.childNodes)) {
+        if (child.nodeType === Node.TEXT_NODE) text += child.textContent ?? "";
+        else if (child instanceof Element) text += ` ${read(child)}`;
+      }
+      return text;
+    };
+    return read(element);
   });
-  return [...new Set(owners)];
 }
 
 /**
- * A still form is owed where the motion is spent, and nowhere else.
+ * Which view's sheet an animation was authored in, or `null` when the chrome
+ * authored it.
  *
- * Rule 12 binds *a distinction carried by motion*, and a view whose own
- * stylesheet never wrote the animation carries no such distinction — there is
- * nothing for a reduced-motion fallback to have lost. Asserting the halo
- * anyway would be this table demanding one view's ornament of every view that
- * happens to spell a class the same way, which is the meta-rule's *a rule
- * reaching into one view's layout* arriving through the motion ration.
+ * Rule 12's subject is *the thing that moves*, and a view that spends no motion
+ * has nothing for it to read. Saying so has to be said without naming a view in
+ * a check, and the stylesheet is where it is already said: a sheet under
+ * `src/views/<name>/` is that view's own, and every other sheet is chrome and
+ * therefore on screen at every point of the space. So the still form owed by
+ * `.markClaimed::after` is owed where the Route is drawn, and at a Plate point
+ * the entry skips on a stated precondition rather than asserting the Route's
+ * halo against a diagram that never had one — which is a fact about which
+ * sheet carries the `@keyframes`, not an exemption anybody wrote for a view.
  *
- * It is read off the stylesheets rather than written down, for the reason the
- * walk above is: a list of which view moves would go on being green the day the
- * animation moved to another one.
+ * `VIEWS` is what the path is matched against, so a third view's motion is
+ * placed by the same rule with nothing added here.
  */
-function spentHere(selector: string): Precondition {
-  return ({ view }) => {
-    const owners = spentBy(selector);
-    if (owners.includes(null) || owners.includes(view)) return null;
-    return `\`${selector}\` is animated in another view's stylesheet and not in this one's, so no distinction here is carried by that motion`;
+function authoredIn(selector: string): ViewName | null {
+  for (const file of collectStylesheets()) {
+    const carries = readMotion(file.text).animations.some(
+      (animation) => animation.selector === selector,
+    );
+    if (!carries) continue;
+    const view = VIEWS.find((name) => file.path.includes(`src/views/${name}/`));
+    if (view !== undefined) return view;
+  }
+  return null;
+}
+
+/** The precondition above, as a `Precondition`, decided with no browser. */
+function movesHere(selector: string): Precondition {
+  return (at) => {
+    const home = authoredIn(selector);
+    if (home === null || home === at.view) return null;
+    return `${selector} is authored in the ${home} view's own sheet, so nothing this view draws moves for it`;
   };
 }
 
@@ -397,7 +443,15 @@ const STILL_FORMS: Record<string, StillForm> = {
   ".markPing::after": {
     applies: (at) =>
       ON_SCREEN(at) ??
-      spentHere(".markClaimed::after")(at) ??
+      /* The moving selector and not the ring it moves. `movesHere` asks which
+         view's sheet authored an *animation*, and `.markClaimed::after` carries
+         none anywhere — it is the static halo, drawn by The Route and by the
+         Bench alike. Asked about it, `authoredIn` finds no animation, answers
+         *chrome*, and the still form is owed in every view — including two that
+         draw no halo at all, whose glyph then reports `content: none` and fails
+         the check with the ring's own sentence. `ping` is authored once, in
+         `src/views/route/Route.module.css`, so that is the name that places it. */
+      movesHere(".markPing::after")(at) ??
       (nodesOf(at).some((node) => node.state === "claimed") &&
       nodesOf(at).some((node) => node.state !== "claimed")
         ? null
@@ -519,8 +573,8 @@ export const RULE_CHECKS: Partial<Record<RuleId, RuleEntry>> = {
            gone as a channel before a word of the distinction below is read,
            which is the whole experiment rule 3 names. */
         const inks = new Set([
-          ...(await inksOf(unclassified, surface.glyph)),
-          ...(await inksOf(ticket, surface.glyph)),
+          ...(await inksOf(unclassified, surface)),
+          ...(await inksOf(ticket, surface)),
         ]);
         expect(
           [...inks].sort(),
@@ -570,7 +624,7 @@ export const RULE_CHECKS: Partial<Record<RuleId, RuleEntry>> = {
   },
 
   5: {
-    why: "Asserted in the positive form the registry restates, over the page: the figures reach the screen as the model's own numerals, spelled — `describeModel` is what the rendering has to agree with — and nothing continuous stands between or behind them. Three ways a proportion could be drawn are refused: a widget (`progress`, `meter`, a progressbar or meter role, or an `aria-valuenow` on anything that is a reading rather than a control) anywhere in the rendering; a painted image on the figures, on anything inside them or on anything behind them up to the body; and an inline style, which is the only route this app has from a number in the model to an extent on screen — every other length here is authored in a stylesheet and cannot vary with a count.",
+    why: "Asserted in the positive form the registry restates, over the page: the figures reach the screen as the model's own numerals, spelled — `describeModel` is what the rendering has to agree with — and nothing continuous stands between or behind them. Three ways a proportion could be drawn are refused: a widget (`progress`, `meter`, a progressbar or meter role, or an `aria-valuenow` on anything that is a reading rather than a control) anywhere in the rendering; a painted image on the figures, on anything inside them or on anything behind them up to the body; and an inline style, which is the only route this app has from a number in the model to an extent on screen — every other length here is authored in a stylesheet and cannot vary with a count. An SVG view puts its geometry in *attributes* (`x`, `y`, `d`, `viewBox`), and those are not what this rule is about: they place a mark that already stands for a ticket, whereas the offence is a length that stands for a proportion. The probe reads inline `style` and a painted background, and finds neither on the Plate — nothing between the model's numerals and the screen there is drawn by an attribute at all.",
     applies: ({ snapshot }) =>
       snapshot.model.map === null
         ? "no map is open in this fixture, so no progress figures are rendered"
@@ -579,18 +633,35 @@ export const RULE_CHECKS: Partial<Record<RuleId, RuleEntry>> = {
       const figures = page.getByText(describeModel(snapshot.model), { exact: true });
       await expect(figures).toHaveCount(1);
 
-      /* `aria-valuenow` is not by itself a bar. ARIA gives the attribute to
-         three input roles as well — `separator`, `slider`, `spinbutton` — where
-         the value is where the operator put the control, not a reading of any
-         quantity. `src/panes/Dial.tsx` is one: a focusable window splitter whose
-         denominator is the window. Excluding those roles is what keeps this a
-         ban on *a proportion of the map drawn as an extent*, which is the rule,
-         rather than a ban on the app having a draggable seam. `progressbar` and
-         `meter` stay banned outright, in every role and element spelling. */
+      /*
+       * A widget that *reads out* a proportion, and not every widget that has a
+       * value.
+       *
+       * `aria-valuenow` alone is too coarse a net, and the dial is why: it is a
+       * focusable `separator` with a value from 0 to 100, and that value is the
+       * window split the operator dragged — a number the model does not contain
+       * and could not vary. Failing it would be the suite refusing an operator
+       * control because a proportion of *something* is on screen, which is not
+       * what the rule says. So the range roles a person sets — slider,
+       * spinbutton, scrollbar, and a focusable separator, which is what a
+       * splitter is — are not readouts and are excused by role.
+       *
+       * Nothing about the actual offence gets easier: `progress`, `meter`,
+       * `role="progressbar"` and `role="meter"` are refused outright however
+       * they are dressed, a plain `<div aria-valuenow>` bar is still refused
+       * because it claims no input role, and no exemption is spelled per view
+       * or per element.
+       */
       await expect(
         page.locator(
-          "progress, meter, [role=progressbar], [role=meter], " +
-            "[aria-valuenow]:not([role=separator]):not([role=slider]):not([role=spinbutton])",
+          [
+            "progress",
+            "meter",
+            "[role=progressbar]",
+            "[role=meter]",
+            "[aria-valuenow]:not([role=slider]):not([role=spinbutton])" +
+              ":not([role=scrollbar]):not([role=separator][tabindex])",
+          ].join(", "),
         ),
       ).toHaveCount(0);
 
@@ -631,7 +702,7 @@ export const RULE_CHECKS: Partial<Record<RuleId, RuleEntry>> = {
       for (const node of map.nodes.filter(isCut)) {
         const row = root.locator(surface.row(node.number));
         await expect(row).toBeVisible();
-        expect(await row.innerText()).toContain(node.cut.reason);
+        expect(await renderedText(row)).toContain(node.cut.reason);
         await expect(row.locator("[title]")).toHaveCount(0);
         expect(await row.evaluate((element: Element) => element.hasAttribute("title"))).toBe(
           false,
@@ -642,7 +713,7 @@ export const RULE_CHECKS: Partial<Record<RuleId, RuleEntry>> = {
   },
 
   10: {
-    why: "The floor of a judged rule, over the page. Two halves, and neither needs a pointer to be driven. Every `title` in the rendering must be recovering text that is already in the rendering — the carve-out, held to what it says. And no rule in the rendering's own stylesheets may reveal anything on `:hover`: the CSSOM is walked for hover selectors that touch a disclosure property, which catches a gradient-fade reveal and a `max-height` accordion as readily as `display: none`. What is not asserted is *load-bearing*: whether a fact the operator needs is reachable without a pointer is a claim about the task, and two views may answer it differently.",
+    why: "The floor of a judged rule, over the page. Two halves, and neither needs a pointer to be driven. Every `title` in the rendering must be recovering text that is already in the rendering — the carve-out, held to what it says. And no rule in the rendering's own stylesheets may reveal anything on `:hover`: the CSSOM is walked for hover selectors that touch a disclosure property, and the property decides how it is judged. `clip-path`, `overflow` and any `transform` that is not a plain scale or rotate are refused outright, because a subject that is clipped, held inside an `overflow: hidden` parent or parked off-screen rests as a full-opacity, non-zero box — nothing about the resting state could tell an un-clip or a slide-in from emphasis. The properties whose hiding the resting state *does* show — `display`, `visibility`, `opacity`, a height, a width, a pseudo element's `content` — are judged against the resting state of what they restyle: a rule that paints something already on screen is emphasis, a rule whose subject rests invisible, unpainted, zero-area or without content is disclosure. That catches a gradient-fade reveal, a `max-height` accordion and a `::after` tooltip as readily as `display: none`, and it does not accuse a view of drawing a mark it has drawn the whole time louder. What is not asserted is *load-bearing*: whether a fact the operator needs is reachable without a pointer is a claim about the task, and two views may answer it differently.",
     applies: EVERYWHERE,
     check: async ({ page }) => {
       const rendered = (await page.locator("body").innerText()).replace(/\s+/g, " ");
@@ -658,10 +729,43 @@ export const RULE_CHECKS: Partial<Record<RuleId, RuleEntry>> = {
       }
 
       const disclosing = await page.evaluate(() => {
-        /* Colour, border and fill on hover are not disclosure: they restyle
-           something already on screen. These are the properties that can put
-           something there that was not. */
-        const DISCLOSURE = [
+        /*
+         * Disclosure is *something arriving that was not there*. Emphasis is
+         * something already on screen being drawn louder. Both are written with
+         * the same properties, so the property alone cannot tell them apart:
+         * `transform: scale(1.35)` on a station's glyph is the transit
+         * convention enlarging a mark the operator is already looking at, and
+         * `max-height: 40rem` on a panel is an accordion opening. What tells
+         * them apart is the *resting* state of what the rule paints — so the
+         * walk asks the page, at rest, with no pointer anywhere near it.
+         *
+         * But the resting state only answers for the properties whose hiding it
+         * can see. A subject sitting under `clip-path: inset(100%)`, inside an
+         * `overflow: hidden` parent, or parked at `translateY(-200%)` rests as
+         * a full-opacity, non-zero box that no probe here can distinguish from
+         * one honestly on screen, so those are refused outright rather than
+         * judged: hover may not un-clip, un-hide overflow, or move a subject.
+         * `transform` is admitted only in the scale/rotate form the transit
+         * convention needs, which is emphasis wherever it is written.
+         *
+         * The remainder — display, visibility, opacity, a height, a width, a
+         * pseudo element's `content` — is judged against how its subject rests,
+         * and refused when the thing it restyles is not already painted:
+         * display `none`, `visibility: hidden`, an opacity at or below the
+         * point where nothing is legible, a zero-area box, or a pseudo element
+         * with no content. That still catches the gradient fade (rests at
+         * opacity 0), the accordion (rests at height 0) and the tooltip
+         * `::after` (rests at `content: none`), and it stops accusing a view of
+         * hiding a thing it is drawing the whole time.
+         *
+         * A rule whose subject is not in this rendering at all is *not judged
+         * here*, and deliberately: the Plate's sheet is loaded while the Route
+         * is open, so its station rules match nothing at that point of the
+         * space. The fan-out visits every view, and the rule is judged where its
+         * elements exist — which is a stronger reading than judging a selector
+         * against a page that never had the elements.
+         */
+        const JUDGED_AT_REST = [
           "display",
           "visibility",
           "opacity",
@@ -670,16 +774,86 @@ export const RULE_CHECKS: Partial<Record<RuleId, RuleEntry>> = {
           "max-height",
           "width",
           "max-width",
-          "clip-path",
-          "transform",
         ];
+        /* Hiding the resting probe cannot see: a clipped element, one inside a
+           clipping parent and one carried off-screen all report a painted,
+           non-zero box, so hover is refused these outright. */
+        const REFUSED_OUTRIGHT = [
+          "clip",
+          "clip-path",
+          "overflow",
+          "overflow-x",
+          "overflow-y",
+          "overflow-block",
+          "overflow-inline",
+          /* The individual property, which is `transform: translate(...)` under
+             another spelling and hides just as invisibly. */
+          "translate",
+        ];
+        /* `transform` is both kinds at once. Scale and rotate draw a mark
+           louder where it already is; anything else — `translate` above all —
+           can carry a subject in from somewhere the probe never looked. */
+        const EMPHASIS_ONLY = /^(none|(\s*(scale|scalex|scaley|rotate|rotatez)\([^()]*\))+\s*)$/i;
+        /* Below this an element is not dimmed, it is gone. A view that recedes
+           a thread to a third of its ink is still drawing it. */
+        const LEGIBLE = 0.1;
+
+        /* `null` when the selector matches nothing in this rendering; otherwise
+           `hidden` is why its subject is not painted yet, or `null` if it is. */
+        const resting = (selector: string): { hidden: string | null } | null => {
+          const pseudo = /::?(before|after)\b/.exec(selector);
+          const host = selector.replace(/::?(before|after)\b/g, "").trim();
+          let elements: Element[];
+          try {
+            elements = Array.from(document.querySelectorAll(host === "" ? ":root" : host));
+          } catch {
+            return { hidden: "unreadable selector" };
+          }
+          if (elements.length === 0) return null;
+          for (const element of elements) {
+            const style = getComputedStyle(element, pseudo === null ? undefined : `::${pseudo[1]}`);
+            if (pseudo !== null && (style.content === "none" || style.content === "")) {
+              return { hidden: "its ::" + pseudo[1] + " has no content until hovered" };
+            }
+            if (style.display === "none") return { hidden: "it is display:none until hovered" };
+            if (style.visibility === "hidden") {
+              return { hidden: "it is visibility:hidden until hovered" };
+            }
+            if (Number(style.opacity) <= LEGIBLE) {
+              return { hidden: "it is invisible until hovered" };
+            }
+            const box = element.getBoundingClientRect();
+            if (pseudo === null && (box.width === 0 || box.height === 0)) {
+              return { hidden: "it has no area until hovered" };
+            }
+          }
+          return { hidden: null };
+        };
+
         const found: string[] = [];
         const walk = (rules: CSSRuleList): void => {
           for (const rule of Array.from(rules)) {
             if (rule instanceof CSSStyleRule && rule.selectorText.includes(":hover")) {
-              for (const property of Array.from(rule.style)) {
-                if (DISCLOSURE.includes(property)) {
-                  found.push(`${rule.selectorText} { ${property} }`);
+              const properties = Array.from(rule.style);
+              const refused = properties.filter(
+                (property) =>
+                  REFUSED_OUTRIGHT.includes(property) ||
+                  (property === "transform" &&
+                    !EMPHASIS_ONLY.test(rule.style.getPropertyValue("transform").trim())),
+              );
+              const judged = properties.filter((property) => JUDGED_AT_REST.includes(property));
+              for (const selector of rule.selectorText.split(",")) {
+                if (refused.length === 0 && judged.length === 0) break;
+                if (!selector.includes(":hover")) continue;
+                const subject = resting(selector.replaceAll(":hover", ""));
+                if (subject === null) continue;
+                if (refused.length > 0) {
+                  found.push(
+                    `${selector.trim()} { ${refused.join(", ")} }: hover un-clips or moves it, and a subject hidden that way rests fully painted`,
+                  );
+                }
+                if (judged.length > 0 && subject.hidden !== null) {
+                  found.push(`${selector.trim()} { ${judged.join(", ")} }: ${subject.hidden}`);
                 }
               }
             }

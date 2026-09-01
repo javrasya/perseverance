@@ -20,21 +20,21 @@ classification is
 
 ## The thirteen
 
-| # | Rule | Subject | Tier | Render-bound | Where it is enforced | route | bench | deep-field |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | One derived model | codebase | structural | no | construction in `src/snapshot/model.generated.ts` | no slot | no slot | no slot |
-| 2 | Singular frontier | rendering | asserted | yes | assertion over the fixture space (#43) | no slot | no slot | no slot |
-| 3 | Fail-safe is not styling | rendering | asserted | yes | assertion over the fixture space (#43) | no slot | no slot | no slot |
-| 4 | Absence is never zero | rendering | **judged** | yes | asserted floor (#43), then declaration | declared | declared | declared |
-| 5 | No progress bar | rendering | asserted | yes | assertion over the fixture space (#43) | no slot | no slot | no slot |
-| 6 | Out-of-scope is never progress | rendering | asserted | yes | assertion over the fixture space (#43) | no slot | no slot | no slot |
-| 7 | The ledger is chrome | codebase | structural | no | construction in `src/views/views.ts` | no slot | no slot | no slot |
-| 8 | No stored positions | codebase | structural | no | construction in `crates/app/src/lib.rs` | no slot | no slot | no slot |
-| 9 | Motion is rationed | rendering | asserted | no | enumeration over the stylesheets (#43) | no slot | no slot | no slot |
-| 10 | Hover discloses nothing | reading | **judged** | yes | asserted floor (#43), then declaration | declared | declared | declared |
-| 11 | The field is not the label surface | reading | **judged** | yes | declaration only — no floor a machine can settle | declared | declared | declared |
-| 12 | Still-state equivalent | rendering | **judged** | yes | asserted floor (#43), then declaration | declared | declared | declared |
-| 13 | Resolved stays locatable | reading | **judged** | yes | asserted floor (#43), then declaration | declared | declared | declared |
+| # | Rule | Subject | Tier | Render-bound | Where it is enforced | route | bench | plate | deep-field |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | One derived model | codebase | structural | no | construction in `src/snapshot/model.generated.ts` | no slot | no slot | no slot | no slot |
+| 2 | Singular frontier | rendering | asserted | yes | assertion over the fixture space (#43) | no slot | no slot | no slot | no slot |
+| 3 | Fail-safe is not styling | rendering | asserted | yes | assertion over the fixture space (#43) | no slot | no slot | no slot | no slot |
+| 4 | Absence is never zero | rendering | **judged** | yes | asserted floor (#43), then declaration | declared | declared | declared | declared |
+| 5 | No progress bar | rendering | asserted | yes | assertion over the fixture space (#43) | no slot | no slot | no slot | no slot |
+| 6 | Out-of-scope is never progress | rendering | asserted | yes | assertion over the fixture space (#43) | no slot | no slot | no slot | no slot |
+| 7 | The ledger is chrome | codebase | structural | no | construction in `src/views/views.ts` | no slot | no slot | no slot | no slot |
+| 8 | No stored positions | codebase | asserted | no | assertion over `crates/app/src/lib.rs` | no slot | no slot | no slot | no slot |
+| 9 | Motion is rationed | rendering | asserted | no | enumeration over the stylesheets (#43) | no slot | no slot | no slot | no slot |
+| 10 | Hover discloses nothing | reading | **judged** | yes | asserted floor (#43), then declaration | declared | declared | declared | declared |
+| 11 | The field is not the label surface | reading | **judged** | yes | declaration only — no floor a machine can settle | declared | declared | declared, with deviation | declared |
+| 12 | Still-state equivalent | rendering | **judged** | yes | asserted floor (#43), then declaration | declared | declared | declared | declared |
+| 13 | Resolved stays locatable | reading | **judged** | yes | asserted floor (#43), then declaration | declared | declared | declared | declared |
 
 A view column reads `no slot` wherever the rule is structural or asserted.
 That is not an omission: deviation is a function of tier, and only a judged
@@ -49,7 +49,15 @@ below is work scheduled to be worked off — the declaration says what the
 view does today, and this list is what the contract is owed. Quoted from the
 declarations verbatim.
 
-Nothing is declared as a deviation today.
+### plate — rule 11, The field is not the label surface
+
+Deviation: a title too long for its plate is clipped and this view offers no way
+to read the rest of it in place — no tooltip, by rule 10, and no expansion. The
+operator recovers the full string by selecting the station and reading it in the
+rail, or by opening the Route. Widening the plate would mean widening the
+reservation the router is routing around, which is a geometry change in
+`plate.ts` rather than a paint one, and it belongs with the slice that measures
+this view against real maps.
 
 ## Open obligations that are not deviations
 
@@ -70,6 +78,10 @@ headings, so *settled* is never read off silence in the section above.
 ### Rule 5, No progress bar (asserted)
 
 The widget half of the ban caught something that is not a bar: `src/panes/Dial.tsx` is a focusable window splitter carrying `role="separator"` with an `aria-valuenow`, and a check that reads the attribute alone bans the app's draggable seam. ARIA gives `aria-valuenow` to three input roles as well — `separator`, `slider`, `spinbutton` — where the value says where the operator put the control and the denominator is the window rather than anything in the model. Asserted has no deviation route, so the check was drawn rather than declared around: those three roles are excluded by selector in `tests/conformance/support/rules.ts`, and `progress`, `meter`, `role=progressbar` and `role=meter` stay banned outright in every element and role spelling. What the rule is about is a count from the model turned into an extent on screen; a seam the operator drags is not that, and a fourth role joining the exclusion costs an argument, not a line.
+
+### Rule 8, No stored positions (asserted)
+
+The exception is The Plate's and is the whole of it. A transit diagram is the one view whose positions are a judgement rather than an algorithm's output — a station dragged where the operator thinks it belongs is information the graph does not contain — so storing it is the only way that judgement survives a reload. Every other view derives its arrangement, which is why the seam lives under `src/views/plate/` and is keyed `perseverance.plate.` rather than beside the dial's: a general home for positions is how a second view would acquire them without anybody deciding it should.
 
 ### Rule 9, Motion is rationed (asserted)
 

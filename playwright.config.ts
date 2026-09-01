@@ -36,7 +36,16 @@ import { defineConfig, devices } from "@playwright/test";
  * four times 680 rather than near it: at `split` the body has to be at least
  * twice 1842, and 3840 clears that with a margin.
  *
- * The devices' own 1280 would put every fixture on a stood-down Bench, so this
+ * The Plate decides the number. Its floor is a floor on the *drawing*, and the
+ * map side has to hold the launcher, the rail, the shell's own padding and this
+ * view's reserved margin before the drawing gets a pixel — `VIEW_FLOORS.plate`
+ * composes all of that and lands at 2360px of map side. The Bench asks for
+ * 680px of canvas, which is `VIEW_FLOORS.bench = 1842` of map side by the same
+ * kind of arithmetic (`BENCH_MAP_FLOOR` in `src/panes/dial.ts`), and so is the
+ * second-widest rather than the widest. 3840 clears the Plate's with a margin
+ * at the detent the driver opens a view at.
+ *
+ * The devices' own 1280 would put every fixture on a stood-down view, so this
  * is not a preference. The driver refuses to run against a mounted-but-undrawn
  * view (`tests/conformance/support/drive.ts`), which is what turns a layout
  * change that eats this margin into a named failure rather than into a suite
@@ -66,6 +75,21 @@ export default defineConfig({
     trace: "on-first-retry",
   },
 
+  /*
+   * The window, stated rather than inherited, and stated on each project
+   * because a device descriptor carries its own viewport and would win.
+   *
+   * The widest view decides it. The Plate's floor is a floor on the *drawing*,
+   * and the map side has to hold the launcher, the rail, the shell's own
+   * padding and this view's reserved margin before the drawing gets a pixel —
+   * `VIEW_FLOORS.plate` composes all of that and lands at 2360px of map side,
+   * which no 1280px laptop default and no 1920px display can reach at any
+   * detent. ADR 0026 records why that is accepted rather than fixed. A suite
+   * run in a window under it would meet the stand-down at every state and fail
+   * loudly (`drive.ts` says so out loud rather than skipping), which is the
+   * shell behaving correctly and the harness asking the wrong question. This is
+   * the desktop the view is competent on.
+   */
   projects: [
     {
       name: "webkit",

@@ -25,9 +25,14 @@ export function enforcedBy(rule: Rule): string {
     case "structural":
       return `construction in \`${rule.mechanismPath}\``;
     case "asserted":
-      return rule.renderBound
-        ? "assertion over the fixture space (#43)"
-        : "enumeration over the stylesheets (#43)";
+      if (rule.renderBound) return "assertion over the fixture space (#43)";
+      /* Not render-bound means settled against text, and the text differs: rule
+         9 reads every stylesheet, rule 8 reads the one file its mechanism lives
+         in. Naming the file where there is one keeps the cell true of the rule
+         rather than true of whichever rule got here first. */
+      return rule.mechanismPath === undefined
+        ? "enumeration over the stylesheets (#43)"
+        : `assertion over \`${rule.mechanismPath}\``;
     case "judged":
       return rule.assertedFloor === undefined
         ? "declaration only — no floor a machine can settle"

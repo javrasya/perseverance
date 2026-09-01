@@ -111,6 +111,20 @@ const CASES: &[Case] = &[
               would otherwise be takeable, and the fog was surveyed.",
     },
     Case {
+        slug: "full-plate",
+        answer: Some("full-plate.json"),
+        why: "Fifteen children, which is the middle of the band the plate view \
+              says it is competent at — and the only fixture that reaches it, \
+              because every other map here is eleven children or fewer. Five \
+              ranks deep and four wide at the widest, so a drawing of it has \
+              corners in it rather than one straight run; two stems that fan, \
+              of which only one is an offer, the other being already finished; \
+              and three children with no edge at either end, each carrying a \
+              different mark. Nothing here closes a cycle: `awkward-map` owns \
+              that reading, and a second map that tangled would cost this one \
+              the reading it is here for.",
+    },
+    Case {
         slug: "two-maps-one-open",
         answer: Some("two-maps-one-open.json"),
         why: "The ordinary case, and the one every other fixture is awkward \

@@ -1,0 +1,520 @@
+/*
+ * Tier 3 — component tokens, defined from semantic tokens only.
+ *
+ * Every difference between the seven marks is a *shape*, and the colour is one
+ * `--c-plate-*` reassignment per state — so a retheme reaches all of it and
+ * collapsing every semantic token to one value leaves the drawing intact,
+ * because none of the seven was ever told apart by hue. No colour is named
+ * here and none is written into the markup either: a literal in the `.tsx` is a
+ * colour the retheme cannot see and the stylesheet check cannot scan.
+ *
+ * There is no `animation` anywhere in this file and no `transition` either.
+ * Rule 9 rations motion to running-vs-stale, `NodeState` carries no such bit,
+ * and this view chose to spend nothing rather than to spend it on a claim it
+ * cannot make — so every distinction below is a still one already, and there is
+ * no reduced-motion fallback to lose.
+ *
+ * The geometry here is the size of a glyph and the width of the margin. Where a
+ * station *is* was decided in `plate.ts`; nothing in this file places anything.
+ */
+
+/**
+ * The view: the field, and the margin beside it.
+ *
+ * Two regions and a hard edge between them, which is rule 11's whole answer —
+ * the legend and the fog live in a column the topology cannot grow into,
+ * because the drawing is laid out in the other one.
+ */
+.plate {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex: 1;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: var(--s-space-loose);
+  padding: var(--s-space-base);
+  overflow: auto;
+  background: var(--s-surface-raised);
+  text-align: left;
+}
+
+.absence {
+  margin: 0;
+  padding: var(--s-space-base);
+  color: var(--s-ink-secondary);
+  font-size: var(--s-text-body);
+}
+
+/*
+ * The drawing, at its natural size.
+ *
+ * Not `width: 100%`. The label boxes are reserved in cells and a cell is 14px,
+ * so a drawing scaled to fit a narrower column is a drawing whose plates no
+ * longer hold the words the solver reserved room for. Above the view's floor a
+ * column too narrow for the whole plate scrolls — `.plate` is the scrollport —
+ * and below the floor the shell stands the view down instead. Those are the
+ * only two answers; re-layout is not one.
+ */
+.field {
+  flex: 0 0 auto;
+}
+
+/* The reserved column. A fixed share of the width rather than a share of what
+   is left over: annotation that shrinks as the graph grows is annotation the
+   topology is growing into. */
+.margin {
+  display: flex;
+  width: 18rem;
+  flex: 0 0 18rem;
+  flex-direction: column;
+  gap: var(--s-space-loose);
+  padding-left: var(--s-space-base);
+  border-left: var(--s-border-hairline) solid var(--s-line-quiet);
+}
+
+/* The drag, in words: the margin is where this view says the things the
+   drawing cannot say about itself, and an affordance only a pointer can find is
+   not one. */
+.note {
+  margin: 0;
+  color: var(--s-ink-secondary);
+  font-size: var(--s-text-micro);
+}
+
+/*
+ * The arrangement's undo. One box, and never a second state of one: it is here
+ * when there is an arrangement and absent when there is not, because a control
+ * that greys out is a control still claiming space for a thing this plate has
+ * no way to do.
+ */
+.reset {
+  align-self: start;
+  padding: var(--s-space-tight) var(--s-space-snug);
+  border: var(--s-border-hairline) solid var(--s-line-strong);
+  border-radius: var(--s-radius-control);
+  background: var(--s-surface-raised);
+  color: var(--s-ink-primary);
+  font: inherit;
+  font-size: var(--s-text-micro);
+  cursor: pointer;
+}
+
+.reset:hover {
+  background: var(--s-surface-hover);
+}
+
+.reset:focus-visible {
+  outline: var(--s-border-emphasis) solid var(--s-focus-ring);
+  outline-offset: -2px;
+}
+
+.marginHeading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin: 0 0 var(--s-space-tight);
+  color: var(--s-ink-secondary);
+  font-size: var(--s-text-micro);
+  font-weight: var(--s-weight-emphasis);
+  letter-spacing: var(--s-tracking-label);
+  text-transform: uppercase;
+}
+
+/* ------------------------------------------------------------- the track --- */
+
+.tracks {
+  --c-plate-track: var(--s-line-strong);
+  --c-plate-fan: var(--s-ink-secondary);
+}
+
+.track {
+  fill: none;
+  stroke: var(--c-plate-track);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* The stem a fan shares, drawn heavier than the branches leaving it: one line
+   saying *finishing this frees all of these*, rather than four saying it
+   separately. */
+.fanSpine {
+  fill: none;
+  stroke: var(--c-plate-fan);
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.fanKnuckle {
+  fill: var(--c-plate-fan);
+  stroke: none;
+}
+
+/* ----------------------------------------------------------- the station --- */
+
+/*
+ * One station. The token is the only thing a state changes; the shape is
+ * chosen in the markup, because a ring, a bar, a lozenge and a chevron are
+ * different geometry rather than one shape in five colours.
+ */
+.station {
+  --c-plate-glyph: var(--s-ink-primary);
+  --c-plate-ink: var(--s-ink-primary);
+  --c-plate-quiet: var(--s-ink-secondary);
+  --c-plate-fill: var(--s-surface-raised);
+
+  cursor: pointer;
+}
+
+/* Inside, because the view is its own scrollport and a ring drawn outside the
+   station is a ring clipped at the edge of the scroll. The ring itself is the
+   global rule's; this only says where it sits. */
+.station:focus-visible {
+  outline-offset: 2px;
+}
+
+/*
+ * The station under the pointer — or under the keyboard, which gets the same
+ * emphasis and by the same rule. It enlarges; it reveals nothing. Instant, with
+ * no transition, so there is no motion here for rule 9 to ration and nothing
+ * for a reduced-motion fallback to lose.
+ */
+.station:hover .glyph,
+.station:focus-visible .glyph {
+  transform: scale(1.35);
+  transform-origin: 0 0;
+}
+
+/*
+ * What the rest of the network does while one thread is forward.
+ *
+ * A reduction in salience and never in visibility: still drawn, still opaque
+ * enough to read, still hit-testable and still in the tab order. Nothing is
+ * disclosed by coming forward and nothing is withdrawn by receding — this is
+ * the transit convention answering *which thread is this part of*, which is a
+ * question about the picture rather than a fact hidden behind a pointer.
+ */
+.receded {
+  opacity: 0.35;
+}
+
+/* Takeable: an open disc, the plainest station on the line. */
+.markTakeable {
+  fill: var(--c-plate-fill);
+  stroke: var(--c-plate-glyph);
+  stroke-width: 3;
+}
+
+/* The interchange: the one station the map designates, drawn as the transit
+   convention draws a station where lines meet — a wide ring with a hub. It is
+   the largest mark on the plate, and it is the only one with a filled centre
+   inside an open ring. */
+.markDesignated .interchange {
+  fill: var(--c-plate-fill);
+  stroke: var(--c-plate-glyph);
+  stroke-width: 3.5;
+}
+
+.markDesignated .interchangeHub {
+  fill: var(--c-plate-glyph);
+  stroke: none;
+}
+
+/* The train on the line: a lozenge with a second outline round it. The outline
+   is the still form of *someone is on this right now*, and it carries the
+   distinction on its own — there is no motion here for it to be a fallback
+   for. */
+.markClaimed .lozenge {
+  fill: var(--c-plate-glyph);
+  stroke: none;
+}
+
+.markClaimed .lozengeRing {
+  fill: none;
+  stroke: var(--c-plate-glyph);
+  stroke-width: 1.5;
+}
+
+/* Held up: a squared-off station with a bar across it. Square against every
+   other mark's round, so *this one is not going anywhere* is legible with the
+   colour gone. */
+.markBlocked .bar {
+  fill: var(--c-plate-fill);
+  stroke: var(--c-plate-glyph);
+  stroke-width: 2;
+}
+
+.markBlocked .barSlash {
+  stroke: var(--c-plate-glyph);
+  stroke-width: 2;
+}
+
+/* Done: a small closed disc. It recedes in weight and in size, and in nothing
+   else — it keeps its ink, its plate, its place on the line and its tab
+   stop. */
+.markResolved {
+  fill: var(--c-plate-glyph);
+  stroke: none;
+}
+
+/* Nobody classified this. A square on the diagonal with a dashed edge: two
+   form breaks at once, so it survives a retheme that leaves every mark on the
+   plate the same ink. It is drawn, it is reachable, and it is offered
+   nothing. */
+.markUnclassified {
+  fill: none;
+  stroke: var(--c-plate-glyph);
+  stroke-width: 2;
+  stroke-dasharray: 3 2;
+}
+
+/* The end of the line. A terminus chevron pointing at where the map is going,
+   and deliberately not a ring: nothing about this shape reads as *take me*. */
+.markDestination {
+  fill: var(--c-plate-fill);
+  stroke: var(--c-plate-glyph);
+  stroke-width: 2;
+}
+
+/* The cut, struck across the mark the state already chose. A decoration, and
+   the reason it was cut is beside it in words. */
+.markCut {
+  stroke: var(--c-plate-glyph);
+  stroke-width: 2;
+}
+
+/* The stub that says *siding*: a short length of track leaving a station that
+   nothing waits on and that waits on nothing here. The legend names it, because
+   track going nowhere reads as a mistake until something says it is a claim. */
+.sidingStub {
+  stroke: var(--c-plate-track-siding);
+  stroke-width: 2;
+  stroke-dasharray: 4 3;
+}
+
+.glyph {
+  --c-plate-track-siding: var(--s-line-strong);
+}
+
+/* The four states, the designation and the two kinds that are off the work
+   scale — one token reassignment each, and no shape decided here. */
+.station[data-mark="designated"] {
+  --c-plate-glyph: var(--s-designated);
+  --c-plate-ink: var(--s-ink-primary);
+}
+
+.station[data-mark="claimed"] {
+  --c-plate-glyph: var(--s-live);
+}
+
+.station[data-mark="blocked"] {
+  --c-plate-glyph: var(--s-ink-secondary);
+}
+
+/*
+ * Resolved recedes, and this is the whole of the recession: lighter ink, a
+ * smaller disc, and an opacity well clear of nothing. It stays in the DOM, it
+ * stays hit-testable, it keeps its tab stop and it keeps its name — rule 13 is
+ * about salience, and a station nobody can find is not a station that has
+ * receded.
+ */
+.station[data-mark="resolved"] {
+  --c-plate-glyph: var(--s-ink-faint);
+  --c-plate-ink: var(--s-ink-secondary);
+  --c-plate-quiet: var(--s-ink-faint);
+
+  opacity: 0.7;
+}
+
+.station[data-mark="unclassified"] {
+  --c-plate-glyph: var(--s-line-absent);
+  --c-plate-ink: var(--s-ink-secondary);
+}
+
+.station[data-mark="destination"] {
+  --c-plate-glyph: var(--s-ink-secondary);
+}
+
+.station[data-selected] {
+  --c-plate-fill: var(--s-surface-hover);
+  --c-plate-ink: var(--s-ink-primary);
+}
+
+/* ------------------------------------------------------------- the plate --- */
+
+/*
+ * The name plate: the box the label solver reserved, and never a pixel more.
+ *
+ * `overflow: hidden` is rule 11 in one declaration — a long title is clipped by
+ * the plate rather than allowed to grow out into the field the track runs
+ * through, and the whole string stays in the document either way. A cut station
+ * is handed two plates across in the markup, because the words a branch stopped
+ * in take a plate's worth of room.
+ */
+.plateBox {
+  overflow: hidden;
+}
+
+.name {
+  display: flex;
+  height: 100%;
+  overflow: hidden;
+  flex-direction: column;
+  padding: 1px 2px;
+  border-radius: var(--s-radius-control);
+  background: var(--c-plate-fill);
+  color: var(--c-plate-ink);
+  font-family: var(--s-font-ui);
+  font-size: var(--s-text-micro);
+  line-height: 1.25;
+}
+
+.id {
+  color: var(--c-plate-quiet);
+  font-family: var(--s-font-mono);
+}
+
+/* In full, and ellipsised by the browser: the whole title is still in the
+   document to be found, read aloud and asserted on. */
+.title {
+  overflow: hidden;
+  color: var(--c-plate-ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-space-hair);
+}
+
+.tag {
+  color: var(--c-plate-quiet);
+  font-size: var(--s-text-micro);
+  letter-spacing: var(--s-tracking-label);
+  white-space: nowrap;
+}
+
+.tagDesignated {
+  color: var(--s-designated);
+  font-weight: var(--s-weight-emphasis);
+}
+
+.tagLive {
+  color: var(--s-live);
+  font-weight: var(--s-weight-emphasis);
+}
+
+/* The two words that are not a ticket type. Emphasis rather than hue, so the
+   difference survives a sheet with one ink in it. */
+.tagSpec,
+.tagUnclassified {
+  font-weight: var(--s-weight-emphasis);
+  text-transform: uppercase;
+}
+
+/* Why the branch stopped, on the drawing and in the operator's own words. It
+   wraps rather than clips: a reason nobody can read is the thing this text
+   exists to prevent, which is why the plate carrying it is drawn double. */
+.reason {
+  overflow: hidden;
+  color: var(--c-plate-quiet);
+  white-space: normal;
+}
+
+/* ------------------------------------------------------------ the margin --- */
+
+.legend {
+  --c-plate-legend-ink: var(--s-ink-secondary);
+}
+
+.legendList {
+  display: flex;
+  margin: 0;
+  padding: 0;
+  flex-direction: column;
+  gap: var(--s-space-tight);
+  list-style: none;
+}
+
+.legendItem {
+  display: flex;
+  gap: var(--s-space-tight);
+  color: var(--c-plate-legend-ink);
+  font-size: var(--s-text-micro);
+}
+
+.legendCount {
+  flex: 0 0 2ch;
+  font-family: var(--s-font-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.legendMeaning {
+  flex: 1 1 auto;
+}
+
+/*
+ * The fog, beside the graph and never in it.
+ *
+ * Three numerals of progress live in the chrome, not here, and nothing in this
+ * region has an extent that stands for a proportion: the hatching is a fixed
+ * ground under a stamp, the same size whatever the count says. A region whose
+ * hatch grew with its count would be a progress bar with the ends swapped.
+ */
+.fog {
+  --c-plate-fog-ink: var(--s-ink-secondary);
+  --c-plate-fog-hatch: var(--s-degraded-hatch);
+  --c-plate-fog-edge: var(--s-degraded-edge);
+}
+
+.fogName {
+  color: var(--c-plate-fog-ink);
+}
+
+.fogCount {
+  color: var(--c-plate-fog-ink);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-title);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Not a numeral and not in a numeral's face: nobody has been here, and the
+   difference from a zero is the type and the missing ground below, never a
+   character somebody has to squint at. */
+.fogUnsurveyed {
+  color: var(--c-plate-fog-edge);
+  font-family: var(--s-font-ui);
+  font-size: var(--s-text-title);
+  font-weight: var(--s-weight-regular);
+}
+
+.hatch {
+  height: var(--s-space-room);
+  border: var(--s-border-hairline) solid var(--c-plate-fog-edge);
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--c-plate-fog-hatch) 0 2px,
+    transparent 2px 6px
+  );
+}
+
+.fogEmpty {
+  margin: var(--s-space-tight) 0 0;
+  color: var(--c-plate-fog-ink);
+  font-size: var(--s-text-micro);
+}
+
+/* One text node, unmodified: the operator's own line breaks and indentation,
+   put on screen by `pre-wrap` and by nothing else. */
+.fogText {
+  margin: var(--s-space-tight) 0 0;
+  color: var(--c-plate-fog-ink);
+  font-family: var(--s-font-mono);
+  font-size: var(--s-text-micro);
+  white-space: pre-wrap;
+}

@@ -2,7 +2,7 @@
  * How a view declares itself to the conformance suite.
  *
  * The fan-out is *rules × views × the fixture space*, and the view axis is
- * `VIEWS` — two entries today, four eventually. A check written against The
+ * `VIEWS` — four entries today. A check written against The
  * Route's own selectors would have been a check that silently stopped covering
  * anything the day a second view arrived, so the selectors are not in the checks: they
  * are here, once per view, in a table `satisfies Record<ViewName, ViewSurface>`
@@ -12,8 +12,9 @@
  * What a surface may declare is deliberately small, and every field is a hook
  * the *contract* asks for rather than a hook this view happens to have: where
  * the view's root is, whether it is on screen for a given fixture at all, its
- * rows, its designated encoding, the shape it draws for a row, the word it
- * tells an unclassified child apart by, and its fog region if it renders one.
+ * rows, its designated encoding, the shape it draws for a row, the properties
+ * that shape carries its ink on, the word it tells an unclassified child apart
+ * by, and its fog region if it renders one.
  * Anything a rule needs beyond those is a rule reaching into one view's layout,
  * which is what the meta-rule prohibits.
  */
@@ -73,6 +74,19 @@ export interface ViewSurface {
   readonly designated: string;
   /** The shape a row wears, within the row: where the still form of a mark is. */
   readonly glyph: string;
+  /**
+   * The CSS properties this view's glyph carries its ink on.
+   *
+   * Rule 3's first assertion collapses every semantic token and then reads the
+   * two rows' inks, and *which properties are an ink* is a fact about how a
+   * view draws rather than about the rule: an HTML glyph paints in `color`, a
+   * border and a background; an SVG mark paints in `fill` and `stroke`. A rule
+   * carrying one fixed list would read the channel one view happens to use and
+   * pronounce every other view colour-free — vacuously green on exactly the
+   * view whose distinctions ride on hue. So the view names its own, here, and a
+   * new view has to answer the question before it compiles.
+   */
+  readonly inks: readonly string[];
   /** The word an unclassified child is told apart by when every colour is gone. */
   readonly unclassifiedWord: string;
   readonly fog: FogSurface | null;
@@ -93,6 +107,10 @@ const ROUTE: ViewSurface = {
   /* The glyph is the only aria-hidden child a row has; the other one in this
      view is the rule in a section heading, which is not inside a row. */
   glyph: 'span[aria-hidden="true"] > span',
+  /* An HTML glyph: `--c-node-glyph` reaches the text, the rule that stands for
+     a blocked bar reaches the border, and a filled disc reaches the
+     background. */
+  inks: ["color", "border-top-color", "background-color"],
   unclassifiedWord: UNCLASSIFIED_TAG,
   fog: { region: "[data-fog]", unsurveyed: "[data-unsurveyed]", count: "[data-count]" },
 };
@@ -123,6 +141,11 @@ const BENCH: ViewSurface = {
      `aria-hidden` child, and the mark's geometry — square, hollow diamond,
      hatched bar, dashed circle — is the span it wraps. */
   glyph: 'span[aria-hidden="true"] > span',
+  /* An HTML glyph, like the Route's, plus the stud's left edge: the mark is a
+     `<span>` whose form is drawn in borders and a background over `color`, and
+     the Bench tells a kind apart on `border-left` as well, so all four are
+     properties an ink could hide in here. */
+  inks: ["color", "border-top-color", "border-left-color", "background-color"],
   unclassifiedWord: UNCLASSIFIED_TAG,
   /* No fog region, and the omission is this view's decision rather than an
      oversight: the fog is not a node, has no rank and nothing waits on it, so
@@ -171,6 +194,61 @@ const DEEP_FIELD: ViewSurface = {
      span inside it is the form itself — a cut composes onto that rather than
      replacing it. The field's `<svg>` is `aria-hidden` too and is not in a row. */
   glyph: 'span[aria-hidden="true"] > span',
+  /* An HTML glyph, like the Route's: the mark is a `<span>` whose form is
+     drawn in a border and a background over `color`, so those are the three
+     properties an ink could hide in here. */
+  inks: ["color", "border-top-color", "background-color"],
+  unclassifiedWord: UNCLASSIFIED_TAG,
+  fog: { region: "[data-fog]", unsurveyed: "[data-unsurveyed]", count: "[data-count]" },
+};
+
+/*
+ * The Plate declares the same hooks over completely different geometry,
+ * which is the point of the table: a rule reads *the designated node* or *the
+ * rows in this state* and never learns that one view draws a list and the other
+ * draws a diagram. Its rows are `<g>` elements inside the field, because a
+ * station is a group — a glyph, a plate and the words on it — and the hooks
+ * ride on the group exactly as the Route's ride on the `<li>`.
+ */
+const PLATE: ViewSurface = {
+  root: 'section[aria-label="The Plate"]',
+  /*
+   * The same claim as the Route's, and it is a claim about the *model* on
+   * purpose: a map is open, so the view is asked for.
+   *
+   * Whether the shell then draws it is a question about width, and it is
+   * answered before this hook is consulted — `load` presses the view's own cap
+   * on the switcher, which widens the dial to a position where the wanted view
+   * fits and opens it in the same act. The Plate's floor (`VIEW_FLOORS.plate`)
+   * is a map side wide enough that the *drawing* gets its 700px once the
+   * launcher, the rail and this view's own reserved margin have taken theirs —
+   * comfortably past a laptop default, which is why `playwright.config.ts`
+   * states the window rather than inheriting one. It is inside what the `map`
+   * detent is worth in that window, so at every point of the space the press
+   * leaves the diagram drawn. Where it
+   * would not — a window too narrow to hold the view at any detent — `load`
+   * fails loudly on the stand-down rather than letting this hook go on claiming
+   * a root that will never appear.
+   */
+  mounts: (snapshot) => snapshot.model.map !== null,
+  rows: "g[data-node]",
+  row: (number) => `g[data-node="${number}"]`,
+  rowsInState: (state) => `g[data-state="${state}"]`,
+  rowsOfKind: (kind) => `g[data-kind="${kind}"]`,
+  /* `data-frontier` for the Route's reason: the mark yields to *claimed* when
+     somebody is already on the designated station, so the shape is not where
+     the designation is always readable and the attribute is. */
+  designated: "[data-frontier]",
+  /* The glyph is the station's own aria-hidden group, and the shapes inside it
+     are the whole of what a mark is drawn as. */
+  glyph: 'g[aria-hidden="true"]',
+  /* An SVG mark: every kind and state distinction on this view is `fill` and
+     `stroke` off `--c-plate-glyph` — `.markUnclassified` is an unfilled square
+     with a dashed edge, `.markTakeable` a filled disc with a heavy one — and
+     the group itself paints neither, which is why the probe reads the shapes
+     inside it. Reading the Route's three properties here would find one ink on
+     a plate that told every kind apart by hue alone. */
+  inks: ["fill", "stroke"],
   unclassifiedWord: UNCLASSIFIED_TAG,
   fog: { region: "[data-fog]", unsurveyed: "[data-unsurveyed]", count: "[data-count]" },
 };
@@ -178,6 +256,7 @@ const DEEP_FIELD: ViewSurface = {
 export const VIEW_SURFACES = {
   route: ROUTE,
   bench: BENCH,
+  plate: PLATE,
   "deep-field": DEEP_FIELD,
 } satisfies Record<ViewName, ViewSurface>;
 

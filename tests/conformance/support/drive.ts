@@ -10,7 +10,7 @@ import {
   RUNS_PARAMETER,
   type RunFixtureName,
 } from "../../../src/terminal/fixtures";
-import { DEFAULT_VIEW, VIEW_STORAGE_KEY, type ViewName } from "../../../src/views/views";
+import { DEFAULT_VIEW, LABELS, type ViewName } from "../../../src/views/views";
 import type { FixtureState } from "../../support/contract";
 import { surfaceOf, type ViewSurface } from "./views";
 
@@ -119,32 +119,6 @@ export async function load(
     reducedMotion: state.motion === "reduced" ? "reduce" : "no-preference",
   });
 
-  /*
-   * Which view is open is the remembered one, so the way to open a view here is
-   * the way an operator's last session opens it: the key `views.ts` reads at
-   * boot, written before any of the app's own script runs, so the very first
-   * paint is already the asked-for view. Pressing the switcher instead would
-   * make every rule check depend on the switcher being reachable at this width,
-   * which is a different claim from the rule's. The key is imported and never
-   * respelled: a second spelling would go on passing after the app renamed it,
-   * asserting against whatever the app opened on instead.
-   *
-   * A `?view=` parameter beside `?map=` was the alternative, and it was refused
-   * for the reason a second list always is: choosing a view would then be two
-   * mechanisms, and the day they disagree the suite is the thing that lies.
-   */
-  await page.addInitScript(
-    ([key, name]: readonly [string, ViewName]) => {
-      try {
-        window.localStorage.setItem(key, name);
-      } catch {
-        // Storage denied: the app opens on its default, and the root wait below
-        // is what reports that rather than a check quietly reading another view.
-      }
-    },
-    [VIEW_STORAGE_KEY, view] as const,
-  );
-
   /* Both fixtures in one URL, spelled from the parameters their own modules
      export rather than from two literals here — a query string is the whole of
      how `dev:web` is told what to stand in for, and a second spelling of either
@@ -160,11 +134,56 @@ export async function load(
      view mounted*, which is the difference the null root reports. */
   await page.locator("header").first().waitFor({ state: "visible" });
 
-  await openTheDial(page);
+  /*
+   * Which view is open is an operator act, so the driver performs the operator
+   * act: it presses the view's own cap on the switcher.
+   *
+   * The remembered view (`perseverance.view`) could be seeded through an init
+   * script before navigation, and that would be cheaper — but it would open the
+   * view *without moving the dial*, and at `DEFAULT_DETENT` half the window the
+   * suite runs in is worth less than the Plate's floor. The Plate would then be
+   * stood down at every point of the space: a fan-out waiting for a root that
+   * the shell has correctly decided not to draw. Pressing the cap is the one
+   * lever with both consequences — `App.tsx`'s `onChooseView` widens the dial to
+   * a position where the wanted view fits *and* opens it — so the width the view
+   * declares it needs is satisfied by the same mechanism an operator would use,
+   * rather than by the suite arranging a window the product never arranges for
+   * itself.
+   *
+   * The cap is addressed by role and accessible name, never by a class or a
+   * `data-` hook: it is chrome the contract already describes (`role="group"`,
+   * `aria-label="Views"`, one button per view carrying `LABELS[name]`), and a
+   * name match survives the reason text a cap grows when its view does not fit.
+   */
+  await page
+    .getByRole("group", { name: "Views" })
+    .getByRole("button", { name: LABELS[view] })
+    .click();
 
   let root: Locator | null = null;
   if (surface.mounts(snapshot)) {
     root = page.locator(surface.root);
+    /*
+     * The shell has a real state where a view it was asked for cannot be drawn:
+     * below the view's own floor it stands the view down and says what it needs
+     * and what it has. Waiting only for the root would meet that state as a
+     * thirty-second timeout with no reason on it, so the race is run against
+     * the stand-down as well and it is reported as what it is. It is a failure
+     * rather than a skip: the cap press above is supposed to have widened the
+     * dial to a position where the wanted view fits, so a stand-down here means
+     * the window the suite runs in cannot hold this view at any detent — which
+     * the run has to say out loud, not quietly stop asserting over.
+     */
+    const stoodDown = page.locator('section[aria-label="View stood down"]');
+    await Promise.race([
+      root.waitFor({ state: "visible" }),
+      stoodDown.waitFor({ state: "visible" }),
+    ]);
+    if ((await stoodDown.count()) > 0) {
+      throw new Error(
+        `${view} stood down at ${state.fixture}: the viewport cannot hold it at any detent`,
+      );
+    }
     await root.waitFor({ state: "visible" });
 
     /*
@@ -190,44 +209,6 @@ export async function load(
   await page.evaluate(() => document.fonts.ready);
 
   return { ...at, page, root };
-}
-
-/**
- * The dial, put where the view is drawn, before anything is read off it.
- *
- * Setup, exactly like seeding the remembered view above, and for the same
- * reason: how much window the map side is worth is the operator's, the shell
- * remembers it per map, and a suite that never touched it would be asserting
- * about whichever share the default detent happens to leave. That share is not
- * generous — the map side is split with the terminal and then split again with
- * the launcher and the rail — and a view wide enough to want the room says so
- * by standing itself down, at which point every rule below reads a notice
- * instead of a picture and reports green for the half of itself the notice
- * happens to satisfy. That is what the first WebKit run against Deep Field
- * found, and it is a hole in the reading rather than a finding about the view.
- *
- * `map` and not *the narrowest detent that fits*: which detent fits is a number
- * the shell computes from floors, and a driver that asked the shell where to
- * stand would be the rendering choosing the conditions it is judged under. The
- * far detent is the one position that is the same claim for every view — *this
- * window, all of it, to the map* — so a view that will not draw there is a view
- * that will not draw at all, which is a finding and not a hole.
- *
- * Driven through the keyboard rather than through the store: the dial's
- * remembered position is keyed on a folder and a map, and `dev:web` has opened
- * neither, so there is no cell to seed. `End` is the binding the one key router
- * declares for *give the whole window to the map* (`src/keys/router.ts`), and
- * `data-dial` is the hook that router resolves the widget by — the same two
- * hooks an operator's own hand goes through.
- */
-async function openTheDial(page: Page): Promise<void> {
-  const dial = page.locator("[data-dial]");
-  await dial.waitFor({ state: "visible" });
-  await dial.focus();
-  await page.keyboard.press("End");
-  /* The attribute the dial writes its own detent into, so the wait is on the
-     move having landed rather than on a duration. */
-  await page.locator('[data-dial][data-detent="map"]').waitFor({ state: "visible" });
 }
 
 /** The Route, on screen, for a state that has a map open. */

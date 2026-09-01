@@ -100,13 +100,22 @@ const KEY_BINDINGS: readonly { pattern: RegExp; what: string }[] = [
 ];
 
 /**
- * The two files allowed to name any of them, and why — the same shape
+ * The three files allowed to name any of them, and why — the same shape
  * `scripts/check-agent-solitude.mjs` uses, where one package in the tree is the
- * whole rule. The exception is one line long and visible from the check.
+ * whole rule. Each exception is one line long and visible from the check.
+ *
+ * The third is a *direct* handler on a focused element and not a chord: The
+ * Plate's stations are the one control in the app whose keys act on the element
+ * under the focus — nudge this pin, put this one back — so there is no window
+ * chord for the router to own and no warm terminal for a keystroke to be taken
+ * from. A global listener would have to read the focus back out of the document
+ * to know which station it meant, which is the arrangement the router exists to
+ * avoid.
  */
 export const KEY_BINDING_EXCEPTIONS: Readonly<Record<string, string>> = {
   "src/keys/router.ts": "the one router: the window listener itself",
   "src/terminal/xterm.ts": "the one seam into xterm, which asks that same router",
+  "src/views/plate/Plate.tsx": "a focused station's own keys, which claim no chord",
 };
 
 export function findKeyBindings(text: string): Violation[] {

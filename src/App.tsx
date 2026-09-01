@@ -89,6 +89,7 @@ import {
 import { currentState, install, type ActionId, type Handlers, type KeyState } from "./keys/router";
 import { clearance, peekWidth } from "./panes/peek";
 import { readPosition, writePosition } from "./panes/position";
+import { openPinsAt } from "./views/plate/pins";
 import { useBodyBox } from "./panes/useBodyBox";
 import { usePeek } from "./panes/usePeek";
 import { Rack } from "./rack/Rack.jsx";
@@ -111,9 +112,10 @@ import { Terminals } from "./terminal/terminals";
 import { xterm } from "./terminal/xterm";
 import { ThemeSwitch } from "./theme/ThemeSwitch";
 import { useTheme } from "./theme/useTheme";
-/* `Route.jsx` rather than `Route`: it sits beside `route.ts`, and on a
-   case-insensitive filesystem the extensionless specifier resolves to the
-   arithmetic module instead of the component. */
+/* `Plate.jsx` and `Route.jsx` rather than `Plate` and `Route`: each sits beside
+   its own arithmetic module, and on a case-insensitive filesystem the
+   extensionless specifier resolves to that module instead of the component. */
+import { Plate } from "./views/plate/Plate.jsx";
 import { Route } from "./views/route/Route.jsx";
 /* `DeepField.jsx` for the same reason, and it is the harder case: the module
    beside it differs from the component only in its first letter. */
@@ -160,6 +162,7 @@ import styles from "./App.module.css";
 const SURFACES: Record<ViewName, (props: ViewProps) => ReactElement> = {
   route: Route,
   bench: Bench,
+  plate: Plate,
   "deep-field": DeepField,
 };
 
@@ -729,6 +732,21 @@ export function App() {
       flush();
     };
   }, [selectedId, openMap, flush]);
+
+  /*
+   * Which map's plate is on screen, told to the one seam allowed to name a node
+   * position.
+   *
+   * The shell says it because the shell is the only thing that knows the
+   * folder: a view is handed the model and nothing else (rule 7), and a map
+   * number alone would key one folder's arrangement onto another's map of the
+   * same number. Nothing is handed *back* — the Plate reads its own pins from
+   * that seam — so no position passes through this file, which is what keeps
+   * rule 8's exception to the one view it is an exception for.
+   */
+  useEffect(() => {
+    openPinsAt(selectedId, openMap);
+  }, [selectedId, openMap]);
 
   /*
    * One write per completed gesture, and none per frame.

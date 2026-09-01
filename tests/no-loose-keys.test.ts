@@ -12,9 +12,12 @@ import { collect } from "./support/sources";
  * warm terminal, a key taken from an agent CLI with nothing on screen saying it
  * was taken.
  *
- * The allow-list is two files and both are named in the check itself, which is
- * the same shape `scripts/check-agent-solitude.mjs` uses: the exception is part
- * of the rule and visible from it, not a suppression comment somewhere else.
+ * The allow-list is three files and all of them are named in the check itself,
+ * which is the same shape `scripts/check-agent-solitude.mjs` uses: the exception
+ * is part of the rule and visible from it, not a suppression comment somewhere
+ * else. The third is The Plate's stations, whose keys act on the focused element
+ * rather than claiming a chord — nothing the palette or the keys page could
+ * list, and nothing a terminal could lose a keystroke to.
  *
  * This stays in vitest rather than becoming a `scripts/check-*.mjs` gate. Those
  * exist for facts that cross a language or a dependency graph; this one is
@@ -54,9 +57,13 @@ describe("one key router, enforced by a check", () => {
     expect(findKeyBindings(`route(event, currentState(event.target));`)).toEqual([]);
   });
 
-  it("the allow-list is the router and the xterm seam, and it is spent", () => {
+  it("the allow-list is the router, the xterm seam and the Plate, and it is spent", () => {
     const named = Object.keys(KEY_BINDING_EXCEPTIONS).sort();
-    expect(named).toEqual(["src/keys/router.ts", "src/terminal/xterm.ts"]);
+    expect(named).toEqual([
+      "src/keys/router.ts",
+      "src/terminal/xterm.ts",
+      "src/views/plate/Plate.tsx",
+    ]);
 
     // An exception that no longer covers anything is an exception that should
     // be deleted, so both are asserted to still be earning their place.
