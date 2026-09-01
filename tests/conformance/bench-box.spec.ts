@@ -67,11 +67,14 @@ type Box = {
  * The map side a canvas of `canvas` pixels costs.
  *
  * [`BENCH_MAP_FLOOR`] is already the map side that [`BENCH_WIDTH_FLOOR`] of
- * canvas asks for — the rank rail, the view column's padding and the rail
- * column are all inside it — so a wider canvas is that floor plus the widening,
- * and the widening is doubled because the launcher and the view are both
- * `flex: 1` and halve the map side between them. No length is respelled here:
- * both constants are imported, and the only number is that pair of columns.
+ * canvas asks for — the rank rail, the view column's padding, the drop region's
+ * own frame and the rail column are all inside it — so a wider canvas is that
+ * floor plus the widening, and the widening is doubled because the launcher and
+ * the view are both `flex: 1` and halve what is left of the map side between
+ * them. Every one of those gutters is a fixed length that the floor has already
+ * paid for, so the *widening* is the halving and nothing else. No length is
+ * respelled here: both constants are imported, and the only number is that pair
+ * of columns.
  */
 const VIEW_COLUMNS = 2;
 

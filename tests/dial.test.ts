@@ -391,11 +391,25 @@ describe("a view below its floor stands down, and nothing switches by itself", (
     expect(floorOf("bench")).toBe(BENCH_MAP_FLOOR);
     expect(BENCH_MAP_FLOOR).toBeGreaterThan(BENCH_WIDTH_FLOOR);
 
-    // Walked back the other way: at exactly the floor, the canvas that reaches
-    // `benchOf` is exactly the canvas floor — not a pixel of margin either way.
+    /*
+     * Walked back the other way: at exactly the floor, the canvas that reaches
+     * `benchOf` is exactly the canvas floor — not a pixel of margin either way.
+     *
+     * The walk is the browser's own, and it is a subtraction *before* the
+     * halving rather than after it. `flex-grow` shares free space into the
+     * items' content boxes, and free space is the line less every item's own
+     * margins, padding and borders — so the rail column, the drop region's
+     * frame and the view column's padding all come off once, and what the two
+     * `flex: 1` columns halve is what is left. Halving first and subtracting
+     * inside the share is the same arithmetic only when the two columns wear
+     * the same frame, and they do not: the launcher is the drop region and the
+     * drop region wears 65px a side.
+     */
     const rail = 13 * 16;
-    const share = (BENCH_MAP_FLOOR - rail) / 2;
-    expect(share - 2 * 16 - RANK_RAIL).toBe(BENCH_WIDTH_FLOOR);
+    const launcher = 2 * (16 + 48 + 1);
+    const viewPad = 2 * 16;
+    const share = (BENCH_MAP_FLOOR - rail - launcher - viewPad) / 2;
+    expect(share - RANK_RAIL).toBe(BENCH_WIDTH_FLOOR);
 
     // And one pixel under it, the shell stands the Bench down rather than
     // drawing a column for a canvas that will refuse.
@@ -403,16 +417,30 @@ describe("a view below its floor stands down, and nothing switches by itself", (
   });
 
   /*
-   * The two lengths the derivation mirrors are declared in CSS, and TypeScript
-   * cannot see them. Reading them here is what makes a change to either a red
-   * test rather than a floor that quietly stops describing the layout.
+   * Every length the derivation mirrors is declared in CSS, and TypeScript
+   * cannot see any of them. Reading them here is what makes a change to one a
+   * red test rather than a floor that quietly stops describing the layout.
+   *
+   * The drop region's frame is in the list because it is on the flex item: a
+   * margin, a padding and a border the launcher column wears *outside* its
+   * content box, and so lengths the view column never gets to spend.
    */
-  it("mirrors the two lengths the layout actually declares", () => {
+  it("mirrors the lengths the layout actually declares", () => {
     const app = readFileSync(join(REPO_ROOT, "src", "App.module.css"), "utf8");
     expect(app).toMatch(/--c-app-rail-width:\s*13rem;/);
     // The rail is that width and the two flex children either side of it are
     // the halving, both `flex: 1`.
     expect(app).toMatch(/flex:\s*0 0 var\(--c-app-rail-width\);/);
+    // And the view column's own gutter, which the halving is net of.
+    expect(app).toMatch(/\.view \{[^}]*padding: var\(--s-space-base\);/);
+
+    const region = readFileSync(
+      join(REPO_ROOT, "src", "chrome", "DropRegion.module.css"),
+      "utf8",
+    );
+    expect(region).toMatch(/margin: var\(--s-space-base\);/);
+    expect(region).toMatch(/padding: var\(--s-space-room\);/);
+    expect(region).toMatch(/border: var\(--s-border-hairline\) dashed/);
 
     const semantic = readFileSync(
       join(REPO_ROOT, "src", "styles", "tokens", "semantic.css"),
@@ -422,9 +450,14 @@ describe("a view below its floor stands down, and nothing switches by itself", (
       join(REPO_ROOT, "src", "styles", "tokens", "primitive.css"),
       "utf8",
     );
-    const step = /--s-space-base:\s*var\((--p-space-\d+)\);/.exec(semantic)?.[1];
-    expect(step).toBeDefined();
-    expect(primitive).toMatch(new RegExp(`\\${step}:\\s*16px;`));
+    const pixels = (token: string, expected: string) => {
+      const step = new RegExp(`${token}:\\s*var\\((--p-[a-z]+-\\d+)\\);`).exec(semantic)?.[1];
+      expect(step, `${token} is defined from a primitive`).toBeDefined();
+      expect(primitive).toMatch(new RegExp(`\\${step}:\\s*${expected};`));
+    };
+    pixels("--s-space-base", "16px");
+    pixels("--s-space-room", "48px");
+    pixels("--s-border-hairline", "1px");
   });
 });
 

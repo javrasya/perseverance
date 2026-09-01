@@ -429,45 +429,64 @@ function PlateRow({
       tabIndex={0}
       onClick={choose}
     >
-      <span className={styles.glyph} aria-hidden="true">
-        {/* The cut's own shape, composed onto the one the form already chose
-            rather than replacing it: a cut is a decoration on resolved, not a
-            sixth state. The still form lives here as well as in the field,
-            because the shape a mark wears has to be readable on the plate. */}
-        <span
-          className={
-            plate.cut === null ? GLYPHS[form] : `${GLYPHS[form]} ${styles.glyphCut}`
-          }
-        />
-      </span>
-      <span className={styles.id}>#{node.number}</span>
-      {/* In full. The stylesheet ellipsises it, so the whole title is still in
-          the document to be found, read aloud and asserted on. */}
-      <span className={styles.title}>{node.title}</span>
-      {plate.blockers.beyondTheMap === 0 ? null : (
-        /* No edge is drawn for a blocker with no row here — there is nothing on
-           screen for one to leave from — so if the plate does not say it,
-           nothing does. */
-        <span className={styles.note}>{beyondTheMapNote(plate.blockers.beyondTheMap)}</span>
-      )}
-      <span className={styles.tags}>
-        <MarkerTag plate={plate} form={form} />
-        {/* Only a positive number: `blocked by 0` on a plate whose state is
-            *blocked* is a contradiction an operator can see. A resolved plate
-            cannot reach here with one at all — `blockersOf` empties the tally
-            rather than leaving this to remember it. */}
-        {plate.blockers.unresolved > 0 ? (
-          <span className={styles.tag}>{blockedByLabel(plate.blockers.unresolved)}</span>
-        ) : null}
-        {plate.boundElsewhere ? <span className={styles.tag}>{BOUND_ELSEWHERE_TAG}</span> : null}
-        {/* Both ends of the edge the ranker refused say so. The columns are the
-            shape they are because of it, and a picture with no explanation in
-            it is the thing this tag exists to prevent. */}
-        {plate.circular ? <span className={styles.tag}>{CIRCULAR_TAG}</span> : null}
-        <KindTag node={node} />
+      {/*
+        The field line, and it is an element rather than the plate itself
+        because the plate is two boxes and not one.
+
+        Everything above the reason shares one line that never breaks: the
+        glyph, the number, the title the stylesheet ellipsises, the
+        beyond-the-map note and the tag cluster. The reason below it is the one
+        thing on a plate allowed to take more than a line, and it takes the
+        lane's whole width to do it. Those two rules cannot both be kept by one
+        wrapping flex line — a flex container breaks a line on its items'
+        *hypothetical* sizes, and this line is over-subscribed on purpose, so
+        the first thing a `wrap` would move onto a second line is the title
+        that is supposed to be cut. Two boxes stacked is the only arrangement
+        that says *this line never breaks* and *that block always does*.
+      */}
+      <span className={styles.line}>
+        <span className={styles.glyph} aria-hidden="true">
+          {/* The cut's own shape, composed onto the one the form already chose
+              rather than replacing it: a cut is a decoration on resolved, not a
+              sixth state. The still form lives here as well as in the field,
+              because the shape a mark wears has to be readable on the plate. */}
+          <span
+            className={
+              plate.cut === null ? GLYPHS[form] : `${GLYPHS[form]} ${styles.glyphCut}`
+            }
+          />
+        </span>
+        <span className={styles.id}>#{node.number}</span>
+        {/* In full. The stylesheet ellipsises it, so the whole title is still in
+            the document to be found, read aloud and asserted on. */}
+        <span className={styles.title}>{node.title}</span>
+        {plate.blockers.beyondTheMap === 0 ? null : (
+          /* No edge is drawn for a blocker with no row here — there is nothing on
+             screen for one to leave from — so if the plate does not say it,
+             nothing does. */
+          <span className={styles.note}>{beyondTheMapNote(plate.blockers.beyondTheMap)}</span>
+        )}
+        <span className={styles.tags}>
+          <MarkerTag plate={plate} form={form} />
+          {/* Only a positive number: `blocked by 0` on a plate whose state is
+              *blocked* is a contradiction an operator can see. A resolved plate
+              cannot reach here with one at all — `blockersOf` empties the tally
+              rather than leaving this to remember it. */}
+          {plate.blockers.unresolved > 0 ? (
+            <span className={styles.tag}>{blockedByLabel(plate.blockers.unresolved)}</span>
+          ) : null}
+          {plate.boundElsewhere ? <span className={styles.tag}>{BOUND_ELSEWHERE_TAG}</span> : null}
+          {/* Both ends of the edge the ranker refused say so. The columns are the
+              shape they are because of it, and a picture with no explanation in
+              it is the thing this tag exists to prevent. */}
+          {plate.circular ? <span className={styles.tag}>{CIRCULAR_TAG}</span> : null}
+          <KindTag node={node} />
+        </span>
       </span>
       {/* Why the branch stopped, in the operator's own words, last on the plate
-          and read from `Plate.cut` without a character changed. */}
+          and read from `Plate.cut` without a character changed. Outside the
+          line above, so it is laid out at the lane's width rather than at
+          whatever that line has left. */}
       {plate.cut === null ? null : <span className={styles.reason}>{plate.cut}</span>}
     </li>
   );

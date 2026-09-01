@@ -260,6 +260,13 @@ export type Column = (typeof COLUMNS)[number];
  * dial, the launcher is how you get to a different map, and the view is the
  * reason the map side exists at all.
  *
+ * That priority is about which column is *drawn*, and it was contradicted for a
+ * while by how the drawn ones divide: the launcher grew on equal terms with the
+ * view, so the column shed last was also the column handed half of every pixel
+ * the dial gave over — enough to keep a wide view standing itself down at every
+ * detent of an ordinary window. It no longer does; the argument and the basis
+ * are in `src/chrome/DropRegion.module.css`, beside the region that takes them.
+ *
  * The launcher's floor is the contested one, and it stands. #48 argues that the
  * folder launcher may never disappear, and that is true of every reason a shell
  * could have for hiding it — a map being open, a run being live, a view being
@@ -363,27 +370,56 @@ export function namesFit(width: number): boolean {
  * - the rail column is `flex: 0 0 var(--c-app-rail-width)` — 13rem, and the
  *   root font size is the 16px default — so [`RAIL_COLUMN`] comes off the map
  *   side before anything is shared out (`src/App.module.css`);
- * - the launcher and the view are then both `flex: 1` with a zero basis, so
- *   they halve what is left and the view column's share is a *half*;
- * - the view column pads itself by `--s-space-base` on each side, and the
- *   Bench's frame is `width: 100%` of what that leaves;
+ * - the launcher and the view are then both `flex: 1` with a zero basis. **What
+ *   they halve is what is left of the map side once every box on the line has
+ *   taken its own margins, padding and borders**, and that is the one step of
+ *   this walk it is easy to get wrong: `flex-grow` shares out free space into
+ *   the items' *content* boxes, and free space is the line less each item's
+ *   outer non-content lengths. So the two columns end up with equal **content**
+ *   widths and unequal border boxes, and every gutter below is subtracted once,
+ *   before the halving, rather than being carried inside a share;
+ * - the launcher column is the drop region itself, and it wears its frame on
+ *   the flex item: `--s-space-base` of margin, `--s-space-room` of padding and a
+ *   `--s-border-hairline` border on each side ([`LAUNCHER_COLUMN_FRAME`],
+ *   `src/chrome/DropRegion.module.css`). None of it is the view's to spend, and
+ *   a derivation that halved the line without it would promise the Bench a
+ *   canvas 33px wider than the one it is handed — enough, at exactly this
+ *   floor, for the Bench to stand itself down inside a view column the shell
+ *   had just found roomy enough;
+ * - the view column pads itself by `--s-space-base` on each side
+ *   ([`VIEW_COLUMN_PAD`], `src/App.module.css`), and the Bench's frame is
+ *   `width: 100%` of what that leaves;
  * - and the Bench spends [`RANK_RAIL`] of its frame on the rank gutter before
  *   `benchOf` is handed a canvas at all.
  *
  * There is no second regime to fold in: the widest entry in [`COLUMN_FLOORS`]
  * is the rail's 500px and this number is far above it, so at every width that
  * honours this floor all three columns are drawn and the share really is a
- * half. `tests/dial.test.ts` pins the arithmetic against the two stylesheets so
- * a change to either length is a red test rather than a silent drift, and
- * `tests/dial-shell.test.tsx` mounts the shell either side of it.
+ * half. `tests/dial.test.ts` pins the arithmetic against the three stylesheets
+ * so a change to any of the lengths is a red test rather than a silent drift,
+ * `tests/dial-shell.test.tsx` mounts the shell either side of it, and
+ * `tests/conformance/bench-box.spec.ts` is the one that measures it in a real
+ * engine: it computes its viewport back from this constant and drives the Bench
+ * at exactly `BENCH_WIDTH_FLOOR` of canvas, so a floor that over-promises is a
+ * Bench that mounts and draws nothing.
  */
 const RAIL_COLUMN = 13 * 16;
 const VIEW_COLUMN_PAD = 16;
+/**
+ * The drop region's own frame, both sides: margin, padding and border.
+ *
+ * `src/chrome/DropRegion.module.css` puts all three on the flex item rather than
+ * inside it, so they come off the shared line and never out of the view's half.
+ */
+const LAUNCHER_COLUMN_FRAME = 2 * (16 + 48 + 1);
 /** The launcher and the view, both `flex: 1`: the view column gets one of two. */
 const VIEW_COLUMN_SHARE = 2;
 
 export const BENCH_MAP_FLOOR =
-  VIEW_COLUMN_SHARE * (BENCH_WIDTH_FLOOR + RANK_RAIL + 2 * VIEW_COLUMN_PAD) + RAIL_COLUMN;
+  VIEW_COLUMN_SHARE * (BENCH_WIDTH_FLOOR + RANK_RAIL) +
+  2 * VIEW_COLUMN_PAD +
+  LAUNCHER_COLUMN_FRAME +
+  RAIL_COLUMN;
 
 /**
  * How much map side each view needs to be worth drawing.
