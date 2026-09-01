@@ -179,10 +179,20 @@ was a type error until the view said how the contract reads in it, and
 a view that is not the default by seeding the one remembered-view key before the
 app boots, which is how an operator's last session opens it too.
 
-Two obligations are outstanding and neither is closed by this ADR. The
-conformance suite has not been run against this view — `@playwright/test` was
-absent from the environment that registered it — so the WebKit reading, which is
-the only automated reading the tighter CSS floor ever gets, is still owed. And
-the judged declarations are prose a human reads against the rendered Deep Field
-artifact, which does not live in this repo; that diff and that signature are a
-person's, and nothing here simulates either.
+One obligation is outstanding and it is not closed by this ADR: the judged
+declarations are prose a human reads against the rendered Deep Field artifact,
+which does not live in this repo; that diff and that signature are a person's,
+and nothing here simulates either.
+
+The other one — the WebKit reading, the only automated reading the tighter CSS
+floor ever gets — has since been taken, and it cost two changes outside this
+view before it read anything about it. The map side's launcher was growing on
+equal terms with the view, so the view was drawn into 135px of a 640px map side
+and every fixture stood down; and the conformance driver read at whatever share
+the default detent left, rather than opening the dial where a view is drawn.
+Both are recorded in `docs/contract/declarations/deep-field.md`, which is where
+what that run returned belongs. What is still owed there is the third: the
+shell's floor for this view is a view-box number compared against a map-side
+width, so the shell can mount the view into a column its own neighbours leave
+too narrow and the stand-down this ADR designs fires from inside where the
+shell's — the one with the exits on it — should have.
