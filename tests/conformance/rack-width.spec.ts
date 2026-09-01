@@ -57,6 +57,20 @@ function state(fixture: string): FixtureState {
 const LIT = state(DEFAULT_FIXTURE);
 
 /**
+ * The runs the window is booted onto — the six `dev:web` checks in for this.
+ *
+ * A rack with no rows in it lays out perfectly well and settles nothing: the
+ * half of #56 this file exists for is *a tier draws every field it claims,
+ * whole*, and a field nobody drew is a field nothing can measure. `none` is the
+ * driver's default and stays the default — a tab that asked for no runs is the
+ * tab this app has always opened — so the spec whose subject is the rack asks
+ * for the set by name. Named rather than inlined at six call sites, because
+ * *every measurement in this file was taken of the same window* is the thing
+ * that makes the numbers comparable.
+ */
+const RUNS = "rack";
+
+/**
  * The window a developer opens the app in, and one narrower than that.
  *
  * The default is Playwright's own device width, so *what the rack is worth on
@@ -149,7 +163,7 @@ test.describe("the rack's width, at every detent", () => {
            column — a shed column is the map side's business and none of the
            rack's, and a spec that could not open a narrow window would be a
            spec that only ever measured one. */
-        await load(page, DEFAULT_VIEW, LIT);
+        await load(page, DEFAULT_VIEW, LIT, RUNS);
         await page.setViewportSize({ width: window.width, height: window.height });
         await settled(page);
         await turnTo(page, detent);
@@ -185,7 +199,7 @@ test.describe("the rack's width, at every detent", () => {
     /* The widest tier has to be somewhere an operator actually is, or the two
        tiers below it are the whole rack and `bays` is dead markup. */
     await page.setViewportSize({ width: 1280, height: 720 });
-    await load(page, DEFAULT_VIEW, LIT);
+    await load(page, DEFAULT_VIEW, LIT, RUNS);
     await turnTo(page, "split");
 
     const rack = await measure(page);
@@ -196,7 +210,7 @@ test.describe("the rack's width, at every detent", () => {
 
   test("keeps the far detent's remainder, and spends it on studs", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 720 });
-    await load(page, DEFAULT_VIEW, LIT);
+    await load(page, DEFAULT_VIEW, LIT, RUNS);
     await turnTo(page, "map");
 
     const rack = await measure(page);
@@ -212,7 +226,7 @@ test.describe("the rack's width, at every detent", () => {
 
   test("does not move when what it is showing grows", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 720 });
-    await load(page, DEFAULT_VIEW, LIT);
+    await load(page, DEFAULT_VIEW, LIT, RUNS);
     await turnTo(page, "split");
 
     const before = await measure(page);
@@ -339,7 +353,7 @@ test.describe("what a tier claims, at that tier's floor", () => {
        * end: the rack claiming something the operator cannot read.
        */
       await page.setViewportSize({ width: 1280, height: 720 });
-      await load(page, DEFAULT_VIEW, LIT);
+      await load(page, DEFAULT_VIEW, LIT, RUNS);
       await turnTo(page, "split");
       await pinTo(page, narrow.floor);
 
@@ -424,7 +438,7 @@ test.describe("the rack's head, with the peek's stud over it", () => {
   for (const detent of ["terminal", "split", "map"] as const) {
     test(`is drawn on, and not painted over, at ${detent}`, async ({ page }) => {
       await page.setViewportSize({ width: 1280, height: 720 });
-      await load(page, DEFAULT_VIEW, LIT);
+      await load(page, DEFAULT_VIEW, LIT, RUNS);
       await turnTo(page, detent);
 
       const over = await overlay(page);
