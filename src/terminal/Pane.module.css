@@ -40,7 +40,12 @@
 .truncation,
 .desync,
 .over,
-.unresolved {
+.unresolved,
+.quiet,
+.wedged,
+.signal,
+.ready,
+.spill {
   display: inline-flex;
   align-items: baseline;
   gap: var(--s-space-hair);
@@ -72,6 +77,75 @@
  */
 .unresolved {
   color: var(--s-ink-primary);
+}
+
+/*
+ * A silence somebody is reading, and a silence nobody is.
+ *
+ * `quiet` is the faintest thing on the chrome on purpose: it is the ordinary
+ * state of a terminal with a person in front of it, and chrome that grew louder
+ * the longer somebody read would be an app nagging them for reading. `wedged`
+ * takes the primary ink for the same reason `unresolved` does — it is the one
+ * reading that wants somebody — and it takes ink rather than an alarm hue,
+ * because there is no alarm hue in the semantic tier and inventing one here
+ * would make a run nobody is watching shout over a map that cannot be reached.
+ */
+.quiet {
+  --c-quiet-ink: var(--s-ink-faint);
+
+  color: var(--c-quiet-ink);
+}
+
+.wedged {
+  --c-wedged-ink: var(--s-ink-primary);
+
+  color: var(--c-wedged-ink);
+}
+
+/*
+ * The last state a watch classified this run as, in a word.
+ *
+ * `ready` takes the colour that already means *something is happening right
+ * now*, which is the same thing it means on a desynced terminal; the other two
+ * are statements and read as the rest of the chrome does. No motion of any
+ * kind: a spinner for `working` would be the second moving thing in a frame
+ * whose first one is a terminal.
+ */
+.signal {
+  --c-signal-ink: var(--s-ink-secondary);
+
+  color: var(--c-signal-ink);
+}
+
+.ready {
+  --c-ready-ink: var(--s-live);
+
+  color: var(--c-ready-ink);
+}
+
+/*
+ * The operator's own keystrokes, caught after the run ended.
+ *
+ * Primary ink, like the two other readings that want somebody: these are words
+ * a person typed and expected to have sent, and a faint line saying so would be
+ * a recovery nobody notices they were offered. Ink rather than a hue, for the
+ * reason the rest of this file gives — there is no alarm colour in the semantic
+ * tier, and this is not an alarm.
+ */
+.spill {
+  --c-spill-ink: var(--s-ink-primary);
+
+  color: var(--c-spill-ink);
+
+  /*
+   * The register is bounded already; this is the second half of the same
+   * decision, in the one place that knows how wide the pane happens to be. The
+   * chrome's height is content-driven and the host below it is what gives way,
+   * so a spill in a narrow pane is clipped rather than allowed to push the last
+   * output of the dead run out of sight.
+   */
+  max-height: 3lh;
+  overflow: hidden;
 }
 
 /*

@@ -49,7 +49,7 @@ import {
 import { describeModel } from "./snapshot/readout";
 import { loadSnapshot, watchSnapshot } from "./snapshot/snapshot";
 import { replaceSnapshot, useSnapshot } from "./stores/snapshots";
-import { moveDial, readUi, select, useUi } from "./stores/ui";
+import { monitor, moveDial, readUi, select, useUi } from "./stores/ui";
 /* `Dial.jsx` and `StandDown.jsx` for the same reason `Route.jsx` is spelled
    below: `panes/dial.ts` is the arithmetic and `panes/Dial.tsx` is the hand on
    it, and on a case-insensitive filesystem an extensionless specifier finds the
@@ -87,6 +87,8 @@ import {
   watchRunReadouts,
   type RunReadout,
 } from "./terminal/runs";
+import { fixtureRunToOpenOn } from "./terminal/fixtures";
+import { spillAtRun } from "./terminal/spill";
 import { Terminals } from "./terminal/terminals";
 import { xterm } from "./terminal/xterm";
 import { ThemeSwitch } from "./theme/ThemeSwitch";
@@ -155,6 +157,21 @@ export function App() {
   const [outcome, setOutcome] = useState<LauncherOutcome>(nothingListedYet);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [runs, setRuns] = useState<readonly RunReadout[]>([]);
+  /*
+   * The same readouts, reachable from a handler that was registered before they
+   * arrived.
+   *
+   * The keystroke handler is installed once per bound run and must not be
+   * re-installed when a poll lands — re-registering `onData` on every readout
+   * tick would be the pane's one seam to the keyboard being torn down and
+   * rebuilt several times a second. So the handler reads the readouts *at the
+   * moment a key is pressed*, through this, rather than closing over the array
+   * that happened to be current when it was made. A run that stopped a
+   * millisecond ago is a run whose keystrokes must already be spilling, and a
+   * stale closure is exactly how they would go on being written to a child that
+   * is no longer there.
+   */
+  const readouts = useRef<readonly RunReadout[]>(runs);
   const [note, setNote] = useState<LauncherNote | null>(null);
   const [environment, setEnvironment] = useState(stillHarvesting);
   const [environmentShown, setEnvironmentShown] = useState(false);
@@ -265,10 +282,39 @@ export function App() {
     };
   }, [terminals]);
 
-  /* Keystrokes go to the run on the pane, and to no other. */
+  useEffect(() => {
+    readouts.current = runs;
+  }, [runs]);
+
+  /*
+   * Keystrokes go to the run on the pane, and to no other — and while that run's
+   * child is still running, to no child at all.
+   *
+   * The caret is parked, not moved: a run whose child has stopped keeps the
+   * keyboard, because moving it would land the next keystroke in a different
+   * agent's conversation and nothing here is entitled to do that. What changes
+   * is where the text goes. A dead child's descriptor may still accept bytes and
+   * will never read one, so the text is kept in the run's own register instead
+   * and printed back beside its last output — a mistyped sentence typed at a run
+   * that had just ended is recoverable, rather than gone into a pipe.
+   *
+   * `over` is read and never re-derived. It is Rust's account of the child, off
+   * the same readout the ending sentence is off, and a second opinion assembled
+   * here out of the flags that happen to be beside it is the thing ADR 0022
+   * exists to prevent. A run with no readout yet is typed at: nothing has said
+   * its child has stopped, and refusing the keyboard on the strength of a
+   * readout that has not arrived would silence a run that was just spawned.
+   */
   useEffect(() => {
     if (monitored === null) return;
-    terminals.types(monitored, (text) => void typedAtRun(monitored, text));
+    terminals.types(monitored, (text) => {
+      const readout = readouts.current.find((run) => run.run === monitored) ?? null;
+      if (readout !== null && readout.over) {
+        spillAtRun(monitored, text);
+        return;
+      }
+      void typedAtRun(monitored, text);
+    });
   }, [terminals, monitored]);
 
   /* Every run's readout, several times a second. Counts and flags, never bytes. */
@@ -285,7 +331,16 @@ export function App() {
       }
       stop = off;
       return loadRunReadouts().then((next) => {
-        if (live) setRuns((current) => (current.length === 0 ? next : current));
+        if (!live) return;
+        setRuns((current) => (current.length === 0 ? next : current));
+        /* The one `monitor` call no press is behind, named as the exception on
+           the mutator and in `docs/adr/0026`. `dev:web` only, and `null` the
+           moment there is a harness behind the window: nothing in a browser
+           spawns a run, so without this the fixture readouts would be held and
+           never bound to anything, and with Rust behind it there is nothing
+           here to move a caret onto. */
+        const opening = fixtureRunToOpenOn(next);
+        if (opening !== null && readUi().monitored === null) monitor(opening);
       });
     });
 

@@ -1,9 +1,11 @@
 import { useEffect, useRef } from "react";
+import { briefSpan } from "../chrome/age";
 import { collapsed, gesture, type Occasion } from "../panes/geometry";
 import { monitor, useUi } from "../stores/ui";
 import { promptFor } from "./prompts";
 import { PromptBlock } from "./PromptBlock";
-import { endRun, type RunReadout } from "./runs";
+import { endRun, type RunReadout, type RunSignal } from "./runs";
+import { forgetSpill, useSpill, type Spill } from "./spill";
 import type { Terminals } from "./terminals";
 import styles from "./Pane.module.css";
 
@@ -43,6 +45,115 @@ export function endingSentence(readout: RunReadout): string | null {
     case "exited":
       return `this run has ended${readout.code === null ? "" : ` (${readout.code})`}`;
   }
+}
+
+/**
+ * The silence, as an observation.
+ *
+ * Every word here is a thing that is true of the screen — how long it has been
+ * still, and who is waiting on it. None of them is a thing that is true of the
+ * program: *hung*, *stuck*, *dead*, *frozen* and *fault* are all guesses about
+ * a child this side has never seen, and a run idle for an hour because somebody
+ * is reading a diff would be slandered by every one of them. So an hour of a
+ * person thinking reads as `quiet · 62m`, for any elapsed and forever.
+ *
+ * The elapsed is printed and never compared. What a duration *means* is a joint
+ * predicate over who is waiting and what the ticket says — `docs/adr/0025` — and
+ * a threshold written on this side would be a second copy of that predicate,
+ * silently disagreeing with the one Rust derives from six values this file can
+ * only see two of.
+ *
+ * Two readings print nothing at all. `nothing` is a child that has exited, or
+ * one that printed a moment ago — the first is the ending sentence already
+ * beside this, and the second is a run working, which Rust decides with a floor
+ * of its own so that no elapsed is compared here; `spent` is a closed ticket,
+ * which the same ending sentence already carries. Saying any of it twice in two
+ * vocabularies is how the two come to disagree.
+ */
+export const QUIET_READING = "quiet";
+export const AWAITING_OPERATOR_READING = "waiting for you";
+/*
+ * The trust prompt is named and never raised. It is the agent CLI's own modal,
+ * already on screen in the terminal immediately below this sentence, and the
+ * harness's whole contribution is to say where to look: a condition is a fact,
+ * and a modal is a thing that interrupts you to be dismissed.
+ */
+export const AWAITING_OPERATOR_DETAIL =
+  "the readiness rule ran out before this session opened, and what it is waiting on — most likely this CLI's own prompt asking you to trust the folder — is in the terminal below";
+export const UNWATCHED_READING = "nobody is watching";
+export const UNWATCHED_DETAIL = "this run has printed nothing, and nothing has ever classified it";
+
+export function silenceSentence(readout: RunReadout): string | null {
+  const silence = readout.silence;
+  switch (silence.kind) {
+    case "nothing":
+    case "spent":
+      return null;
+    case "quiet":
+      return `${QUIET_READING} · ${briefSpan(silence.silentForMs)}`;
+    case "wedged":
+      // Each wedge prints its own quantity: how long the session has failed to
+      // open for one, and the byte silence for the other. They are different
+      // facts, and the sentence beside each states the one it is about.
+      return silence.why === "awaitingOperator"
+        ? `${AWAITING_OPERATOR_READING} · ${briefSpan(silence.unopenedForMs)} — ${AWAITING_OPERATOR_DETAIL}`
+        : `${UNWATCHED_READING} · ${briefSpan(silence.silentForMs)} — ${UNWATCHED_DETAIL}`;
+  }
+}
+
+/**
+ * The last thing a watch classified this run as, in one word.
+ *
+ * `null` prints nothing, and the nothing means *no watch has ever classified
+ * this run* — a fact about the run's history. It is never worded as a fact
+ * about the adapter, and there is deliberately no branch here on whether one
+ * emits signals at all: every run is drained on identical terms, so the
+ * question has no call site to be asked from.
+ *
+ * Still, all three of them. `busy` is a word and not a spinner — the pane's
+ * stylesheet forbids motion beside a terminal, which is already the most
+ * moving thing on the screen.
+ */
+export const SIGNAL_READINGS: Record<RunSignal, string> = {
+  ready: "ready",
+  busy: "working",
+  idle: "idle",
+};
+
+/**
+ * What the spill register caught, as an observation.
+ *
+ * Two facts and the words themselves: that they were typed after this run
+ * ended, and that they were held rather than sent. Neither is a guess about the
+ * child — this side watched the keys arrive and watched itself not send them,
+ * which makes this the one reading on the chrome the app has first-hand
+ * knowledge of.
+ *
+ * It is a line beside the terminal like every other reading here, and for the
+ * same reasons: not a modal, because nothing has happened that needs answering
+ * and a dismissal is not what the operator wants to spend the moment on; not a
+ * toast, because a toast is a fact with a timer on it and these are the
+ * operator's own words; and never written into the terminal buffer, where it
+ * would be indistinguishable afterwards from something the agent printed.
+ *
+ * The register is bounded, so this line is too: past `KEPT_CHARACTERS` the words
+ * are the recent tail and the sentence says as much, rather than letting a
+ * trimmed register read as a whole one. That bound is also what keeps the chrome
+ * from growing until it squeezes the terminal underneath it.
+ *
+ * Nothing moves. The count changes as more is typed, and a changing number is a
+ * still state at every value it takes — rule 12 asks for a still-state
+ * equivalent of anything motion carries, and a reading that never animates
+ * never incurs one.
+ */
+export const SPILL_READING = "typed after this run ended, and held rather than sent";
+
+export function spillSentence(spill: Spill | null): string | null {
+  if (spill === null) return null;
+  const counted = `${spill.characters} character${spill.characters === 1 ? "" : "s"}`;
+  const held = spill.elided ? `${counted} kept, the most recent` : counted;
+  const words = spill.elided ? `…${spill.text}` : spill.text;
+  return `${SPILL_READING} · ${held} — “${words}”`;
 }
 
 export function Pane({
@@ -130,6 +241,9 @@ export function Pane({
    */
   const prompt = monitored === null ? null : promptFor(monitored);
   const sentence = readout === null ? null : endingSentence(readout);
+  const silence = readout === null ? null : silenceSentence(readout);
+  const signal = readout === null || readout.signal === null ? null : readout.signal;
+  const spill = spillSentence(useSpill(monitored));
 
   /*
    * The press, and the only thing in this app that ends a run.
@@ -144,10 +258,17 @@ export function Pane({
    * terminal of a session Rust still believes is being watched; `monitor(null)`
    * comes last, because a pane still bound to a run the harness has dropped
    * would be a frame claiming a run that no longer exists.
+   *
+   * It is also the one place the caret ever leaves a run. A child that stopped
+   * does not move it — that is the parking rule, and this press is the exception
+   * the rule is stated against: a person saying they are done reading. The spill
+   * register goes the way the terminal does and in the same breath, because what
+   * a run held means nothing once the run is gone.
    */
   const end = async (run: number) => {
     await endRun(run);
     terminals.forget(run);
+    forgetSpill(run);
     monitor(null);
   };
 
@@ -172,6 +293,20 @@ export function Pane({
               this terminal is behind, and will be replayed whole when it catches up
             </span>
           ) : null}
+          {silence === null ? null : (
+            <span
+              className={
+                readout.silence.kind === "wedged" ? styles.wedged : styles.quiet
+              }
+            >
+              {silence}
+            </span>
+          )}
+          {signal === null ? null : (
+            <span className={signal === "ready" ? styles.ready : styles.signal}>
+              {SIGNAL_READINGS[signal]}
+            </span>
+          )}
           {sentence === null ? null : (
             <span
               className={readout.ending === "exitedUnresolved" ? styles.unresolved : styles.over}
@@ -179,6 +314,7 @@ export function Pane({
               {sentence}
             </span>
           )}
+          {spill === null ? null : <span className={styles.spill}>{spill}</span>}
           {/*
             Offered on every ending but `live`, and it is a real button rather
             than a click handler on the sentence: the ending is a fact and this

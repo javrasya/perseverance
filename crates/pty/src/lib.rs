@@ -100,6 +100,7 @@
 
 mod geometry;
 mod guard;
+mod pulse;
 mod queries;
 mod ring;
 mod runs;
@@ -109,6 +110,7 @@ mod tap;
 
 pub use geometry::{Geometry, Panes};
 pub use guard::{Guard, GuardRefusal};
+pub use pulse::Readiness;
 pub use queries::{Queries, ANSWER};
 pub use ring::{Ring, SCROLLBACK};
 pub use runs::{Run, RunId, Runs, Telemetry, GRACE};

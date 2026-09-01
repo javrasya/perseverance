@@ -179,6 +179,28 @@ export function select(selection: number | null): void {
  * function's business. Binding a run changes nothing else — not the geometry,
  * not the run's terminal, not how much of its stream that terminal holds — which
  * is what makes *never resize on bind* true on this side of the seam too.
+ *
+ * **Only a press calls this.** Every caller is an operator doing something: the
+ * rail starting or resuming a run, the idea box, and the one press that ends a
+ * run and empties the pane. Nothing automatic may reach it, and in particular
+ * **a run dying does not move the caret**. Auto-rebinding is theft — the next
+ * keystroke would land in a different agent's conversation, typed by somebody
+ * who had no idea the pane had changed under them — so when the keyed run's
+ * child stops, the caret parks: the pane stays on that run so its last output can
+ * be read and its crash diagnosed, printable keys go to that run's register in
+ * `src/terminal/spill.ts` instead of a child that is gone, and the run keeps its
+ * row in the readouts as `exited`, because a run vanishing from the layout would
+ * be the world rearranging the operator's screen. The one exception is the End
+ * press, which is a person deciding they are finished reading.
+ *
+ * One non-press caller exists and it is named here so that the rule above can be
+ * read as absolute wherever it matters: the `dev:web` fixture boot, in
+ * `src/terminal/fixtures.ts`, which binds the pane to a hand-written readout on
+ * the window's first tick. It is gated on `hasRustBehindIt()` and answers `null`
+ * the moment there is a harness behind the window, so it cannot move a caret
+ * that any keystroke could follow — there is no child on the other end of it to
+ * steal a keystroke for. On a real harness the rule holds without exception, and
+ * nothing driven by a poll, a readout tick or a death path reaches this.
  */
 export function monitor(run: number | null): void {
   change((current) => (current.monitored === run ? current : { ...current, monitored: run }));

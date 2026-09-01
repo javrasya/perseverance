@@ -101,6 +101,8 @@ const staked = (
   over,
   code: null,
   monitored: false,
+  silence: { kind: "nothing" },
+  signal: null,
   ending: over ? "exitedUnresolved" : "live",
   ticket,
   folder,

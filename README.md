@@ -33,7 +33,13 @@ completed one, and a read that is already old, because a cache with age on it is
 a state a fresh browser has no way to reach. The four conditions a read can fail
 in — unreachable, auth-failed, map-gone, rate-limited — are four more such
 states, and they are generated from the model crate rather than written by hand,
-so `dev:web` can show a revoked token without one existing.
+so `dev:web` can show a revoked token without one existing. And so does the run
+pane: `src/terminal/fixtures.ts` carries a rack of readouts named by `?runs=`,
+because a wedged AFK run wants five minutes of a research run saying nothing and
+a run waiting on its CLI's trust prompt wants a machine state, not a click.
+Those are hand-written rather than generated — a run readout is not part of
+`Snapshot` and nothing emits one — so the `RunReadout` type and the two tests
+that pin the wire shape are the whole of their defence.
 
 `perseverance-store` is the sixth crate rather than a corner of the shell
 because it carries real policy — refusing a schema version this build does not
